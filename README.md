@@ -1,6 +1,6 @@
 # Paludarium
 
-**[▶ Play in your browser](https://raw.githack.com/pederotto/paludarium/main/index.html)**
+**[▶ Play in your browser](https://pederotto.github.io/paludarium/)**
 
 Design a paludarium from scratch and watch it come alive. Shape the ground, stack and turn rocks into cliffs, dig pools and stream beds, and place the pump's outlets: the water really flows. The pump lifts water from the main pool, it fills the pools you dug, spills over their lowest lip, pours off ledges as waterfalls and runs down your channels back to the lagoon, and the total amount of water is conserved all the way. Then plant it and let it settle in over weeks, from raw water through brown diatoms and an algae phase to moss creeping over damp stone, before you stock it with frogs, fish, shrimp and insects. Each one has real needs. The tank has day and night, climate and a nitrogen cycle, and animals eat, breed and die.
 
@@ -10,7 +10,7 @@ Built with [three.js](https://threejs.org) on **WebGPU**, using three.js's shadi
 
 ## ▶ Play
 
-**[Open Paludarium in your browser](https://raw.githack.com/pederotto/paludarium/main/index.html)**. Nothing to install. It works best in a recent Chrome or Edge (WebGPU); other browsers fall back to WebGL 2.
+**[Open Paludarium in your browser](https://pederotto.github.io/paludarium/)**. Nothing to install. It works best in a recent Chrome or Edge (WebGPU); other browsers fall back to WebGL 2.
 
 ## Playing
 
