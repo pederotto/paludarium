@@ -1,27 +1,16 @@
 # Paludarium
 
+**[▶ Play in your browser](https://raw.githack.com/pederotto/paludarium/main/index.html)**
+
 Design a paludarium from scratch and watch it come alive. Shape the ground, stack and turn rocks into cliffs, dig pools and stream beds, and place the pump's outlets: the water really flows. The pump lifts water from the main pool, it fills the pools you dug, spills over their lowest lip, pours off ledges as waterfalls and runs down your channels back to the lagoon, and the total amount of water is conserved all the way. Then plant it and let it settle in over weeks, from raw water through brown diatoms and an algae phase to moss creeping over damp stone, before you stock it with frogs, fish, shrimp and insects. Each one has real needs. The tank has day and night, climate and a nitrogen cycle, and animals eat, breed and die.
 
 Built with [three.js](https://threejs.org) on **WebGPU**, using three.js's shading language (TSL). It falls back to WebGL 2 automatically when WebGPU isn't available. It reuses open-source work wherever it can: photoscanned CC0 rocks, roots and ferns from Poly Haven, textures and a rock generator from SeedThree, the ripple, caustics and creature-meshing techniques of CAUSTIC//VOLUME, camera-controls for the camera and three-mesh-bvh for fast rock stamping (see [CREDITS.md](CREDITS.md)).
 
 ![The starter paludarium: a pump lifts water to a pool on the rock massif on the left; it pours down the cliff into a middle pool and cascades into the lagoon; a spring on the right runs down the background](docs/screenshot.png)
 
-## Run it
+## ▶ Play
 
-No build step: it's plain ES modules plus an import map.
-
-```bash
-git clone https://github.com/pederotto/paludarium
-cd paludarium
-python3 -m http.server 8000     # or any static server
-```
-
-Open http://localhost:8000. The first load needs an internet connection for three.js, which comes from the jsDelivr CDN.
-
-- `?webgl` forces the WebGL 2 back end.
-- `?fresh` ignores the autosave and loads the starter tank.
-- `?lowres` renders at 1× pixel ratio.
-- `?ao` / `?noao` force ambient occlusion on or off (it's on by default with WebGPU).
+**[Open Paludarium in your browser](https://raw.githack.com/pederotto/paludarium/main/index.html)**. Nothing to install. It works best in a recent Chrome or Edge (WebGPU); other browsers fall back to WebGL 2.
 
 ## Playing
 
@@ -87,6 +76,23 @@ tools/              asset import script and headless browser tests
 - **Hardscape** stamps sit on top of the sculpted ground (the two are kept apart), so pieces can be moved and removed at any time; three-mesh-bvh makes the ray casts fast enough to re-stamp a piece while you drag it.
 - **Animals** are instanced: one draw call per species (plus one for fish tails, which wag). Fish school with separation, alignment and cohesion; crawlers pick targets on their preferred ground (land animals prefer moss and damp spots); frogs sit, hop in arcs and snap prey with their tongue.
 - **Plants** are instanced per species. They sway with a `sway` vertex attribute, more under water.
+
+## Running it locally
+
+For development. There's no build step: it's plain ES modules plus an import map.
+
+```bash
+git clone https://github.com/pederotto/paludarium
+cd paludarium
+python3 -m http.server 8000     # or any static server
+```
+
+Open http://localhost:8000. The first load needs an internet connection for three.js, which comes from the jsDelivr CDN.
+
+- `?webgl` forces the WebGL 2 back end.
+- `?fresh` ignores the autosave and loads the starter tank.
+- `?lowres` renders at 1× pixel ratio.
+- `?ao` / `?noao` force ambient occlusion on or off (it's on by default with WebGPU).
 
 ## Tests
 
