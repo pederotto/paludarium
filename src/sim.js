@@ -1,0 +1,243 @@
+// The living part: day/night, climate (temperature, humidity), water
+// chemistry (the nitrogen cycle, oxygen), food and detritus, and each
+// animal's hunger, health, growth, breeding and death.
+//
+// The numbers are simplified but follow real husbandry: fish waste becomes
+// ammonia; bacteria that colonise a new tank over days turn it into nitrite
+// and then nitrate; plants and water changes remove nitrate. Frogs need damp
+// air, fish need clean water, and everyone needs food.
+
+import { SPECIES, FOOD_VALUE, one } from './animals.js';
+import { clamp, lerp } from './geo.js';
+import { TANK } from './config.js';
+
+export class Env {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.minute = 9 * 60;       // game clock, minutes since day 0 00:00
+    this.temp = 23;             // °C (air and water, kept as one for simplicity)
+    this.humidity = 70;         // %RH
+    this.ammonia = 0.0;         // ppm
+    this.nitrite = 0.0;
+    this.nitrate = 5;
+    this.oxygen = 7.5;          // mg/L
+    this.cycle = 0.15;          // nitrifying bacteria, 0 (new tank) … 1 (mature)
+    this.detritus = 3;          // grams of decaying matter
+    this.biofilm = 0.4;         // 0 … 1, algae/biofilm on surfaces
+    this.mist = 0;              // recent misting, decays
+    this.lightAvg = 0.5;        // 24 h average light
+    // Settings.
+    this.lights = 'auto';       // auto | on | off
+    this.lightsOn = 8 * 60;
+    this.lightsOff = 20 * 60;
+    this.heater = true;
+    this.setpoint = 24;
+    this.room = 21;
+    this.lid = true;
+    this.filter = true;
+    this.autoFeed = true;
+    this.lastFed = -1;
+  }
+
+  get day() { return Math.floor(this.minute / 1440); }
+  get clock() {
+    const m = this.minute % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
+  }
+
+  // Light level 0..1 with a half-hour dawn and dusk ramp.
+  light() {
+    if (this.lights === 'on') return 1;
+    if (this.lights === 'off') return 0.03;
+    const m = this.minute % 1440;
+    const up = clamp((m - this.lightsOn) / 30, 0, 1);
+    const down = clamp((this.lightsOff - m) / 30, 0, 1);
+    return Math.max(0.03, Math.min(up, down));
+  }
+}
+
+export class Sim {
+  constructor(world) {
+    this.world = world;
+    this.env = world.env;
+    this.acc = 0;
+    this.stats = {};
+  }
+
+  // dtMin: game minutes elapsed this frame.
+  step(dtMin) {
+    const W = this.world, E = this.env;
+    if (dtMin <= 0) return;
+    // Run in chunks of at most 5 minutes so fast-forward stays stable.
+    while (dtMin > 0) {
+      const d = Math.min(5, dtMin);
+      dtMin -= d;
+      this.tick(d);
+    }
+    W.animals.food.forEach((f) => { if (f.settled) f.floorAge = (f.floorAge ?? 0) + 1; });
+  }
+
+  tick(d) {
+    const W = this.world, E = this.env;
+    E.minute += d;
+    const light = E.light();
+    E.lightAvg = lerp(E.lightAvg, light, d / 1440);
+
+    // --- Climate ------------------------------------------------------
+    const area = W.water.surfaceArea();
+    const floor = TANK.w * TANK.d;
+    const waterFrac = clamp(area / floor, 0, 1);
+    const falls = W.water.falls.length;
+    let tTarget = E.room + light * 2.2 + (E.lid ? 0.8 : 0);
+    if (E.heater && tTarget < E.setpoint) tTarget = E.setpoint;
+    E.temp = lerp(E.temp, tTarget, clamp(d * 0.004, 0, 1));
+    let hTarget = 38 + waterFrac * 38 + falls * 6 + E.mist * 30 + (E.lid ? 14 : -8) + W.mossFraction() * 10 + W.plants.list.length * 0.08;
+    hTarget -= Math.max(0, E.temp - 24) * 1.2;
+    E.humidity = clamp(lerp(E.humidity, clamp(hTarget, 20, 100), clamp(d * 0.01, 0, 1)), 15, 100);
+    E.mist = Math.max(0, E.mist - d / 90);
+
+    // --- Water chemistry ---------------------------------------------
+    const litres = Math.max(1, W.water.volumeLitres());
+    let waste = 0;
+    for (const a of W.animals.all) {
+      const sp = SPECIES[a.sp];
+      if (sp.kind === 'swim') waste += sp.size * 0.00035;
+      else if (sp.kind === 'crawlWater') waste += 0.00006;
+      else if (sp.kind === 'toad' || sp.kind === 'crab') waste += 0.0002;
+    }
+    // Uneaten food and detritus in water rot into ammonia.
+    const rotting = E.detritus * 0.0004 * (0.5 + waterFrac);
+    // Scaled so ~18 small fish in 20 L make ~0.5 ppm/day in an uncycled tank.
+    E.ammonia += ((waste + rotting) * d * 0.25) / litres;
+    E.detritus = Math.max(0, E.detritus - rotting * d * 0.4);
+    const toNitrite = E.ammonia * clamp(E.cycle * 0.012 * d, 0, 0.9);
+    E.ammonia -= toNitrite;
+    E.nitrite += toNitrite;
+    const toNitrate = E.nitrite * clamp(E.cycle * 0.01 * d, 0, 0.9);
+    E.nitrite -= toNitrate;
+    E.nitrate += toNitrate * 2.7;
+    // Bacteria colonise over ~5 days when there is something to eat.
+    E.cycle = clamp(E.cycle + d / (1440 * 5) * (E.ammonia > 0.02 || E.nitrite > 0.02 ? 1 : 0.2), 0, 1);
+    // Plants take up nitrate (and a little ammonia).
+    const pl = this.plantOut ?? { nitrateUse: 0, shade: 0 };
+    const uptake = pl.nitrateUse * 0.004 * d * (0.3 + light) / litres;
+    E.nitrate = Math.max(0, E.nitrate - uptake);
+    E.ammonia = Math.max(0, E.ammonia - uptake * 0.05);
+    // Oxygen: surface exchange, waterfalls and the filter add it; plants
+    // add it by day and use it by night; animals breathe it.
+    let fishLoad = 0;
+    for (const a of W.animals.all) if (SPECIES[a.sp].kind === 'swim' || SPECIES[a.sp].kind === 'crawlWater') fishLoad += SPECIES[a.sp].size;
+    const oTarget = 5.2 + falls * 0.9 + (E.filter ? 1.6 : 0) + (light - 0.4) * pl.nitrateUse * 0.02 - fishLoad * 0.8 / litres - Math.max(0, E.temp - 24) * 0.12;
+    E.oxygen = clamp(lerp(E.oxygen, oTarget, clamp(d * 0.01, 0, 1)), 0.5, 10);
+    // Biofilm grows with light and nutrients; grazers eat it.
+    E.biofilm = clamp(E.biofilm + d * 0.0004 * light * clamp(E.nitrate / 10, 0.2, 1.5), 0, 1);
+
+    // --- Plants ------------------------------------------------------
+    const pout = W.plants.step(d, E, W);
+    this.plantOut = pout;
+    E.detritus += pout.deaths.length * 0.8;
+    for (const p of pout.deaths) W.log(`A ${plantName(p.id)} died.`, 'bad');
+
+    // --- Auto-feeder: once a day at 10:00 if there are fish.
+    if (E.autoFeed && E.day !== E.lastFed && E.minute % 1440 >= 600) {
+      E.lastFed = E.day;
+      const fish = ['neon', 'guppy', 'cory'].some((id) => W.animals.count(id) > 0);
+      if (fish && W.animals.feed()) W.log('Auto-feeder dropped food.');
+    }
+
+    // --- Food on the floor rots --------------------------------------
+    for (const f of W.animals.food) {
+      f.gameAge = (f.gameAge ?? 0) + d;
+      if (f.gameAge > 240) { f.eaten = true; E.detritus += 0.05; }
+    }
+
+    // --- Animals -----------------------------------------------------
+    this.animals(d, light);
+  }
+
+  animals(d, light) {
+    const W = this.world, E = this.env;
+    const births = [];
+    for (const a of [...W.animals.all]) {
+      if (a.dead) continue;
+      const sp = SPECIES[a.sp];
+      a.age += d;
+      a.hunger = clamp(a.hunger + d / (sp.hungerHours * 60), 0, 1);
+      // Grazers and scavengers feed from the shared pools.
+      if (a.hunger > 0.15) {
+        if (sp.eats.includes('detritus') && E.detritus > 0.01) {
+          const bite = Math.min(E.detritus, d * 0.0006 * sp.size);
+          E.detritus -= bite;
+          a.hunger = Math.max(0, a.hunger - bite * 40);
+        }
+        if (sp.eats.includes('biofilm') && E.biofilm > 0.05) {
+          E.biofilm -= d * 0.00002;
+          a.hunger = Math.max(0, a.hunger - d * 0.0016);
+        }
+        if (sp.kind === 'fly' && E.detritus > 0.05) a.hunger = Math.max(0, a.hunger - d * 0.002);
+        // At high speed fish may not reach the flakes on screen before they
+        // rot, so hungry fish also find food here, a bite at a time.
+        if (sp.kind === 'swim' && a.hunger > 0.3 && Math.random() < d / 20) {
+          const f = W.animals.food.find((f) => !f.eaten && (!f.settled || sp.band === 'bottom'));
+          if (f) { f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); }
+        }
+        if (sp.eats.includes('flake') && sp.kind !== 'swim') {
+          for (const f of W.animals.food) {
+            if (!f.eaten && f.settled && f.pos.distanceTo(a.pos) < 3) { f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); break; }
+          }
+        }
+      }
+      // Stress from the environment.
+      let stress = 0;
+      const why = [];
+      const [tmin, tmax] = sp.temp;
+      if (E.temp < tmin) { stress += (tmin - E.temp) / 4; why.push('too cold'); }
+      if (E.temp > tmax) { stress += (E.temp - tmax) / 3; why.push('too hot'); }
+      const aquatic = sp.kind === 'swim' || sp.kind === 'crawlWater';
+      if (aquatic) {
+        if (a.stranded) { stress += 6; why.push('out of water'); }
+        if (E.ammonia > 0.25) { stress += (E.ammonia - 0.25) * 3; why.push('ammonia'); }
+        if (E.nitrite > 0.3) { stress += (E.nitrite - 0.3) * 2.5; why.push('nitrite'); }
+        if (E.nitrate > 60) { stress += (E.nitrate - 60) / 40; why.push('nitrate'); }
+        if (E.oxygen < 4.5) { stress += (4.5 - E.oxygen) * 0.8; why.push('low oxygen'); }
+        if (sp.kind === 'crawlWater' && W.water.surfaceAt(a.pos.x, a.pos.z) < a.pos.y) { stress += 4; why.push('out of water'); }
+      } else if (sp.humidity) {
+        if (E.humidity < sp.humidity) { stress += (sp.humidity - E.humidity) / 12; why.push('air too dry'); }
+      }
+      if (sp.kind === 'toad' && W.water.surfaceArea() < 200) { stress += 0.5; why.push('no water to swim in'); }
+      if (sp.kind === 'crab' && W.water.surfaceArea() < 100) { stress += 0.5; why.push('no water'); }
+      if (a.hunger > 0.75) { stress += (a.hunger - 0.75) * 4; why.push('hungry'); }
+      a.why = why;
+      if (stress > 0.05) a.health -= stress * d / (60 * 10);
+      else a.health = Math.min(1, a.health + d / (60 * 24));
+      // Death.
+      const life = sp.lifeDays * 1440;
+      if (a.health <= 0 || a.age > life) {
+        const cause = a.health <= 0 ? (why[0] ?? 'poor health') : 'old age';
+        W.animals.remove(a, cause);
+        E.detritus += sp.size * (sp.kind === 'swim' || sp.kind === 'frog' || sp.kind === 'toad' ? 0.6 : 0.08);
+        if (sp.cap < 60 || Math.random() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
+        continue;
+      }
+      // Breeding.
+      if (sp.breed && a.age > (sp.adultDays ?? 10) * 1440 && a.hunger < 0.5 && a.health > 0.7) {
+        const pop = W.animals.count(a.sp) + births.filter((b) => b.sp === a.sp).length;
+        const room = 1 - pop / sp.cap;
+        if (room > 0 && Math.random() < sp.breed * (d / 1440) * room * (sp.kind === 'crawlWater' ? E.cycle : 1)) {
+          births.push({ sp: a.sp, pos: a.pos.clone() });
+        }
+      }
+    }
+    for (const b of births) {
+      const child = W.animals.add(b.sp, b.pos, { age: 0, hunger: 0.3 });
+      if (child && (SPECIES[b.sp].cap <= 40 || Math.random() < 0.08)) W.log(`A ${one(b.sp)} was born.`, 'good');
+    }
+  }
+}
+
+function plantName(id) {
+  return { vallisneria: 'vallisneria', sword: 'Amazon sword', javafern: 'Java fern' }[id] ?? id;
+}
