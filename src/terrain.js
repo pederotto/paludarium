@@ -243,7 +243,7 @@ export class Wall {
     this.mesh.userData.surface = 'wall';
     scene.add(this.mesh);
     this.field.h.fill(0.6);
-    this.field.setMaterial(MAT.cork);
+    this.field.setMaterial(MAT.stone);
   }
 
   zAt(x, y) { return -TANK.d / 2 + this.field.sample(x, y); }

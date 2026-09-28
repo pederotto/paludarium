@@ -19,7 +19,7 @@ export const MATERIALS = [
   { id: 'gravel', name: 'Gravel',      color: [0.46, 0.44, 0.40], rough: 0.8 },
   { id: 'rock',   name: 'Rock',        color: [0.36, 0.33, 0.30], rough: 0.7 },
   { id: 'moss',   name: 'Moss',        color: [0.20, 0.42, 0.12], rough: 1.0 },
-  { id: 'cork',   name: 'Cork bark',   color: [0.30, 0.20, 0.13], rough: 1.0 },
+  { id: 'stone',  name: 'Dark stone',  color: [0.20, 0.18, 0.16], rough: 1.0 },
 ];
 export const MAT = Object.fromEntries(MATERIALS.map((m, i) => [m.id, i]));
 export const NMAT = MATERIALS.length;

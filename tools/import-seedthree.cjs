@@ -26,7 +26,7 @@ const jobs = [
   [G('gravel_albedo.png'), 'ground/gravel.jpg', 512, 'jpg'],
   [G('rock_albedo.png'), 'ground/rock.jpg', 512, 'jpg'],
   [G('rock_normal.png'), 'ground/rock_normal.jpg', 512, 'jpg'],
-  [G('rock3_albedo.png'), 'ground/mossy_rock.jpg', 512, 'jpg'],
+  // (mossy_rock.jpg now comes from Poly Haven; see import-polyhaven.mjs)
   [G('grass_albedo.png'), 'ground/moss.jpg', 512, 'jpg'],
   [G('rock2_albedo.png'), 'ground/bark.jpg', 512, 'jpg'],
   // Leaf cards (alpha) → PNG.

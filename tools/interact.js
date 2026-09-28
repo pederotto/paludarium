@@ -7,12 +7,15 @@
   const ok = (name, cond, extra = '') => out.push(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`);
   // Sculpt: raise a hill on the right and dig a hollow in it.
   const f = w.terrain.field;
-  for (let k = 0; k < 40; k++) f.brush(30, 8, 8, 'raise', 1);
-  const hill = w.terrain.heightAt(30, 8);
-  for (let k = 0; k < 20; k++) f.brush(30, 8, 3.5, 'lower', 0.6);
+  // A flat-ish dry spot away from the walls.
+  const dry = w.randomSpot((x, y, z, s) => s === -Infinity && y > w.water.level + 3 && Math.abs(x) < 36 && Math.abs(z) < 14 && w.terrain.normalAt(x, z).y > 0.9) ?? { x: -30, z: 0 };
+  const [hx, hz] = [dry.x, dry.z];
+  for (let k = 0; k < 40; k++) f.brush(hx, hz, 8, 'raise', 1);
+  const hill = w.terrain.heightAt(hx, hz);
+  for (let k = 0; k < 20; k++) f.brush(hx, hz, 3.5, 'lower', 0.6);
   w.groundChanged();
-  ok('sculpt raise/lower', hill > w.water.level + 5, `hill=${hill.toFixed(1)} hollow=${w.terrain.heightAt(30, 8).toFixed(1)}`);
-  const pond = w.water.addPond(30, 8);
+  ok('sculpt raise/lower', hill > w.water.level + 5, `hill=${hill.toFixed(1)} hollow=${w.terrain.heightAt(hx, hz).toFixed(1)}`);
+  const pond = w.water.addPond(hx, hz);
   ok('pond in dug hollow', !!pond.pond, pond.error ?? `level=${pond.pond?.level.toFixed(1)} cells=${pond.pond?.cells.size}`);
   const fall = w.water.addFall(new THREE_V(0, 35, w.wall.zAt(0, 35) + 0.6), w.wall);
   ok('waterfall from wall', !!fall.fall, fall.error ?? `points=${fall.fall?.pts.length}`);
@@ -38,11 +41,25 @@
   const nb = w.animals.count('neon'); ui.click();
   out.push(`INFO ui fish click: ${w.animals.count('neon') - nb} added (toast: ${document.getElementById('toast').textContent})`);
   ui.setTool('view');
+  // Hardscape: a spire raises the ground under it; removing it restores it.
+  const before0 = w.terrain.heightAt(-10, 12);
+  const sp = w.decor.addPiece('spire', -10, 12, { size: 20 });
+  w.groundChanged();
+  const raised = w.terrain.heightAt(-10, 12);
+  w.decor.removePiece(sp); w.groundChanged();
+  ok('spire stamps and unstamps', raised > before0 + 5 && Math.abs(w.terrain.heightAt(-10, 12) - before0) < 0.01, `${before0.toFixed(1)} → ${raised.toFixed(1)} → ${w.terrain.heightAt(-10, 12).toFixed(1)}`);
+  // Life cycle: an egg clutch hatches into tadpoles.
+  const eggSpot = w.randomSpot((x, y, z, s) => s - y > 2);
+  const egg = w.animals.add('eggs', eggSpot, { age: 0 });
+  Object.assign(egg, { parent: 'dartfrog', into: 'tadpole', n: 4, hatch: 0.01, where: 'water' });
+  const t0 = w.animals.count('tadpole');
+  w.sim.step(30);
+  ok('eggs hatch into tadpoles', w.animals.count('tadpole') >= t0 + 4, `tadpoles ${t0} → ${w.animals.count('tadpole')}`);
   // Save / load round trip.
   const json = JSON.stringify(w.serialize());
-  const counts = [w.plants.list.length, w.animals.all.length, w.water.ponds.length, w.water.falls.length, w.decor.rocks.length];
+  const counts = [w.plants.list.length, w.animals.all.length, w.water.ponds.length, w.water.falls.length, w.decor.pieces.length];
   w.load(JSON.parse(json));
-  const counts2 = [w.plants.list.length, w.animals.all.length, w.water.ponds.length, w.water.falls.length, w.decor.rocks.length];
+  const counts2 = [w.plants.list.length, w.animals.all.length, w.water.ponds.length, w.water.falls.length, w.decor.pieces.length];
   ok('save/load round trip', JSON.stringify(counts) === JSON.stringify(counts2), `${counts} → ${counts2}, ${Math.round(json.length / 1024)} KB`);
   // Water level down: fish should strand when drained.
   w.setWaterLevel(2);

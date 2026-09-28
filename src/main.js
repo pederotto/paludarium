@@ -5,9 +5,13 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { TANK, SPEEDS, MINUTES_PER_SECOND } from './config.js';
+import { pass, screenUV, float, smoothstep, vec3 } from 'three/tsl';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { U } from './shaders.js';
 import { World } from './world.js';
 import { UI } from './ui.js';
+import { WaterFX, FX } from './waterfx.js';
+import { Mist } from './mist.js';
 
 const params = new URLSearchParams(location.search);
 const canvasHost = document.getElementById('view');
@@ -18,7 +22,7 @@ renderer.setSize(canvasHost.clientWidth, canvasHost.clientHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.0;
 canvasHost.appendChild(renderer.domElement);
 
 await renderer.init();
@@ -26,25 +30,26 @@ const backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL 2';
 document.getElementById('backend').textContent = backend;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0e1114);
+// A dark room, so the lit tank is the only bright thing (as in the photos).
+scene.background = new THREE.Color(0x050607);
 try {
   const pm = new THREE.PMREMGenerator(renderer);
   scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.35;
+  scene.environmentIntensity = 0.15;
 } catch (e) { console.warn('No environment map', e); }
 
-const camera = new THREE.PerspectiveCamera(38, canvasHost.clientWidth / canvasHost.clientHeight, 1, 1000);
-camera.position.set(6, 62, 158);
+const camera = new THREE.PerspectiveCamera(36, canvasHost.clientWidth / canvasHost.clientHeight, 1, 1000);
+camera.position.set(0, 40, 158);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 16, 0);
+controls.target.set(0, 25, -2);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.62;
 controls.minDistance = 25;
 controls.maxDistance = 260;
 
 // --- Lights: an LED bar over the tank, room fill, and night moonlight. ---
-const led = new THREE.DirectionalLight(0xfff4e0, 2.8);
-led.position.set(12, 110, 30);
+const led = new THREE.DirectionalLight(0xf4f7ff, 3.2);
+led.position.set(8, 120, 22);
 led.target.position.set(0, 0, 0);
 led.castShadow = true;
 led.shadow.mapSize.set(2048, 2048);
@@ -54,7 +59,7 @@ led.shadow.camera.near = 40; led.shadow.camera.far = 180;
 led.shadow.bias = -0.0005;
 led.shadow.normalBias = 0.05;
 scene.add(led, led.target);
-const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x3a2e22, 0.7);
+const hemi = new THREE.HemisphereLight(0xdfeeff, 0x1a1510, 0.35);
 scene.add(hemi);
 const moon = new THREE.DirectionalLight(0x5c7cff, 0.0);
 moon.position.set(-30, 90, 40);
@@ -65,6 +70,22 @@ buildTank(scene);
 
 const world = new World(scene);
 window.paludarium = world; // handy in the console
+await world.init();
+const fx = new WaterFX(renderer, world);
+world.fx = fx;
+world.water.fx = fx;
+const mist = new Mist(scene, world);
+world.mist = mist;
+FX.lightDir.value.copy(led.position).negate().normalize();
+
+// Post-processing: a soft bloom on the brightest highlights (water glints,
+// the LED) and a vignette that falls off into the dark room.
+const post = new THREE.RenderPipeline(renderer);
+const scenePass = pass(scene, camera);
+const bloomPass = bloom(scenePass, 0.22, 0.4, 0.9);
+const vignette = smoothstep(float(1.05), float(0.35), screenUV.sub(0.5).length().mul(1.35));
+post.outputNode = scenePass.add(bloomPass).mul(vec3(vignette.mul(0.55).add(0.45)));
+const usePost = !params.has('nopost');
 
 let loaded = false;
 if (!params.has('fresh')) {
@@ -90,19 +111,20 @@ renderer.setAnimationLoop(() => {
   world.sim.step(dt * speed * MINUTES_PER_SECOND);
   world.animals.move(dt * Math.min(speed, 4));
   world.water.animate(dt);
+  mist.update(dt);
   ui.frame(dt);
+  fx.step();
 
   // Day and night.
   const light = world.env.light();
   U.daylight.value = light;
-  led.intensity = 2.8 * light;
-  hemi.intensity = 0.15 + 0.6 * light;
+  led.intensity = 3.2 * light;
+  hemi.intensity = 0.06 + 0.3 * light;
   moon.intensity = (1 - light) * 0.35;
-  scene.environmentIntensity = 0.08 + 0.3 * light;
-  scene.background.setRGB(0.03 + 0.03 * light, 0.035 + 0.035 * light, 0.045 + 0.04 * light);
+  scene.environmentIntensity = 0.04 + 0.12 * light;
 
   controls.update();
-  renderer.render(scene, camera);
+  if (usePost) post.render(); else renderer.render(scene, camera);
 
   uiTimer += dt;
   if (uiTimer > 0.25) { uiTimer = 0; ui.refresh(); }

@@ -8,34 +8,9 @@ import {
   cameraPosition, pow, dot, normalize, clamp, abs, sin, transformNormalToView, uniform, attribute,
 } from 'three/tsl';
 import { TANK } from './config.js';
-import { U } from './shaders.js';
+import { U } from './uniforms.js';
+import { waterSurfaceMaterial, SIM } from './waterfx.js';
 import { clamp as clampN } from './geo.js';
-
-// Wavy normal from a few moving noise octaves.
-const waveNormal = Fn(([p]) => {
-  const t = time;
-  const e = 0.35;
-  const h = (q) => mx_noise_float(vec3(q.x.mul(0.22), q.y.mul(0.22), t.mul(0.35)))
-    .add(mx_noise_float(vec3(q.x.mul(0.61).add(9), q.y.mul(0.61), t.mul(0.7))).mul(0.45))
-    .add(mx_noise_float(vec3(q.x.mul(1.7), q.y.mul(1.7).add(4), t.mul(1.3))).mul(0.18));
-  const h0 = h(p);
-  const hx = h(p.add(vec2(e, 0)));
-  const hz = h(p.add(vec2(0, e)));
-  return normalize(vec3(h0.sub(hx).mul(1.1), float(1), h0.sub(hz).mul(1.1)));
-});
-
-function waterSurfaceMaterial(opacity = 0.16) {
-  const m = new THREE.MeshStandardNodeMaterial({
-    transparent: true, roughness: 0.04, metalness: 0.0, side: THREE.DoubleSide, depthWrite: false,
-  });
-  const nW = waveNormal(positionWorld.xz);
-  m.normalNode = transformNormalToView(nW);
-  const view = normalize(cameraPosition.sub(positionWorld));
-  const fres = pow(float(1).sub(clamp(abs(dot(view, nW)), 0, 1)), 4.0);
-  m.colorNode = mix(U.tint.mul(0.3), vec3(0.55, 0.7, 0.75), fres.mul(0.5));
-  m.opacityNode = clamp(float(opacity).add(fres.mul(0.45)), 0, 0.85);
-  return m;
-}
 
 export class Water {
   constructor(scene, terrain) {
@@ -45,9 +20,12 @@ export class Water {
     this.ponds = [];
     this.falls = [];
 
-    const g = new THREE.PlaneGeometry(TANK.w - 0.1, TANK.d - 0.1, 1, 1);
+    // A fine grid so the ripples can move it (one vertex per ripple cell).
+    const g = new THREE.PlaneGeometry(TANK.w - 0.1, TANK.d - 0.1, SIM[0], SIM[1]);
     g.rotateX(-Math.PI / 2);
-    this.surface = new THREE.Mesh(g, waterSurfaceMaterial());
+    this.surface = new THREE.Mesh(g, waterSurfaceMaterial({ ripples: true }));
+    this.surface.frustumCulled = false;
+    this.fx = null; // WaterFX, set by main.js
     this.surface.renderOrder = 5;
     this.surface.name = 'water';
     this.surface.userData.surface = 'water';
@@ -55,15 +33,15 @@ export class Water {
 
     // Tinted water seen through the glass: front and side faces of the volume.
     const vm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.FrontSide });
-    vm.colorNode = U.tint.mul(0.28).mul(U.daylight.mul(0.8).add(0.2));
-    vm.opacityNode = float(0.22);
+    vm.colorNode = U.tint.mul(0.22).mul(U.daylight.mul(0.8).add(0.2));
+    vm.opacityNode = float(0.1);
     const vg = new THREE.BoxGeometry(TANK.w - 0.12, 1, TANK.d - 0.12);
     vg.translate(0, 0.5, 0);
     this.volume = new THREE.Mesh(vg, vm);
     this.volume.renderOrder = 4;
     scene.add(this.volume);
 
-    this.pondMat = waterSurfaceMaterial(0.3);
+    this.pondMat = waterSurfaceMaterial({ ripples: false, opacity: 0.2 });
     this.fallMat = this.makeFallMaterial();
     this.splashMat = this.makeSplashMaterial();
     this.setLevel(this.level);
@@ -288,8 +266,10 @@ export class Water {
       if (i > 0) len += pts[i].distanceTo(pts[i - 1]);
       const vertical = Math.abs(d.y) > Math.hypot(d.x, d.z);
       const side = vertical ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-d.z, 0, d.x).normalize();
-      const w = vertical ? 1.6 : 1.3;
-      const lift = vertical ? new THREE.Vector3(0, 0, 0.15) : new THREE.Vector3(0, 0.05, 0);
+      const w = vertical ? 2.6 : 1.8;
+      // Keep the sheet just outside the rock it runs over (the heightfield is
+      // coarser than the scanned mesh).
+      const lift = vertical ? new THREE.Vector3(0, 0, 1.1) : new THREE.Vector3(0, 0.45, 0);
       const l = pts[i].clone().addScaledVector(side, -w / 2).add(lift);
       const r = pts[i].clone().addScaledVector(side, w / 2).add(lift);
       pos.push(l.x, l.y, l.z, r.x, r.y, r.z);
@@ -352,16 +332,20 @@ export class Water {
 
   nearestPond(x, z) { return this.pondAt(x, z); }
 
+  // Falling water: thin streaks racing down (noise stretched along the flow),
+  // a whiter core, and see-through edges.
   makeFallMaterial() {
-    const m = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 0.1 });
+    const m = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 0.05 });
     const u = uv();
-    const flow = mx_noise_float(vec3(u.x.mul(3.0), u.y.mul(0.9).sub(time.mul(9.0)), 0.5))
-      .add(mx_noise_float(vec3(u.x.mul(7.0), u.y.mul(2.2).sub(time.mul(14.0)), 2.5)).mul(0.5));
-    const edge = smoothstep(0.0, 0.25, u.x).mul(smoothstep(1.0, 0.75, u.x));
-    const foam = smoothstep(0.1, 0.7, flow);
-    m.colorNode = mix(vec3(0.55, 0.78, 0.85), vec3(0.95, 0.98, 1.0), foam);
-    m.opacityNode = edge.mul(foam.mul(0.55).add(0.3));
-    m.emissiveNode = vec3(0.12, 0.14, 0.15).mul(foam).mul(U.daylight);
+    const streak = mx_noise_float(vec3(u.x.mul(14.0), u.y.mul(0.35).sub(time.mul(6.0)), 0.5))
+      .add(mx_noise_float(vec3(u.x.mul(31.0), u.y.mul(0.8).sub(time.mul(9.0)), 2.5)).mul(0.6));
+    const fine = mx_noise_float(vec3(u.x.mul(60.0), u.y.mul(3.0).sub(time.mul(16.0)), 7.0));
+    const edge = smoothstep(0.0, 0.3, u.x).mul(smoothstep(1.0, 0.7, u.x));
+    const core = smoothstep(0.15, 0.5, u.x).mul(smoothstep(0.85, 0.5, u.x));
+    const white = smoothstep(-0.1, 0.8, streak.add(fine.mul(0.3)));
+    m.colorNode = mix(vec3(0.62, 0.8, 0.84), vec3(0.97, 0.99, 1.0), white);
+    m.opacityNode = edge.mul(white.mul(0.6).add(core.mul(0.25)).add(0.12));
+    m.emissiveNode = vec3(0.16, 0.18, 0.19).mul(white).mul(U.daylight.mul(0.8).add(0.2));
     return m;
   }
 
@@ -393,6 +377,12 @@ export class Water {
       f.drops.instanceMatrix.needsUpdate = true;
       const sc = 1 + Math.sin(performance.now() * 0.006) * 0.06;
       f.splash.scale.set(sc, 1, sc);
+      // Where it lands in the main water it keeps stirring ripples.
+      const end = f.pts[f.pts.length - 1];
+      if (this.fx && Math.abs(end.y - this.level) < 0.6 && Math.random() < 0.7) {
+        this.fx.addDrop(end.x + (Math.random() - 0.5) * 1.5, end.z + (Math.random() - 0.5) * 1.5, -2.5 - Math.random() * 3, 0.6 + Math.random() * 0.5);
+      }
+      f.mistT = (f.mistT ?? 0) + dt;
     }
   }
 

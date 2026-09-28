@@ -5,6 +5,7 @@ import * as THREE from 'three/webgpu';
 import { MATERIALS, SPEEDS, TANK, MAT } from './config.js';
 import { PLANTS } from './plants.js';
 import { SPECIES } from './animals.js';
+import { PIECES } from './decor.js';
 
 const $ = (s) => document.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {
@@ -22,7 +23,7 @@ const TOOLS = [
   { id: 'view', icon: '🖐', name: 'Look', hint: 'Drag to orbit, scroll to zoom, right-drag to pan.' },
   { id: 'sculpt', icon: '⛰', name: 'Sculpt', hint: 'Drag on the ground or the background to shape it. Right-drag orbits.' },
   { id: 'paint', icon: '🖌', name: 'Paint', hint: 'Paint soil, sand, gravel, rock, moss or cork on the ground and the background. Moss grows tufts.' },
-  { id: 'rock', icon: '🪨', name: 'Rocks', hint: 'Click to place a rock. Animals can climb it.' },
+  { id: 'rock', icon: '🪨', name: 'Hardscape', hint: 'Click to place stone, roots or wood. Stone is stamped into the ground, so animals can climb it.' },
   { id: 'water', icon: '💧', name: 'Water', hint: 'Pond: click a hollow to fill it. Waterfall: click the background or a high spot for the source.' },
   { id: 'plant', icon: '🌿', name: 'Plants', hint: 'Pick a plant, then click where it should grow.' },
   { id: 'animal', icon: '🐸', name: 'Animals', hint: 'Pick a species, then click to release it.' },
@@ -36,7 +37,7 @@ export class UI {
   constructor({ world, camera, renderer, controls, scene }) {
     this.world = world; this.camera = camera; this.renderer = renderer; this.controls = controls; this.scene = scene;
     this.tool = 'view';
-    this.sub = { sculpt: 'raise', paint: MAT.moss, water: 'pond', plant: 'fern', animal: 'neon' };
+    this.sub = { sculpt: 'raise', paint: MAT.moss, water: 'pond', plant: 'fernph', animal: 'neon', rock: 'boulder' };
     this.brush = { size: 5, strength: 1 };
     this.speed = 1;
     this.selected = null;
@@ -108,7 +109,9 @@ export class UI {
         o.append(slider('Brush size', 'size', 1.5, 14, 0.5), slider('Strength', 'strength', 0.2, 3, 0.1));
         break;
       case 'rock':
-        o.append(slider('Rock size', 'size', 1.5, 10, 0.5));
+        o.append(chips(Object.entries(PIECES).map(([id, p]) => [id, p.name]), 'rock'));
+        o.append(slider('Size', 'size', 1.5, 14, 0.5));
+        o.append(h('p', { class: 'note' }, 'Size scales the piece (spires and cliffs come out tall). Each click picks a different stone.'));
         break;
       case 'water':
         o.append(chips([['pond', 'Pond'], ['fall', 'Waterfall']], 'water'));
@@ -130,7 +133,7 @@ export class UI {
       }
       case 'animal': {
         const groups = {};
-        for (const [id, s] of Object.entries(SPECIES)) (groups[s.group] ??= []).push([id, s.name, s.note]);
+        for (const [id, s] of Object.entries(SPECIES)) if (s.kind !== 'egg') (groups[s.group] ??= []).push([id, s.name, s.note]);
         for (const [g, items] of Object.entries(groups)) {
           o.append(h('div', { class: 'grp' }, g));
           o.append(chips(items, 'animal'));
@@ -177,6 +180,7 @@ export class UI {
         toggle('Lid', () => E.lid, (v) => { E.lid = v; this.scene.getObjectByName('lid').visible = v; }),
         toggle('Filter', () => E.filter, (v) => { E.filter = v; }),
         toggle('Auto-feed', () => E.autoFeed, (v) => { E.autoFeed = v; }),
+        toggle('Fly culture', () => E.culture, (v) => { E.culture = v; }),
         h('select', { class: 'chip', onchange: (e) => { E.lights = e.target.value; } },
           h('option', { value: 'auto' }, 'Lights 8–20'), h('option', { value: 'on' }, 'Lights on'), h('option', { value: 'off' }, 'Lights off')),
       ),
@@ -288,6 +292,13 @@ export class UI {
     const el = this.renderer.domElement;
     el.addEventListener('pointermove', (e) => { this.setMouse(e); this.hover(); });
     el.addEventListener('pointerdown', (e) => {
+      if (e.button === 0 && this.tool === 'view') {
+        // A tap on the water makes ripples.
+        this.setMouse(e);
+        const hit = this.pick(['terrain', 'water']);
+        if (hit?.surface === 'water') this.world.fx?.addDrop(hit.point.x, hit.point.z, -9, 1.1);
+        return;
+      }
       if (e.button !== 0 || this.tool === 'view') return;
       this.setMouse(e);
       this.down = true;
@@ -317,14 +328,14 @@ export class UI {
     const W = this.world;
     this.ray.setFromCamera(this.mouse, this.camera);
     const objs = [];
-    if (kinds.includes('terrain')) objs.push(W.terrain.mesh, ...W.decor.rockMeshes);
+    if (kinds.includes('terrain')) objs.push(W.terrain.mesh, ...W.decor.meshes);
     if (kinds.includes('wall')) objs.push(W.wall.mesh);
     if (kinds.includes('water')) { if (W.water.surface.visible) objs.push(W.water.surface); objs.push(...W.water.ponds.map((p) => p.mesh)); }
     const hits = this.ray.intersectObjects(objs, false);
     if (!hits.length) return null;
     const hit = hits[0];
     let surface = hit.object.userData.surface ?? 'terrain';
-    if (hit.object.name === 'rocks') surface = 'terrain';
+    if (hit.object.name === 'piece') surface = 'terrain';
     const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
     return { point: hit.point.clone(), surface, normal, object: hit.object };
   }
@@ -369,8 +380,10 @@ export class UI {
       case 'rock': {
         const hit = this.pick(['terrain']);
         if (!hit) return;
-        W.decor.addRock(hit.point.x, hit.point.z, this.brush.size * 0.8);
-        W.groundChanged();
+        const type = this.sub.rock;
+        const size = PIECES[type].size * (this.brush.size / 6);
+        const p = W.decor.addPiece(type, hit.point.x, hit.point.z, { size, y: PIECES[type].stamp ? undefined : hit.point.y - size * 0.1 });
+        if (p) W.groundChanged(); else this.toast('Still loading models…', 'bad');
         break;
       }
       case 'water': {
@@ -406,7 +419,7 @@ export class UI {
       }
       case 'animal': {
         const id = this.sub.animal;
-        const hit = this.pick(['terrain', 'water']);
+        const hit = this.pick(SPECIES[id].kind === 'gecko' ? ['terrain', 'wall', 'water'] : ['terrain', 'water']);
         if (!hit) return;
         if (hit.surface === 'water' || hit.surface === 'pond') {
           // Use the ground under the water.
@@ -419,8 +432,9 @@ export class UI {
         for (let k = 0; k < n; k++) {
           const jitter = n > 1 ? new THREE.Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4) : new THREE.Vector3();
           const p2 = pl.pos.clone().add(jitter);
-          const again = W.animals.placement(id, { point: p2 });
-          if (again.pos && W.animals.add(id, again.pos)) added++;
+          const again = pl.wall ? pl : W.animals.placement(id, { point: p2 });
+          const a = again.pos && W.animals.add(id, again.pos);
+          if (a) { added++; if (pl.wall) { a.onWall = true; a.wallMode = true; a.normal = new THREE.Vector3(0, 0, 1); } }
         }
         if (added) W.log(`Released ${added} ${SPECIES[id].name.toLowerCase()}.`);
         break;
@@ -447,8 +461,8 @@ export class UI {
         if (f) { W.water.removeFall(f); this.toast('Waterfall removed.'); break; }
         const pond = W.water.pondAt(hit.point.x, hit.point.z);
         if (pond) { W.water.removePond(pond); W.water.refreshFalls(W.wall); this.toast('Pond drained.'); break; }
-        const r = W.decor.rockNear(hit.point, 0.5);
-        if (r) { W.decor.removeRock(r); W.groundChanged(); this.toast('Rock removed.'); break; }
+        const piece = W.decor.pieceAt(hit.object);
+        if (piece) { W.decor.removePiece(piece); W.groundChanged(); this.toast(`${PIECES[piece.type].name} removed.`); break; }
         break;
       }
     }

@@ -4,7 +4,7 @@
 (() => {
   const w = window.paludarium;
   const report = [];
-  for (let day = 0; day < 8; day++) {
+  for (let day = 0; day < 24; day++) {
     for (let k = 0; k < 1440 / 5; k++) {
       w.sim.step(5);
       w.animals.move(0.25);

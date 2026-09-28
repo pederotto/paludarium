@@ -6,7 +6,7 @@ import * as THREE from 'three/webgpu';
 import { Builder, PRIM, rng, lerp, clamp } from './geo.js';
 import { plantMaterial } from './shaders.js';
 import { MAT } from './config.js';
-import { TEX } from './assets.js';
+import { TEX, modelParts } from './assets.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
@@ -97,6 +97,16 @@ function crossCards(n, len, opt = {}) {
 }
 
 export const PLANTS = {
+  fernph: {
+    name: 'Lady fern', habitat: 'land', humidity: [60, 100], light: 0.3, size: 1, modelSize: 13,
+    note: 'Photoscanned fern (Poly Haven). Loves shade and damp air.',
+    model: 'fern_02', material: { amp: 0.25, speed: 0.8 },
+  },
+  weed: {
+    name: 'Creeping jenny', habitat: 'land|emergent', humidity: [50, 100], light: 0.4, size: 1, modelSize: 9,
+    note: 'Low trailing plant (Poly Haven scan). Softens rock edges.',
+    model: 'weed_plant_02', material: { amp: 0.15, speed: 0.8 },
+  },
   fern: {
     name: 'Fern', habitat: 'land', humidity: [60, 100], light: 0.3, size: 1,
     note: 'Loves shade and damp air.',
@@ -326,21 +336,57 @@ export class Plants {
     this.scene = scene;
     this.list = [];
     this.meshes = {};
+    this.variants = {};
     this.cap = 300;
     for (const [id, sp] of Object.entries(PLANTS)) {
-      const geo = sp.build();
-      const mat = plantMaterial({ ...(sp.material ?? {}), map: sp.map ? sp.map() : null });
-      const im = new THREE.InstancedMesh(geo, mat, this.cap);
-      im.count = 0;
-      im.castShadow = true;
-      im.receiveShadow = true;
-      im.frustumCulled = false;
-      im.name = 'plant:' + id;
-      im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 3).fill(1), 3);
-      scene.add(im);
-      this.meshes[id] = im;
+      if (sp.model) continue; // built in preload()
+      this.addMesh(id, sp.build(), plantMaterial({ ...(sp.material ?? {}), map: sp.map ? sp.map() : null }));
+      this.variants[id] = 1;
     }
   }
+
+  addMesh(key, geo, mat) {
+    const im = new THREE.InstancedMesh(geo, mat, this.cap);
+    im.count = 0;
+    im.castShadow = true;
+    im.receiveShadow = true;
+    im.frustumCulled = false;
+    im.name = 'plant:' + key;
+    im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 3).fill(1), 3);
+    this.scene.add(im);
+    this.meshes[key] = im;
+  }
+
+  // Photoscanned plants: each mesh in the model becomes a variant, recentred
+  // with its base at the origin and scaled to 1 across.
+  async preload() {
+    for (const [id, sp] of Object.entries(PLANTS)) {
+      if (!sp.model) continue;
+      const parts = await modelParts(sp.model);
+      parts.forEach((part, k) => {
+        const g = part.geometry;
+        const bb = g.boundingBox;
+        g.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
+        const ext = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z, bb.max.y - bb.min.y);
+        g.scale(1 / ext, 1 / ext, 1 / ext);
+        g.computeBoundingBox();
+        const h = Math.max(1e-3, g.boundingBox.max.y);
+        const n = g.attributes.position.count;
+        const sway = new Float32Array(n), col = new Float32Array(n * 3).fill(1);
+        for (let i = 0; i < n; i++) {
+          const x = g.attributes.position.getX(i), z = g.attributes.position.getZ(i), y = g.attributes.position.getY(i);
+          sway[i] = Math.min(1, Math.hypot(x, z) * 1.6 + y / h * 0.5);
+        }
+        g.setAttribute('sway', new THREE.BufferAttribute(sway, 1));
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        const src = part.material;
+        this.addMesh(id + '#' + k, g, plantMaterial({ ...(sp.material ?? {}), map: src.map, normalMap: src.normalMap }));
+      });
+      this.variants[id] = parts.length;
+    }
+  }
+
+  key(p) { return this.variants[p.id] > 1 || PLANTS[p.id].model ? p.id + '#' + (p.variant ?? 0) : p.id; }
 
   // Checks whether species `id` may grow at a surface hit.
   canPlace(id, hit, world) {
@@ -378,13 +424,15 @@ export class Plants {
     return 'Can’t place here.';
   }
 
-  add(id, pos, { normal = null, scale = null, rot = null, grown = 0.35, surface = 'terrain', health = 1 } = {}) {
-    const im = this.meshes[id];
+  add(id, pos, { normal = null, scale = null, rot = null, grown = 0.35, surface = 'terrain', health = 1, variant = null } = {}) {
+    const nv = this.variants[id] ?? 1;
+    const v = variant ?? Math.floor(Math.random() * nv);
+    const im = this.meshes[PLANTS[id].model ? id + '#' + v : id];
     if (!im || im.count >= this.cap) return null;
     const p = {
       id, pos: pos.clone(), normal: normal ? normal.clone() : new THREE.Vector3(0, 1, 0), surface,
       rot: rot ?? Math.random() * Math.PI * 2, scale: scale ?? 0.8 + Math.random() * 0.4,
-      grown, health, age: 0, index: im.count,
+      grown, health, age: 0, index: im.count, variant: v,
     };
     im.count++;
     this.list.push(p);
@@ -393,8 +441,8 @@ export class Plants {
   }
 
   remove(p) {
-    const im = this.meshes[p.id];
-    const last = this.list.filter((q) => q.id === p.id && q.index === im.count - 1)[0];
+    const im = this.meshes[this.key(p)];
+    const last = this.list.filter((q) => this.key(q) === this.key(p) && q.index === im.count - 1)[0];
     if (last && last !== p) {
       last.index = p.index;
       this.writeInstance(last);
@@ -405,7 +453,7 @@ export class Plants {
   }
 
   writeInstance(p) {
-    const im = this.meshes[p.id];
+    const im = this.meshes[this.key(p)];
     const q = new THREE.Quaternion();
     if (p.surface === 'wall') {
       // Grow out from the wall: plant "up" follows the wall normal, tilted up.
@@ -418,7 +466,7 @@ export class Plants {
       q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
     }
     q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot));
-    const s = p.scale * (0.3 + 0.7 * p.grown);
+    const s = p.scale * (0.3 + 0.7 * p.grown) * (PLANTS[p.id].modelSize ?? 1);
     const m = new THREE.Matrix4().compose(p.pos, q, new THREE.Vector3(s, s, s));
     im.setMatrixAt(p.index, m);
     // Healthy plants are green; dying ones yellow and brown.
@@ -489,7 +537,7 @@ export class Plants {
   }
 
   serialize() {
-    return this.list.map((p) => ({ id: p.id, pos: p.pos.toArray().map((v) => +v.toFixed(2)), n: p.normal.toArray().map((v) => +v.toFixed(3)), s: p.surface, r: +p.rot.toFixed(2), sc: +p.scale.toFixed(2), g: +p.grown.toFixed(2), h: +p.health.toFixed(2) }));
+    return this.list.map((p) => ({ id: p.id, pos: p.pos.toArray().map((v) => +v.toFixed(2)), n: p.normal.toArray().map((v) => +v.toFixed(3)), s: p.surface, v: p.variant, r: +p.rot.toFixed(2), sc: +p.scale.toFixed(2), g: +p.grown.toFixed(2), h: +p.health.toFixed(2) }));
   }
 
   clear() {

@@ -52,11 +52,11 @@ const server = http.createServer((req, res) => {
     if (!fs.existsSync(f)) return route.fulfill({ status: 404 });
     route.fulfill({ status: 200, contentType: 'text/javascript', body: fs.readFileSync(f) });
   });
-  await page.goto(`http://localhost:${port}/?${query}`);
+  await page.goto(`http://localhost:${port}/${arg("page", "")}?${query}`);
   await page.waitForFunction(() => document.getElementById('loading')?.classList.contains('gone') || /Couldn/.test(document.getElementById('loading')?.textContent ?? ''), null, { timeout: 90000 });
   if (script) await page.evaluate(fs.readFileSync(script, 'utf8'));
   await page.waitForTimeout(seconds * 1000);
-  const info = await page.evaluate(() => {
+  const info = arg('page', '') ? {} : await page.evaluate(() => {
     const w = window.paludarium;
     if (!w) return { error: document.getElementById('loading').textContent };
     return {
@@ -66,7 +66,7 @@ const server = http.createServer((req, res) => {
       plants: w.plants.list.length,
       ponds: w.water.ponds.length,
       falls: w.water.falls.length,
-      rocks: w.decor.rocks.length,
+      pieces: w.decor.pieces.length,
       env: { day: w.env.day, clock: w.env.clock, temp: +w.env.temp.toFixed(1), rh: +w.env.humidity.toFixed(0), nh3: +w.env.ammonia.toFixed(3), no3: +w.env.nitrate.toFixed(1), o2: +w.env.oxygen.toFixed(1) },
       log: w.logs.slice(0, 5).map((l) => l.msg),
     };
