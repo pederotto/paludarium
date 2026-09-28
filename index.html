@@ -11,7 +11,9 @@
     "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.webgpu.js",
     "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.webgpu.js",
     "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.tsl.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
+    "camera-controls": "https://cdn.jsdelivr.net/npm/camera-controls@3.1.2/dist/camera-controls.module.js",
+    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.15/build/index.module.js"
   }
 }
 </script>
@@ -31,6 +33,9 @@
   #clock { background: var(--panel); padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
   #speed { display: flex; gap: 4px; background: var(--panel); padding: 4px; border-radius: 10px; border: 1px solid var(--line); }
   .spacer { flex: 1; }
+  #views { display: flex; gap: 4px; background: var(--panel); padding: 4px; border-radius: 10px; border: 1px solid var(--line); }
+  #stage { margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  #stage .bar { margin: 4px 0; }
   #togglePanel { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; cursor: pointer; }
 
   #left { position: fixed; top: 58px; left: 10px; bottom: 44px; width: 250px; display: flex; flex-direction: column; gap: 8px; }
@@ -101,6 +106,7 @@
   <div id="clock">Day 1</div>
   <div id="speed" title="Simulation speed (Space pauses)"></div>
   <div class="spacer"></div>
+  <div id="views" title="Camera views (double-click anything to focus on it)"></div>
   <button id="togglePanel" title="Show or hide panels (H)">Panels</button>
 </header>
 <aside id="left">
@@ -108,7 +114,7 @@
   <div id="options"></div>
 </aside>
 <aside id="right">
-  <div class="card"><h3>Environment</h3><div id="stats"></div></div>
+  <div class="card"><h3>Environment</h3><div id="stage"></div><div id="stats"></div></div>
   <div class="card"><h3>Care</h3><div id="controls"></div></div>
   <div class="card" id="inspect" hidden></div>
   <div class="card"><h3>Inhabitants</h3><div id="census"></div></div>

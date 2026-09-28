@@ -5,6 +5,13 @@
 - **[three.js](https://github.com/mrdoob/three.js)** r186, MIT. The renderer (WebGPU and WebGL 2), TSL shading language, OrbitControls, RoomEnvironment, GLTFLoader, BufferGeometryUtils and the bloom post-processing node. It loads from the jsDelivr CDN at runtime. The ripple simulation in `src/waterfx.js` follows the structure of its `webgpu_compute_water` example.
 - **[gltf-transform](https://github.com/donmccurdy/glTF-Transform)** (MIT) and **[meshoptimizer](https://github.com/zeux/meshoptimizer)** (MIT), used offline by `tools/import-polyhaven.mjs` to simplify the scanned models and pack them as .glb.
 - **[sharp](https://github.com/lovell/sharp)** (Apache-2.0), used offline to resize textures.
+- **[camera-controls](https://github.com/yomotsu/camera-controls)** by yomotsu (MIT): the camera (eased orbit, pan and zoom toward the pointer, animated views). Loaded from jsDelivr.
+- **[three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)** by Garrett Johnson (MIT): bounding volume hierarchies for fast ray casts when rocks are stamped into the ground. Loaded from jsDelivr.
+- three.js's **TransformControls** (the handles for moving, turning and scaling rocks), **GTAONode** (ambient occlusion) and the flow-map technique of **Water2Mesh** (after Alex Vlachos, "Water Flow in Portal 2", SIGGRAPH 2010), used for the moving foam and streaks on streams.
+
+## Techniques
+
+- The water outside the main pool uses the "virtual pipes" shallow-water model from X. Mei, P. Decaudin and B.-G. Hu, "Fast Hydraulic Erosion Simulation and Visualization on GPU" (Pacific Graphics 2007), as used by open-source terrain simulators such as [LanLou123/Webgl-Erosion](https://github.com/LanLou123/Webgl-Erosion) and [bshishov/UnityTerrainErosionGPU](https://github.com/bshishov/UnityTerrainErosionGPU). Written from the paper for this project.
 
 ## CAUSTIC//VOLUME
 

@@ -1,14 +1,17 @@
 // The living part: day/night, climate (temperature, humidity), water
-import * as THREE from 'three/webgpu';
 // chemistry (the nitrogen cycle, oxygen), food and detritus, and each
-// animal's hunger, health, growth, breeding and death.
+// animal's hunger, health, growth, breeding and death. How the tank as a
+// whole settles in over weeks is in ecology.js.
 //
 // The numbers are simplified but follow real husbandry: fish waste becomes
 // ammonia; bacteria that colonise a new tank over days turn it into nitrite
 // and then nitrate; plants and water changes remove nitrate. Frogs need damp
 // air, fish need clean water, and everyone needs food.
 
+import * as THREE from 'three/webgpu';
 import { SPECIES, FOOD_VALUE, one } from './animals.js';
+import { Ecology } from './ecology.js';
+import { PLANTS } from './plants.js';
 import { clamp, lerp } from './geo.js';
 import { TANK } from './config.js';
 
@@ -43,6 +46,30 @@ export class Env {
     this.lastFed = -1;
     this.culture = true;   // a fruit fly culture that releases flies every other day
     this.lastCulture = -2;
+    this.algae = 0.05;          // 0 … 1, green water and film
+    this.diatoms = 0;           // 0 … 1, brown film of a new tank
+    this.rockMoss = 0.9;        // moss grown over the hardscape
+    this.tankDays = 60;         // days since the tank was set up
+  }
+
+  // A tank that has just been set up: raw water, no bacteria, nothing grown.
+  newTank() {
+    this.reset();
+    Object.assign(this, { cycle: 0, biofilm: 0, algae: 0, diatoms: 0, rockMoss: 0, tankDays: 0, nitrate: 0, detritus: 1.5, humidity: 60 });
+  }
+
+  // The starter tank has been running for a couple of months.
+  matureTank() {
+    Object.assign(this, { cycle: 0.9, nitrate: 8, humidity: 85, biofilm: 0.4, algae: 0.05, diatoms: 0, rockMoss: 0.9, tankDays: 60 });
+  }
+
+  static KEYS = ['minute', 'temp', 'humidity', 'ammonia', 'nitrite', 'nitrate', 'oxygen', 'cycle', 'detritus', 'biofilm', 'lights', 'heater',
+    'setpoint', 'lid', 'filter', 'room', 'autoFeed', 'lastFed', 'culture', 'lastCulture', 'algae', 'diatoms', 'rockMoss', 'tankDays'];
+
+  serialize() { return Object.fromEntries(Env.KEYS.map((k) => [k, this[k]])); }
+  load(o = {}) {
+    this.reset();
+    for (const k of Env.KEYS) if (o[k] !== undefined) this[k] = o[k];
   }
 
   get day() { return Math.floor(this.minute / 1440); }
@@ -68,6 +95,7 @@ export class Sim {
     this.env = world.env;
     this.acc = 0;
     this.stats = {};
+    this.eco = new Ecology(world);
   }
 
   // dtMin: game minutes elapsed this frame.
@@ -93,14 +121,16 @@ export class Sim {
     const area = W.water.surfaceArea();
     const floor = TANK.w * TANK.d;
     const waterFrac = clamp(area / floor, 0, 1);
-    const falls = W.water.falls.length;
+    // Falls wet the air and the water (up to a point); less when the pump stops.
+    const falls = Math.min(4, W.water.falls.length) * (W.water.hydro.pump.running ? 1 : 0.3);
     let tTarget = E.room + light * 2.2 + (E.lid ? 0.8 : 0);
     if (E.heater && tTarget < E.setpoint) tTarget = E.setpoint;
     E.temp = lerp(E.temp, tTarget, clamp(d * 0.004, 0, 1));
-    let hTarget = 38 + waterFrac * 38 + falls * 6 + E.mist * 30 + (E.lid ? 14 : -8) + W.mossFraction() * 10 + W.plants.list.length * 0.08;
+    let hTarget = 38 + waterFrac * 36 + falls * 3.5 + E.mist * 30 + (E.lid ? 12 : -8) + W.mossFraction() * 10 + Math.min(8, W.plants.list.length * 0.06);
     hTarget -= Math.max(0, E.temp - 24) * 1.2;
     E.humidity = clamp(lerp(E.humidity, clamp(hTarget, 20, 100), clamp(d * 0.01, 0, 1)), 15, 100);
     E.mist = Math.max(0, E.mist - d / 90);
+    W.water.hydro.evaporate(d, E.humidity, E.temp, area * (E.lid ? 0.4 : 1));
 
     // --- Water chemistry ---------------------------------------------
     const litres = Math.max(1, W.water.volumeLitres());
@@ -122,8 +152,9 @@ export class Sim {
     const toNitrate = E.nitrite * clamp(E.cycle * 0.01 * d, 0, 0.9);
     E.nitrite -= toNitrate;
     E.nitrate += toNitrate * 2.7;
-    // Bacteria colonise over ~5 days when there is something to eat.
-    E.cycle = clamp(E.cycle + d / (1440 * 5) * (E.ammonia > 0.02 || E.nitrite > 0.02 ? 1 : 0.2), 0, 1);
+    // Bacteria colonise a new tank over two to three weeks when they have
+    // ammonia to eat, and hardly at all without it.
+    E.cycle = clamp(E.cycle + d / (1440 * 16) * (E.ammonia > 0.02 || E.nitrite > 0.02 ? 1 : 0.1), 0, 1);
     // Plants take up nitrate (and a little ammonia).
     const pl = this.plantOut ?? { nitrateUse: 0, shade: 0 };
     const uptake = pl.nitrateUse * 0.004 * d * (0.3 + light) / litres;
@@ -143,6 +174,8 @@ export class Sim {
     this.plantOut = pout;
     E.detritus += pout.deaths.length * 0.8;
     for (const p of pout.deaths) W.log(`A ${plantName(p.id)} died.`, 'bad');
+    for (const p of pout.born) if (Math.random() < 0.3) W.log(`A ${plantName(p.id)} spread and put out a new plant.`, 'good');
+    this.eco.step(d, light);
 
     // --- Auto-feeder: once a day at 10:00 if there are fish.
     if (E.autoFeed && E.day !== E.lastFed && E.minute % 1440 >= 600) {
@@ -153,7 +186,7 @@ export class Sim {
     // Fruit fly culture: a few flies hatch every other day, if anyone eats them.
     if (E.culture && E.day - E.lastCulture >= 2 && E.minute % 1440 >= 660) {
       E.lastCulture = E.day;
-      const hunters = ['dartfrog', 'toad', 'gecko', 'newt'].some((id) => W.animals.count(id) > 0);
+      const hunters = ['dartfrog', 'strawberry', 'toad', 'gecko', 'newt'].some((id) => W.animals.count(id) > 0);
       if (hunters) {
         let n = 0;
         for (let k = 0; k < 8; k++) {
@@ -333,5 +366,6 @@ export class Sim {
 }
 
 function plantName(id) {
-  return { vallisneria: 'vallisneria', sword: 'Amazon sword', javafern: 'Java fern' }[id] ?? id;
+  const n = PLANTS[id]?.name ?? id;
+  return /^[A-Z][a-z]+ [A-Z]/.test(n) ? n : n.toLowerCase().replace('java', 'Java').replace('amazon', 'Amazon');
 }

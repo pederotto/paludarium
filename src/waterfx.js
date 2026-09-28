@@ -21,7 +21,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, uniform, uniformArray, texture, uv, vec2, vec3, vec4, float, exp, clamp, max, abs, dot, normalize, refract,
   sin, cos, time, varying, positionLocal, dFdx, dFdy, mix, smoothstep, pow, cameraPosition, positionWorld,
-  transformNormalToView, min,
+  transformNormalToView, min, viewportSharedTexture, viewportSafeUV, screenUV, reflect,
 } from 'three/tsl';
 import { TANK } from './config.js';
 import { U } from './uniforms.js';
@@ -224,21 +224,40 @@ export class WaterFX {
 // Caustic light at a world point (0 = none, ~1 = average, peaks higher).
 export const causticLight = Fn(([pw]) => FX.caustics.sample(tankUV(pw.xz)).rgb);
 
-// The main water surface material: rippled normals, Fresnel reflection of
-// the room, and the view into the tinted water.
-export function waterSurfaceMaterial({ ripples = true, opacity = 0.12 } = {}) {
-  const m = new THREE.MeshStandardNodeMaterial({ transparent: true, roughness: 0.02, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
+// The main water surface: rippled normals, the view into the water bent by
+// refraction (the rendered scene behind the surface, sampled with an offset
+// that follows the ripples, as in three.js's Water2Mesh), and a Fresnel
+// reflection that takes over at grazing angles. The LED's glints come from
+// the standard specular lighting.
+//
+// The room is dark, so the surface reflects almost nothing but the LED bar
+// overhead: the reflection is a dim constant plus the lamp's glint, worked
+// out here rather than by the standard lighting (whose bright environment
+// map turned the surface milky at low angles).
+export function waterSurfaceMaterial({ ripples = true, opacity = 0.12, refract = true } = {}) {
+  const m = new THREE.MeshBasicNodeMaterial({ transparent: true, side: THREE.DoubleSide, depthWrite: false });
   const p = positionLocal.xz;
   const sN = ripples ? surfaceAt(p) : wavesAt(p);
   m.positionNode = vec3(positionLocal.x, positionLocal.y.add(sN.x), positionLocal.z);
   const sF = ripples ? surfaceAt(positionWorld.xz) : wavesAt(positionWorld.xz);
   const n = normalFrom(sF);
-  m.normalNode = transformNormalToView(n);
   const view = normalize(cameraPosition.sub(positionWorld));
-  const fres = pow(float(1).sub(clamp(abs(dot(view, n)), 0, 1)), 5).mul(0.95).add(0.05);
-  // The room is dark, so the surface mostly reflects darkness: keep it clear
-  // and let the LED's glints (specular) and the Fresnel edge show it.
-  m.colorNode = mix(U.tint.mul(0.08), vec3(0.2, 0.24, 0.26), fres.mul(0.4));
-  m.opacityNode = clamp(float(opacity * 0.6).add(fres.mul(0.45)), 0, 0.8);
+  const fres = pow(float(1).sub(clamp(abs(dot(view, n)), 0, 1)), 5).mul(0.95).add(0.03);
+  const room = vec3(0.025, 0.03, 0.034).mul(U.daylight.mul(0.6).add(0.4));
+  // Glint of the LED: a sharp highlight plus a softer sheen around it.
+  const r = reflect(view.negate(), n);
+  const toLamp = FX.lightDir.negate();
+  const rl = max(dot(r, toLamp), 0);
+  const glint = pow(rl, 900).mul(6).add(pow(rl, 60).mul(0.25)).mul(U.daylight);
+  const refl = room.add(glint);
+  if (refract) {
+    const bent = viewportSafeUV(screenUV.add(n.xz.mul(0.035)));
+    const below = viewportSharedTexture(bent).rgb;
+    m.colorNode = mix(below.mul(vec3(0.94, 0.98, 0.98)), refl, fres).add(glint.mul(float(1).sub(fres)));
+    m.opacityNode = float(1);
+  } else {
+    m.colorNode = mix(U.tint.mul(0.08), refl, fres).add(glint);
+    m.opacityNode = clamp(float(opacity * 0.6).add(fres.mul(0.45)), 0, 0.8);
+  }
   return m;
 }

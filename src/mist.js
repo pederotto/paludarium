@@ -70,7 +70,7 @@ export class Mist {
     const hum = Math.min(1, Math.max(0, (E.humidity - 55) / 40)) * 0.8 + E.mist;
     U.mist.value = hum;
     // Emitters: the foot of each waterfall, plus the open water and moss.
-    this.acc += dt * (4 + hum * 10);
+    this.acc += dt * (3 + hum * 6);
     while (this.acc > 1) {
       this.acc -= 1;
       const fall = W.water.falls[Math.floor(Math.random() * Math.max(1, W.water.falls.length))];
@@ -93,7 +93,7 @@ export class Mist {
       const grow = q.size * (0.6 + t * 0.9);
       q.s.scale.set(grow, grow, 1);
       // Fade in, then out.
-      q.alpha.value = Math.sin(Math.PI * t) * (0.06 + hum * 0.14);
+      q.alpha.value = Math.sin(Math.PI * t) * (0.035 + hum * 0.07);
     }
   }
 }

@@ -8,21 +8,28 @@
 //    https://github.com/SkyeShark/SeedThree): a welded icosahedron displaced
 //    by low-frequency waves, here stretched upwards, tapered and cut with
 //    horizontal strata.
-//  - Moss tufts, scattered wherever moss is painted.
+//  - Moss tufts, scattered wherever moss grows.
 //
-// Every solid piece is stamped into the substrate heightfield: the ground
-// under it is raised to its top surface (found by casting rays down onto the
-// mesh), so animals climb it, waterfalls run down it and ponds pool against
-// it. Removing a piece restores the ground.
+// Every solid piece is stamped into the substrate: the ground under it is
+// raised to its top surface (found by casting rays down onto the mesh), so
+// animals climb it, water runs over it and pools against it, and pieces can
+// be stacked. Stamps sit on top of the sculpted ground (terrain.js), so a
+// piece can be moved, turned, scaled or removed at any time. Ray casts use
+// three-mesh-bvh (MIT, https://github.com/gkjohnson/three-mesh-bvh), which
+// makes re-stamping fast enough to follow a piece while you drag it.
 
 import * as THREE from 'three/webgpu';
-import { texture, float, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWorld, smoothstep, normalWorld, mix, mx_noise_float } from 'three/tsl';
+import { float, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWorld, smoothstep, normalWorld, mix, mx_noise_float } from 'three/tsl';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { TEX, modelParts } from './assets.js';
 import { plantMaterial, hardscapeMaterial, wet, triplanar, blendWeights } from './shaders.js';
 import { U } from './uniforms.js';
 import { MAT, NMAT, TANK } from './config.js';
 import { rng, clamp } from './geo.js';
+
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 // Catalogue of placeable pieces. `size` is the default largest dimension in cm.
 export const PIECES = {
@@ -82,7 +89,7 @@ function spireMaterial() {
   const up = normalWorld.y;
   const n = mx_noise_float(pw.mul(0.3)).mul(0.4).add(mx_noise_float(pw.mul(1.1)).mul(0.2));
   const aboveWater = smoothstep(0.0, 1.5, pw.y.sub(U.waterLevel));
-  const cover = smoothstep(0.45, 0.8, up.add(n)).mul(aboveWater);
+  const cover = smoothstep(0.45, 0.8, up.add(n).sub(float(1).sub(U.rockMoss).mul(0.9))).mul(aboveWater);
   const mossCol = triplanar(TEX.ground[4], 1 / 8, pw, bf).mul(vec3(0.55, 0.8, 0.42));
   const [color, emissive] = wet(mix(stone, mossCol, cover), pw);
   m.colorNode = color;
@@ -100,6 +107,7 @@ export class Decor {
     this.group.name = 'hardscape';
     scene.add(this.group);
     this.ray = new THREE.Raycaster();
+    this.ray.firstHitOnly = true;
 
     // Moss tufts (SeedThree grass tuft card, tinted mossy).
     const tuftGeo = new THREE.PlaneGeometry(1, 1, 1, 2);
@@ -111,7 +119,7 @@ export class Decor {
     for (let i = 0; i < n; i++) sway[i] = tg.attributes.position.getY(i);
     tg.setAttribute('sway', new THREE.BufferAttribute(sway, 1));
     tg.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    this.tuftCap = 4000;
+    this.tuftCap = 5000;
     this.tufts = new THREE.InstancedMesh(tg, plantMaterial({ amp: 0.08, underwaterAmp: 0.3, map: TEX.cards.grassTuft }), this.tuftCap);
     this.tufts.count = 0; this.tufts.frustumCulled = false; this.tufts.receiveShadow = true;
     this.tufts.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.tuftCap * 3), 3);
@@ -137,6 +145,7 @@ export class Decor {
           g.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
           g.computeBoundingBox();
           g.computeBoundingSphere();
+          g.computeBoundsTree();
           list.push({ geometry: g, material: mat(p.material, def.moss), name: p.name });
         }
       }
@@ -144,73 +153,119 @@ export class Decor {
     }
     const r = rng(7);
     const sm = spireMaterial();
-    this.parts.spire = Array.from({ length: 5 }, (_, i) => ({
-      geometry: displace(new THREE.IcosahedronGeometry(1, 5), r, { squash: 1, stretch: 1.8 + r() * 0.9, taper: 0.45 + r() * 0.3, strata: 0.1 + r() * 0.08 }),
-      material: sm,
-      name: 'spire' + i,
-    }));
+    this.parts.spire = Array.from({ length: 5 }, (_, i) => {
+      const geometry = displace(new THREE.IcosahedronGeometry(1, 5), r, { squash: 1, stretch: 1.8 + r() * 0.9, taper: 0.45 + r() * 0.3, strata: 0.1 + r() * 0.08 });
+      geometry.computeBoundsTree();
+      return { geometry, material: sm, name: 'spire' + i };
+    });
   }
 
-  // Adds a piece at (x, z). opt: variant, size, rot, tilt, scale [sx, sy, sz], y.
+  // Adds a piece at (x, z) sitting on the ground (or on whatever is there,
+  // so pieces stack). opt: variant, size, rot, tilt, scale [sx, sy, sz], y, sink.
   addPiece(type, x, z, opt = {}) {
     const def = PIECES[type];
     const list = this.parts[type];
     if (!def || !list?.length) return null;
-    const variant = opt.variant ?? Math.floor(Math.random() * list.length);
-    const part = list[variant % list.length];
-    const bb = part.geometry.boundingBox;
+    const variant = (opt.variant ?? Math.floor(Math.random() * list.length)) % list.length;
+    const bb = list[variant].geometry.boundingBox;
     const ext = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
-    const size = opt.size ?? def.size;
-    const k = size / ext;
+    const k = (opt.size ?? def.size) / ext;
     const sc = opt.scale ?? [1, 1, 1];
     const scale = new THREE.Vector3(k * sc[0], k * sc[1], k * sc[2]);
     const rot = opt.rot ?? Math.random() * Math.PI * 2;
     const tilt = opt.tilt ?? [0, 0];
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt[0], rot, tilt[1], 'YXZ'));
+    const piece = this.placePiece(type, variant, new THREE.Vector3(x, 0, z), q, scale);
+    if (opt.y !== undefined) piece.mesh.position.y = opt.y;
+    else this.settle(piece, opt.sink ?? 0.08);
+    this.restamp(piece);
+    return piece;
+  }
+
+  // Low level: a piece with an exact transform (no settling).
+  placePiece(type, variant, pos, quat, scale) {
+    const part = this.parts[type][variant % this.parts[type].length];
     const mesh = new THREE.Mesh(part.geometry, part.material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    mesh.rotation.set(tilt[0], rot, tilt[1], 'YXZ');
+    mesh.position.copy(pos);
+    mesh.quaternion.copy(quat);
     mesh.scale.copy(scale);
-    // Seat it on the lowest ground under its footprint so no edge floats.
-    const T = this.world.terrain;
-    const fr = Math.min(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * Math.min(scale.x, scale.z) * 0.35;
-    let g = Infinity;
-    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) g = Math.min(g, T.heightAt(x + dx * fr, z + dz * fr));
-    const y = opt.y ?? g - (opt.sink ?? 0.08) * (bb.max.y - bb.min.y) * scale.y;
-    mesh.position.set(x, y, z);
     mesh.updateMatrixWorld(true);
     mesh.name = 'piece';
-    const piece = { type, variant, x, y, z, rot, tilt, scale: scale.toArray(), size, sc, saved: [], mesh };
+    const piece = { type, variant, mesh, stamp: null };
     mesh.userData.piece = piece;
     this.group.add(mesh);
-    if (def.stamp) this.stamp(piece);
     this.pieces.push(piece);
     return piece;
   }
 
-  // Raise the ground under the piece to its top surface.
-  stamp(piece) {
-    const f = this.world.terrain.field;
-    const box = new THREE.Box3().setFromObject(piece.mesh);
-    const down = new THREE.Vector3(0, -1, 0);
-    const o = new THREE.Vector3();
-    const [i0, j0] = f.toGrid(box.min.x, box.min.z).map(Math.floor);
-    const [i1, j1] = f.toGrid(box.max.x, box.max.z).map(Math.ceil);
-    for (let j = Math.max(0, j0); j <= Math.min(f.ny, j1); j++) {
-      for (let i = Math.max(0, i0); i <= Math.min(f.nx, i1); i++) {
-        const [x, z] = f.toWorld(i, j);
-        this.ray.set(o.set(x, box.max.y + 1, z), down);
-        const hit = this.ray.intersectObject(piece.mesh, false)[0];
-        if (!hit) continue;
-        const n = f.idx(i, j);
-        const top = hit.point.y - 0.15;
-        if (top <= f.h[n]) continue;
-        piece.saved.push([n, f.h[n], Array.from(f.mat.subarray(n * NMAT, n * NMAT + NMAT))]);
-        f.h[n] = Math.min(f.maxH, top);
-        for (let m = 0; m < NMAT; m++) f.mat[n * NMAT + m] = m === MAT.rock ? 1 : 0;
+  // Sits the piece on the lowest ground under its footprint, sunk in a
+  // little, ignoring its own stamp.
+  settle(piece, sink = 0.08) {
+    const T = this.world.terrain;
+    const own = piece.stamp;
+    if (own) { piece.stamp = null; T.compose(this.stamps()); }
+    const m = piece.mesh;
+    m.position.y = 0;
+    m.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(m);
+    const cx = m.position.x, cz = m.position.z;
+    const fr = Math.min(box.max.x - box.min.x, box.max.z - box.min.z) * 0.35;
+    let g = Infinity;
+    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) g = Math.min(g, T.heightAt(cx + dx * fr, cz + dz * fr));
+    m.position.y = g - box.min.y - sink * (box.max.y - box.min.y);
+    m.updateMatrixWorld(true);
+    if (own) piece.stamp = own;
+  }
+
+  stamps() { return this.pieces.map((p) => p.stamp); }
+
+  // The ground under the piece rises to its top surface.
+  restamp(piece) {
+    const def = PIECES[piece.type];
+    const T = this.world.terrain;
+    if (def.stamp) {
+      const f = T.field;
+      piece.mesh.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(piece.mesh);
+      const down = new THREE.Vector3(0, -1, 0);
+      const o = new THREE.Vector3();
+      const [i0, j0] = f.toGrid(box.min.x, box.min.z).map(Math.floor);
+      const [i1, j1] = f.toGrid(box.max.x, box.max.z).map(Math.ceil);
+      const idx = [], top = [];
+      for (let j = Math.max(0, j0); j <= Math.min(f.ny, j1); j++) {
+        for (let i = Math.max(0, i0); i <= Math.min(f.nx, i1); i++) {
+          const [x, z] = f.toWorld(i, j);
+          this.ray.set(o.set(x, box.max.y + 1, z), down);
+          const hit = this.ray.intersectObject(piece.mesh, false)[0];
+          if (!hit) continue;
+          idx.push(f.idx(i, j));
+          top.push(Math.min(f.maxH, hit.point.y - 0.15));
+        }
       }
-    }
-    f.dirty = true;
+      piece.stamp = { idx: Int32Array.from(idx), top: Float32Array.from(top) };
+    } else piece.stamp = null;
+    T.compose(this.stamps());
+  }
+
+  // Keep the piece inside the tank after it was dragged.
+  clampPiece(piece) {
+    const p = piece.mesh.position;
+    p.x = clamp(p.x, -TANK.w / 2 + 1, TANK.w / 2 - 1);
+    p.z = clamp(p.z, -TANK.d / 2 + 1, TANK.d / 2 - 1);
+    p.y = clamp(p.y, -20, TANK.h);
+    piece.mesh.updateMatrixWorld(true);
+  }
+
+  duplicate(piece) {
+    const m = piece.mesh;
+    const off = new THREE.Vector3(4 + Math.random() * 2, 0, 2 + Math.random() * 2);
+    const np = this.placePiece(piece.type, piece.variant, m.position.clone().add(off), m.quaternion.clone(), m.scale.clone());
+    this.clampPiece(np);
+    this.settle(np, 0.05);
+    this.restamp(np);
+    return np;
   }
 
   pieceAt(object) {
@@ -220,15 +275,9 @@ export class Decor {
   }
 
   removePiece(piece) {
-    const f = this.world.terrain.field;
-    for (let k = piece.saved.length - 1; k >= 0; k--) {
-      const [n, h, m] = piece.saved[k];
-      f.h[n] = h;
-      f.mat.set(m, n * NMAT);
-    }
-    f.dirty = true;
     this.group.remove(piece.mesh);
     this.pieces.splice(this.pieces.indexOf(piece), 1);
+    this.world.terrain.compose(this.stamps());
   }
 
   get meshes() { return this.group.children; }
@@ -239,11 +288,12 @@ export class Decor {
     const r = rng(99);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     const c = new THREE.Color();
+    const up = new THREE.Vector3(0, 1, 0);
     let k = 0;
     const put = (pos, normal, size) => {
       if (k >= this.tuftCap) return;
-      q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-      q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 6.28));
+      q.setFromUnitVectors(up, normal);
+      q.multiply(new THREE.Quaternion().setFromAxisAngle(up, r() * 6.28));
       m.compose(pos, q, s.set(size * (0.8 + r() * 0.5), size * (0.5 + r() * 0.4), size));
       this.tufts.setMatrixAt(k, m);
       c.setRGB(0.55 + r() * 0.15, 0.7 + r() * 0.2, 0.35 + r() * 0.1);
@@ -253,23 +303,24 @@ export class Decor {
     const tf = W.terrain.field;
     for (let j = 0; j <= tf.ny; j++) for (let i = 0; i <= tf.nx; i++) {
       const n = tf.idx(i, j);
+      if (tf.stamped[n]) continue;
       const w = tf.mat[n * NMAT + MAT.moss];
-      if (w < 0.5 || r() > (w - 0.4) * 0.6) continue;
+      if (w < 0.45 || r() > (w - 0.35) * 0.6) continue;
       const [x, z] = tf.toWorld(i + (r() - 0.5), j + (r() - 0.5));
       const y = W.terrain.heightAt(x, z);
-      if (W.water.level - y > 3) continue;
-      put(p.set(x, y - 0.1, z), W.terrain.normalAt(x, z).lerp(new THREE.Vector3(0, 1, 0), 0.5).normalize(), 1.2 + r() * 1.1);
+      if (W.water.surfaceAt(x, z, 0.4) > y + 0.5) continue;
+      put(p.set(x, y - 0.1, z), W.terrain.normalAt(x, z).lerp(up, 0.5).normalize(), (1.2 + r() * 1.1) * Math.min(1, w + 0.2));
     }
     const wf = W.wall.field;
     for (let j = 0; j <= wf.ny; j++) for (let i = 0; i <= wf.nx; i++) {
       const n = wf.idx(i, j);
       const w = wf.mat[n * NMAT + MAT.moss];
-      if (w < 0.5 || r() > (w - 0.4) * 0.5) continue;
+      if (w < 0.45 || r() > (w - 0.35) * 0.5) continue;
       const [x, y] = wf.toWorld(i + (r() - 0.5), j + (r() - 0.5));
       if (y < W.water.level || y < W.terrain.heightAt(x, W.wall.zAt(x, y) + 0.5) - 0.3) continue;
       const [gx, gy] = wf.gradient(x, y);
-      const nrm = new THREE.Vector3(-gx, -gy, 1).normalize().lerp(new THREE.Vector3(0, 1, 0), 0.35).normalize();
-      put(p.set(x, y, W.wall.zAt(x, y) - 0.1), nrm, 1.2 + r() * 1.0);
+      const nrm = new THREE.Vector3(-gx, -gy, 1).normalize().lerp(up, 0.35).normalize();
+      put(p.set(x, y, W.wall.zAt(x, y) - 0.1), nrm, (1.2 + r() * 1.0) * Math.min(1, w + 0.2));
     }
     this.tufts.count = k;
     this.tufts.instanceMatrix.needsUpdate = true;
@@ -277,25 +328,25 @@ export class Decor {
   }
 
   serialize() {
-    return this.pieces.map((p) => ({ t: p.type, v: p.variant, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), r: +p.rot.toFixed(3), tl: p.tilt.map((v) => +v.toFixed(3)), s: p.size, sc: p.sc }));
+    const f = (v) => +v.toFixed(4);
+    return this.pieces.map((p) => ({ t: p.type, v: p.variant, p: p.mesh.position.toArray().map(f), q: p.mesh.quaternion.toArray().map(f), s: p.mesh.scale.toArray().map(f) }));
   }
 
-  // Re-create pieces from a save. The saved heightfield already contains
-  // their stamps, so they are added without stamping again.
+  // Re-creates pieces from a save (and stamps them again).
   restore(list) {
     for (const o of list) {
-      const def = PIECES[o.t];
-      if (!def) continue;
-      const stamp = def.stamp;
-      def.stamp = false;
-      this.addPiece(o.t, o.x, o.z, { variant: o.v, y: o.y, rot: o.r, tilt: o.tl, size: o.s, scale: o.sc });
-      def.stamp = stamp;
+      if (!PIECES[o.t] || !this.parts[o.t]?.length) continue;
+      let piece;
+      if (o.q) piece = this.placePiece(o.t, o.v, new THREE.Vector3(...o.p), new THREE.Quaternion(...o.q), new THREE.Vector3(...o.s));
+      else piece = this.addPiece(o.t, o.x, o.z, { variant: o.v, y: o.y, rot: o.r, tilt: o.tl, size: o.s, scale: o.sc });
+      if (piece && o.q) this.restamp(piece);
     }
   }
 
   clear() {
     for (const p of [...this.pieces]) this.group.remove(p.mesh);
     this.pieces = [];
+    this.world.terrain.compose([]);
   }
 }
 

@@ -331,6 +331,13 @@ export const PLANTS = {
   },
 };
 
+// How plants spread once grown: [chance per day, reach in cm, most plants of that kind].
+const SPREAD = {
+  weed: [0.15, 5, 30], grass: [0.08, 4, 30], fernph: [0.03, 8, 16], fern: [0.03, 7, 14], bilberry: [0.02, 6, 8],
+  pothos: [0.08, 6, 20], bromeliad: [0.02, 6, 10], cattail: [0.04, 5, 10], bamboo: [0.03, 6, 8],
+  vallisneria: [0.12, 5, 40], sword: [0.02, 8, 6], javafern: [0.05, 4, 16], frogbit: [0.35, 5, 40], lily: [0.03, 9, 6],
+};
+
 export class Plants {
   constructor(scene) {
     this.scene = scene;
@@ -491,9 +498,11 @@ export class Plants {
     for (const p of [...this.list]) {
       const sp = PLANTS[p.id];
       if (sp.habitat === 'floating') {
-        const s = world.water.surfaceAt(p.pos.x, p.pos.z);
-        if (s === -Infinity) { this.remove(p); continue; }
-        p.pos.y = s;
+        // Stranded floaters sit on the mud (and slowly die, see step()).
+        const s = world.water.surfaceAt(p.pos.x, p.pos.z, 0.2);
+        const y = s === -Infinity ? world.terrain.heightAt(p.pos.x, p.pos.z) : s;
+        if (Math.abs(y - p.pos.y) < 0.02) continue;
+        p.pos.y = y;
         this.writeInstance(p);
       }
     }
@@ -501,7 +510,7 @@ export class Plants {
 
   // Sim step: `env` gives light, humidity, nitrate. dtMin = game minutes.
   step(dtMin, env, world) {
-    const out = { nitrateUse: 0, shade: 0, deaths: [] };
+    const out = { nitrateUse: 0, shade: 0, deaths: [], born: [] };
     for (const p of [...this.list]) {
       const sp = PLANTS[p.id];
       p.age += dtMin;
@@ -531,9 +540,42 @@ export class Plants {
       } // In between: the plant stalls but survives.
       if (p.health <= 0) { out.deaths.push(p); continue; }
       if (Math.random() < 0.02) this.writeInstance(p);
+      // Healthy, full-grown plants spread: runners, plantlets, spores.
+      const sprd = SPREAD[p.id];
+      if (sprd && p.grown > 0.9 && p.health > 0.8 && Math.random() < sprd[0] * dtMin / 1440) {
+        const child = this.offshoot(p, sprd, world);
+        if (child) out.born.push(child);
+      }
     }
     for (const p of out.deaths) this.remove(p);
     return out;
+  }
+
+  count(id) { let n = 0; for (const p of this.list) if (p.id === id) n++; return n; }
+
+  offshoot(p, [, r, max], world) {
+    if (this.count(p.id) >= max) return null;
+    const sp = PLANTS[p.id];
+    for (let k = 0; k < 6; k++) {
+      const a = Math.random() * Math.PI * 2, d = r * (0.4 + Math.random() * 0.6);
+      let hit;
+      if (p.surface === 'wall') {
+        const x = p.pos.x + Math.cos(a) * d, y = p.pos.y + Math.sin(a) * d;
+        const [gx, gy] = world.wall.field.gradient(x, y);
+        hit = { point: new THREE.Vector3(x, y, world.wall.zAt(x, y) + 0.2), surface: 'wall', normal: new THREE.Vector3(-gx, -gy, 1).normalize() };
+      } else {
+        const x = p.pos.x + Math.cos(a) * d, z = p.pos.z + Math.sin(a) * d;
+        if (Math.abs(x) > 43 || Math.abs(z) > 20.5) continue;
+        const y = world.terrain.heightAt(x, z);
+        hit = { point: new THREE.Vector3(x, y, z), surface: 'terrain', normal: world.terrain.normalAt(x, z) };
+      }
+      if (this.canPlace(p.id, hit, world)) continue;
+      const crowd = this.list.some((q) => q.id === p.id && q.pos.distanceTo(hit.point) < r * 0.35);
+      if (crowd) continue;
+      if (sp.habitat === 'floating') hit.point.y = world.water.surfaceAt(hit.point.x, hit.point.z, 0.2);
+      return this.add(p.id, hit.point, { normal: hit.normal, surface: hit.surface, grown: 0.15 });
+    }
+    return null;
   }
 
   serialize() {

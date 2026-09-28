@@ -3,29 +3,48 @@
 
 import * as THREE from 'three/webgpu';
 import {
-  Fn, vec3, float, positionWorld, time, mix, smoothstep, clamp, mx_noise_float, exp, max, attribute, sin, cos,
-  instanceIndex, positionLocal, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize,
+  Fn, vec3, float, positionWorld, time, mix, smoothstep, clamp, mx_noise_float, exp, max, min, attribute, sin, cos,
+  instanceIndex, positionLocal, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
 } from 'three/tsl';
 import { TEX } from './assets.js';
 import { U } from './uniforms.js';
 import { causticLight } from './waterfx.js';
+import { TANK } from './config.js';
 
 export { U };
 
-// Anything below the water line: light is absorbed with depth (red first,
-// which turns deep things teal-green) and the caustics play over it. Returns
-// [color, emissive] for a base colour at world position pw.
-export function wet(base, pw = positionWorld) {
-  const depth = U.waterLevel.sub(pw.y);
+// Anything under water. Two things happen to the light:
+//  - on the way down from the lamp, water soaks up red first, so deep
+//    things turn teal-green and darker;
+//  - on the way to your eye it is absorbed again and the water scatters
+//    its own faint colour into the view (Beer–Lambert along the view ray,
+//    up to where the ray leaves the water: the surface or the glass). This
+//    is what makes a tank look full of water rather than of air, and it is
+//    thicker when the water is green with algae or cloudy.
+// The caustics play over everything below the surface. Returns
+// [color, emissive] for a base colour at world position pw; `surf` is the
+// height of the water surface above this point.
+export function wet(base, pw = positionWorld, surf = U.waterLevel) {
+  const depth = surf.sub(pw.y);
   const under = smoothstep(-0.2, 0.4, depth);
   const d = max(depth, 0);
-  const absorb = exp(vec3(0.05, 0.018, 0.014).mul(d).negate());
-  const color = mix(base, base.mul(absorb).add(U.tint.mul(0.04).mul(float(1).sub(absorb.g))), under);
+  // (Stronger than pure water, as in a planted tank with tannins and fine
+  // suspended matter; it keeps the sand from glaring under the LED.)
+  const down = exp(vec3(0.075, 0.032, 0.024).mul(d).add(0.25).mul(U.turbidity.add(1)).negate());
+  const toEye = normalize(cameraPosition.sub(pw));
+  const tSurf = toEye.y.greaterThan(0.01).select(d.div(max(toEye.y, 0.01)), float(1e4));
+  const tFront = toEye.z.greaterThan(0.01).select(float(TANK.d / 2).sub(pw.z).div(max(toEye.z, 0.01)), float(1e4));
+  const tSide = float(TANK.w / 2).sub(pw.x.mul(sign(toEye.x))).div(max(abs(toEye.x), 0.01));
+  const path = clamp(min(tSurf, min(tFront, tSide)), 0, 250);
+  const sigma = vec3(0.022, 0.011, 0.0095).mul(U.turbidity.mul(3).add(1));
+  const T = exp(sigma.mul(path).negate());
+  const fog = U.tint.mul(U.daylight.mul(0.16).add(0.015)).mul(exp(d.mul(-0.02)));
+  const color = mix(base, base.mul(down).mul(T), under);
   const c = causticLight(pw);
   // Only the focused light above the average shows as lines; peaks can be
   // 20× the average, so they're compressed to keep the sand from glaring.
-  const lines = clamp(c.sub(0.9), vec3(0), vec3(2.5)).mul(0.4);
-  const emissive = color.mul(lines).mul(under).mul(U.daylight).mul(U.caustics);
+  const lines = clamp(c.sub(0.9), vec3(0), vec3(2.5)).mul(0.28);
+  const emissive = color.mul(lines).mul(U.daylight).mul(U.caustics).add(fog.mul(float(1).sub(T))).mul(under);
   return [color, emissive];
 }
 
@@ -33,7 +52,7 @@ export function wet(base, pw = positionWorld) {
 // as MATERIALS in config.js.
 const GROUND = [
   { tint: [0.8, 0.78, 0.74], scale: 1 / 20 },  // soil (Poly Haven forest_ground_04)
-  { tint: [0.82, 0.78, 0.7], scale: 1 / 12 },  // sand (clean_pebbles)
+  { tint: [0.62, 0.58, 0.5], scale: 1 / 12 },  // sand (clean_pebbles)
   { tint: [0.95, 0.95, 0.95], scale: 1 / 11 }, // gravel (SeedThree)
   { tint: [0.95, 0.95, 0.92], scale: 1 / 22 }, // rock (mossy_rock)
   { tint: [0.6, 0.82, 0.48], scale: 1 / 9 },   // moss (SeedThree grass, tinted)
@@ -54,7 +73,7 @@ const blendWeights = () => {
 
 // Substrate / background: six textures blended by per-vertex weights
 // (painted with the brush).
-export function substrateMaterial() {
+export function substrateMaterial({ perVertexWater = false } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0 });
   const pw = positionWorld;
   const bf = blendWeights();
@@ -64,10 +83,16 @@ export function substrateMaterial() {
   GROUND.forEach((g, k) => {
     base = base.add(triplanar(TEX.ground[k], g.scale, pw, bf).mul(vec3(...g.tint)).mul(ws[k]));
   });
+  // The water over this point: the main pool, or (substrate) any pool or
+  // stream, written per vertex by the water simulation.
+  const surf = perVertexWater ? attribute('wsurf', 'float') : U.waterLevel;
   // A wet band just above the water line reads darker and glossier.
-  const above = pw.y.sub(U.waterLevel);
+  const above = pw.y.sub(surf);
   const wetBand = smoothstep(1.8, 0.0, above).mul(smoothstep(-0.3, 0.1, above)).mul(0.4);
-  const [color, emissive] = wet(base.mul(float(1).sub(wetBand)), pw);
+  // Algae film on everything under water (green), or brown diatoms in a new tank.
+  const film = smoothstep(0.2, -0.5, above).mul(U.algaeFilm).mul(mx_noise_float(pw.mul(0.4)).mul(0.4).add(0.6));
+  base = mix(base, U.algaeColor, clamp(film, 0, 0.75));
+  const [color, emissive] = wet(base.mul(float(1).sub(wetBand)), pw, surf);
   m.colorNode = color;
   m.emissiveNode = emissive;
   m.roughnessNode = mix(float(0.95), float(0.45), wetBand.mul(2));
@@ -91,10 +116,12 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9 } = {}) {
     const up = normalWorld.y;
     const n = mx_noise_float(pw.mul(0.25)).mul(0.5).add(mx_noise_float(pw.mul(0.9)).mul(0.25));
     const aboveWater = smoothstep(0.0, 1.5, pw.y.sub(U.waterLevel));
-    const cover = smoothstep(0.75 - moss * 0.6, 0.95 - moss * 0.5, up.add(n)).mul(aboveWater);
+    const cover = smoothstep(0.75 - moss * 0.6, 0.95 - moss * 0.5, up.add(n).sub(float(1).sub(U.rockMoss).mul(0.9))).mul(aboveWater);
     const mossCol = triplanar(TEX.ground[4], mossScale, pw, blendWeights()).mul(vec3(0.55, 0.8, 0.42));
     base = mix(base, mossCol, cover);
   }
+  const film = smoothstep(0.2, -0.5, pw.y.sub(U.waterLevel)).mul(U.algaeFilm).mul(mx_noise_float(pw.mul(0.5)).mul(0.4).add(0.6));
+  base = mix(base, U.algaeColor, clamp(film, 0, 0.7));
   const [color, emissive] = wet(base, pw);
   m.colorNode = color;
   m.emissiveNode = emissive;

@@ -267,35 +267,106 @@ function quadruped(o) {
   return { sdf, rig, lo: o.lo, hi: o.hi, cell: o.cell ?? 0.12 };
 }
 
+// A frog sitting the way frogs sit: body tilted up at the front, the
+// front legs straight under the chest, the long back legs folded in a Z
+// beside the body (thigh forward, shin back, foot forward again) with
+// splayed toes ending in round pads. The back legs unfold in a hop (see
+// the vertex shader in CreatureMesh).
+function frogBody(o) {
+  const k = o.size ?? 1;
+  const P = (x, y, z) => [x * k, y * k, z * k];
+  const tilt = 0.35, ct = Math.cos(tilt), st = Math.sin(tilt);
+  const legs = [];
+  for (const s of [-1, 1]) {
+    // Front: shoulder, elbow, wrist, then three fingers.
+    legs.push({ k: s < 0 ? 1 : 2, chain: [P(s * 0.55, 0.95, 0.62), P(s * 0.85, 0.5, 0.78), P(s * 0.8, 0.12, 1.15)], r: [0.17, 0.14, 0.12].map((v) => v * k),
+      toes: [[0.28, 0.3], [0.05, 0.4], [-0.25, 0.28]].map(([dx, dz]) => P(s * (0.8 + dx), 0.07, 1.15 + dz)) });
+    // Back: hip, knee (forward and out), ankle (back), toes (forward).
+    legs.push({ k: s < 0 ? 3 : 4, chain: [P(s * 0.55, 0.62, -1.15), P(s * 1.38, 0.62, -0.35), P(s * 1.05, 0.2, -1.4), P(s * 1.28, 0.08, -0.45)], r: [0.34, 0.24, 0.17, 0.12].map((v) => v * k),
+      toes: [[0.35, 0.55], [0.12, 0.72], [-0.12, 0.62], [-0.3, 0.35]].map(([dx, dz]) => P(s * (1.28 + dx), 0.06, -0.45 + dz)) });
+  }
+  const legDist = (x, y, z, l) => {
+    let d = 9, t = 0;
+    const n = l.chain.length - 1;
+    for (let i = 0; i < n; i++) {
+      const [dd, tt] = cap([x, y, z], l.chain[i], l.chain[i + 1], l.r[i], l.r[i + 1] ?? l.r[i] * 0.8);
+      if (dd < d) { d = dd; t = (i + tt) / (n + 0.5); }
+    }
+    const tip = l.chain[n];
+    for (const q of l.toes) {
+      const [dd, tt] = cap([x, y, z], tip, q, 0.07 * k, 0.05 * k);
+      const pad = Math.hypot(x - q[0], y - q[1], z - q[2]) - 0.1 * k;
+      const d2 = Math.min(dd, pad);
+      if (d2 < d) { d = d2; t = (n + tt * 0.5) / (n + 0.5); }
+    }
+    return [d, Math.min(1, t)];
+  };
+  const bodyD = (x, y, z) => {
+    const dy = y - 0.85 * k, dz = z + 0.25 * k;
+    let d = ell(x, dy * ct - dz * st, dy * st + dz * ct, 0.9 * k, 0.7 * k, 1.22 * k);
+    d = smin(d, ell(x, y - 1.18 * k, z - 0.95 * k, 0.8 * k, 0.52 * k, 0.72 * k), 0.35 * k);
+    // Throat and a slightly pointed snout.
+    d = smin(d, ell(x, y - 0.95 * k, z - 1.35 * k, 0.45 * k, 0.3 * k, 0.4 * k), 0.2 * k);
+    return d;
+  };
+  const eyes = [-1, 1].map((s) => P(s * 0.53, 1.42, 1.08));
+  const sdf = (x, y, z) => {
+    let d = bodyD(x, y, z);
+    for (const e of eyes) d = smin(d, Math.hypot(x - e[0], y - e[1], z - e[2]) - 0.23 * k, 0.12 * k);
+    for (const l of legs) d = smin(d, legDist(x, y, z, l)[0], 0.12 * k);
+    return d;
+  };
+  const whichLeg = (x, y, z) => {
+    const b = bodyD(x, y, z);
+    let best = 0, bd = b - 0.05 * k, bt = 0;
+    for (const l of legs) {
+      const [d, t] = legDist(x, y, z, l);
+      if (d < bd) { bd = d; best = l.k; bt = t; }
+    }
+    return [best, bt];
+  };
+  const isEye = (x, y, z) => eyes.some((e) => Math.hypot(x - e[0], y - e[1], z - e[2]) < 0.26 * k);
+  return {
+    sdf, lo: P(-2.3, -0.2, -2.2), hi: P(2.3, 2.1, 2.2), cell: 0.075 * k,
+    rig: (x, y, z) => {
+      const [leg, t] = whichLeg(x, y, z);
+      return [Math.max(0, Math.min(1, (1.9 * k - z) / (3.8 * k))), leg, t];
+    },
+    color: (x, y, z) => {
+      if (isEye(x, y, z)) return Math.hypot(x - Math.sign(x) * 0.56 * k, y - 1.55 * k, z - 1.2 * k) < 0.07 * k ? C(0x4a4a4a) : C(0x050505);
+      const [leg] = whichLeg(x, y, z);
+      return o.color({ x: x / k, y: y / k, z: z / k, leg, belly: y < 0.45 * k && !leg });
+    },
+  };
+}
+
+// Skin patterns: blue dart frog (Dendrobates tinctorius "azureus"),
+// strawberry dart frog (Oophaga pumilio, red with "blue jeans" legs) and
+// fire-bellied toad (Bombina orientalis).
+const azureus = ({ x, y, z, leg, belly }) => {
+  const spot = vnoise(x * 4.2 + 3, y * 4.2, z * 4.2) > 0.72 && y > 0.5;
+  if (spot) return C(0x03050a);
+  if (belly) return C(0x10286e);
+  if (leg) return lerp3(C(0x16338c), C(0x2350c4), Math.min(1, y));
+  return lerp3(C(0x1f4fc8), C(0x4f8cf5), Math.max(0, Math.min(1, (y - 0.8) * 1.2)));
+};
+const pumilio = ({ x, y, z, leg, belly }) => {
+  if (leg) return lerp3(C(0x16288a), C(0x2d4fc4), Math.min(1, y * 1.2));
+  const fleck = vnoise(x * 5, y * 5, z * 5) > 0.74;
+  if (belly) return C(0xb3261e);
+  return fleck ? C(0x3a0a08) : lerp3(C(0xc41f16), C(0xf0402a), Math.max(0, Math.min(1, (y - 0.7))));
+};
+const bombina = ({ x, y, z, leg, belly }) => {
+  if (belly || (leg && y < 0.18)) return vnoise(x * 3, y * 3, z * 3) > 0.62 ? C(0x111111) : C(0xf2641a);
+  const blotch = vnoise(x * 2.2, y * 2.2, z * 2.2) > 0.66;
+  const wart = vnoise(x * 7, y * 7, z * 7) > 0.72;
+  return blotch ? C(0x0f1a08) : wart ? C(0x2b4d17) : lerp3(C(0x3f7a26), C(0x6aa83a), vnoise(x, y, z));
+};
+
 export const BODIES = {
-  dartfrog: () => {
-    const b = quadruped({
-      len: 4, bodyW: 0.95, bodyH: 0.95, bodyL: 1.2, bodyZ: -0.3, bodyTall: 0.85, headW: 0.9, headH: 0.65, headL: 0.8, headY: 1.1, headZ: 0.8, neck: 0.4,
-      eyeX: 0.52, eyeY: 1.55, eyeZ: 1.05, eyeR: 0.3, shoulder: 0.5, hip: -0.9, leg: 1.1, legR: 0.2, thigh: 1.4, foot: 0.1, toes: 0.22,
-      lo: [-2.6, -0.3, -2.6], hi: [2.6, 2.2, 2.2], cell: 0.1,
-    });
-    b.color = (x, y, z) => {
-      if (Math.abs(x) > 0.3 && y > 1.35 && z > 0.8) return C(0x080808);
-      const spot = vnoise(x * 2.4, y * 2.4, z * 2.4) > 0.68;
-      const base = y < 0.5 ? C(0x16338c) : C(0x2a63e0);
-      return spot ? C(0x05070c) : lerp3(base, C(0x5b8ff2), Math.max(0, y - 1.2) * 0.4);
-    };
-    return b;
-  },
-  toad: () => {
-    const b = quadruped({
-      bodyW: 1.2, bodyH: 1.0, bodyL: 1.6, bodyZ: -0.3, bodyTall: 0.8, headW: 1.1, headH: 0.7, headL: 0.9, headY: 1.05, headZ: 1.1, neck: 0.5,
-      eyeX: 0.6, eyeY: 1.5, eyeZ: 1.35, eyeR: 0.3, shoulder: 0.7, hip: -1.2, leg: 1.3, legR: 0.24, thigh: 1.4, foot: 0.12, toes: 0.25,
-      lo: [-3.2, -0.3, -3.2], hi: [3.2, 2.3, 2.8], cell: 0.12,
-    });
-    b.color = (x, y, z) => {
-      if (Math.abs(x) > 0.3 && y > 1.35 && z > 1.2) return C(0x0a0a06);
-      if (y < 0.55) return vnoise(x * 2, y * 2, z * 2) > 0.6 ? C(0x111111) : C(0xf2641a);
-      const wart = vnoise(x * 5, y * 5, z * 5) > 0.7;
-      return wart ? C(0x1e3312) : lerp3(C(0x3f7a26), C(0x6aa83a), vnoise(x, y, z));
-    };
-    return b;
-  },
+  dartfrog: () => frogBody({ size: 1, color: azureus }),
+  strawberry: () => frogBody({ size: 0.72, color: pumilio }),
+  toad: () => frogBody({ size: 1.3, color: bombina }),
   newt: () => {
     const b = quadruped({
       bodyW: 0.55, bodyH: 0.55, bodyL: 1.9, bodyZ: 0, bodyTall: 0.9, headW: 0.55, headH: 0.38, headL: 0.8, headY: 0.55, headZ: 2.2, neck: 0.4,

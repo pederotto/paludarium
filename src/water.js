@@ -1,438 +1,509 @@
-// Open water: the main water level (anything below it is submerged), ponds
-// (small basins that fill up to their spill point) and waterfalls (streams
-// that run from a source down walls and slopes into water).
+// The water you see: the main pool's rippled surface and tinted volume,
+// the pools and streams outside it (a mesh that follows the simulated water
+// depth, with foam and streaks that move with the flow), waterfalls pouring
+// off ledges and down the background, the pump and its outlets, and a
+// preview of where water from a point would run.
+//
+// The physics lives in hydro.js; this file draws it and offers the calls
+// the rest of the game uses (surfaceAt, pools, falls…).
 
 import * as THREE from 'three/webgpu';
 import {
-  Fn, float, vec3, vec2, uv, time, mix, smoothstep, mx_noise_float, positionWorld, normalWorld,
-  cameraPosition, pow, dot, normalize, clamp, abs, sin, transformNormalToView, uniform, attribute,
+  float, vec3, vec2, uv, time, mix, smoothstep, mx_noise_float, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
+  attribute, fract, length, max, Fn, reflect,
 } from 'three/tsl';
 import { TANK } from './config.js';
 import { U } from './uniforms.js';
-import { waterSurfaceMaterial, SIM } from './waterfx.js';
-import { clamp as clampN } from './geo.js';
+import { waterSurfaceMaterial, SIM, FX } from './waterfx.js';
+import { Hydro, WET } from './hydro.js';
+
+let ribbonId = 1;
 
 export class Water {
-  constructor(scene, terrain) {
+  constructor(scene, world) {
     this.scene = scene;
-    this.terrain = terrain;
-    this.level = 14;
-    this.ponds = [];
-    this.falls = [];
+    this.world = world;
+    this.terrain = world.terrain;
+    this.hydro = new Hydro(world);
+    this.fx = null; // WaterFX, set by main.js
 
-    // A fine grid so the ripples can move it (one vertex per ripple cell).
+    // Main pool: a fine grid moved by the ripples (one vertex per ripple cell).
     const g = new THREE.PlaneGeometry(TANK.w - 0.1, TANK.d - 0.1, SIM[0], SIM[1]);
     g.rotateX(-Math.PI / 2);
     this.surface = new THREE.Mesh(g, waterSurfaceMaterial({ ripples: true }));
     this.surface.frustumCulled = false;
-    this.fx = null; // WaterFX, set by main.js
     this.surface.renderOrder = 5;
     this.surface.name = 'water';
     this.surface.userData.surface = 'water';
     scene.add(this.surface);
 
-    // Tinted water seen through the glass: front and side faces of the volume.
+    // The water body seen through the front glass: its faces carry a little
+    // of the water column's haze (the depth fog in shaders.js does the rest).
     const vm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.FrontSide });
-    vm.colorNode = U.tint.mul(0.22).mul(U.daylight.mul(0.8).add(0.2));
-    vm.opacityNode = float(0.1);
+    vm.colorNode = U.tint.mul(0.3).mul(U.daylight.mul(0.8).add(0.2));
+    vm.opacityNode = float(0.05);
     const vg = new THREE.BoxGeometry(TANK.w - 0.12, 1, TANK.d - 0.12);
     vg.translate(0, 0.5, 0);
     this.volume = new THREE.Mesh(vg, vm);
     this.volume.renderOrder = 4;
     scene.add(this.volume);
 
-    this.pondMat = waterSurfaceMaterial({ ripples: false, opacity: 0.2 });
-    this.fallMat = this.makeFallMaterial();
-    this.splashMat = this.makeSplashMaterial();
-    this.setLevel(this.level);
+    this.buildFlowMesh();
+    this.fallMat = makeFallMaterial();
+    this.splashMat = makeSplashMaterial();
+    this.ribbons = new Map();   // key → { mesh, splash, pts, curve, len, q, width, end }
+    const dg = new THREE.IcosahedronGeometry(0.16, 0);
+    this.drops = new THREE.InstancedMesh(dg, new THREE.MeshStandardNodeMaterial({ color: 0xe8f6ff, roughness: 0.05, transparent: true, opacity: 0.7 }), 500);
+    this.drops.frustumCulled = false;
+    this.drops.count = 0;
+    scene.add(this.drops);
+    this.buildMarkers();
+    this.previewMat = new THREE.LineBasicNodeMaterial({ color: 0x8fdcff, depthTest: false, transparent: true, opacity: 0.95 });
+    this.ringMat = new THREE.MeshBasicNodeMaterial({ color: 0x8fdcff, depthTest: false, transparent: true, opacity: 0.6, side: THREE.DoubleSide });
+    this.preview = new THREE.Line(new THREE.BufferGeometry(), this.previewMat);
+    this.preview.renderOrder = 22;
+    this.preview.frustumCulled = false;
+    this.preview.visible = false;
+    scene.add(this.preview);
+    this.pitMarks = [];
+    this._t = 0;
+    this.syncLevel();
+  }
+
+  get level() { return this.hydro.level; }
+  get outlets() { return this.hydro.outlets; }
+  get pools() { return this.hydro.pools; }
+  get ponds() { return this.hydro.pools; }   // older name
+  // Every place water pours: off ledges, and down the background from outlets.
+  get falls() { return [...this.ribbons.values()]; }
+
+  syncLevel() {
+    const L = this.hydro.level;
+    U.waterLevel.value = L;
+    const on = L > this.terrain.field.h[this.hydro.seed] + 0.3;
+    this.surface.position.y = L;
+    this.surface.visible = on;
+    this.volume.scale.y = Math.max(0.001, L);
+    this.volume.visible = on;
   }
 
   setLevel(y) {
-    this.level = clampN(y, 0, TANK.h - 6);
-    U.waterLevel.value = this.level;
-    this.surface.position.y = this.level;
-    this.surface.visible = this.level > 0.4;
-    this.volume.scale.y = Math.max(0.001, this.level);
-    this.volume.visible = this.level > 0.4;
+    this.hydro.setLevel(y);
+    this.syncLevel();
   }
 
-  // Is the point (x, z) open water of the main tank (substrate below the line)?
+  groundChanged() {
+    this.hydro.rebuild();
+    this.syncLevel();
+    this.syncFalls(true);
+    this.updateMarkers();
+  }
+
+  // --- Queries used by plants, animals and the simulation --------------------
   isWater(x, z, minDepth = 0.5) {
-    return this.level - this.terrain.heightAt(x, z) > minDepth;
+    const n = this.hydro.cellOf(x, z);
+    return this.hydro.res[n] === 1 && this.level - this.terrain.heightAt(x, z) > minDepth;
   }
+  inMainPool(x, z) { return this.hydro.res[this.hydro.cellOf(x, z)] === 1; }
+  surfaceAt(x, z, minD) { return this.hydro.surfaceAt(x, z, minD); }
+  depthAt(x, z) { return this.hydro.depthAt(x, z); }
+  pondAt(x, z) { return this.hydro.poolAt(x, z); }
 
-  pondAt(x, z) {
-    const f = this.terrain.field;
-    const [fi, fj] = f.toGrid(x, z);
-    const i = Math.round(fi), j = Math.round(fj);
-    for (const p of this.ponds) if (p.cells.has(f.idx(clampN(i, 0, f.nx), clampN(j, 0, f.ny)))) return p;
-    return null;
-  }
-
-  // Surface height of any water at (x, z), or -Infinity if dry.
-  surfaceAt(x, z) {
-    const h = this.terrain.heightAt(x, z);
-    if (this.level - h > 0.05) return this.level;
-    const p = this.pondAt(x, z);
-    if (p && p.level - h > 0.05) return p.level;
-    return -Infinity;
-  }
-
-  // Total open water area in cm² (main + ponds) — drives humidity.
   surfaceArea() {
-    const f = this.terrain.field;
-    let wet = 0;
-    for (let n = 0; n < f.h.length; n++) if (f.h[n] < this.level) wet++;
-    let a = wet * f.da * f.db;
-    for (const p of this.ponds) a += p.cells.size * f.da * f.db;
-    return a;
+    const h = this.hydro;
+    let n = 0;
+    for (let c = 0; c < h.N; c++) if (h.res[c] || h.d[c] > WET) n++;
+    return n * h.area;
   }
-
-  volumeLitres() {
-    const f = this.terrain.field;
-    let v = 0;
-    for (let n = 0; n < f.h.length; n++) v += Math.max(0, this.level - f.h[n]);
-    v *= f.da * f.db;
-    for (const p of this.ponds) for (const n of p.cells) v += Math.max(0, p.level - f.h[n]) * f.da * f.db;
-    return v / 1000;
-  }
-
-  // --- Ponds -------------------------------------------------------------
-  // Fills the basin around (x, z) the way rain would: grow from the lowest
-  // neighbour each time and remember the highest ground crossed. Once the
-  // next cell is lower than that, water would spill out there, so the pond's
-  // surface is the spill height.
-  addPond(x, z) {
-    const f = this.terrain.field;
-    let [fi, fj] = f.toGrid(x, z);
-    let i = clampN(Math.round(fi), 1, f.nx - 1), j = clampN(Math.round(fj), 1, f.ny - 1);
-    // Walk down to the local minimum first.
-    for (let k = 0; k < 400; k++) {
-      let best = f.idx(i, j), bi = i, bj = j;
-      for (const [di, dj] of NB8) {
-        const ni = i + di, nj = j + dj;
-        if (ni < 1 || nj < 1 || ni >= f.nx || nj >= f.ny) continue;
-        if (f.h[f.idx(ni, nj)] < f.h[best]) { best = f.idx(ni, nj); bi = ni; bj = nj; }
-      }
-      if (bi === i && bj === j) break;
-      i = bi; j = bj;
-    }
-    const start = f.idx(i, j);
-    if (f.h[start] < this.level) return { error: 'That spot is already under the main water.' };
-    const heap = new MinHeap();
-    const seen = new Set([start]);
-    const order = [];
-    heap.push(f.h[start], start);
-    let spill = f.h[start];
-    let spillCell = start;
-    const MAX = 900;
-    while (heap.size) {
-      const [h, n] = heap.pop();
-      if (h < spill - 0.001 && order.length > 0) { spillCell = n; break; }
-      spill = Math.max(spill, h);
-      order.push(n);
-      if (order.length > MAX) return { error: 'That basin is too big or open. Dig a deeper hollow first.' };
-      const ci = n % f.cols, cj = Math.floor(n / f.cols);
-      if (ci <= 0 || cj <= 0 || ci >= f.nx || cj >= f.ny) { spillCell = n; break; }
-      for (const [di, dj] of NB4) {
-        const m = f.idx(ci + di, cj + dj);
-        if (seen.has(m)) continue;
-        seen.add(m);
-        heap.push(f.h[m], m);
-      }
-    }
-    const level = spill - 0.15;
-    const cells = new Set();
-    for (const n of order) if (f.h[n] < level) cells.add(n);
-    if (cells.size < 6 || level - f.h[start] < 0.6) return { error: 'Too shallow for a pond here. Lower the ground to make a hollow.' };
-    if (level <= this.level) return { error: 'This hollow overflows into the main water.' };
-    // Grow the mesh region by one ring so the edge hides under the banks.
-    const region = new Set(cells);
-    for (const n of cells) {
-      const ci = n % f.cols, cj = Math.floor(n / f.cols);
-      for (const [di, dj] of NB8) {
-        const ni = ci + di, nj = cj + dj;
-        if (ni >= 0 && nj >= 0 && ni <= f.nx && nj <= f.ny) region.add(f.idx(ni, nj));
-      }
-    }
-    const pond = { level, cells, region, spillCell, mesh: null };
-    pond.mesh = this.buildPondMesh(pond);
-    this.scene.add(pond.mesh);
-    this.ponds.push(pond);
-    return { pond };
-  }
-
-  buildPondMesh(pond) {
-    const f = this.terrain.field;
-    const pos = [];
-    for (const n of pond.region) {
-      const i = n % f.cols, j = Math.floor(n / f.cols);
-      if (i >= f.nx || j >= f.ny) continue;
-      const [x0, z0] = f.toWorld(i, j);
-      const [x1, z1] = f.toWorld(i + 1, j + 1);
-      const y = pond.level;
-      pos.push(x0, y, z0, x0, y, z1, x1, y, z0, x1, y, z0, x0, y, z1, x1, y, z1);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.computeVertexNormals();
-    const m = new THREE.Mesh(g, this.pondMat);
-    m.renderOrder = 5;
-    m.name = 'pond';
-    m.userData.surface = 'pond';
-    return m;
-  }
-
-  removePond(p) {
-    this.scene.remove(p.mesh);
-    p.mesh.geometry.dispose();
-    this.ponds.splice(this.ponds.indexOf(p), 1);
-  }
-
-  // Re-fill ponds after the ground changed (keeps their seed points).
-  refreshPonds() {
-    const seeds = this.ponds.map((p) => {
-      const n = [...p.cells][0];
-      const f = this.terrain.field;
-      return f.toWorld(n % f.cols, Math.floor(n / f.cols));
-    });
-    for (const p of [...this.ponds]) this.removePond(p);
-    for (const [x, z] of seeds) this.addPond(x, z);
-  }
-
-  // --- Waterfalls --------------------------------------------------------
-  // A source at a point on the wall or ground. Water runs straight down the
-  // wall face, then down the steepest slope of the substrate until it
-  // reaches a pond or the main water.
-  addFall(src, wall) {
-    const pts = this.tracePath(src, wall);
-    if (pts.length < 3) return { error: 'Water from here has nowhere to run.' };
-    const fall = { src: src.clone(), pts, mesh: null, splash: null, drops: null, t: [] };
-    this.buildFall(fall);
-    this.falls.push(fall);
-    return { fall };
-  }
-
-  tracePath(src, wall) {
-    const T = this.terrain;
-    const pts = [];
-    const p = src.clone();
-    // On the wall: fall down its face.
-    if (wall && p.z < -TANK.d / 2 + wall.field.maxH + 1 && p.y > T.heightAt(p.x, p.z) + 0.5) {
-      const step = 0.8;
-      while (p.y > 0) {
-        const wz = wall.zAt(p.x, p.y) + 0.6;
-        const ground = T.heightAt(p.x, Math.max(wz, p.z));
-        pts.push(new THREE.Vector3(p.x, p.y, Math.max(wz, p.z - 0.2)));
-        if (p.y <= ground + 0.2 || this.surfaceAt(p.x, wz) > p.y) break;
-        p.z = Math.max(p.z, wz);
-        p.y -= step;
-      }
-      p.y = T.heightAt(p.x, p.z);
-    } else {
-      p.y = T.heightAt(p.x, p.z);
-      pts.push(p.clone().setY(p.y + 0.25));
-    }
-    // On the ground: steepest descent with a little momentum.
-    let dir = new THREE.Vector2(0, 1);
-    const lim = new THREE.Vector2(TANK.w / 2 - 1, TANK.d / 2 - 1);
-    for (let k = 0; k < 260; k++) {
-      const surf = this.surfaceAt(p.x, p.z);
-      if (surf > T.heightAt(p.x, p.z) && k > 0) { pts.push(new THREE.Vector3(p.x, surf, p.z)); break; }
-      const [gx, gz] = T.field.gradient(p.x, p.z);
-      const g = new THREE.Vector2(-gx, -gz);
-      if (g.length() < 0.02) {
-        // Flat: keep going the same way and hope for a downhill.
-        g.copy(dir);
-      } else g.normalize();
-      dir.lerp(g, 0.6).normalize();
-      p.x = clampN(p.x + dir.x * 0.6, -lim.x, lim.x);
-      p.z = clampN(p.z + dir.y * 0.6, -lim.y, lim.y);
-      p.y = T.heightAt(p.x, p.z) + 0.25;
-      pts.push(p.clone());
-    }
-    return pts;
-  }
-
-  buildFall(fall) {
-    const pts = fall.pts;
-    // Ribbon: faces the camera-ish; on the wall the width is along x, on the
-    // ground perpendicular to the flow.
-    const pos = [], uvs = [];
-    let len = 0;
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
-      const d = b.clone().sub(a);
-      if (i > 0) len += pts[i].distanceTo(pts[i - 1]);
-      const vertical = Math.abs(d.y) > Math.hypot(d.x, d.z);
-      const side = vertical ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-d.z, 0, d.x).normalize();
-      const w = vertical ? 2.6 : 1.8;
-      // Keep the sheet just outside the rock it runs over (the heightfield is
-      // coarser than the scanned mesh).
-      const lift = vertical ? new THREE.Vector3(0, 0, 1.1) : new THREE.Vector3(0, 0.45, 0);
-      const l = pts[i].clone().addScaledVector(side, -w / 2).add(lift);
-      const r = pts[i].clone().addScaledVector(side, w / 2).add(lift);
-      pos.push(l.x, l.y, l.z, r.x, r.y, r.z);
-      uvs.push(0, len, 1, len);
-    }
-    const idx = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = i * 2;
-      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    fall.mesh = new THREE.Mesh(g, this.fallMat);
-    fall.mesh.renderOrder = 6;
-    fall.mesh.name = 'fall';
-    this.scene.add(fall.mesh);
-
-    const end = pts[pts.length - 1];
-    const sg = new THREE.CircleGeometry(2.4, 20);
-    sg.rotateX(-Math.PI / 2);
-    fall.splash = new THREE.Mesh(sg, this.splashMat);
-    fall.splash.position.copy(end).add(new THREE.Vector3(0, 0.06, 0));
-    fall.splash.renderOrder = 7;
-    this.scene.add(fall.splash);
-
-    // Droplets riding the stream.
-    const N = 36;
-    const dg = new THREE.IcosahedronGeometry(0.18, 0);
-    const dm = new THREE.MeshStandardNodeMaterial({ color: 0xdff4ff, roughness: 0.05, transparent: true, opacity: 0.75 });
-    fall.drops = new THREE.InstancedMesh(dg, dm, N);
-    fall.drops.frustumCulled = false;
-    fall.curve = new THREE.CatmullRomCurve3(pts);
-    fall.len = len;
-    fall.t = Array.from({ length: N }, () => Math.random());
-    this.scene.add(fall.drops);
-  }
-
-  removeFall(fall) {
-    for (const o of [fall.mesh, fall.splash, fall.drops]) { this.scene.remove(o); o.geometry.dispose(); }
-    this.falls.splice(this.falls.indexOf(fall), 1);
-  }
-
-  refreshFalls(wall) {
-    const srcs = this.falls.map((f) => f.src);
-    for (const f of [...this.falls]) this.removeFall(f);
-    for (const s of srcs) this.addFall(s, wall);
-  }
+  volumeLitres() { return this.hydro.total() / 1000; }
+  // Litres per hour splashing through falls and streams right now.
+  flowLitresPerHour() { return this.hydro.flowOut * 3.6; }
 
   nearestFall(p, maxD = 4) {
     let best = null, bd = maxD;
-    for (const f of this.falls) for (const q of f.pts) {
+    for (const r of this.ribbons.values()) for (const q of r.pts) {
       const d = q.distanceTo(p);
-      if (d < bd) { bd = d; best = f; }
+      if (d < bd) { bd = d; best = r; }
     }
     return best;
   }
 
-  nearestPond(x, z) { return this.pondAt(x, z); }
-
-  // Falling water: thin streaks racing down (noise stretched along the flow),
-  // a whiter core, and see-through edges.
-  makeFallMaterial() {
-    const m = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 0.05 });
-    const u = uv();
-    const streak = mx_noise_float(vec3(u.x.mul(14.0), u.y.mul(0.35).sub(time.mul(6.0)), 0.5))
-      .add(mx_noise_float(vec3(u.x.mul(31.0), u.y.mul(0.8).sub(time.mul(9.0)), 2.5)).mul(0.6));
-    const fine = mx_noise_float(vec3(u.x.mul(60.0), u.y.mul(3.0).sub(time.mul(16.0)), 7.0));
-    const edge = smoothstep(0.0, 0.3, u.x).mul(smoothstep(1.0, 0.7, u.x));
-    const core = smoothstep(0.15, 0.5, u.x).mul(smoothstep(0.85, 0.5, u.x));
-    const white = smoothstep(-0.1, 0.8, streak.add(fine.mul(0.3)));
-    m.colorNode = mix(vec3(0.62, 0.8, 0.84), vec3(0.97, 0.99, 1.0), white);
-    m.opacityNode = edge.mul(white.mul(0.6).add(core.mul(0.25)).add(0.12));
-    m.emissiveNode = vec3(0.16, 0.18, 0.19).mul(white).mul(U.daylight.mul(0.8).add(0.2));
-    return m;
+  // --- Editing ------------------------------------------------------------
+  addOutlet(pos, wall) {
+    const o = this.hydro.addOutlet(pos, wall);
+    this.updateMarkers();
+    this.syncFalls(true);
+    return o;
+  }
+  removeOutlet(o) {
+    this.hydro.removeOutlet(o);
+    this.updateMarkers();
+    this.syncFalls(true);
+  }
+  fillAt(x, z) { const r = this.hydro.fillAt(x, z); this.syncLevel(); return r; }
+  drainPool(p) { this.hydro.drainPool(p); this.syncLevel(); }
+  setPump(x, z) {
+    this.hydro.pump.intake = { x, z };
+    const tot = this.hydro.total();
+    this.hydro.rebuild();
+    // Keep the same amount of water in the tank.
+    this.hydro.resVol = Math.max(0, this.hydro.resVol + tot - this.hydro.total());
+    this.hydro.solveLevel();
+    this.hydro.updateMembership();
+    this.syncLevel();
+    this.updateMarkers();
   }
 
-  makeSplashMaterial() {
-    const m = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.2 });
-    const u = uv().sub(0.5);
-    const r = u.length().mul(2);
-    const ring = sin(r.mul(18).sub(time.mul(7))).mul(0.5).add(0.5);
-    const n = mx_noise_float(vec3(u.x.mul(9), u.y.mul(9), time.mul(2)));
-    m.colorNode = vec3(0.95, 0.98, 1);
-    m.opacityNode = smoothstep(1.0, 0.2, r).mul(ring.mul(0.35).add(n.mul(0.35)).add(0.15));
-    return m;
+  // --- Pools and streams -------------------------------------------------------
+  // Same grid as the substrate. Wet vertices sit on the water surface; dry
+  // ones tuck just under the ground, so the surface meets the banks.
+  buildFlowMesh() {
+    const f = this.terrain.field;
+    const g = new THREE.PlaneGeometry(1, 1, f.nx, f.ny);
+    g.rotateX(-Math.PI / 2);
+    const nv = f.cols * f.rows;
+    this.wdata = new THREE.BufferAttribute(new Float32Array(nv * 4), 4);
+    this.wdata.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('wdata', this.wdata);
+    g.attributes.position.setUsage(THREE.DynamicDrawUsage);
+    this.flowGeo = g;
+    this.flowMesh = new THREE.Mesh(g, makeFlowMaterial());
+    this.flowMesh.frustumCulled = false;
+    this.flowMesh.renderOrder = 6;
+    this.flowMesh.name = 'pond';
+    this.flowMesh.userData.surface = 'pond';
+    this.scene.add(this.flowMesh);
   }
 
-  animate(dt) {
-    const m = new THREE.Matrix4();
-    const s = new THREE.Vector3();
-    for (const f of this.falls) {
-      const speed = 22 / Math.max(4, f.len);
-      for (let i = 0; i < f.t.length; i++) {
-        f.t[i] = (f.t[i] + dt * speed * (0.8 + (i % 5) * 0.08)) % 1;
-        const p = f.curve.getPointAt(f.t[i]);
-        p.x += Math.sin(i * 12.9) * 0.45;
-        p.z += Math.cos(i * 7.3) * 0.25;
-        const k = 0.6 + (i % 3) * 0.3;
-        m.compose(p, new THREE.Quaternion(), s.set(k, k * 1.8, k));
-        f.drops.setMatrixAt(i, m);
-      }
-      f.drops.instanceMatrix.needsUpdate = true;
-      const sc = 1 + Math.sin(performance.now() * 0.006) * 0.06;
-      f.splash.scale.set(sc, 1, sc);
-      // Where it lands in the main water it keeps stirring ripples.
-      const end = f.pts[f.pts.length - 1];
-      if (this.fx && Math.abs(end.y - this.level) < 0.6 && Math.random() < 0.7) {
-        this.fx.addDrop(end.x + (Math.random() - 0.5) * 1.5, end.z + (Math.random() - 0.5) * 1.5, -2.5 - Math.random() * 3, 0.6 + Math.random() * 0.5);
-      }
-      f.mistT = (f.mistT ?? 0) + dt;
+  updateFlowMesh() {
+    const H = this.hydro, f = this.terrain.field;
+    const pa = this.flowGeo.attributes.position, wd = this.wdata;
+    const h = f.h, d = H.d, res = H.res, L = H.level;
+    for (let n = 0; n < H.N; n++) {
+      const [x, z] = H.cellXZ(n);
+      let y, show;
+      if (res[n]) { y = L - 0.05; show = 0; } else if (d[n] > WET) { y = h[n] + d[n]; show = 1; } else { y = h[n] - 0.25; show = 0; }
+      pa.setXYZ(n, x, y, z);
+      wd.setXYZW(n, d[n], H.vx[n], H.vz[n], show);
     }
+    pa.needsUpdate = true;
+    wd.needsUpdate = true;
+    this.flowGeo.computeBoundingSphere();
+    // The substrate under pools and streams is shaded as wet and submerged.
+    const ws = this.terrain.geo.attributes.wsurf;
+    if (ws) {
+      for (let n = 0; n < H.N; n++) ws.array[n] = res[n] ? L : d[n] > WET ? h[n] + d[n] : -50;
+      ws.needsUpdate = true;
+    }
+  }
+
+  // --- Falls ---------------------------------------------------------------------
+  syncFalls(force = false) {
+    const H = this.hydro;
+    const want = new Map();
+    for (const f of H.falls) want.set('f' + f.key, f);
+    for (const o of H.outlets) if (o.wall && o.pts?.length > 2) want.set('o' + (o.id ??= ribbonId++), o);
+    for (const [k, r] of this.ribbons) {
+      const w = want.get(k);
+      const qChanged = w && w.q !== undefined && Math.abs(w.q - r.q) > Math.max(3, r.q * 0.35);
+      if (!w || force || qChanged) { this.dropRibbon(r); this.ribbons.delete(k); }
+    }
+    for (const [k, w] of want) {
+      if (this.ribbons.has(k)) continue;
+      const r = k[0] === 'f' ? this.ledgeRibbon(w) : this.outletRibbon(w);
+      if (r) this.ribbons.set(k, r);
+    }
+  }
+
+  // Water leaving a ledge flies out in an arc (it falls 20 cm in a fifth of
+  // a second), then slides down whatever slope it lands on.
+  ledgeRibbon(fall) {
+    const T = this.terrain;
+    const dir = new THREE.Vector3(fall.dir[0], 0, fall.dir[1]);
+    const p = fall.from.clone();
+    p.addScaledVector(dir, T.field.da * 0.5);
+    const v0 = Math.min(45, Math.max(8, fall.q / (fall.width * 0.5)));
+    const vel = dir.clone().multiplyScalar(v0);
+    const pts = [p.clone()];
+    const dt = 0.008;
+    for (let s = 0; s < 400; s++) {
+      vel.y -= 981 * dt;
+      p.addScaledVector(vel, dt);
+      const g = T.heightAt(p.x, p.z);
+      const surf = this.hydro.surfaceAt(p.x, p.z, 0.3);
+      if (surf > -Infinity && p.y <= surf) { p.y = surf; pts.push(p.clone()); break; }
+      if (p.y < g + 0.35) {
+        p.y = g + 0.35;
+        const nrm = T.normalAt(p.x, p.z);
+        const vn = vel.dot(nrm);
+        if (vn < 0) vel.addScaledVector(nrm, -vn);
+        vel.multiplyScalar(0.95);
+        if (nrm.y > 0.8 || vel.length() < 6) { pts.push(p.clone()); break; }
+      }
+      if (s % 2 === 1) pts.push(p.clone());
+    }
+    if (pts.length < 3 || pts[0].y - pts[pts.length - 1].y < 1.5) return null;
+    const w = Math.min(10, Math.max(2.2, fall.width * 1.2));
+    return this.makeRibbon(pts, new THREE.Vector3(-dir.z, 0, dir.x), w, fall.q);
+  }
+
+  outletRibbon(o) {
+    const q = this.hydro.pump.rate * 1000 / 3600 / Math.max(1, this.hydro.outlets.length);
+    return this.makeRibbon(o.pts, new THREE.Vector3(1, 0, 0), 2.2, q, new THREE.Vector3(0, 0, 0.5));
+  }
+
+  // Two crossed sheets: one across the lip, and a narrower one along the
+  // flow, so a fall has body from any side (one sheet alone vanishes when
+  // seen edge-on).
+  makeRibbon(pts, side, width, q, lift = new THREE.Vector3()) {
+    const pos = [], uvs = [], idx = [];
+    const strength = Math.min(1, 0.5 + q / 50);
+    const strip = (sideOf, wScale) => {
+      const base = pos.length / 3;
+      let len = 0;
+      for (let i = 0; i < pts.length; i++) {
+        if (i > 0) len += pts[i].distanceTo(pts[i - 1]);
+        // A little wider as it falls and spreads.
+        const w = width * wScale * (0.85 + Math.min(0.5, (i / pts.length) * 0.5));
+        const s = sideOf(i);
+        const l = pts[i].clone().addScaledVector(s, -w / 2).add(lift);
+        const r = pts[i].clone().addScaledVector(s, w / 2).add(lift);
+        pos.push(l.x, l.y, l.z, r.x, r.y, r.z);
+        uvs.push(0, len, 1, len);
+      }
+      for (let i = 0; i < pts.length - 1; i++) { const a = base + i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      return len;
+    };
+    const len = strip(() => side, 1);
+    const along = new THREE.Vector3();
+    strip((i) => {
+      along.subVectors(pts[Math.min(pts.length - 1, i + 1)], pts[Math.max(0, i - 1)]).normalize();
+      return new THREE.Vector3().crossVectors(along, side).normalize();
+    }, 0.45);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    g.setAttribute('fstr', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3).fill(strength), 1));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const mesh = new THREE.Mesh(g, this.fallMat);
+    mesh.renderOrder = 7;
+    mesh.name = 'fall';
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+    const end = pts[pts.length - 1];
+    const sg = new THREE.CircleGeometry(Math.min(4, 1.2 + width * 0.4), 20);
+    sg.rotateX(-Math.PI / 2);
+    const splash = new THREE.Mesh(sg, this.splashMat);
+    splash.position.copy(end).add(new THREE.Vector3(0, 0.08, 0));
+    splash.renderOrder = 8;
+    this.scene.add(splash);
+    return { mesh, splash, pts, curve: new THREE.CatmullRomCurve3(pts), len, q, width, end };
+  }
+
+  dropRibbon(r) {
+    for (const o of [r.mesh, r.splash]) { this.scene.remove(o); o.geometry.dispose(); }
+  }
+
+  // --- Pump and outlet markers ------------------------------------------------
+  buildMarkers() {
+    const dark = new THREE.MeshStandardNodeMaterial({ color: 0x15181b, roughness: 0.6, metalness: 0.2 });
+    const pg = new THREE.BoxGeometry(4, 3, 3);
+    pg.translate(0, 1.5, 0);
+    this.pumpMesh = new THREE.Mesh(pg, dark);
+    this.pumpMesh.castShadow = true;
+    this.pumpMesh.name = 'pump';
+    this.scene.add(this.pumpMesh);
+    this.outletGeo = new THREE.CylinderGeometry(0.55, 0.7, 1.4, 10);
+    this.outletMat = dark;
+    this.outletMeshes = [];
+    this.updateMarkers();
+  }
+
+  updateMarkers() {
+    const H = this.hydro;
+    const [x, z] = H.cellXZ(H.seed ?? H.intakeCell());
+    this.pumpMesh.position.set(x, this.terrain.heightAt(x, z) - 0.3, z);
+    for (const m of this.outletMeshes) this.scene.remove(m);
+    this.outletMeshes = H.outlets.map((o) => {
+      const m = new THREE.Mesh(this.outletGeo, this.outletMat);
+      m.position.copy(o.pos);
+      if (o.wall) { m.rotation.x = Math.PI / 2; m.position.z += 0.2; } else m.position.y -= 0.3;
+      m.name = 'outlet';
+      m.userData.outlet = o;
+      this.scene.add(m);
+      return m;
+    });
+  }
+
+  // --- Where would water go from here? --------------------------------------
+  showTrace(x, z) {
+    const t = this.hydro.trace(x, z);
+    const pts = t.path.length > 1 ? t.path : [];
+    this.preview.geometry.dispose();
+    this.preview.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    this.preview.visible = pts.length > 1;
+    this.clearPitMarks();
+    this.pitMarks = t.pits.map((p) => {
+      let cx = 0, cz = 0;
+      for (const c of p.cells) { const [a, b] = this.hydro.cellXZ(c); cx += a; cz += b; }
+      const k = Math.max(1, p.cells.length);
+      const r = Math.sqrt((p.cells.length * this.hydro.area) / Math.PI);
+      const m = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.4, r - 0.4), Math.max(0.9, r), 32).rotateX(-Math.PI / 2), this.ringMat);
+      m.position.set(cx / k, p.level + 0.1, cz / k);
+      m.renderOrder = 22;
+      this.scene.add(m);
+      return m;
+    });
+    return t;
+  }
+  clearPitMarks() {
+    for (const m of this.pitMarks) { this.scene.remove(m); m.geometry.dispose(); }
+    this.pitMarks = [];
+  }
+  hideTrace() {
+    this.preview.visible = false;
+    this.clearPitMarks();
+  }
+
+  // --- Per frame ------------------------------------------------------------------
+  animate(dt, speed = 1) {
+    const H = this.hydro;
+    H.step(dt * Math.max(1, Math.min(3, speed)));
+    this.syncLevel();
+    this.updateFlowMesh();
+    this._t -= dt;
+    if (this._t <= 0) { this._t = 0.4; this.syncFalls(); }
+    // Droplets riding the falls; splashes stir the main pool's ripples.
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    let k = 0;
+    const now = performance.now() * 0.001;
+    for (const r of this.ribbons.values()) {
+      const n = Math.min(40, Math.round(8 + r.len * 0.6));
+      const speedK = 30 / Math.max(4, r.len);
+      for (let i = 0; i < n && k < 500; i++) {
+        const t = (now * speedK * (0.8 + (i % 5) * 0.08) + i / n) % 1;
+        const p = r.curve.getPointAt(t);
+        p.x += Math.sin(i * 12.9) * r.width * 0.3;
+        p.z += Math.cos(i * 7.3) * 0.3;
+        const kk = 0.6 + (i % 3) * 0.3;
+        m.compose(p, q, s.set(kk, kk * 1.8, kk));
+        this.drops.setMatrixAt(k++, m);
+      }
+      const sc = 1 + Math.sin(now * 6 + r.len) * 0.06;
+      r.splash.scale.set(sc, 1, sc);
+      if (this.fx && Math.abs(r.end.y - H.level) < 0.8 && Math.random() < 0.7) {
+        this.fx.addDrop(r.end.x + (Math.random() - 0.5) * 1.5, r.end.z + (Math.random() - 0.5) * 1.5, -2.5 - Math.random() * 3, 0.6 + Math.random() * 0.5);
+      }
+    }
+    this.drops.count = k;
+    this.drops.instanceMatrix.needsUpdate = true;
   }
 
   serialize() {
-    return {
-      level: this.level,
-      ponds: this.ponds.map((p) => {
-        const f = this.terrain.field;
-        const n = [...p.cells][0];
-        return f.toWorld(n % f.cols, Math.floor(n / f.cols));
-      }),
-      falls: this.falls.map((f) => f.src.toArray()),
-    };
+    return { level: this.level, hydro: this.hydro.serialize() };
+  }
+
+  load(o) {
+    if (o.hydro) this.hydro.deserialize(o.hydro);
+    else {
+      // Saves from before the water simulation: a level plus waterfall sources.
+      this.hydro.outlets = [];
+      this.hydro.d.fill(0);
+      this.hydro.rebuild();
+      this.hydro.setLevel(o.level ?? 0);
+      for (const s of o.falls ?? []) this.hydro.addOutlet(new THREE.Vector3(...s), s[2] < -TANK.d / 2 + 16);
+      this.hydro.prime();
+    }
+    this.syncLevel();
+    this.updateMarkers();
+    this.syncFalls(true);
+  }
+
+  clear() {
+    this.hydro.outlets = [];
+    this.hydro.d.fill(0);
+    this.hydro.flux.fill(0);
+    this.hydro.pump.intake = null;
+    this.hydro.rebuild();
+    this.hydro.setLevel(0);
+    this.hydro.d.fill(0);
+    this.hydro.targetTotal = 0;
+    for (const r of this.ribbons.values()) this.dropRibbon(r);
+    this.ribbons.clear();
+    this.updateMarkers();
+    this.syncLevel();
   }
 }
 
-const NB4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-const NB8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+// --- Materials --------------------------------------------------------------------
 
-class MinHeap {
-  constructor() { this.k = []; this.v = []; }
-  get size() { return this.k.length; }
-  push(key, val) {
-    const k = this.k, v = this.v;
-    let i = k.length;
-    k.push(key); v.push(val);
-    while (i > 0) {
-      const p = (i - 1) >> 1;
-      if (k[p] <= k[i]) break;
-      [k[p], k[i]] = [k[i], k[p]]; [v[p], v[i]] = [v[i], v[p]];
-      i = p;
-    }
-  }
-  pop() {
-    const k = this.k, v = this.v;
-    const top = [k[0], v[0]];
-    const lk = k.pop(), lv = v.pop();
-    if (k.length) {
-      k[0] = lk; v[0] = lv;
-      let i = 0;
-      for (;;) {
-        const l = i * 2 + 1, r = l + 1;
-        let m = i;
-        if (l < k.length && k[l] < k[m]) m = l;
-        if (r < k.length && k[r] < k[m]) m = r;
-        if (m === i) break;
-        [k[m], k[i]] = [k[i], k[m]]; [v[m], v[i]] = [v[i], v[m]];
-        i = m;
-      }
-    }
-    return top;
-  }
+// Pools and streams. The surface pattern is carried along by the simulated
+// flow with the two-phase flow-map trick of Vlachos (Valve, "Water Flow in
+// Portal 2"), as in three.js's Water2Mesh: two copies of the pattern slide
+// along the flow and cross-fade, so neither stretches too far. Fast water
+// gets streaks and white foam.
+function makeFlowMaterial() {
+  const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  const wd = attribute('wdata', 'vec4');
+  const depth = wd.x, vel = vec2(wd.y, wd.z), show = wd.w;
+  const speed = length(vel);
+  const pw = positionWorld;
+  const cycle = 1.2;
+  const ph0 = fract(time.div(cycle)), ph1 = fract(time.div(cycle).add(0.5));
+  const blend = abs(ph0.mul(2).sub(1));
+  const dir = vel.div(max(speed, 0.001));
+  // Stretch the pattern along the flow so fast water looks streaky.
+  const stretch = clamp(speed.div(25), 0, 1).mul(3).add(1);
+  const pattern = Fn(([ph]) => {
+    const p = pw.xz.sub(vel.mul(ph.mul(cycle)));
+    const a = dot(p, dir), b = dot(p, vec2(dir.y.negate(), dir.x));
+    return mx_noise_float(vec3(a.mul(0.9).div(stretch), b.mul(1.3), 0.5)).add(mx_noise_float(vec3(a.mul(2.3).div(stretch), b.mul(3.1), 3.1)).mul(0.5));
+  });
+  const n = mix(pattern(ph0), pattern(ph1), blend);
+  // Normal from the pattern (plus a gentle ripple).
+  const bump = n.mul(0.25).add(sin(pw.x.mul(0.8).add(time.mul(1.3))).mul(0.03));
+  const k = clamp(speed.div(10), 0.2, 1);
+  const nrm = normalize(vec3(bump.mul(dir.x).mul(k), 1, bump.mul(dir.y).mul(k)));
+  const foam = smoothstep(0.35, 1.0, n.add(speed.div(45))).mul(clamp(speed.div(30).sub(0.1), 0, 1));
+  const view = normalize(cameraPosition.sub(pw));
+  const fres = pow(float(1).sub(clamp(abs(dot(view, nrm)), 0, 1)), 5).mul(0.9).add(0.03);
+  const deep = clamp(depth.div(6), 0, 1);
+  const lit = U.daylight.mul(0.85).add(0.08);
+  const water = mix(U.tint.mul(0.18), U.tint.mul(0.06), deep).mul(lit);
+  const rl = max(dot(reflect(view.negate(), nrm), FX.lightDir.negate()), 0);
+  const glint = pow(rl, 500).mul(4).add(pow(rl, 40).mul(0.2)).mul(U.daylight);
+  const room = vec3(0.025, 0.03, 0.034);
+  m.colorNode = mix(mix(water, room, fres), vec3(0.8, 0.85, 0.88).mul(lit), foam).add(glint);
+  m.opacityNode = clamp(float(0.12).add(deep.mul(0.35)).add(foam.mul(0.75)).add(fres.mul(0.5)).add(glint), 0, 0.92).mul(smoothstep(0.3, 0.9, show));
+  return m;
+}
+
+// Falling water: thin streaks racing down (noise stretched along the flow),
+// a whiter core, see-through edges; bigger flows are more opaque.
+function makeFallMaterial() {
+  const m = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 0.05 });
+  const u = uv();
+  const str = attribute('fstr', 'float');
+  const streak = mx_noise_float(vec3(u.x.mul(14.0), u.y.mul(0.35).sub(time.mul(6.0)), 0.5))
+    .add(mx_noise_float(vec3(u.x.mul(31.0), u.y.mul(0.8).sub(time.mul(9.0)), 2.5)).mul(0.6));
+  const fine = mx_noise_float(vec3(u.x.mul(60.0), u.y.mul(3.0).sub(time.mul(16.0)), 7.0));
+  const edge = smoothstep(0.0, 0.3, u.x).mul(smoothstep(1.0, 0.7, u.x));
+  const core = smoothstep(0.15, 0.5, u.x).mul(smoothstep(0.85, 0.5, u.x));
+  const white = smoothstep(-0.1, 0.8, streak.add(fine.mul(0.3)));
+  m.colorNode = mix(vec3(0.62, 0.8, 0.84), vec3(0.97, 0.99, 1.0), white);
+  m.opacityNode = edge.mul(white.mul(0.6).add(core.mul(0.25)).add(0.12)).mul(str);
+  m.emissiveNode = vec3(0.16, 0.18, 0.19).mul(white).mul(U.daylight.mul(0.8).add(0.2));
+  return m;
+}
+
+function makeSplashMaterial() {
+  const m = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.2 });
+  const u = uv().sub(0.5);
+  const r = u.length().mul(2);
+  const ring = sin(r.mul(18).sub(time.mul(7))).mul(0.5).add(0.5);
+  const n = mx_noise_float(vec3(u.x.mul(9), u.y.mul(9), time.mul(2)));
+  m.colorNode = vec3(0.95, 0.98, 1);
+  m.opacityNode = smoothstep(1.0, 0.2, r).mul(ring.mul(0.35).add(n.mul(0.35)).add(0.15));
+  return m;
 }

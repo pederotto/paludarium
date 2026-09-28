@@ -2,11 +2,12 @@
 // fallback), camera, lights, the glass tank, the frame loop and the tools.
 
 import * as THREE from 'three/webgpu';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import CameraControls from 'camera-controls';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { TANK, SPEEDS, MINUTES_PER_SECOND } from './config.js';
-import { pass, screenUV, float, smoothstep, vec3 } from 'three/tsl';
+import { pass, screenUV, float, smoothstep, vec3, mrt, output, normalView, directionToColor, colorToDirection, sample, mix } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { U } from './shaders.js';
 import { World } from './world.js';
 import { UI } from './ui.js';
@@ -39,13 +40,20 @@ try {
 } catch (e) { console.warn('No environment map', e); }
 
 const camera = new THREE.PerspectiveCamera(36, canvasHost.clientWidth / canvasHost.clientHeight, 1, 1000);
-camera.position.set(0, 40, 158);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 25, -2);
-controls.enableDamping = true;
-controls.maxPolarAngle = Math.PI * 0.62;
-controls.minDistance = 25;
+// camera-controls (yomotsu, MIT): smooth, eased orbit, pan and zoom that
+// zooms toward the pointer, with animated moves between views.
+CameraControls.install({ THREE: { Vector2: THREE.Vector2, Vector3: THREE.Vector3, Vector4: THREE.Vector4, Quaternion: THREE.Quaternion, Matrix4: THREE.Matrix4, Spherical: THREE.Spherical, Box3: THREE.Box3, Sphere: THREE.Sphere, Raycaster: THREE.Raycaster } });
+const controls = new CameraControls(camera, renderer.domElement);
+controls.smoothTime = 0.2;
+controls.draggingSmoothTime = 0.06;
+controls.dollyToCursor = true;
+controls.dollySpeed = 0.6;
+controls.truckSpeed = 1.6;
+controls.minDistance = 8;
 controls.maxDistance = 260;
+controls.maxPolarAngle = Math.PI * 0.64;
+controls.setBoundary(new THREE.Box3(new THREE.Vector3(-60, -4, -30), new THREE.Vector3(60, 75, 40)));
+controls.setLookAt(0, 40, 158, 0, 25, -2, false);
 
 // --- Lights: an LED bar over the tank, room fill, and night moonlight. ---
 const led = new THREE.DirectionalLight(0xf4f7ff, 3.2);
@@ -78,13 +86,29 @@ const mist = new Mist(scene, world);
 world.mist = mist;
 FX.lightDir.value.copy(led.position).negate().normalize();
 
-// Post-processing: a soft bloom on the brightest highlights (water glints,
-// the LED) and a vignette that falls off into the dark room.
+// Post-processing: ambient occlusion (three.js's GTAO) darkens crevices,
+// the gaps between stones and the ground under plants, which gives the
+// hardscape its depth; a soft bloom on the brightest highlights (water
+// glints, the LED); and a vignette that falls off into the dark room. AO is
+// on by default with WebGPU (?ao / ?noao to force it).
 const post = new THREE.RenderPipeline(renderer);
 const scenePass = pass(scene, camera);
-const bloomPass = bloom(scenePass, 0.22, 0.4, 0.9);
+const useAO = params.has('ao') || (backend === 'WebGPU' && !params.has('noao'));
+let color = scenePass;
+if (useAO) {
+  scenePass.setMRT(mrt({ output, normal: directionToColor(normalView) }));
+  const col = scenePass.getTextureNode('output');
+  const nrm = scenePass.getTextureNode('normal');
+  const aoPass = ao(scenePass.getTextureNode('depth'), sample((uv) => colorToDirection(nrm.sample(uv))), camera);
+  aoPass.resolutionScale = 0.5;
+  aoPass.radius.value = 3.5;
+  aoPass.thickness.value = 2.5;
+  aoPass.distanceExponent.value = 1.5;
+  color = col.mul(mix(float(1), aoPass.getTextureNode().r, 0.85));
+}
+const bloomPass = bloom(color, 0.22, 0.4, 0.9);
 const vignette = smoothstep(float(1.05), float(0.35), screenUV.sub(0.5).length().mul(1.35));
-post.outputNode = scenePass.add(bloomPass).mul(vec3(vignette.mul(0.55).add(0.45)));
+post.outputNode = color.add(bloomPass).mul(vec3(vignette.mul(0.55).add(0.45)));
 const usePost = !params.has('nopost');
 
 let loaded = false;
@@ -110,7 +134,7 @@ renderer.setAnimationLoop(() => {
   const speed = SPEEDS[ui.speed];
   world.sim.step(dt * speed * MINUTES_PER_SECOND);
   world.animals.move(dt * Math.min(speed, 4));
-  world.water.animate(dt);
+  world.water.animate(dt, speed);
   mist.update(dt);
   ui.frame(dt);
   fx.step();
@@ -123,7 +147,7 @@ renderer.setAnimationLoop(() => {
   moon.intensity = (1 - light) * 0.35;
   scene.environmentIntensity = 0.04 + 0.12 * light;
 
-  controls.update();
+  controls.update(dt);
   if (usePost) post.render(); else renderer.render(scene, camera);
 
   uiTimer += dt;

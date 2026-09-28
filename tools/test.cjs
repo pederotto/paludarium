@@ -46,12 +46,14 @@ const server = http.createServer((req, res) => {
     if (process.env.VERBOSE || m.type() === 'warning') console.log(`[${m.type()}] ${t}`);
   });
   page.on('pageerror', (e) => errors.push(String(e.stack ?? e)));
-  await page.route('https://cdn.jsdelivr.net/npm/three@0.186.1/**', (route) => {
-    const rel = route.request().url().split('three@0.186.1/')[1];
-    const f = path.join(root, 'node_modules', 'three', rel);
-    if (!fs.existsSync(f)) return route.fulfill({ status: 404 });
-    route.fulfill({ status: 200, contentType: 'text/javascript', body: fs.readFileSync(f) });
-  });
+  for (const [pkg, ver] of [['three', '0.186.1'], ['camera-controls', '3.1.2'], ['three-mesh-bvh', '0.9.15']]) {
+    await page.route(`https://cdn.jsdelivr.net/npm/${pkg}@${ver}/**`, (route) => {
+      const rel = route.request().url().split(`${pkg}@${ver}/`)[1];
+      const f = path.join(root, 'node_modules', pkg, rel);
+      if (!fs.existsSync(f)) return route.fulfill({ status: 404 });
+      route.fulfill({ status: 200, contentType: 'text/javascript', body: fs.readFileSync(f) });
+    });
+  }
   await page.goto(`http://localhost:${port}/${arg("page", "")}?${query}`);
   await page.waitForFunction(() => document.getElementById('loading')?.classList.contains('gone') || /Couldn/.test(document.getElementById('loading')?.textContent ?? ''), null, { timeout: 90000 });
   if (script) await page.evaluate(fs.readFileSync(script, 'utf8'));
@@ -64,8 +66,12 @@ const server = http.createServer((req, res) => {
       fps: document.getElementById('fps').textContent,
       animals: Object.fromEntries(Object.entries(w.animals.by).map(([k, v]) => [k, v.length])),
       plants: w.plants.list.length,
-      ponds: w.water.ponds.length,
-      falls: w.water.falls.length,
+      water: {
+        level: +w.water.level.toFixed(2), litres: +w.water.volumeLitres().toFixed(2), pump: w.water.hydro.pump.running,
+        pools: w.water.pools.map((p) => `${p.cells.length}c ${p.litres.toFixed(2)}L @${p.level.toFixed(1)}`),
+        falls: w.water.falls.map((f) => `${f.pts.length}pts ${f.pts[0].y.toFixed(1)}→${f.end.y.toFixed(1)}`),
+      },
+      stage: w.sim.eco.stage,
       pieces: w.decor.pieces.length,
       env: { day: w.env.day, clock: w.env.clock, temp: +w.env.temp.toFixed(1), rh: +w.env.humidity.toFixed(0), nh3: +w.env.ammonia.toFixed(3), no3: +w.env.nitrate.toFixed(1), o2: +w.env.oxygen.toFixed(1) },
       log: w.logs.slice(0, 5).map((l) => l.msg),

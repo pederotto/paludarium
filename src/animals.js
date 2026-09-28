@@ -173,6 +173,13 @@ export const SPECIES = {
     body: sdfBody('dartfrog'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
     note: 'Terrestrial. Needs high humidity and live insects. Lays eggs by shallow water.',
   },
+  strawberry: {
+    name: 'Strawberry dart frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.1, speed: 0.9,
+    temp: [21, 27], humidity: 80, hungerHours: 150, lifeDays: 3500, eats: ['springtail', 'fly'], cap: 8, breed: 0.04, adultDays: 25,
+    eggs: { n: 4, days: 10, into: 'tadpole', where: 'shallow' },
+    body: sdfBody('strawberry'), anim: { amp: 0, wave: 1, lift: 0.22, stride: 0.26 },
+    note: 'Tiny red frog with blue legs. Lives on springtails; needs very damp air and plenty of moss.',
+  },
   toad: {
     name: 'Fire-bellied toad', scale: 1, group: 'Amphibians', kind: 'toad', size: 1.9, speed: 1.2,
     temp: [18, 26], humidity: 60, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'shrimp'], cap: 6, breed: 0.04, adultDays: 30,
@@ -213,7 +220,7 @@ export const SPECIES = {
   },
 };
 
-export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', dartfrog: 'blue dart frog', toad: 'fire-bellied toad', newt: 'newt', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch' };
+export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch' };
 export const one = (id) => ONE[id] ?? SPECIES[id].name.toLowerCase();
 
 export const FOOD_VALUE = { fly: 0.25, springtail: 0.07, isopod: 0.12, shrimp: 0.35, flake: 0.3, tadpole: 0.2 };
@@ -561,26 +568,41 @@ export class Animals {
     }
   }
 
+  // --- Frogs and toads ---------------------------------------------------------
+  // On land they sit, turn, creep a step or two and hop. A hop is a real
+  // ballistic arc: it only goes where the frog can land (dry, not too steep,
+  // not too high) and it never crosses water the arc wouldn't clear. A dart
+  // frog that ends up in water paddles to the nearest bank and climbs out;
+  // toads like the water and float at the surface, kicking along.
   frog(a, sp, dt) {
     const W = this.world, T = W.terrain;
     const toad = sp.kind === 'toad';
+    if (a.tongue) a.tongue = Math.max(0, a.tongue - dt);
     if (a.hop) {
-      a.hop.t += dt / a.hop.dur;
-      const t = Math.min(1, a.hop.t);
-      a.pos.lerpVectors(a.hop.from, a.hop.to, t);
-      a.pos.y += Math.sin(t * Math.PI) * a.hop.h;
-      if (t >= 1) { a.hop = null; a.state = 'sit'; a.timer = 1 + Math.random() * 5; }
+      const hp = a.hop;
+      hp.t += dt / hp.dur;
+      const t = Math.min(1, hp.t);
+      a.pos.lerpVectors(hp.from, hp.to, t);
+      a.pos.y += 4 * hp.h * t * (1 - t);
+      a.pitch = -Math.atan2(hp.to.y - hp.from.y + 4 * hp.h * (1 - 2 * t), Math.max(0.1, hp.from.distanceTo(hp.to))) * 0.6;
+      if (t >= 1) {
+        a.hop = null;
+        a.pitch = 0;
+        a.state = 'sit';
+        a.timer = 0.8 + Math.random() * 4;
+        if (hp.splash) W.fx?.addDrop(a.pos.x, a.pos.z, -4, 0.8);
+      }
       return;
     }
-    const swimming = toad && W.water.surfaceAt(a.pos.x, a.pos.z) > T.heightAt(a.pos.x, a.pos.z) + 0.8;
-    if (swimming) {
-      a.pos.y = W.water.surfaceAt(a.pos.x, a.pos.z) - 0.35;
-    } else {
-      a.pos.y = T.heightAt(a.pos.x, a.pos.z);
-      a.normal = T.normalAt(a.pos.x, a.pos.z);
-    }
+    const g = T.heightAt(a.pos.x, a.pos.z);
+    const s = W.water.surfaceAt(a.pos.x, a.pos.z, 0.2);
+    const inWater = s > g + 0.9 * sp.size;
+    a.swimming = inWater;
     a.timer -= dt;
-    // Hunt.
+    if (inWater) { this.frogSwim(a, sp, dt, s, toad); return; }
+    a.pos.y = g;
+    a.normal = T.normalAt(a.pos.x, a.pos.z);
+    // Hunt: turn to face prey, creep or hop closer, then the tongue.
     if (a.hunger > 0.2) {
       let best = null, bd = 16;
       for (const pid of sp.eats) {
@@ -591,53 +613,126 @@ export class Animals {
         }
       }
       if (best) {
-        a.yaw = angLerp(a.yaw, Math.atan2(best.pos.x - a.pos.x, best.pos.z - a.pos.z), Math.min(1, dt * 8));
-        if (bd < 2.6 * sp.size) {
-          // Tongue strike.
+        a.yaw = angLerp(a.yaw, Math.atan2(best.pos.x - a.pos.x, best.pos.z - a.pos.z), Math.min(1, dt * 6));
+        if (bd < 2.2 * sp.size && Math.abs(best.pos.y - a.pos.y) < 3) {
           this.remove(best, `eaten by a ${sp.name.toLowerCase()}`);
           a.hunger = Math.max(0, a.hunger - (FOOD_VALUE[best.sp] ?? 0.1));
           a.tongue = 0.25;
-          this.world.log(`${sp.name} caught a ${one(best.sp)}.`, 'eat');
+          if (Math.random() < 0.4) this.world.log(`${sp.name} caught a ${one(best.sp)}.`, 'eat');
           return;
         }
         if (a.timer <= 0) {
           const dir = best.pos.clone().sub(a.pos).setY(0);
-          const len = Math.min(dir.length() - 1, 6 * sp.size);
-          const to = a.pos.clone().addScaledVector(dir.normalize(), Math.max(1, len));
-          if (this.hopTo(a, sp, to)) return;
-          a.timer = 0.5;
+          const len = Math.min(dir.length() - 1.2 * sp.size, 7 * sp.size);
+          if (len < 2 && this.frogStep(a, sp, dir, dt)) return;
+          if (this.hopTo(a, sp, a.pos.clone().addScaledVector(dir.normalize(), Math.max(1.5, len)))) return;
+          a.timer = 0.4;
         }
       }
     }
     if (a.timer <= 0) {
-      // Wander hop. Toads sometimes head for water, sometimes for land.
-      for (let k = 0; k < 8; k++) {
-        const ang = Math.random() * Math.PI * 2, r = (2 + Math.random() * 5) * sp.size;
+      // Wander: mostly short hops; toads now and then head for water.
+      const wantWater = toad && Math.random() < 0.3;
+      for (let k = 0; k < 10; k++) {
+        const ang = a.yaw + (Math.random() - 0.5) * (k < 5 ? 2 : 6.28), r = (1.8 + Math.random() * 4) * sp.size;
         const to = V(a.pos.x + Math.sin(ang) * r, 0, a.pos.z + Math.cos(ang) * r);
-        if (this.hopTo(a, sp, to)) return;
+        if (this.hopTo(a, sp, to, wantWater)) return;
       }
       a.timer = 1 + Math.random() * 3;
     }
-    if (swimming) {
-      a.yaw += dt * 0.3;
-    }
-    if (a.tongue) a.tongue = Math.max(0, a.tongue - dt);
   }
 
-  hopTo(a, sp, to) {
+  // A careful step (for the last few centimetres to prey).
+  frogStep(a, sp, dir, dt) {
+    const W = this.world;
+    const d = dir.clone().setY(0).normalize().multiplyScalar(sp.speed * 0.6 * dt);
+    const nx = a.pos.x + d.x, nz = a.pos.z + d.z;
+    if (W.water.surfaceAt(nx, nz, 0.3) > -Infinity) return false;
+    a.pos.x = nx; a.pos.z = nz;
+    a.pos.y = W.terrain.heightAt(nx, nz);
+    return true;
+  }
+
+  frogSwim(a, sp, dt, s, toad) {
+    const W = this.world, T = W.terrain;
+    a.pos.y = s - 0.35 * sp.size;
+    a.normal = null;
+    // Kick now and then; glide in between.
+    a.kick = (a.kick ?? 0) + dt * 2.2;
+    const push = Math.max(0, Math.sin(a.kick * Math.PI));
+    if (!a.shore || a.timer <= 0) {
+      a.timer = 4 + Math.random() * 4;
+      a.shore = null;
+      // Dart frogs head for the nearest bank; toads float about and
+      // sometimes decide to climb out.
+      if (!toad || Math.random() < 0.35) {
+        for (let r = 2; r < 30 && !a.shore; r += 2) {
+          for (let k = 0; k < 16; k++) {
+            const ang = (k / 16) * Math.PI * 2;
+            const x = a.pos.x + Math.sin(ang) * r, z = a.pos.z + Math.cos(ang) * r;
+            if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2) continue;
+            if (W.water.surfaceAt(x, z, 0.3) === -Infinity && T.normalAt(x, z).y > 0.6) { a.shore = V(x, 0, z); break; }
+          }
+        }
+      } else {
+        const ang = Math.random() * Math.PI * 2;
+        a.shore = V(a.pos.x + Math.sin(ang) * 6, 0, a.pos.z + Math.cos(ang) * 6);
+        a.floating = true;
+      }
+    }
+    if (!a.shore) return;
+    const dir = V(a.shore.x - a.pos.x, 0, a.shore.z - a.pos.z);
+    const dist = dir.length();
+    a.yaw = angLerp(a.yaw, Math.atan2(dir.x, dir.z), Math.min(1, dt * 3));
+    const v = sp.speed * (toad ? 3 : 2.2) * (0.3 + push);
+    const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt;
+    if (Math.abs(nx) < TANK.w / 2 - 1 && Math.abs(nz) < TANK.d / 2 - 1) { a.pos.x = nx; a.pos.z = nz; }
+    if (push > 0.9 && Math.random() < dt * 4) W.fx?.addDrop(a.pos.x, a.pos.z, -1.2, 0.5);
+    // Close to the bank: climb out with a hop.
+    if (dist < 2.5 * sp.size) {
+      const to = a.shore.clone();
+      if (W.water.surfaceAt(to.x, to.z, 0.3) === -Infinity) {
+        to.y = T.heightAt(to.x, to.z);
+        if (to.y - a.pos.y < 6 * sp.size) this.startHop(a, to, 1);
+      }
+      a.shore = null;
+    }
+  }
+
+  hopTo(a, sp, to, intoWater = false) {
     const W = this.world, T = W.terrain;
     if (Math.abs(to.x) > TANK.w / 2 - 1.5 || Math.abs(to.z) > TANK.d / 2 - 1.5) return false;
     const g = T.heightAt(to.x, to.z);
-    const s = W.water.surfaceAt(to.x, to.z);
+    const s = W.water.surfaceAt(to.x, to.z, 0.3);
     const wet = s > g + 0.2;
-    if (wet && sp.kind !== 'toad') return false;
-    if (wet && s - g > 25) return false;
-    to.y = wet ? s - 0.35 : g;
+    // Dart frogs never hop into water; toads only when they mean to.
+    if (wet && !(sp.kind === 'toad' && intoWater)) return false;
+    if (!wet && T.normalAt(to.x, to.z).y < 0.6) return false;       // too steep to land on
+    if (!wet && W.water.nearestFall(V(to.x, g, to.z), 1.5)) return false;
+    to.y = wet ? s - 0.35 * sp.size : g;
     const rise = to.y - a.pos.y;
-    if (rise > 7 * sp.size) return false;
-    a.hop = { from: a.pos.clone(), to, t: 0, dur: 0.35 + a.pos.distanceTo(to) * 0.04, h: 1.5 + Math.max(0, rise) + a.pos.distanceTo(to) * 0.15 };
-    a.yaw = Math.atan2(to.x - a.pos.x, to.z - a.pos.z);
+    if (rise > 5 * sp.size || rise < -14 * sp.size) return false;
+    const dist = Math.hypot(to.x - a.pos.x, to.z - a.pos.z);
+    const h = 1 + dist * 0.28 + Math.max(0, rise);
+    // Standing in a puddle or the shallows: the arc starts at the surface.
+    const y0 = Math.max(a.pos.y, W.water.surfaceAt(a.pos.x, a.pos.z, 0.05));
+    // The arc must clear everything under it: ground, rocks and water.
+    for (let i = 1; i < 8; i++) {
+      const t = i / 8;
+      const x = a.pos.x + (to.x - a.pos.x) * t, z = a.pos.z + (to.z - a.pos.z) * t;
+      const y = y0 + (to.y - y0) * t + 4 * h * t * (1 - t);
+      const under = Math.max(T.heightAt(x, z), W.water.surfaceAt(x, z, 0.3));
+      if (y < under + 0.3 && !(wet && t > 0.75)) return false;
+    }
+    this.startHop(a, to, h, wet);
     return true;
+  }
+
+  startHop(a, to, h, splash = false) {
+    const d = a.pos.distanceTo(to);
+    a.hop = { from: a.pos.clone(), to, t: 0, dur: 0.22 + Math.sqrt(d) * 0.1, h: Math.max(h, 0.6), splash };
+    a.yaw = Math.atan2(to.x - a.pos.x, to.z - a.pos.z);
+    a.floating = false;
   }
 
   // --- Newts: mostly swimming, now and then a walk on land ------------------
@@ -762,7 +857,7 @@ export class Animals {
           // On the background: belly to the wall, heading within its plane.
           q.setFromUnitVectors(UP, a.normal);
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
-        } else if (a.normal && !swimming && sp.kind !== 'fly') {
+        } else if (a.normal && !swimming && !a.hop && sp.kind !== 'fly') {
           const up = a.normal.clone().lerp(UP, 0.3).normalize();
           q.setFromUnitVectors(UP, up);
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
@@ -775,7 +870,11 @@ export class Animals {
         let amp = (an.amp ?? 0) * (swimming ? 0.6 + rel * 0.6 : rel * 0.35);
         if (a.stranded) amp = (an.amp ?? 0.3) * 2.5;
         a.wph = (a.wph ?? a.phase) + dt * (swimming ? 5 + rel * 7 : 3 + rel * 4) * 2;
-        const hop = a.hop ? Math.sin(Math.min(1, a.hop.t) * Math.PI) : 0;
+        // Legs: stretched out through the first part of a hop and tucked in
+        // for the landing; a swimming frog kicks.
+        let hop = 0;
+        if (a.hop) { const t = Math.min(1, a.hop.t); hop = t < 0.6 ? Math.sin((t / 0.6) * Math.PI * 0.5) : 1 - (t - 0.6) / 0.4; }
+        else if ((sp.kind === 'frog' || sp.kind === 'toad') && a.swimming) hop = 0.45 + 0.55 * Math.max(0, Math.sin((a.kick ?? 0) * Math.PI));
         cm.put(a.pos, q, sc, a.wph, amp, a.gait ?? 0, hop);
       }
       cm.end();
