@@ -2,7 +2,7 @@
 // tanks and your career record.
 
 import { useState, useEffect } from 'preact/hooks';
-import { S, toast, openModal } from '../store.js';
+import { S, toast, openModal, closeModal } from '../store.js';
 import { Sheet } from './Modals.jsx';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
@@ -15,8 +15,12 @@ import { sellPrice, demand, isSellable } from '../../game/market.js';
 import { SPECIES } from '../../sim/animals.js';
 import { BIOTOPES, BIOTOPE_ORDER } from '../../content/biotopes.js';
 import { loadPresets } from '../../app/lazy-gen.js';
+import { KITS, kitCounts, kitReach } from '../../content/kits.js';
+import { PIECES } from '../../sim/decor.js';
+import { KitPrice, kitInfo } from '../hud/ToolOptions.jsx';
+import '../builder.css';
 
-const TABS = [['commissions', 'Commissions', 'clipboard'], ['shop', 'Shop', 'cog'], ['market', 'Market', 'coin'], ['tanks', 'Tanks', 'home'], ['career', 'Career', 'trophy']];
+const TABS = [['commissions', 'Commissions', 'clipboard'], ['shop', 'Shop', 'cog'], ['kits', 'Kits', 'layers'], ['market', 'Market', 'coin'], ['tanks', 'Tanks', 'home'], ['career', 'Career', 'trophy']];
 
 export function Studio() {
   const arg = S.modalArg.value;
@@ -26,7 +30,7 @@ export function Studio() {
   const sandbox = career?.mode === 'sandbox';
   return (
     <Sheet title="Studio" icon="briefcase" tabs={TABS.filter((t) => !(sandbox && (t[0] === 'commissions' || t[0] === 'market')))} tab={tab} setTab={setTab} wide>
-      {tab === 'commissions' ? <Commissions /> : tab === 'shop' ? <Shop /> : tab === 'market' ? <Market /> : tab === 'tanks' ? <Tanks /> : <CareerTab />}
+      {tab === 'commissions' ? <Commissions /> : tab === 'shop' ? <Shop /> : tab === 'kits' ? <Kits /> : tab === 'market' ? <Market /> : tab === 'tanks' ? <Tanks /> : <CareerTab />}
     </Sheet>
   );
 }
@@ -118,6 +122,60 @@ function Shop() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Kits: prefab aquascape compositions. Pick one, then click the tank to drop it there.
+const KIT_COLOR = { boulder: '#9aa39c', cliff: '#7f8a86', spire: '#b5bdc4', stump: '#c69a62', roots: '#b58a4f', wood: '#c9a56a' };
+
+function KitPlan({ kit }) {
+  const R = kitReach(kit) + 3;
+  return (
+    <svg class="kit-plan" viewBox={`${-R} ${-R * 0.75} ${R * 2} ${R * 1.5}`} role="img" aria-label={`Plan view of ${kit.name}`}>
+      {(kit.banks ?? []).map((b, i) => <circle key={'b' + i} cx="0" cy="0" r={b.ring} fill="none" stroke="var(--moss)" stroke-width={b.width} opacity="0.45" />)}
+      {kit.pieces.map((p, i) => (
+        <ellipse key={i} cx={p.dx} cy={p.dz} rx={(p.width ?? p.size) / 2} ry={(p.width ?? p.size) / 2 * (p.type === 'wood' || p.type === 'roots' ? 0.45 : 0.85)} fill={KIT_COLOR[p.type] ?? '#999'}
+          opacity={p.stack ? 0.95 : 0.78} stroke="rgba(0,0,0,0.35)" stroke-width="0.5" />
+      ))}
+      {kit.outlet ? <circle cx={kit.pieces[kit.outlet.on].dx} cy={kit.pieces[kit.outlet.on].dz} r="2" fill="var(--water)" stroke="#fff" stroke-width="0.5" /> : null}
+    </svg>
+  );
+}
+
+function Kits() {
+  const [, force] = useState(0);
+  void S.career.value;
+  const use = (k) => {
+    const info = kitInfo(k);
+    if (info?.locked) { toast(`Unlocked at rank ${info.level}: ${RANKS[info.level - 1].name}.`, 'bad'); return; }
+    ctx.tools.setKit(k.id);
+    closeModal();
+    toast(`${k.name} ready: click the tank to place it.`);
+    force((n) => n + 1);
+  };
+  return (
+    <div>
+      <p class="note" style={{ marginTop: 0 }}>A kit is a whole composition dropped on the tank with one click, and one undo takes it back. Each placement varies a little. In a career it costs the sum of its pieces; in the sandbox it is free. Turn on Mirror (M) to place a mirror image beside it.</p>
+      <div class="cols kit-cols">
+        {KITS.map((k) => {
+          const info = kitInfo(k);
+          const counts = Object.entries(kitCounts(k));
+          return (
+            <div key={k.id} class={'tile kit' + (info?.locked ? ' lock' : '')}>
+              <KitPlan kit={k} />
+              <h4>{k.name}</h4>
+              <p>{k.blurb}</p>
+              <p class="teach">{k.teaches}</p>
+              <div class="chips kit-parts">{counts.map(([t, n]) => <span key={t} class="tag">{PIECES[t]?.name ?? t} × {n}</span>)}{k.outlet ? <span class="tag water">Pump outlet</span> : null}</div>
+              <div class="foot">
+                {info ? <KitPrice kit={k} /> : <span class="tag moss">Free in the sandbox</span>}
+                <button class="btn sm primary" onClick={() => use(k)} disabled={!!info?.locked}>Place a kit</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

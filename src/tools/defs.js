@@ -3,11 +3,11 @@
 export const TOOLS = [
   { id: 'view', group: 0, icon: 'hand', name: 'Look', key: '1', hint: 'Drag to orbit, right-drag to pan, scroll to zoom toward the pointer. Double-click anything to fly to it.' },
   { id: 'inspect', group: 0, icon: 'search', name: 'Inspect', key: '2', hint: 'Click an animal, plant or pool to see how it is doing and what it needs.' },
-  { id: 'sculpt', group: 1, icon: 'mountain', name: 'Sculpt', key: '3', hint: 'Drag on the ground or the background to shape it. Right-drag orbits, middle-drag pans. Ctrl+Z undoes.' },
-  { id: 'paint', group: 1, icon: 'brush', name: 'Paint', key: '4', hint: 'Paint soil, sand, gravel, rock, moss or stone. Moss grows and spreads where the air and soil are damp.' },
-  { id: 'rock', group: 1, icon: 'rock', name: 'Hardscape', key: '5', hint: 'Click the ground to place a piece; click on top of one to stack. Click a piece to select it, then drag its handles.' },
-  { id: 'water', group: 1, icon: 'drop', name: 'Water', key: '6', hint: 'Dig channels and pools, build banks, place pump outlets. The water flows live as you shape the ground.' },
-  { id: 'plant', group: 2, icon: 'leaf', name: 'Plants', key: '7', hint: 'Pick a plant, then click where it should grow. Check its light, humidity and soil needs first.' },
+  { id: 'sculpt', group: 1, icon: 'mountain', name: 'Sculpt', key: '3', hint: 'Drag on the ground or the background to shape it. Right-drag orbits, middle-drag pans. Ctrl+Z undoes, M mirrors across the middle.' },
+  { id: 'paint', group: 1, icon: 'brush', name: 'Paint', key: '4', hint: 'Paint soil, sand, gravel, rock, moss or stone. Moss grows and spreads where the air and soil are damp. M mirrors.' },
+  { id: 'rock', group: 1, icon: 'rock', name: 'Hardscape', key: '5', hint: 'Click the ground to place a piece; click on top of one to stack. Click a piece to select it, then drag its handles. Or pick a kit: a whole composition in one click. M mirrors.' },
+  { id: 'water', group: 1, icon: 'drop', name: 'Water', key: '6', hint: 'Dig channels and pools, build banks, place pump outlets. The water flows live as you shape the ground. M mirrors.' },
+  { id: 'plant', group: 2, icon: 'leaf', name: 'Plants', key: '7', hint: 'Pick a plant, then click where it should grow. Check its light, humidity and soil needs first. M mirrors.' },
   { id: 'animal', group: 2, icon: 'frog', name: 'Animals', key: '8', hint: 'Pick a species, then click to release it. Read its needs in the Field Guide first.' },
   { id: 'gear', group: 2, icon: 'cog', name: 'Equipment', key: '9', hint: 'Place your fogger and basking lamp, and set up the rain system and controller.' },
   { id: 'erase', group: 3, icon: 'eraser', name: 'Remove', key: '0', hint: 'Click a plant, animal, rock or outlet to remove it, or a pool to drain it.' },
@@ -21,6 +21,10 @@ export const WATER_TOOLS = [
   ['fill', 'Fill', 'Click a hollow to fill it now with water from the main pool.'],
   ['pump', 'Pump', 'Click in the main pool to move the pump.'],
 ];
+
+// Where the Mirror toggle (key M) applies: tools, and the Water tool's modes.
+export const MIRROR_TOOLS = ['sculpt', 'paint', 'rock', 'water', 'plant'];
+export const MIRROR_WATER = ['channel', 'basin', 'bank', 'outlet'];
 
 export const SCULPT_OPS = [['raise', 'Raise'], ['lower', 'Lower'], ['smooth', 'Smooth'], ['flatten', 'Flatten']];
 

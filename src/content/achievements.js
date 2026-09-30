@@ -34,6 +34,9 @@ export const ACHIEVEMENTS = [
   { id: 'commissions-5', name: 'In demand', text: 'Finish five commissions.', icon: 'clipboard', funds: 60, rep: 40, test: (s) => s.commissionsDone >= 5 },
   { id: 'commissions-15', name: 'Trusted name', text: 'Finish fifteen commissions.', icon: 'clipboard', funds: 200, rep: 100, test: (s) => s.commissionsDone >= 15 },
   { id: 'axolotl', name: 'Cold blooded', text: 'Keep an axolotl healthy for 30 days.', icon: 'snow', funds: 100, rep: 60, test: (s) => s.axolotlDays >= 30 },
+  { id: 'symmetry', name: 'Symmetry', text: 'Build something with Mirror on: both sides at once.', icon: 'swap', funds: 15, rep: 10, test: (s) => s.mirrorUsed >= 1 },
+  { id: 'kit-builder', name: 'Kit builder', text: 'Place three aquascape kits.', icon: 'layers', funds: 40, rep: 25, test: (s) => s.kitsPlaced >= 3 },
+  { id: 'patience', name: 'Patient eye', text: 'Watch a time-lapse of your tank grow.', icon: 'clock', funds: 15, rep: 10, test: (s) => s.timelapses >= 1 },
   { id: 'wall-garden', name: 'Living wall', text: 'Grow twelve plants on the background.', icon: 'leaf', funds: 50, rep: 30, test: (s, c) => (c?.wall?.plants ?? 0) >= 12 },
 ];
 
