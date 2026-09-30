@@ -19,7 +19,8 @@ Built with [three.js](https://threejs.org) on **WebGPU** (TSL shaders, WebGL 2 f
 - **Microclimate.** Humidity, temperature, light and soil moisture are maps across the tank, not single numbers. Plants, moss and animals respond to their own spot, and animals seek the comfort they need. Switch **lenses** (`L`) to see humidity, temperature, light, soil and water-flow overlays.
 - **Glass and dew.** Condensation forms on the glass when the tank is warmer and damper than the room, as beads and haze, from a dew-point calculation. Wipe it, or fix the cause.
 - **Equipment.** Lights and timers, heater and chiller, fan, fogger, rain programmes, basking lamps, filters, false-bottom drainage and an auto-feeder, plus automation rules ("if humidity is below 75%, run the fogger").
-- **Water and the nitrogen cycle.** A conserved water simulation (pump, pools, streams, waterfalls), ammonia → nitrite → nitrate, oxygen, algae and mould.
+- **Water and the nitrogen cycle.** A conserved water simulation (pump, pools, streams, waterfalls), ammonia → nitrite → nitrate, oxygen, algae, and white mould that creeps over wood and stone in stale, saturated air (a fan starves it; springtails and isopods eat it).
+- **Sound.** Ambience is synthesised live (no audio files): waterfalls and pools, rain, a room hum, and at night crickets and frog calls. Volume and mute are in Settings.
 - **Life.** Animals eat, breathe, breed, metamorphose, age and die; plants grow, spread and rot; moss creeps over damp stone. Time runs at 1× to 60×.
 
 ## Controls

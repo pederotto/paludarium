@@ -27,6 +27,10 @@ three.js r186 `WebGPURenderer` with TSL. The post chain is a `RenderPipeline`: s
 
 Animals are **signed-distance-field bodies** meshed by an adaptive surface-nets mesher at two levels of detail, animated on the GPU by a vertex rig `[spine, leg, legT, materialId]` (body bend, limb swing) and drawn instanced. Each body file in `render/creatures/bodies/` describes one species; `tools/bench.mjs` renders contact sheets. If a textured model is listed in `public/assets/creatures/manifest.json` the game uses it instead (`glb.js` derives the rig from the mesh shape); see `docs/ASSET_BRIEF.md` for the art pipeline.
 
+## Audio
+
+`engine/audio.js` synthesises the ambience with WebAudio: filtered noise loops for water and rain, oscillator bursts for crickets, frog calls and drips through a small convolution reverb. `main.jsx` starts it on the first user gesture and feeds it the game snapshot twice a second.
+
 ## Simulation
 
 The world runs at a fixed step scaled by the speed setting. Environment is **spatial**: `Climate` keeps humidity, temperature, light and soil maps that plants, moss and animals sample and that the lens overlays draw. Equipment feeds the maps; an automation controller evaluates the player's rules. Animals choose where to be by comfort at each point of the tank.
