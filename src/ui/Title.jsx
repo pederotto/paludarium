@@ -43,7 +43,7 @@ function Generated({ back }) {
   const [tier, setTier] = useState('standard');
   const [seeds, setSeeds] = useState({});
   useEffect(() => { loadPresets().then(setPresets).catch(() => setPresets([])); }, []);
-  const seed = (id) => seeds[id] ?? 1000 + (id.length * 977) % 9000;
+  const seed = (id) => seeds[id] ?? 1000 + ([...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 9000);
   const list = (presets ?? []).filter((p) => !p.tiers || p.tiers.includes(tier));
   const surprise = () => { const p = list[(Math.random() * list.length) | 0]; if (p) ctx.start.preset(p.id, (Math.random() * 99999) | 0, tier); };
   return (
