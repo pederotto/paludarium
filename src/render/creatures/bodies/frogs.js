@@ -229,6 +229,12 @@ function addDigits(limb, o) {
   }
 }
 
+// Tangent frame of an eyeball looking along `axis`: h horizontal, w the other (pointing down-ish).
+function eyeBasis(axis) {
+  const a = norm3(axis), h = norm3(cross3(a, [0, 1, 0]));
+  return { axis: a, h, w: norm3(cross3(a, h)) };
+}
+
 // Which detail level is being built: set by reading `cell` (coarse) or `hiScale` (fine) on the definition.
 function lodDef(def, cell, hiScale, st) {
   Object.defineProperties(def, {
@@ -299,9 +305,7 @@ function buildFrog(P, st) {
 
   // Eyes (right eye here; the left is its mirror).
   const e = P.eye, ey = loft.top(e.x, e.z) + e.lift;
-  const eye = { c: [e.x, ey, e.z], r: e.r, axis: norm3(e.axis) };
-  eye.h = norm3(cross3(eye.axis, [0, 1, 0]));           // horizontal tangent
-  eye.w = norm3(cross3(eye.axis, eye.h));               // the other tangent (up-ish)
+  const eye = { c: [e.x, ey, e.z], r: e.r, ...eyeBasis(e.axis) };   // h: horizontal tangent, w: the other one
   // Canthus ridge and nostril pits.
   const snoutZ = P.rows[P.rows.length - 1][0];
   const nos = [0.17, loft.top(0.17, snoutZ - 0.2) - 0.01, snoutZ - 0.2];
@@ -421,7 +425,6 @@ function frogDef(spec) {
   };
   const mat = (X, Y, Z) => {
     const a = analyze(X, Y, Z);
-    if (a.eye && a.eye.th < CAP && pupilTest(a, a.pal) < 1) return M.EYE;
     return spec.mat ? spec.mat(a) : M.SKIN;
   };
   const color = (X, Y, Z) => {
@@ -431,7 +434,13 @@ function frogDef(spec) {
   const m = 0.3;
   const def = {
     sdf, lo: [-P.box[0] * S, -0.1 * S, P.box[2] * S], hi: [P.box[0] * S, P.box[1] * S, P.box[3] * S], color, mat, rig,
-    finish: { rough: 0.35, coat: 0.4, coatRough: 0.15, grain: 0.35, bump: 0.0005, tone: 0.02, flutter: 0.0, ...(spec.finish ?? {}) },
+    // Moist satin skin: soft broad highlights instead of glassy streaks, smooth (grainAmt low). The eyes are
+    // drawn per fragment by the material (pupil, iris ring, catchlight) so their edges do not depend on the mesh.
+    finish: {
+      rough: 0.5, coat: 0.22, coatRough: 0.4, grain: 9, bump: 0.05, grainAmt: 0.35, tone: 0.03, flutter: 0.0,
+      eyes: [{ c: eye.c.map((v) => v * S), r: eye.r * S, axis: eye.axis, h: eye.h, w: eye.w, pupil: spec.eyePal.pupil, shape: spec.eyePal.shape, inner: spec.eyePal.inner, outer: spec.eyePal.outer }],
+      ...(spec.finish ?? {}),
+    },
   };
   void m;
   return lodDef(def, spec.cell, 0.5, st);
@@ -439,36 +448,13 @@ function frogDef(spec) {
 
 // ---- Species ----------------------------------------------------------------------------------
 
-// Eye ball: a cap of iris and pupil (angle < CAP from the eye axis); the rest is the eyelid. The pupil
-// is the only M.EYE (glossy black) part, the iris is skin material with colour, so its colour shows.
+// Eye ball: the cap (angle < CAP from the eye axis) is drawn by the material from the eye geometry (finish.eyes:
+// pupil, iris ring, limbus, catchlight, all analytic and smooth); here it only gets a near-black underlay so
+// that the blend into the eyelid rim (see headMarks) is dark. Beyond the cap: eyelid, skin colour.
 const CAP = 1.0;
-const RIM = C(0x020203);
-// < 1 inside the pupil. shape 'h' is a horizontal ellipse, 'tri' the heart / triangle of a Bombina.
-function pupilTest(a, pal) {
-  const r = a.eyeCfg.r, ps = pal.pupil ?? [0.45, 0.28];
-  const { u, v } = a.eye;
-  const x = u / (ps[0] * r), y = v / (ps[1] * r);
-  if (pal.shape === 'tri') {
-    // rounded triangle pointing down, flat on top (in the eye's tangent plane)
-    const q = Math.max(Math.abs(x) * 0.9 + (y + 0.15) * 0.75, -y * 1.15 - 0.2);
-    return q * q;
-  }
-  return x * x + y * y;
-}
-function paintEye(a, pal) {
-  const th = a.eye.th, r = a.eyeCfg.r;
-  if (th >= CAP) return null;                    // eyelid: skin colour (see headMarks for the rim)
-  const { u, v } = a.eye;
-  const rho = Math.hypot(u, v) / r;
-  const pup = pupilTest(a, pal);
-  if (pup < 1) return RIM;
-  // iris: a bright ring at the pupil fading to a dark limbus, with fine radial streaks
-  const ang = Math.atan2(v, u);
-  const streak = 0.8 + 0.4 * vnoise(Math.cos(ang) * 7 + 5, Math.sin(ang) * 7, rho * 2);
-  let c = lerp3(pal.inner, pal.outer, sstep(0.25, 0.75, rho));
-  c = mul3(c, streak);
-  c = lerp3(c, RIM, sstep(1.3, 1.0, pup) * 0.5);
-  return lerp3(c, RIM, sstep(0.76, 0.88, rho));   // black limbus, so the cap edge is hidden
+const RIM = C(0x040405);
+function paintEye(a) {
+  return a.eye.th < CAP ? RIM : null;
 }
 
 // Marks every frog has: dark mouth line along the equator of the head, nostrils, a faint tympanum ring,
@@ -504,12 +490,13 @@ function scaleGeo(P, { kx = 1, ky = 1, kz = 1, kr = 1, ke = 1, kd = 1, hind = 1,
   };
 }
 
-// Eye palettes: iris colour near the pupil, near the rim, and the pupil shape / size.
-const EYE_DART = { inner: C(0x9c7434), outer: C(0x2a1a0c), pupil: [0.5, 0.3] };
-const EYE_PUM = { inner: C(0x8a6a3a), outer: C(0x1e140b), pupil: [0.5, 0.31] };
-const EYE_LEU = { inner: C(0x7a5a2c), outer: C(0x150e08), pupil: [0.5, 0.3] };
-const EYE_AUR = { inner: C(0xa07a36), outer: C(0x22160b), pupil: [0.5, 0.3] };
-const EYE_BOMB = { inner: C(0xe6b23c), outer: C(0x8e5f20), pupil: [0.5, 0.36], shape: 'tri' };
+// Eye palettes (linear colours): iris near the pupil and near the rim, pupil half sizes in eye radii
+// (round for the dart frogs, a heart / triangle pointing down for the fire-bellied toad).
+const EYE_DART = { inner: C(0xd8a040), outer: C(0x6e461a), pupil: [0.44, 0.41] };
+const EYE_PUM = { inner: C(0xc89440), outer: C(0x5a3a18), pupil: [0.44, 0.41] };
+const EYE_LEU = { inner: C(0xc08a34), outer: C(0x50300f), pupil: [0.44, 0.41] };
+const EYE_AUR = { inner: C(0xd8a444), outer: C(0x60401a), pupil: [0.44, 0.41] };
+const EYE_BOMB = { inner: C(0xf0be44), outer: C(0xa8702a), pupil: [0.5, 0.42], shape: 'tri' };
 
 // Common skin helpers.
 const dorsalOf = (a) => sstep(-0.5, 0.4, a.n[1]);
@@ -518,7 +505,7 @@ const bellyOf = (a) => sstep(-0.25, -0.65, a.n[1]);
 // -- Blue dart frog (Dendrobates tinctorius "azureus"): cobalt blue with black spots
 const azureus = (a) => {
   const { x, y, z, n } = a;
-  const eyeC = a.eye ? paintEye(a, EYE_DART) : null;
+  const eyeC = a.eye ? paintEye(a) : null;
   if (eyeC) return eyeC;
   const dorsal = dorsalOf(a);
   const w = wnoise(x, y, z, 1.1);
@@ -537,7 +524,7 @@ const azureus = (a) => {
 // -- Strawberry dart frog (Oophaga pumilio "blue jeans"): red-orange body, blue speckled legs
 const pumilio = (a) => {
   const { x, y, z, n } = a;
-  const eyeC = a.eye ? paintEye(a, EYE_PUM) : null;
+  const eyeC = a.eye ? paintEye(a) : null;
   if (eyeC) return eyeC;
   const dorsal = dorsalOf(a), belly = bellyOf(a);
   const w = wnoise(x, y, z, 1.3);
@@ -561,7 +548,7 @@ const pumilio = (a) => {
 // -- Yellow-banded poison frog (Dendrobates leucomelas): yellow with black bands and a black head cap
 const leucomelas = (a) => {
   const { x, y, z, n } = a;
-  const eyeC = a.eye ? paintEye(a, EYE_LEU) : null;
+  const eyeC = a.eye ? paintEye(a) : null;
   if (eyeC) return eyeC;
   const dorsal = dorsalOf(a), belly = bellyOf(a);
   const yellow = lerp3(C(0xeab20e), C(0xffd626), dorsal * (0.4 + 0.6 * wnoise(x, y, z, 1.2)));
@@ -594,7 +581,7 @@ const leucomelas = (a) => {
 // -- Green and black poison frog (Dendrobates auratus): metallic green patches on black
 const auratus = (a) => {
   const { x, y, z, n } = a;
-  const eyeC = a.eye ? paintEye(a, EYE_AUR) : null;
+  const eyeC = a.eye ? paintEye(a) : null;
   if (eyeC) return eyeC;
   const dorsal = dorsalOf(a), belly = bellyOf(a);
   const limb = a.kind !== 'body';
@@ -616,7 +603,7 @@ const auratus = (a) => {
 // -- Fire-bellied toad (Bombina orientalis): warty olive back with black blotches, red-orange spotted belly
 const bombina = (a) => {
   const { x, y, z, n } = a;
-  const eyeC = a.eye ? paintEye(a, EYE_BOMB) : null;
+  const eyeC = a.eye ? paintEye(a) : null;
   if (eyeC) return eyeC;
   const limb = a.kind !== 'body';
   // ragged boundary between back and belly colour
@@ -674,7 +661,7 @@ export const FROGS = {
   strawberry: () => frogDef({ size: 2.3, cell: 0.048, paint: pumilio, eyePal: EYE_PUM, legK: 0.8, geo: scaleGeo(DART, { kx: 1.03, ky: 1.06, kz: 0.94, kr: 1.05, ke: 1.16, kd: 1.15 }) }),
   leucomelas: () => frogDef({ size: 4.5, cell: 0.072, paint: leucomelas, eyePal: EYE_LEU, geo: scaleGeo(DART, { kx: 1.03, ky: 1.03, kz: 1.0, kr: 1.06 }) }),
   auratus: () => frogDef({ size: 4.0, cell: 0.066, paint: auratus, eyePal: EYE_AUR, geo: scaleGeo(DART, { kx: 0.97, ky: 0.98, kz: 1.03, kr: 0.95 }) }),
-  toad: () => frogDef({ size: 4.5, cell: 0.072, paint: bombina, eyePal: EYE_BOMB, geo: TOAD, finish: { rough: 0.42, coat: 0.5, coatRough: 0.2, grain: 10, bump: 0.05, tone: 0.03 } }),
+  toad: () => frogDef({ size: 4.5, cell: 0.072, paint: bombina, eyePal: EYE_BOMB, geo: TOAD, finish: { rough: 0.55, coat: 0.18, coatRough: 0.45, grain: 10, bump: 0.05, grainAmt: 0.8, tone: 0.03 } }),
 };
 
 // ---- Tadpole: dark oval body, eyes on top, a muscular tail with a tall translucent fin -----------------
@@ -702,9 +689,12 @@ FROGS.tadpole = () => {
       const base = lerp3(C(0x2a2018), C(0x4a3a2a), vnoise(x * 5, y * 5, z * 5));
       return lerp3(base, C(0x9a8a70), belly * (z > -0.1 ? 0.9 : 0.3));
     },
-    mat: (x, y, z) => (isEye(x, y, z) ? M.EYE : isFin(x, y, z) ? M.FIN : M.SKIN),
+    mat: (x, y, z) => (isFin(x, y, z) ? M.FIN : M.SKIN),
     rig: (x, y, z) => [clamp01((1.0 - z) / 2.0), 0, 0],
-    finish: { rough: 0.35, coat: 0.5, coatRough: 0.15, grain: 0.35, bump: 0.0005, tone: 0.02, flutter: 0.01 },
+    finish: {
+      rough: 0.5, coat: 0.25, coatRough: 0.4, grain: 9, bump: 0.05, grainAmt: 0.3, tone: 0.02, flutter: 0.01,
+      eyes: [{ c: [0.2, 0.3, 0.85], r: 0.085, ...eyeBasis([0.6, 0.6, 0.5]), pupil: [0.46, 0.44], inner: C(0xb08a3a), outer: C(0x3a2410) }],
+    },
   };
 };
 
@@ -732,7 +722,7 @@ FROGS.eggs = () => {
       return lerp3(C(0xdce8e0), C(0xf0f4e6), vnoise(x * 4, y * 4, z * 4));
     },
     mat: (x, y, z) => (isEmb(x, y, z) ? M.SKIN : M.TRANSLUCENT),
-    finish: { rough: 0.3, coat: 0.5, coatRough: 0.1, grain: 0.35, bump: 0.0005, tone: 0.01, glassOpacity: 0.45 },
+    finish: { rough: 0.3, coat: 0.5, coatRough: 0.1, grain: 9, bump: 0.05, grainAmt: 0.2, tone: 0.01, glassOpacity: 0.6, eyes: [] },
   };
 };
 void hash;

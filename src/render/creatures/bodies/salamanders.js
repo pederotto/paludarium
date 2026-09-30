@@ -16,6 +16,8 @@ import { ell, smin, cap, vnoise, fbm, cells, C, lerp3, mul3, clamp01, M } from '
 
 const TAU = Math.PI * 2;
 const sstep = (a, b, x) => { const t = x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a); return t * t * (3 - 2 * t); };
+// Smoothstep that accepts reversed edges (a > b gives a falling ramp).
+const sm = (a, b, x) => { let t = (x - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); };
 const norm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 const add3 = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -196,7 +198,8 @@ class Limb {
   dt(x, y, z) {
     let d = this.rods.dt(x, y, z);
     this.t = this.rods.t;
-    for (const p of this.pads) { const q = this.padD(p, x, y, z); if (q < d) { d = q; this.t = p[8]; } }
+    this.pad = null;
+    for (const p of this.pads) { const q = this.padD(p, x, y, z); if (q < d) { d = q; this.t = p[8]; this.pad = p; } }
     return d;
   }
   near(x, y, z) { return Math.hypot(x - this.c[0], y - this.c[1], z - this.c[2]) - this.R; }
@@ -513,5 +516,282 @@ export const SALAMANDERS = {
   gecko: () => geckoBody(),
 };
 
-function newtBody() { return { sdf: (x, y, z) => ell(x, y - 1, z, 1, 1, 3), lo: [-2, -0.3, -4], hi: [2, 2.5, 4], cell: 0.1, color: () => C(0x3a3020) }; }
-function geckoBody() { return { sdf: (x, y, z) => ell(x, y - 1, z, 1, 1, 3), lo: [-2, -0.3, -4], hi: [2, 2.5, 4], cell: 0.1, color: () => C(0xb89f7c) }; }
+// The limb (if any) whose surface is nearest to a point: { id, t, pad } with t = legT for the rig.
+function legAt(legs, x, y, z, dc) {
+  const left = x < 0;
+  let bl = null, bd = 1e9, bt = 0, bp = null;
+  for (const l of legs) {
+    if ((l.id === 1 || l.id === 3) !== left) continue;
+    if (l.near(x, y, z) > 0.3) continue;
+    const dl = l.dt(x, y, z);
+    if (dl < bd) { bd = dl; bl = l; bt = l.t; bp = l.pad; }
+  }
+  if (bl && bd < dc + 0.01 && dc > 0) return { id: bl.id, t: clamp01((bt - 0.08) / 0.92) * sm(0.0, 0.45, dc), pad: bp };
+  return null;
+}
+
+// A dark spatter of round blotches (cells noise with a wobbly edge).
+const spatter = (x, y, z, scale, thr) => {
+  const c = cells(x, y, z, scale);
+  return sm(thr + 0.05, thr - 0.05, c + (vnoise(x * 3, y * 3, z * 3) - 0.5) * 0.3);
+};
+
+// ==================================================================================================
+// PADDLE-TAIL NEWT  (Pachytriton labiatus, about 11 cm)
+// Stocky and flat-headed, dark olive-brown above, orange-red blotches on the flanks and belly,
+// a deep laterally flattened tail. Walks on short legs, swims with the tail.
+// ==================================================================================================
+
+function newtShape(st) {
+  const loft = new Loft([
+    [-6.2, 0.66, 0.10, 0.36, 0.28],
+    [-5.5, 0.70, 0.16, 0.70, 0.44],
+    [-4.6, 0.72, 0.22, 0.98, 0.52],
+    [-3.6, 0.74, 0.32, 1.02, 0.54],
+    [-2.9, 0.75, 0.54, 0.90, 0.50],
+    [-2.2, 0.75, 0.76, 0.72, 0.47],
+    [-1.0, 0.76, 0.88, 0.60, 0.45],
+    [0.2, 0.76, 0.90, 0.60, 0.45],
+    [1.3, 0.76, 0.88, 0.58, 0.44],
+    [2.2, 0.72, 0.84, 0.52, 0.40],
+    [2.8, 0.64, 0.88, 0.46, 0.35],
+    [3.4, 0.60, 0.94, 0.42, 0.31],
+    [4.0, 0.58, 0.82, 0.36, 0.27],
+    [4.6, 0.55, 0.50, 0.28, 0.20],
+  ], { front: 0.75, back: 0.55 });
+
+  const legs = [];
+  for (const side of [-1, 1]) {
+    for (const back of [false, true]) {
+      const pts = back ? [[0.62, 0.62, -1.9], [1.5, 0.42, -1.5], [1.72, 0.12, -2.1]] : [[0.62, 0.62, 1.7], [1.4, 0.42, 1.42], [1.62, 0.12, 1.98]];
+      const rads = back ? [0.34, 0.24, 0.17] : [0.31, 0.22, 0.16];
+      const rods = new Rods();
+      rods.chain(flipX(pts, side), rads, 0, 0.55);
+      const w = pts[2], fr = st.hi ? [0.065, 0.04] : [0.085, 0.06];
+      if (back) digits({ base: [w[0] + 0.02, 0.075, w[2] + 0.1], angles: [-38, -19, 0, 19, 38], lens: [0.45, 0.62, 0.72, 0.66, 0.48], r0: fr[0], r1: fr[1] }, side, rods, 0.55, 1);
+      else digits({ base: [w[0] + 0.02, 0.075, w[2] + 0.1], angles: [-30, -10, 10, 30], lens: [0.55, 0.72, 0.72, 0.52], r0: fr[0], r1: fr[1] }, side, rods, 0.55, 1);
+      const pad = [(w[0] + 0.02) * side, 0.07, w[2] + 0.05, 0, 1, back ? 0.23 : 0.2, 0.07, back ? 0.22 : 0.19, 0.6];
+      legs.push(new Limb(back ? (side < 0 ? 3 : 4) : side < 0 ? 1 : 2, rods, [pad]));
+    }
+  }
+  // Small dark eyes on the top of the broad head.
+  const eyes = [-1, 1].map((s) => makeEye(loft, 0.46 * s, 0, 3.7, 0.135, 0.4));
+  const mouth = new Table([[2.6, 0.56], [3.0, 0.52], [3.5, 0.5], [4.1, 0.5], [4.7, 0.5]], 0.02);
+  const parts = [];
+  for (const l of legs) parts.push({ near: (x, y, z) => l.near(x, y, z), d: (x, y, z) => l.d(x, y, z), k: 0.2 });
+  for (const e of eyes) parts.push({ near: sphereNear(e.c, e.r), d: (x, y, z) => Math.hypot(x - e.c[0], y - e.c[1], z - e.c[2]) - e.r, k: 0.05 });
+  const core = (x, y, z) => loft.d(x, y, z);
+  const sdf = (x, y, z) => unite(core(x, y, z), x, y, z, parts);
+  return { loft, legs, eyes, mouthY: (z) => mouth.v(0, z), sdf, core };
+}
+
+function newtBody() {
+  const st = { hi: false };
+  const S = newtShape(st);
+  const { loft, legs, eyes, mouthY, sdf } = S;
+  const cs = {
+    back: C(0x44381f), dark: C(0x201a11), flank: C(0x54452a), orange: C(0xdb5a1e), belly: C(0xc94a19), lip: C(0x15110c), eye: C(0x050403), ring: C(0x7a6430), limb: C(0x3f3221),
+  };
+  const zS = 4.6, zT = -6.2, sc = [0, 0, 0, 0];
+  let last = null, lx = NaN, ly = NaN, lz = NaN;
+  const analyze = (x, y, z) => {
+    if (x === lx && y === ly && z === lz) return last;
+    lx = x; ly = y; lz = z;
+    const a = { kind: 'body', leg: 0, legT: 0, eye: null };
+    for (const e of eyes) {
+      const rx = x - e.c[0], ry = y - e.c[1], rz = z - e.c[2], dd = Math.hypot(rx, ry, rz);
+      if (dd < e.r + 0.03) {
+        const c = (rx * e.axis[0] + ry * e.axis[1] + rz * e.axis[2]) / (dd || 1);
+        if (c > 0.15) { a.kind = 'eye'; a.eye = { c }; return (last = a); }
+      }
+    }
+    const dc = loft.d(x, y, z);
+    const L = legAt(legs, x, y, z, dc);
+    if (L) { a.kind = 'limb'; a.leg = L.id; a.legT = L.t; }
+    return (last = a);
+  };
+  const color = (x, y, z) => {
+    const a = analyze(x, y, z);
+    if (a.kind === 'eye') {
+      const th = Math.acos(Math.min(1, a.eye.c));
+      const iris = lerp3(cs.ring, cs.eye, sm(0.35, 0.75, th));
+      return lerp3(cs.eye, iris, sm(1.0, 0.7, th) * 0.8 + 0.1);
+    }
+    if (a.kind === 'limb') {
+      let col = lerp3(cs.limb, cs.flank, 0.4);
+      const b = spatter(x, y, z * 0.8, 2.3, 0.34);
+      col = lerp3(col, cs.orange, Math.max(b * 0.9, sm(0.55, 0.15, y) * 0.35));
+      return col;
+    }
+    loft.sect(z, sc);
+    const yy = y - sc[0], v = yy / (yy >= 0 ? sc[2] : sc[3]);
+    // olive-brown back, a paler brown flank, orange-red underside
+    let col = lerp3(cs.belly, cs.back, sm(-0.62, -0.2, v));
+    col = lerp3(col, cs.flank, sm(0.65, 0.1, v) * sm(-0.55, -0.15, v) * 0.35);
+    // orange-red flank blotches (also run along the tail sides)
+    const band = sm(-0.8, -0.3, v) * sm(0.62, 0.15, v);
+    col = lerp3(col, cs.orange, spatter(x, y, z * 0.75, 1.5, 0.36) * band * 0.95);
+    // dark blotches on the belly
+    col = lerp3(col, cs.dark, spatter(x, y, z * 0.8, 1.9, 0.3) * sm(-0.5, -0.85, v) * 0.9);
+    // dorsal: darker midline and a fine speckle
+    col = lerp3(col, cs.dark, sm(0.55, 0.95, v) * 0.35);
+    col = mul3(col, 0.92 + 0.16 * vnoise(x * 5, y * 5, z * 5));
+    if (z > 2.6) {
+      const e = y - mouthY(z);
+      col = lerp3(col, cs.lip, Math.exp(-(e * e) / 0.003) * sm(2.6, 3.1, z) * 0.85);
+      for (const s of [-1, 1]) {
+        const dn = Math.hypot(x - s * 0.16, y - (loft.top(0.16, 4.4) - 0.03), z - 4.4);
+        col = lerp3(col, cs.dark, sm(0.09, 0.03, dn) * 0.9);
+      }
+    }
+    return col;
+  };
+  const mat = (x, y, z) => (analyze(x, y, z).kind === 'eye' ? M.EYE : M.SKIN);
+  const rig = (x, y, z) => { const a = analyze(x, y, z); return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT]; };
+  const def = { sdf, lo: [-2.6, -0.25, -6.5], hi: [2.6, 1.8, 4.9], color, mat, rig, finish: { rough: 0.55, coat: 0.12, coatRough: 0.45, grain: 0.6, bump: 0.004, tone: 0.02, flutter: 0.02 } };
+  return lodDef(def, 0.09, 0.5, st);
+}
+
+// ==================================================================================================
+// MOURNING GECKO  (Lepidodactylus lugubris, about 9 cm)
+// Slender, tan-beige with darker chevrons, big golden eyes with slit pupils, wide toe pads
+// with lamellae, a long tail. Sprawled legs; climbs walls.
+// ==================================================================================================
+
+function geckoShape(st) {
+  const loft = new Loft([
+    [-5.5, 0.40, 0.08, 0.08, 0.08],
+    [-4.7, 0.42, 0.11, 0.12, 0.11],
+    [-3.8, 0.45, 0.17, 0.18, 0.16],
+    [-2.9, 0.48, 0.25, 0.26, 0.23],
+    [-2.2, 0.52, 0.36, 0.32, 0.28],
+    [-1.5, 0.56, 0.50, 0.38, 0.33],
+    [-0.5, 0.58, 0.58, 0.42, 0.36],
+    [0.5, 0.58, 0.58, 0.42, 0.36],
+    [1.2, 0.58, 0.52, 0.38, 0.33],
+    [1.7, 0.57, 0.40, 0.33, 0.28],
+    [2.1, 0.55, 0.44, 0.31, 0.25],
+    [2.6, 0.53, 0.47, 0.29, 0.22],
+    [3.1, 0.50, 0.36, 0.23, 0.17],
+    [3.6, 0.48, 0.20, 0.15, 0.11],
+  ], { front: 0.6, back: 0.3 });
+
+  const legs = [];
+  for (const side of [-1, 1]) {
+    for (const back of [false, true]) {
+      const pts = back ? [[0.36, 0.46, -1.35], [1.15, 0.46, -0.85], [1.5, 0.12, -1.45]] : [[0.36, 0.46, 1.3], [1.05, 0.44, 0.98], [1.35, 0.12, 1.55]];
+      const rads = back ? [0.19, 0.12, 0.09] : [0.16, 0.11, 0.085];
+      const rods = new Rods();
+      rods.chain(flipX(pts, side), rads, 0, 0.5);
+      const w = pts[2];
+      const angles = back ? [-25, 0, 25, 48, 70] : [-30, -3, 24, 50, 76];
+      const lens = back ? [0.55, 0.72, 0.85, 0.9, 0.72] : [0.5, 0.65, 0.72, 0.7, 0.55];
+      const tr = st.hi ? [0.05, 0.04] : [0.065, 0.055], pt = st.hi ? 0.032 : 0.048;
+      const pads = [];
+      for (let i = 0; i < angles.length; i++) {
+        const an = (angles[i] * Math.PI) / 180, dx = Math.sin(an) * side, dz = Math.cos(an), L = lens[i];
+        const b = [(w[0] + 0.02) * side, 0.07, w[2] + 0.08];
+        const tip = [b[0] + dx * L, 0.07, b[2] + dz * L];
+        rods.chain([b, [b[0] + dx * L * 0.5, 0.07, b[2] + dz * L * 0.5], tip], [tr[0], (tr[0] + tr[1]) / 2, tr[1]], 0.5, 1);
+        // the expanded pad covers the outer half of the toe
+        const hl = L * 0.27 + 0.04;
+        pads.push([b[0] + dx * (L - hl + 0.02), pt, b[2] + dz * (L - hl + 0.02), dx, dz, hl, pt, 0.115, 0.92]);
+      }
+      legs.push(new Limb(back ? (side < 0 ? 3 : 4) : side < 0 ? 1 : 2, rods, pads));
+    }
+  }
+  // Big bulging eyes, looking up, out and a little forward; a lid rim (socket) around each.
+  const eyes = [-1, 1].map((s) => {
+    const e = makeEye(loft, 0.34 * s, 0, 2.55, 0.25, 0.28);
+    e.axis = norm3([e.axis[0], e.axis[1] * 0.8, e.axis[2] + 0.5]);
+    e.sock = [e.c[0] - e.axis[0] * 0.08, e.c[1] - e.axis[1] * 0.08, e.c[2] - e.axis[2] * 0.08];
+    return e;
+  });
+  const mouth = new Table([[1.9, 0.47], [2.4, 0.44], [3.0, 0.42], [3.7, 0.42]], 0.02);
+  const parts = [];
+  for (const l of legs) parts.push({ near: (x, y, z) => l.near(x, y, z), d: (x, y, z) => l.d(x, y, z), k: 0.14 });
+  for (const e of eyes) {
+    parts.push({ near: sphereNear(e.sock, e.r + 0.05), d: (x, y, z) => Math.hypot(x - e.sock[0], y - e.sock[1], z - e.sock[2]) - (e.r + 0.03), k: 0.06 });
+    parts.push({ near: sphereNear(e.c, e.r), d: (x, y, z) => Math.hypot(x - e.c[0], y - e.c[1], z - e.c[2]) - e.r, k: 0.03 });
+  }
+  const core = (x, y, z) => loft.d(x, y, z);
+  const sdf = (x, y, z) => unite(core(x, y, z), x, y, z, parts);
+  return { loft, legs, eyes, mouthY: (z) => mouth.v(0, z), sdf, core };
+}
+
+function geckoBody() {
+  const st = { hi: false };
+  const S = geckoShape(st);
+  const { loft, legs, eyes, mouthY, sdf } = S;
+  const cs = {
+    tan: C(0xb39a74), belly: C(0xe6dcc4), bar: C(0x5f4a33), dark: C(0x3a2c1e), pad: C(0xd9c3a3), line: C(0xa48b68),
+    gold: C(0xd4a83c), amber: C(0x9c6f22), rim: C(0x4a3a24), black: C(0x060504), limb: C(0xa08663),
+  };
+  const zS = 3.6, zT = -5.5, sc = [0, 0, 0, 0];
+  let last = null, lx = NaN, ly = NaN, lz = NaN;
+  const analyze = (x, y, z) => {
+    if (x === lx && y === ly && z === lz) return last;
+    lx = x; ly = y; lz = z;
+    const a = { kind: 'body', leg: 0, legT: 0, eye: null, pad: null };
+    for (const e of eyes) {
+      const rx = x - e.c[0], ry = y - e.c[1], rz = z - e.c[2], dd = Math.hypot(rx, ry, rz);
+      if (dd < e.r + 0.03) {
+        const c = (rx * e.axis[0] + ry * e.axis[1] + rz * e.axis[2]) / (dd || 1);
+        if (c > 0.3) { a.kind = 'eye'; a.eye = { c, e, rx, ry, rz }; return (last = a); }
+      }
+    }
+    const dc = loft.d(x, y, z);
+    const L = legAt(legs, x, y, z, dc);
+    if (L) { a.kind = 'limb'; a.leg = L.id; a.legT = L.t; a.pad = L.pad; }
+    return (last = a);
+  };
+  const color = (x, y, z) => {
+    const a = analyze(x, y, z);
+    if (a.kind === 'eye') {
+      const { c, e, rx, ry, rz } = a.eye, th = Math.acos(Math.min(1, c));
+      const ay = e.axis[1], up = [-ay * e.axis[0], 1 - ay * ay, -ay * e.axis[2]], ul = Math.hypot(up[0], up[1], up[2]) || 1;
+      const u = [up[0] / ul, up[1] / ul, up[2] / ul], r = cross3(u, e.axis);
+      const ex = (rx * r[0] + ry * r[1] + rz * r[2]) / e.r, ey = (rx * u[0] + ry * u[1] + rz * u[2]) / e.r;
+      const pupil = sm(1.0, 0.6, (ex * ex) / (0.17 * 0.17) + (ey * ey) / (0.8 * 0.8));
+      let col = lerp3(cs.gold, cs.amber, sm(0.2, 0.9, th));
+      col = lerp3(col, cs.rim, sm(0.95, 1.2, th));
+      return lerp3(col, cs.black, pupil);
+    }
+    if (a.kind === 'limb') {
+      if (a.pad) {
+        const p = a.pad, s = ((x - p[0]) * p[3] + (z - p[2]) * p[4]) / p[5];
+        const under = sm(p[1] + 0.01, p[1] - 0.015, y);
+        const lam = 0.5 + 0.5 * Math.cos(TAU * s * 3.2);
+        return lerp3(lerp3(cs.pad, cs.limb, 0.25), cs.line, lam * (0.25 + 0.5 * under) * sm(1.0, 0.75, Math.abs(s)));
+      }
+      const bars = 0.5 + 0.5 * Math.cos(TAU * (z * 2.2 + x * 1.3));
+      return lerp3(cs.limb, cs.bar, sm(0.6, 0.9, bars) * 0.55);
+    }
+    loft.sect(z, sc);
+    const yy = y - sc[0], v = yy / (yy >= 0 ? sc[2] : sc[3]);
+    let col = lerp3(cs.belly, cs.tan, sm(-0.62, -0.1, v));
+    const dorsal = sm(-0.35, 0.25, v);
+    // chevrons pointing forward, broken up a little by noise; head and tail get the same idea
+    const ph = (z + 1.15 * Math.abs(x)) / 0.62, f = ph - Math.floor(ph);
+    const amp = 0.55 + 0.5 * vnoise(x * 3, y * 3, z * 3);
+    const bar = sm(0.17, 0.09, Math.abs(f - 0.5)) * amp * sm(3.0, 2.3, z);
+    col = lerp3(col, cs.bar, bar * dorsal * 0.85);
+    // a dark stripe from the nostril through the eye
+    if (z > 1.8) {
+      const e = y - (loft.t.v(0, z) + 0.06);
+      col = lerp3(col, cs.dark, sm(0.1, 0.03, Math.abs(e)) * sm(1.8, 2.3, z) * sm(0.2, 0.5, Math.abs(x) / Math.max(0.1, loft.t.v(1, z))) * 0.7);
+      const m = y - mouthY(z);
+      col = lerp3(col, cs.line, Math.exp(-(m * m) / 0.0025) * 0.9);
+      for (const s of [-1, 1]) {
+        const dn = Math.hypot(x - s * 0.09, y - (loft.top(0.09, 3.35) - 0.02), z - 3.35);
+        col = lerp3(col, cs.dark, sm(0.07, 0.025, dn) * 0.9);
+      }
+    }
+    col = mul3(col, 0.94 + 0.12 * vnoise(x * 6, y * 6, z * 6));
+    return col;
+  };
+  const mat = (x, y, z) => (analyze(x, y, z).kind === 'eye' ? M.GLOSS : M.KERATIN);
+  const rig = (x, y, z) => { const a = analyze(x, y, z); return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT]; };
+  const def = { sdf, lo: [-2.9, -0.25, -5.8], hi: [2.9, 1.3, 3.9], color, mat, rig, finish: { rough: 0.7, coat: 0.05, coatRough: 0.5, grain: 0.6, bump: 0.004, tone: 0.02 } };
+  return lodDef(def, 0.07, 0.5, st);
+}
