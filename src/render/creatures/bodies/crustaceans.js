@@ -88,7 +88,17 @@ const legId = (i, left) => (left ? (i % 2 ? 3 : 1) : (i % 2 ? 4 : 2));
 // =================================================================================================
 // Cherry shrimp
 // =================================================================================================
-function shrimp() {
+// Shrimp colour morphs (sRGB hex): base = plate rim colour, dark = shaded rim, light = soft plate front, pink = pale belly and
+// legs, clear = the glassy patches, clearAmt = how much of the body is glassy, speck = dark specks over the body (or null).
+const SHRIMP_MORPHS = {
+  red: { base: 0xb80f18, dark: 0x7c0810, light: 0xe03c3c, pink: 0xe6908a, clear: 0xf6cfc6, clearAmt: 0.4, speck: null },
+  wild: { base: 0x7a6047, dark: 0x3e2f22, light: 0xa08b72, pink: 0xc9baa4, clear: 0xd9d4c8, clearAmt: 0.6, speck: 0x2c2118 },
+  yellow: { base: 0xf0b40a, dark: 0xc08400, light: 0xffd640, pink: 0xffe592, clear: 0xfff3c8, clearAmt: 0.4, speck: null },
+  orange: { base: 0xee5a0e, dark: 0xaa3606, light: 0xff8a34, pink: 0xffb07a, clear: 0xffe2c6, clearAmt: 0.4, speck: null },
+};
+
+function shrimp(morph = 'red') {
+  const PAL = SHRIMP_MORPHS[morph] ?? SHRIMP_MORPHS.red;
   // Body axis: a planar curve in the yz plane, rows [z, y, half width, half height, segment, fraction].
   // Every abdominal segment starts a little smaller (hidden under the one before) and grows to its rim, then
   // steps down again: that is what makes the overlapping plates.
@@ -203,7 +213,7 @@ function shrimp() {
     return D;
   };
 
-  const RED = C(0xb80f18), RED_D = C(0x7c0810), RED_L = C(0xe03c3c), PINK = C(0xe6908a), CLEAR = C(0xf6cfc6), BLACK = C(0x060606);
+  const RED = C(PAL.base), RED_D = C(PAL.dark), RED_L = C(PAL.light), PINK = C(PAL.pink), CLEAR = C(PAL.clear), BLACK = C(0x060606), SPECK = PAL.speck && C(PAL.speck);
   const color = (x, y, z) => {
     sdf(x, y, z);
     const n = fbm(x * 5 + 2, y * 5, z * 5);
@@ -215,7 +225,8 @@ function shrimp() {
       } else c = lerp3(RED, RED_L, 0.15 + 0.45 * sstep(0.1, -0.9, LV));
       c = mul3(c, 1 - 0.22 * sstep(0.35, 0.95, LV));                 // darker saddle along the back
       c = lerp3(c, PINK, sstep(-0.25, -0.9, LV) * 0.45);            // pale belly
-      c = lerp3(c, CLEAR, sstep(0.62, 0.82, vnoise(x * 7 + 3, y * 7, z * 7)) * 0.4);
+      c = lerp3(c, CLEAR, sstep(0.62, 0.82, vnoise(x * 7 + 3, y * 7, z * 7)) * PAL.clearAmt);
+      if (SPECK) c = lerp3(c, SPECK, sstep(0.66, 0.78, vnoise(x * 19 + 5, y * 19, z * 19)) * 0.85);
     } else if (ID === 1) c = lerp3(RED, RED_L, 0.4);
     else if (ID === 2) c = lerp3(RED_L, PINK, 0.35);
     else if (ID === 3) c = lerp3(PINK, RED_L, 0.4);
@@ -439,4 +450,6 @@ function isopod() {
   };
 }
 
-export const CRUSTACEANS = { shrimp, crab, isopod };
+// BODIES.shrimp (no morph given) stays the familiar red cherry shrimp; 'shrimp:<morph>' are the colour variants.
+export const CRUSTACEANS = { shrimp: () => shrimp('red'), crab, isopod };
+for (const k of Object.keys(SHRIMP_MORPHS)) CRUSTACEANS[`shrimp:${k}`] = () => shrimp(k);

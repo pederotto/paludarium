@@ -502,24 +502,38 @@ const EYE_BOMB = { inner: C(0xf0be44), outer: C(0xa8702a), pupil: [0.5, 0.42], s
 const dorsalOf = (a) => sstep(-0.5, 0.4, a.n[1]);
 const bellyOf = (a) => sstep(-0.25, -0.65, a.n[1]);
 
-// -- Blue dart frog (Dendrobates tinctorius "azureus"): cobalt blue with black spots
-const azureus = (a) => {
-  const { x, y, z, n } = a;
-  const eyeC = a.eye ? paintEye(a) : null;
-  if (eyeC) return eyeC;
-  const dorsal = dorsalOf(a);
-  const w = wnoise(x, y, z, 1.1);
-  let col = lerp3(C(0x1a44bc), C(0x2f70ee), dorsal * (0.5 + 0.5 * w));
-  const belly = bellyOf(a);
-  const mar = sstep(0.44, 0.6, wnoise(x + 4, y, z, 3.4));
-  col = lerp3(col, lerp3(C(0x1a3aa4), C(0x080d2a), mar), belly * 0.9);
-  const limb = a.kind !== 'body';
-  const head = z > 0.95 && !limb;
-  const sp = limb ? spots(x, y, z, 2.6, 0.05, 0.15, 0.7, 0.03, 7) : spots(x, y, z, 1.45, 0.1, 0.3, head ? 0.45 : 0.8, 0.03);
-  col = lerp3(col, C(0x03050c), sp * (1 - belly * 0.5));
-  if (limb) col = lerp3(col, C(0x0a1440), sstep(0.8, 1.0, a.t) * 0.7);
-  return headMarks(a, col, C(0x040816));
+// -- Blue dart frog (Dendrobates tinctorius "azureus"): blue with black spots. Four morphs from one painter:
+// cobalt (deep blue) or sky (light cyan-blue), spotted (many black spots) or clean (a few at most).
+// Palette data (sRGB hex): lo/hi = back tint range, bLo/bHi = belly (marbling from bLo to bHi), spot, limbTip,
+// dark = mouth and eyelid line; spots = spot probability per cell on [body, head, limb] (0.8/0.45/0.7 = the full look;
+// fewer spots are a subset of the same pattern).
+const DART_MORPHS = {
+  cobalt_spotted: { lo: 0x1a44bc, hi: 0x2f70ee, bLo: 0x1a3aa4, bHi: 0x080d2a, spot: 0x03050c, limbTip: 0x0a1440, dark: 0x040816, spots: [0.8, 0.45, 0.7] },
+  cobalt_clean: { lo: 0x1a44bc, hi: 0x2f70ee, bLo: 0x1a3aa4, bHi: 0x080d2a, spot: 0x03050c, limbTip: 0x0a1440, dark: 0x040816, spots: [0.07, 0.04, 0.09] },
+  sky_spotted: { lo: 0x3488e4, hi: 0x74c6fa, bLo: 0x2a78c8, bHi: 0x14407e, spot: 0x06122a, limbTip: 0x1c4e92, dark: 0x0a1c3c, spots: [0.8, 0.45, 0.7] },
+  sky_clean: { lo: 0x3488e4, hi: 0x74c6fa, bLo: 0x2a78c8, bHi: 0x14407e, spot: 0x06122a, limbTip: 0x1c4e92, dark: 0x0a1c3c, spots: [0.07, 0.04, 0.09] },
 };
+const azureusPaint = (m) => {
+  const lo = C(m.lo), hi = C(m.hi), bLo = C(m.bLo), bHi = C(m.bHi), spotC = C(m.spot), tipC = C(m.limbTip), darkC = C(m.dark);
+  return (a) => {
+    const { x, y, z, n } = a;
+    const eyeC = a.eye ? paintEye(a) : null;
+    if (eyeC) return eyeC;
+    const dorsal = dorsalOf(a);
+    const w = wnoise(x, y, z, 1.1);
+    let col = lerp3(lo, hi, dorsal * (0.5 + 0.5 * w));
+    const belly = bellyOf(a);
+    const mar = sstep(0.44, 0.6, wnoise(x + 4, y, z, 3.4));
+    col = lerp3(col, lerp3(bLo, bHi, mar), belly * 0.9);
+    const limb = a.kind !== 'body';
+    const head = z > 0.95 && !limb;
+    const sp = limb ? spots(x, y, z, 2.6, 0.05, 0.15, m.spots[2], 0.03, 7) : spots(x, y, z, 1.45, 0.1, 0.3, head ? m.spots[1] : m.spots[0], 0.03);
+    col = lerp3(col, spotC, sp * (1 - belly * 0.5));
+    if (limb) col = lerp3(col, tipC, sstep(0.8, 1.0, a.t) * 0.7);
+    return headMarks(a, col, darkC);
+  };
+};
+const dartfrogMorph = (k) => () => frogDef({ size: 4.2, cell: 0.068, paint: azureusPaint(DART_MORPHS[k]), eyePal: EYE_DART, geo: DART });
 
 // -- Strawberry dart frog (Oophaga pumilio "blue jeans"): red-orange body, blue speckled legs
 const pumilio = (a) => {
@@ -657,7 +671,11 @@ const TOAD = {
 };
 
 export const FROGS = {
-  dartfrog: () => frogDef({ size: 4.2, cell: 0.068, paint: azureus, eyePal: EYE_DART, geo: DART }),
+  dartfrog: dartfrogMorph('cobalt_spotted'),
+  'dartfrog:cobalt_spotted': dartfrogMorph('cobalt_spotted'),
+  'dartfrog:cobalt_clean': dartfrogMorph('cobalt_clean'),
+  'dartfrog:sky_spotted': dartfrogMorph('sky_spotted'),
+  'dartfrog:sky_clean': dartfrogMorph('sky_clean'),
   strawberry: () => frogDef({ size: 2.3, cell: 0.048, paint: pumilio, eyePal: EYE_PUM, legK: 0.8, geo: scaleGeo(DART, { kx: 1.03, ky: 1.06, kz: 0.94, kr: 1.05, ke: 1.16, kd: 1.15 }) }),
   leucomelas: () => frogDef({ size: 4.5, cell: 0.072, paint: leucomelas, eyePal: EYE_LEU, geo: scaleGeo(DART, { kx: 1.03, ky: 1.03, kz: 1.0, kr: 1.06 }) }),
   auratus: () => frogDef({ size: 4.0, cell: 0.066, paint: auratus, eyePal: EYE_AUR, geo: scaleGeo(DART, { kx: 0.97, ky: 0.98, kz: 1.03, kr: 0.95 }) }),
