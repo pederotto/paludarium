@@ -25,6 +25,7 @@ export const S = {
   undoDepth: signal(0),
   guides: signal(false),          // composition guides (rule of thirds)
   photo: signal(false),
+  kids: signal(false),            // the simplified Kids mode HUD (src/ui/kids)
   mirror: signal(false),          // symmetry: mirror strokes and placements across the tank's centre plane
   timelapse: signal(null),        // null | { days, from, day } while a time-lapse runs
   tankTitle: signal(null),        // name of a generated terrarium, shown under the brand
