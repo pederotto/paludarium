@@ -15,5 +15,6 @@ export const U = {
   algaeColor: uniform(new THREE.Color(0.18, 0.3, 0.08)),
   condense: uniform(0),         // 0 … 1, dew on the glass (dew point above the glass temperature)
   mold: uniform(0),             // 0 … 1, white mould on wood and stone in stale, wet air
+  creatureWater: uniform(0.3), // 0 … 1: how much of the water's colour absorption animals get (1 = same as the sand)
   rockMoss: uniform(1),         // 0 bare … 1 mossy: how far moss has grown over the hardscape
 };

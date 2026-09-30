@@ -24,19 +24,19 @@ export { U };
 // The caustics play over everything below the surface. Returns
 // [color, emissive] for a base colour at world position pw; `surf` is the
 // height of the water surface above this point.
-export function wet(base, pw = positionWorld, surf = U.waterLevel) {
+export function wet(base, pw = positionWorld, surf = U.waterLevel, k = 1) {
   const depth = surf.sub(pw.y);
   const under = smoothstep(-0.2, 0.4, depth);
   const d = max(depth, 0);
   // (Stronger than pure water, as in a planted tank with tannins and fine
   // suspended matter; it keeps the sand from glaring under the LED.)
-  const down = exp(vec3(0.075, 0.032, 0.024).mul(d).add(0.25).mul(U.turbidity.add(1)).negate());
+  const down = exp(vec3(0.075, 0.032, 0.024).mul(d).add(0.25).mul(U.turbidity.add(1)).mul(k).negate());
   const toEye = normalize(cameraPosition.sub(pw));
   const tSurf = toEye.y.greaterThan(0.01).select(d.div(max(toEye.y, 0.01)), float(1e4));
   const tFront = toEye.z.greaterThan(0.01).select(float(TANK.d / 2).sub(pw.z).div(max(toEye.z, 0.01)), float(1e4));
   const tSide = float(TANK.w / 2).sub(pw.x.mul(sign(toEye.x))).div(max(abs(toEye.x), 0.01));
   const path = clamp(min(tSurf, min(tFront, tSide)), 0, 250);
-  const sigma = vec3(0.022, 0.011, 0.0095).mul(U.turbidity.mul(3).add(1));
+  const sigma = vec3(0.022, 0.011, 0.0095).mul(U.turbidity.mul(3).add(1)).mul(k);
   const T = exp(sigma.mul(path).negate());
   const fog = U.tint.mul(U.daylight.mul(0.16).add(0.015)).mul(exp(d.mul(-0.02)));
   const color = mix(base, base.mul(down).mul(T), under);

@@ -24,6 +24,7 @@ import {
   cross, time, cameraPosition, positionWorld, pow, smoothstep, texture, uv, length,
 } from 'three/tsl';
 import { wet } from '../shaders.js';
+import { U } from '../uniforms.js';
 
 const qrot = (q, v) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
 const is = (id, n) => abs(id.sub(n)).lessThan(0.5);
@@ -130,7 +131,7 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   const film = vec3(sin(ndv.mul(9).add(0.0)), sin(ndv.mul(9).add(2.1)), sin(ndv.mul(9).add(4.2))).mul(0.5).add(0.5);
   color = select(iri, mix(base, film.mul(base.add(0.35)), 0.55), color);
   if (A) color = mix(color, A.col, A.k);
-  const [wc, emissive] = wet(color);
+  const [wc, emissive] = wet(color, positionWorld, U.waterLevel, U.creatureWater);
   m.colorNode = wc;
   // Membranes glow a little where the lamp shines through them; the film stripe fluoresces.
   let emis = emissive.add(select(fin, base.mul(0.12), select(glass, base.mul(0.1), select(iri, film.mul(0.22), vec3(0)))));
