@@ -2,11 +2,13 @@
 
 ## Libraries
 
-- **[three.js](https://github.com/mrdoob/three.js)** r186, MIT. The renderer (WebGPU and WebGL 2), TSL shading language, OrbitControls, RoomEnvironment, GLTFLoader, BufferGeometryUtils and the bloom post-processing node. It loads from the jsDelivr CDN at runtime. The ripple simulation in `src/waterfx.js` follows the structure of its `webgpu_compute_water` example.
-- **[gltf-transform](https://github.com/donmccurdy/glTF-Transform)** (MIT) and **[meshoptimizer](https://github.com/zeux/meshoptimizer)** (MIT), used offline by `tools/import-polyhaven.mjs` to simplify the scanned models and pack them as .glb.
+- **[Preact](https://preactjs.com)** and **[@preact/signals](https://github.com/preactjs/signals)** (MIT): the interface. **[Vite](https://vitejs.dev)** (MIT): the build. **[Playwright](https://playwright.dev)** (Apache-2.0): the screenshot and test harness. Fonts: **Fraunces** and **Inter** via Fontsource (SIL OFL).
+
+- **[three.js](https://github.com/mrdoob/three.js)** r186, MIT. The renderer (WebGPU and WebGL 2), TSL shading language, OrbitControls, RoomEnvironment, GLTFLoader, BufferGeometryUtils and the bloom post-processing node. It is bundled by Vite. The ripple simulation in `src/render/waterfx.js` follows the structure of its `webgpu_compute_water` example.
+- **[gltf-transform](https://github.com/donmccurdy/glTF-Transform)** (MIT) and **[meshoptimizer](https://github.com/zeux/meshoptimizer)** (MIT), used offline by `tools/import-polyhaven.mjs` and `tools/import-creatures.mjs` to simplify models and pack them as .glb (meshopt, WebP textures).
 - **[sharp](https://github.com/lovell/sharp)** (Apache-2.0), used offline to resize textures.
-- **[camera-controls](https://github.com/yomotsu/camera-controls)** by yomotsu (MIT): the camera (eased orbit, pan and zoom toward the pointer, animated views). Loaded from jsDelivr.
-- **[three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)** by Garrett Johnson (MIT): bounding volume hierarchies for fast ray casts when rocks are stamped into the ground. Loaded from jsDelivr.
+- **[camera-controls](https://github.com/yomotsu/camera-controls)** by yomotsu (MIT): the camera (eased orbit, pan and zoom toward the pointer, animated views).
+- **[three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)** by Garrett Johnson (MIT): bounding volume hierarchies for fast ray casts when rocks are stamped into the ground.
 - three.js's **TransformControls** (the handles for moving, turning and scaling rocks), **GTAONode** (ambient occlusion) and the flow-map technique of **Water2Mesh** (after Alex Vlachos, "Water Flow in Portal 2", SIGGRAPH 2010), used for the moving foam and streaks on streams.
 
 ## Techniques
@@ -17,8 +19,8 @@
 
 [CAUSTIC//VOLUME](https://github.com/scottiefox/caustic-volume) by Scottie, MIT License, Copyright (c) 2026 Scottie. Ported to three.js WebGPU/TSL:
 
-- `src/waterfx.js`: the ripple height field (wave equation, glass walls reflect the waves), and the caustics: a grid on the surface sends refracted light rays to the floor and the area ratio of each patch gives its brightness.
-- `src/creatures.js`: the naive surface-nets mesher (from the rubber duck in `lite/index.html`) and its SDF helpers (ellipsoid distance, smooth minimum).
+- `src/render/waterfx.js`: the ripple height field (wave equation, glass walls reflect the waves), and the caustics: a grid on the surface sends refracted light rays to the floor and the area ratio of each patch gives its brightness.
+- `src/render/creatures/mesher.js` and `kit.js`: the surface-nets meshing idea (from the rubber duck in `lite/index.html`) and the SDF helpers (ellipsoid distance, smooth minimum). The mesher here is a new adaptive version with two levels of detail, a vertex rig for animation and per-material shading.
 
 ## Poly Haven (CC0)
 
@@ -46,7 +48,7 @@ Textures, resized to 256–512 px by `tools/import-seedthree.cjs`:
 | `assets/cards/grass_tuft.png` | `assets/leaves/grass_tuft.png` |
 | `assets/cards/bilberry.png` | `assets/leaves/bilberry_albedo.png` |
 
-Code: the rock shapes in `src/decor.js` (welded, noise-displaced icosahedra with triplanar rock textures) are adapted from SeedThree's `src/core/rocks.js`.
+Code: the rock shapes in `src/sim/decor.js` (welded, noise-displaced icosahedra with triplanar rock textures) are adapted from SeedThree's `src/core/rocks.js`.
 
 SeedThree's MIT license text:
 

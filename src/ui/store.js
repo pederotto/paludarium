@@ -25,6 +25,7 @@ export const S = {
   undoDepth: signal(0),
   guides: signal(false),          // composition guides (rule of thirds)
   photo: signal(false),
+  tankTitle: signal(null),        // name of a generated terrarium, shown under the brand
   quality: signal('high'),
   backend: signal(''),
   fps: signal(0),

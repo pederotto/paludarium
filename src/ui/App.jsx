@@ -8,6 +8,7 @@ import { Bottom } from './hud/Bottom.jsx';
 import { Toasts } from './hud/Toasts.jsx';
 import { InfoBanner } from './hud/InfoBanner.jsx';
 import { Coach } from './hud/Coach.jsx';
+import { Photo } from './hud/Photo.jsx';
 import { Modals } from './panels/Modals.jsx';
 
 export function App() {
@@ -26,6 +27,7 @@ export function App() {
           <Coach />
         </>
       ) : null}
+      {playing && photo ? <Photo /> : null}
       {S.screen.value === 'title' ? <Title /> : null}
       <Toasts />
       <Modals />

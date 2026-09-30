@@ -109,6 +109,13 @@ export class Game {
     this.world = null;
   }
 
+  // Photo mode adds depth of field to the post pipeline.
+  setPhoto(on) {
+    if (this.gfx.photo === on) return;
+    this.gfx.photo = on;
+    if (this.scene && this.camera) this.gfx.build(this.scene, this.camera);
+  }
+
   // The simulated speed multiplier right now (0 while paused).
   get rate() { return this.frozen ? 0 : SPEEDS[this.speed]; }
   setSpeed(i) { this.speed = Math.max(0, Math.min(SPEEDS.length - 1, i)); this.events.emit('speed', this.speed); }
