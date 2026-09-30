@@ -25,7 +25,7 @@ three.js r186 `WebGPURenderer` with TSL. The post chain is a `RenderPipeline`: s
 
 ## Creatures
 
-Animals are **signed-distance-field bodies** meshed by an adaptive surface-nets mesher at two levels of detail, animated on the GPU by a vertex rig `[spine, leg, legT, materialId]` (body bend, limb swing) and drawn instanced. Each body file in `render/creatures/bodies/` describes one species; `tools/bench.mjs` renders contact sheets. If a textured model is listed in `public/assets/creatures/manifest.json` the game uses it instead (`glb.js` derives the rig from the mesh shape); see `docs/ASSET_BRIEF.md` for the art pipeline.
+Animals are **signed-distance-field bodies** meshed by an adaptive surface-nets mesher at two levels of detail, animated on the GPU by a vertex rig `[spine, leg, legT, materialId]` (body bend, limb swing) and drawn instanced. Each body file in `render/creatures/bodies/` describes one species; `tools/bench.mjs` renders contact sheets. Translucent parts (fins, wings, gills, egg jelly) are drawn in a second, alpha-blended pass (`instanced.js`), so they are smooth instead of dithered. Eyes are drawn analytically in the material (`finish.eyes`: pupil shape, iris ring, catchlight). If a textured model is listed in `public/assets/creatures/manifest.json` the game uses it instead (`glb.js` derives the rig from the mesh shape); see `docs/ASSET_BRIEF.md` for the art pipeline.
 
 ## Audio
 
@@ -38,6 +38,10 @@ The world runs at a fixed step scaled by the speed setting. Environment is **spa
 ## Game
 
 `Career` holds funds, reputation, rank, unlocks and stats; `market` prices animals and plants and pays for sales; `commissions` are goals with a hold-time; `curator` scores a tank against a real biotope; `tutorial` is a scripted guide; `events` are random incidents; `vacation` fast-forwards the tank unattended. Saves go to IndexedDB (slots, portfolio of tanks).
+
+## Building tools
+
+`ToolController` (src/tools) owns pointer, selection, brushes and undo. Mirror duplicates each stroke, placement and path across x = 0 and undoes as one step. Kits (`content/kits.js` data, `sim/kits.js` builder) place pieces through the same code path as the Hardscape tool, priced from `content/economy.js` in career mode. Time-lapse (`app/timelapse.js`) boosts the game loop (`game.lapse`) and steps the simulation in 10-minute slices with animals moving between them, so the result matches real play.
 
 ## Generator
 

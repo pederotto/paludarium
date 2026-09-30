@@ -32,7 +32,10 @@ Built with [three.js](https://threejs.org) on **WebGPU** (TSL shaders, WebGL 2 f
 | Tools | `1`–`9`, or the rail on the left | the tool rail |
 | Camera | `W A S D` pan, `Q E` turn, `Z X` zoom, `F` frame selection | view buttons |
 | Piece | `G` move, `R` turn, `T` scale, `Ctrl+D` duplicate, `Del` remove | handles |
-| Other | `L` lens, `Space` pause, `H` hide panels, `Ctrl+Z` undo, `Esc` back | |
+| Build | `M` mirror (symmetry across the tank's centre), Kits list in Hardscape and in the Studio | Mirror chip |
+| Other | `L` lens, `Space` pause, `H` hide panels, `Ctrl+Z` undo, `Esc` back | View menu (top right) |
+
+**Kits** drop a whole composition in one click (waterfall cliff, root arch, stepping stones, spire cluster, mossy island), scaled to the tank and taught by a composition tip. **Time-lapse** (clock button; on phones the View menu) runs 7, 30 or 90 days in seconds while the camera drifts around the tank, then reports what grew, spread or died.
 
 Photo mode (camera button): the interface steps aside, click anything to focus on it, adjust blur and exposure, switch on the thirds grid and **Snap** to save a PNG.
 
