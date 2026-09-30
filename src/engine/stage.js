@@ -9,11 +9,13 @@
 
 import * as THREE from 'three/webgpu';
 import {
-  float, vec2, vec3, positionWorld, normalWorld, normalView, cameraPosition, normalize, dot, abs, pow, smoothstep, mix, clamp, time,
-  dFdx, dFdy, mx_worley_noise_float, mx_noise_float, max,
+  float, vec2, vec3, positionWorld, normalWorld, normalView, cameraPosition, normalize, dot, abs, pow, smoothstep, mix, clamp,
+  mx_worley_noise_float, mx_noise_float, max,
 } from 'three/tsl';
 import { TANK } from '../sim/tank.js';
 import { U } from '../render/uniforms.js';
+
+const COOL = new THREE.Color(0xf4f7ff), WARM = new THREE.Color(0xffd9a8), GLOW = new THREE.Color(1, 0.965, 0.9);
 
 export class Stage {
   constructor(scene) {
@@ -31,22 +33,22 @@ export class Stage {
     const m = new THREE.MeshStandardNodeMaterial({ color: 0xcfe8e4, transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 0.04, metalness: 0 });
     const view = normalize(cameraPosition.sub(positionWorld));
     const fres = pow(float(1).sub(clamp(abs(dot(view, normalWorld)), 0, 1)), 4);
-    // The dew: cellular droplets, more and bigger as U.condense rises, and a
-    // thin fog film at the top of the range.
-    const pp = vec2(positionWorld.x.add(positionWorld.z), positionWorld.y.mul(0.8));
-    const w = mx_worley_noise_float(pp.mul(0.85).toVec3());
-    const w2 = mx_worley_noise_float(pp.mul(2.4).add(11).toVec3());
-    const r = U.condense.mul(0.62);
-    const big = smoothstep(r.add(0.05), r, w);
-    const small = smoothstep(r.mul(0.8).add(0.05), r.mul(0.8), w2).mul(0.7);
-    const drops = max(big, small).mul(smoothstep(0.02, 0.12, U.condense));
-    const film = smoothstep(0.55, 1, U.condense).mul(mx_noise_float(pp.mul(0.3).toVec3()).mul(0.3).add(0.55)).mul(0.35);
-    const mask = clamp(drops.add(film), 0, 1);
-    m.opacityNode = float(0.035).add(fres.mul(0.12)).add(mask.mul(0.5));
-    m.roughnessNode = mix(float(0.04), float(0.55), mask);
-    m.colorNode = mix(vec3(0.8, 0.92, 0.9), vec3(0.9, 0.96, 0.98), mask);
-    // Droplets bend the light: nudge the normal with the mask's gradient.
-    m.normalNode = normalize(normalView.add(vec3(dFdx(drops), dFdy(drops), 0).mul(6)));
+    // The dew: sparse beads that grow and merge as U.condense rises, each a
+    // clear centre with a bright rim (a lens catching the light), and a thin
+    // haze of fog on the glass at the top of the range.
+    const pp = vec2(positionWorld.x.add(positionWorld.z), positionWorld.y.mul(0.85));
+    const w = mx_worley_noise_float(pp.mul(0.95).toVec3());
+    const w2 = mx_worley_noise_float(pp.mul(2.7).add(17).toVec3());
+    const c = U.condense;
+    const R = c.mul(0.36), r2 = c.mul(0.3);
+    const body = max(smoothstep(R, R.mul(0.6), w), smoothstep(r2, r2.mul(0.6), w2).mul(0.8));
+    const rimA = smoothstep(R.mul(0.62), R.mul(0.92), w).mul(smoothstep(R.mul(1.08), R.mul(0.9), w));
+    const rimB = smoothstep(r2.mul(0.62), r2.mul(0.92), w2).mul(smoothstep(r2.mul(1.08), r2.mul(0.9), w2));
+    const rim = max(rimA, rimB.mul(0.8)).mul(smoothstep(0.03, 0.15, c));
+    const haze = smoothstep(0.4, 1, c).mul(mx_noise_float(pp.mul(0.25).toVec3()).mul(0.25).add(0.7)).mul(0.22);
+    m.opacityNode = float(0.035).add(fres.mul(0.12)).add(body.mul(0.09)).add(rim.mul(0.4)).add(haze);
+    m.roughnessNode = mix(float(0.04), float(0.3), clamp(body.add(haze), 0, 1));
+    m.colorNode = mix(vec3(0.8, 0.92, 0.9), vec3(0.96, 0.99, 1), clamp(rim.add(haze), 0, 1));
     return m;
   }
 
@@ -134,14 +136,17 @@ export class Stage {
 
   setLid(on) { if (this.parts.lid) this.parts.lid.visible = on; }
 
-  // Day and night: light is 0 … 1.
-  setDaylight(light) {
+  // Day and night: `light` is the schedule (0 … 1) times the lamp's power;
+  // `warmth` (0 cool white … 1 warm) tints the LED; `moon` allows night light.
+  setDaylight(light, warmth = 0.35, moon = true) {
     const L = this.lights;
-    L.led.intensity = 3.2 * light;
-    L.hemi.intensity = 0.06 + 0.3 * light;
-    L.moon.intensity = (1 - light) * 0.35;
-    this.parts.glow.material.color.setScalar(0.06 + 0.94 * light).multiply(new THREE.Color(1, 0.965, 0.9));
-    this.scene.environmentIntensity = 0.04 + 0.12 * light;
+    const lvl = Math.min(1.5, light);
+    L.led.color.copy(COOL).lerp(WARM, warmth);
+    L.led.intensity = 3.2 * lvl;
+    L.hemi.intensity = 0.06 + 0.3 * Math.min(1, lvl);
+    L.moon.intensity = moon ? (1 - Math.min(1, lvl)) * 0.35 : 0;
+    this.parts.glow.material.color.copy(GLOW).multiplyScalar(0.06 + 0.94 * Math.min(1, lvl)).lerp(WARM, warmth * 0.4);
+    this.scene.environmentIntensity = 0.04 + 0.12 * Math.min(1, lvl);
   }
 
   dispose() {

@@ -66,6 +66,7 @@ export class Ecology {
     if (hasWater) E.algae = clamp(E.algae + days * (grow * 3 * (E.algae + 0.04) * (1 - E.algae) - grazers * 1.5 - E.algae * 0.05), 0, 1);
     // Hardscape moss (the covering on rock tops) follows the damp air.
     E.rockMoss = clamp(E.rockMoss + days * ((E.humidity - 72) / 30) * 0.05, 0, 1);
+    if (E.mold > 0.5) E.rockMoss = clamp(E.rockMoss - days * (E.mold - 0.5) * 0.04, 0, 1);
     E.tankDays += days;
 
     // Moss on the ground and the background, every game hour.
@@ -104,8 +105,7 @@ export class Ecology {
   // Reaction–diffusion of the moss weight on one field.
   growMoss(hours, light) {
     const W = this.world, E = W.env;
-    const air = clamp((E.humidity - 62) / 25, -1, 1);
-    const lightOk = clamp(E.lightAvg * 2.5, 0.2, 1);
+    const C = W.climate;
     let changed = false;
     const H = W.water.hydro;
     // Spray zones around falls and splashes.
@@ -145,6 +145,9 @@ export class Ecology {
           const dd = Math.hypot(p.x - x, p.y - y, p.z - z);
           if (dd < 9) wetBonus = Math.max(wetBonus, 1 - dd / 9);
         }
+        // Moss reads its own spot: local air, the light that reaches it, and how wet the ground is.
+        const air = clamp((C.humidityAt(x, y, z) - 62) / 25, -1, 1) + (isWall ? 0 : (C.soilAt(x, z) - 0.5) * 0.5);
+        const lightOk = clamp(E.lightAvg * (C.lightAt(x, z) / Math.max(0.2, E.lampPower)) * 2.5, 0.2, 1);
         const s = (air + wetBonus * 0.8) * good * lightOk;
         const nb = (f.get(i - 1, j, w) + f.get(i + 1, j, w) + f.get(i, j - 1, w) + f.get(i, j + 1, w)) * 0.25;
         let dw;

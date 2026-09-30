@@ -11,83 +11,14 @@
 import * as THREE from 'three/webgpu';
 import { SPECIES, FOOD_VALUE, one } from './animals.js';
 import { Ecology } from './ecology.js';
+import { Env } from './env.js';
+import { Climate } from './climate.js';
+import { U } from '../render/uniforms.js';
 import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../render/geo.js';
 import { TANK } from './tank.js';
 
-export class Env {
-  constructor() {
-    this.reset();
-  }
-
-  reset() {
-    this.minute = 9 * 60;       // game clock, minutes since day 0 00:00
-    this.temp = 23;             // °C (air and water, kept as one for simplicity)
-    this.humidity = 70;         // %RH
-    this.ammonia = 0.0;         // ppm
-    this.nitrite = 0.0;
-    this.nitrate = 5;
-    this.oxygen = 7.5;          // mg/L
-    this.cycle = 0.15;          // nitrifying bacteria, 0 (new tank) … 1 (mature)
-    this.detritus = 3;          // grams of decaying matter
-    this.biofilm = 0.4;         // 0 … 1, algae/biofilm on surfaces
-    this.mist = 0;              // recent misting, decays
-    this.lightAvg = 0.5;        // 24 h average light
-    // Settings.
-    this.lights = 'auto';       // auto | on | off
-    this.lightsOn = 8 * 60;
-    this.lightsOff = 20 * 60;
-    this.heater = true;
-    this.setpoint = 24;
-    this.room = 21;
-    this.lid = true;
-    this.filter = true;
-    this.autoFeed = true;
-    this.lastFed = -1;
-    this.culture = true;   // a fruit fly culture that releases flies every other day
-    this.lastCulture = -2;
-    this.algae = 0.05;          // 0 … 1, green water and film
-    this.diatoms = 0;           // 0 … 1, brown film of a new tank
-    this.rockMoss = 0.9;        // moss grown over the hardscape
-    this.tankDays = 60;         // days since the tank was set up
-  }
-
-  // A tank that has just been set up: raw water, no bacteria, nothing grown.
-  newTank() {
-    this.reset();
-    Object.assign(this, { cycle: 0, biofilm: 0, algae: 0, diatoms: 0, rockMoss: 0, tankDays: 0, nitrate: 0, detritus: 1.5, humidity: 60 });
-  }
-
-  // The starter tank has been running for a couple of months.
-  matureTank() {
-    Object.assign(this, { cycle: 0.9, nitrate: 8, humidity: 85, biofilm: 0.4, algae: 0.05, diatoms: 0, rockMoss: 0.9, tankDays: 60 });
-  }
-
-  static KEYS = ['minute', 'temp', 'humidity', 'ammonia', 'nitrite', 'nitrate', 'oxygen', 'cycle', 'detritus', 'biofilm', 'lights', 'heater',
-    'setpoint', 'lid', 'filter', 'room', 'autoFeed', 'lastFed', 'culture', 'lastCulture', 'algae', 'diatoms', 'rockMoss', 'tankDays'];
-
-  serialize() { return Object.fromEntries(Env.KEYS.map((k) => [k, this[k]])); }
-  load(o = {}) {
-    this.reset();
-    for (const k of Env.KEYS) if (o[k] !== undefined) this[k] = o[k];
-  }
-
-  get day() { return Math.floor(this.minute / 1440); }
-  get clock() {
-    const m = this.minute % 1440;
-    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
-  }
-
-  // Light level 0..1 with a half-hour dawn and dusk ramp.
-  light() {
-    if (this.lights === 'on') return 1;
-    if (this.lights === 'off') return 0.03;
-    const m = this.minute % 1440;
-    const up = clamp((m - this.lightsOn) / 30, 0, 1);
-    const down = clamp((this.lightsOff - m) / 30, 0, 1);
-    return Math.max(0.03, Math.min(up, down));
-  }
-}
+export { Env };
 
 export class Sim {
   constructor(world) {
@@ -96,6 +27,7 @@ export class Sim {
     this.acc = 0;
     this.stats = {};
     this.eco = new Ecology(world);
+    this.climate = world.climate;
   }
 
   // dtMin: game minutes elapsed this frame.
@@ -108,14 +40,26 @@ export class Sim {
       dtMin -= d;
       this.tick(d);
     }
+    W.animals.food = W.animals.food.filter((f) => !f.eaten);
     W.animals.food.forEach((f) => { if (f.settled) f.floorAge = (f.floorAge ?? 0) + 1; });
   }
 
   tick(d) {
     const W = this.world, E = this.env;
     E.minute += d;
-    const light = E.light();
+    const light = E.bright();
     E.lightAvg = lerp(E.lightAvg, light, d / 1440);
+    const closed = TANK.closed;
+
+    // --- Equipment -----------------------------------------------------
+    // Rain: programmed showers and hand-triggered ones. The rain system
+    // pumps water from the main pool, so it stops if the pool runs dry.
+    const tod = E.minute % 1440;
+    let showering = E.minute < E.rainUntil;
+    for (const r of E.rainProgram) if (tod >= r.at && tod < r.at + r.len) showering = true;
+    if (showering && W.water.level < 1.5 && W.water.volumeLitres() < 2) showering = false;
+    E.rain = lerp(E.rain, showering ? 1 : 0, clamp(d / 6, 0, 1));
+    if (E.rain < 0.02) E.rain = 0;
 
     // --- Climate ------------------------------------------------------
     const area = W.water.surfaceArea();
@@ -123,14 +67,29 @@ export class Sim {
     const waterFrac = clamp(area / floor, 0, 1);
     // Falls wet the air and the water (up to a point); less when the pump stops.
     const falls = Math.min(4, W.water.falls.length) * (W.water.hydro.pump.running ? 1 : 0.3);
-    let tTarget = E.room + light * 2.2 + (E.lid ? 0.8 : 0);
+    const open = !(E.lid || closed);
+    let tTarget = E.room + light * 1.3 + (open ? 0 : 0.8) - E.rain * 1.2 - E.fogger * 0.8 + E.basking * 1.5;
     if (E.heater && tTarget < E.setpoint) tTarget = E.setpoint;
+    tTarget = lerp(tTarget, E.room, E.fan * 0.5);
+    if (E.chill) tTarget = Math.min(tTarget, E.coolSet);
     E.temp = lerp(E.temp, tTarget, clamp(d * 0.004, 0, 1));
-    let hTarget = 38 + waterFrac * 36 + falls * 3.5 + E.mist * 30 + (E.lid ? 12 : -8) + W.mossFraction() * 10 + Math.min(8, W.plants.list.length * 0.06);
+    // Humidity: water, falls, moss and plants add it; an open lid, a fan and a
+    // warm tank take it away. Rain and a fogger add a lot.
+    let hTarget = 33 + waterFrac * 36 + falls * 3.5 + E.mist * 30 + (open ? -8 : 12) + (closed ? 14 : 0) + W.mossFraction() * 10 + Math.min(8, W.plants.list.length * 0.06)
+      + E.rain * 26 + E.fogger * 22;
     hTarget -= Math.max(0, E.temp - 24) * 1.2;
+    hTarget = lerp(hTarget, E.roomHumidity, E.fan * 0.55);
     E.humidity = clamp(lerp(E.humidity, clamp(hTarget, 20, 100), clamp(d * 0.01, 0, 1)), 15, 100);
     E.mist = Math.max(0, E.mist - d / 90);
-    W.water.hydro.evaporate(d, E.humidity, E.temp, area * (E.lid ? 0.4 : 1));
+    // Evaporation. A sealed jar loses almost nothing: it condenses and runs back down.
+    const evapArea = area * (open ? 1 : 0.4) * (1 + E.fan * 0.8) + E.fogger * 250;
+    W.water.hydro.evaporate(d, E.humidity, E.temp, evapArea * (closed ? 0.06 : 1));
+    this.climate.step(d, light);
+    E.soil = this.climate.mean.soil;
+    E.updateGlass(d);
+    this.mould(d);
+
+    W.equipment.evaluate();
 
     // --- Water chemistry ---------------------------------------------
     const litres = Math.max(1, W.water.volumeLitres());
@@ -146,10 +105,11 @@ export class Sim {
     // Scaled so ~18 small fish in 20 L make ~0.5 ppm/day in an uncycled tank.
     E.ammonia += ((waste + rotting) * d * 0.25) / litres;
     E.detritus = Math.max(0, E.detritus - rotting * d * 0.4);
-    const toNitrite = E.ammonia * clamp(E.cycle * 0.012 * d, 0, 0.9);
+    const media = 0.6 + E.mediaBio * 0.9;
+    const toNitrite = E.ammonia * clamp(E.cycle * 0.012 * media * d, 0, 0.9);
     E.ammonia -= toNitrite;
     E.nitrite += toNitrite;
-    const toNitrate = E.nitrite * clamp(E.cycle * 0.01 * d, 0, 0.9);
+    const toNitrate = E.nitrite * clamp(E.cycle * 0.01 * media * d, 0, 0.9);
     E.nitrite -= toNitrate;
     E.nitrate += toNitrate * 2.7;
     // Bacteria colonise a new tank over two to three weeks when they have
@@ -164,7 +124,7 @@ export class Sim {
     // add it by day and use it by night; animals breathe it.
     let fishLoad = 0;
     for (const a of W.animals.all) if (SPECIES[a.sp].kind === 'swim' || SPECIES[a.sp].kind === 'crawlWater') fishLoad += SPECIES[a.sp].size;
-    const oTarget = 5.2 + falls * 0.9 + (E.filter ? 1.6 : 0) + (light - 0.4) * pl.nitrateUse * 0.02 - fishLoad * 0.8 / litres - Math.max(0, E.temp - 24) * 0.12;
+    const oTarget = 5.2 + falls * 0.9 + (E.filter ? 1.6 : 0) + E.fan * 0.4 + E.rain * 0.5 + (light - 0.4) * pl.nitrateUse * 0.02 - fishLoad * 0.8 / litres - Math.max(0, E.temp - 24) * 0.12;
     E.oxygen = clamp(lerp(E.oxygen, oTarget, clamp(d * 0.01, 0, 1)), 0.5, 10);
     // Biofilm grows with light and nutrients; grazers eat it.
     E.biofilm = clamp(E.biofilm + d * 0.0004 * light * clamp(E.nitrate / 10, 0.2, 1.5), 0, 1);
@@ -200,11 +160,24 @@ export class Sim {
     // --- Food on the floor rots --------------------------------------
     for (const f of W.animals.food) {
       f.gameAge = (f.gameAge ?? 0) + d;
-      if (f.gameAge > 240) { f.eaten = true; E.detritus += 0.05; }
+      if (!f.eaten && f.gameAge > 240) { f.eaten = true; E.detritus += 0.05; }
     }
 
     // --- Animals -----------------------------------------------------
     this.animals(d, light);
+  }
+
+  // Mould: stale, saturated air with something to feed on. Springtails and
+  // isopods eat it, a fan starves it, dry air stops it.
+  mould(d) {
+    const W = this.world, E = this.env;
+    const stale = clamp((E.humidity - 90) / 8, 0, 1) * (1 - E.fan) * (E.lid || TANK.closed ? 1 : 0.5);
+    const food = clamp(E.detritus / 8, 0, 1) * 0.7 + clamp((E.soil - 0.8) * 5, 0, 1) * 0.6;
+    const crew = (W.animals.count('isopod') + W.animals.count('springtail') * 0.25) / 40;
+    const rate = stale * food * 0.9 - crew * 0.6 - E.fan * 0.25 - 0.04;
+    E.mold = clamp(E.mold + (rate * d) / 1440 * 1.2, 0, 1);
+    U.mold.value = E.mold;
+    U.condense.value = E.condense;
   }
 
   animals(d, light) {
@@ -258,9 +231,19 @@ export class Sim {
       let stress = 0;
       const why = [];
       const [tmin, tmax] = sp.temp;
-      if (E.temp < tmin) { stress += (tmin - E.temp) / 4; why.push('too cold'); }
-      if (E.temp > tmax) { stress += (E.temp - tmax) / 3; why.push('too hot'); }
       const aquatic = sp.kind === 'swim' || sp.kind === 'crawlWater';
+      // Land animals feel the air where they are: warmer under the lamp,
+      // damper by the waterfall. (Smoothed so a hop across a boundary doesn't flicker.)
+      let T = E.temp, RH = E.humidity;
+      if (!aquatic && sp.kind !== 'egg') {
+        const C = W.climate;
+        a.lt = lerp(a.lt ?? E.temp, C.tempAt(a.pos.x, a.pos.y, a.pos.z), 0.25);
+        a.lh = lerp(a.lh ?? E.humidity, C.humidityAt(a.pos.x, a.pos.y, a.pos.z), 0.25);
+        T = a.lt; RH = a.lh;
+      }
+      a.T = T; a.RH = RH;
+      if (T < tmin) { stress += (tmin - T) / 4; why.push('too cold'); }
+      if (T > tmax) { stress += (T - tmax) / 3; why.push('too hot'); }
       if (aquatic) {
         if (a.stranded) { stress += 6; why.push('out of water'); }
         if (E.ammonia > 0.25) { stress += (E.ammonia - 0.25) * 3; why.push('ammonia'); }
@@ -269,7 +252,8 @@ export class Sim {
         if (E.oxygen < 4.5) { stress += (4.5 - E.oxygen) * 0.8; why.push('low oxygen'); }
         if (sp.kind === 'crawlWater' && W.water.surfaceAt(a.pos.x, a.pos.z) < a.pos.y) { stress += 4; why.push('out of water'); }
       } else if (sp.humidity) {
-        if (E.humidity < sp.humidity) { stress += (sp.humidity - E.humidity) / 12; why.push('air too dry'); }
+        if (RH < sp.humidity) { stress += (sp.humidity - RH) / 12; why.push('air too dry'); }
+        if (E.mold > 0.8 && sp.group === 'Amphibians') { stress += 0.4; why.push('mould'); }
       }
       if (sp.kind === 'toad' && W.water.surfaceArea() < 200) { stress += 0.5; why.push('no water to swim in'); }
       if (sp.kind === 'crab' && W.water.surfaceArea() < 100) { stress += 0.5; why.push('no water'); }

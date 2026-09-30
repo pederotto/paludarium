@@ -9,6 +9,8 @@ import { Plants, PLANTS } from './plants.js';
 import { Animals, SPECIES } from './animals.js';
 import { Decor } from './decor.js';
 import { Env, Sim } from './sim.js';
+import { Climate } from './climate.js';
+import { Equipment } from './equipment.js';
 import { TANK, MAT, NMAT } from './tank.js';
 import { rng, smooth, clamp, lerp } from '../render/geo.js';
 
@@ -24,6 +26,8 @@ export class World {
     this.decor = new Decor(scene, this);
     this.plants = new Plants(scene);
     this.animals = new Animals(scene, this);
+    this.equipment = new Equipment(this);
+    this.climate = new Climate(this);
     this.sim = new Sim(this);
     this.undoStack = [];
     this._moss = 0;
@@ -129,6 +133,7 @@ export class World {
     this.decor.clear();
     this.water.clear();
     this.env.reset();
+    this.equipment.rules = [];
     this.logs.length = 0;
     this.undoStack.length = 0;
   }
@@ -305,6 +310,7 @@ export class World {
     add('gecko', 2, land);
 
     this.env.matureTank();
+    this.climate.settle();
     this.updateMoss();
     this.decor.scatterMoss();
     this.fx?.updateTerrain();
@@ -322,6 +328,8 @@ export class World {
       plants: this.plants.serialize(),
       animals: this.animals.serialize(),
       env: this.env.serialize(),
+      equipment: this.equipment.serialize(),
+      tank: { id: TANK.id },
     };
   }
 
@@ -346,6 +354,8 @@ export class World {
       if (n?.onWall) { n.wallMode = true; n.normal = new THREE.Vector3(0, 0, 1); }
     }
     this.env.load(o.env);
+    this.equipment.load(o.equipment);
+    this.climate.settle();
     this.fx?.updateTerrain();
     this.updateMoss();
     this.decor.scatterMoss();

@@ -52,7 +52,9 @@ export class Game {
 
   resize() {
     const [w, h] = this.gfx.resize();
+    this.rig.size = { w, h };
     this.rig.resize(w / h);
+    this.events.emit('resize', w, h);
   }
 
   // Builds a tank of the given kind and fills it. `layout`: 'empty', 'starter'
@@ -125,9 +127,9 @@ export class Game {
       this.mist.update(dt);
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
-      const light = W.env.light();
-      U.daylight.value = light;
-      this.stage.setDaylight(light);
+      const E = W.env, light = E.bright();
+      U.daylight.value = Math.min(1, light);
+      this.stage.setDaylight(light, E.lampWarmth, E.moonlight);
     }
     this.rig.update(dt);
     this.gfx.render();

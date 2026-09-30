@@ -266,6 +266,19 @@ export class Animals {
   catchable(pid) { return (this.by[pid]?.length ?? 0) > this.refuge(); }
   count(id) { return this.by[id].length; }
 
+  // How comfortable is this spot for the species (0 … 1)? Combines the local
+  // temperature and humidity against what it needs, so land animals wander
+  // toward the damp, warm-enough parts of the tank when it is dry or cold.
+  comfortAt(sp, x, y, z) {
+    const C = this.world.climate;
+    let c = 1;
+    if (sp.humidity) c *= clamp((C.humidityAt(x, y, z) - (sp.humidity - 16)) / 16, 0.05, 1);
+    const T = C.tempAt(x, y, z), [lo, hi] = sp.temp;
+    if (T < lo) c *= clamp(1 - (lo - T) / 5, 0.05, 1);
+    else if (T > hi) c *= clamp(1 - (T - hi) / 5, 0.05, 1);
+    return c;
+  }
+
   // Where may species `id` be placed for a hit? Returns {pos} or {error}.
   placement(id, hit) {
     const sp = SPECIES[id];
@@ -509,8 +522,8 @@ export class Animals {
           const x = a.pos.x + (Math.random() - 0.5) * r * 2, z = a.pos.z + (Math.random() - 0.5) * r * 2;
           if (!this.okFor(medium, x, z)) continue;
           let s = Math.random();
-          if (medium === 'land') s += T.field.matAt(x, z, MAT.moss) * 1.5 + (W.nearWater(V(x, T.heightAt(x, z), z), 6) ? 0.5 : 0);
-          if (medium === 'any') s += W.nearWater(V(x, T.heightAt(x, z), z), 4) ? 1 : 0;
+          if (medium === 'land') s += T.field.matAt(x, z, MAT.moss) * 1.5 + (W.nearWater(V(x, T.heightAt(x, z), z), 6) ? 0.5 : 0) + this.comfortAt(sp, x, T.heightAt(x, z), z) * 3;
+          if (medium === 'any') s += (W.nearWater(V(x, T.heightAt(x, z), z), 4) ? 1 : 0) + this.comfortAt(sp, x, T.heightAt(x, z), z) * 2;
           if (s > bs) { bs = s; best = V(x, 0, z); }
         }
         if (best) { a.target = best; a.state = 'walk'; a.timer = 4 + Math.random() * 6; }
@@ -636,11 +649,14 @@ export class Animals {
     if (a.timer <= 0) {
       // Wander: mostly short hops; toads now and then head for water.
       const wantWater = toad && Math.random() < 0.3;
+      const cands = [];
       for (let k = 0; k < 10; k++) {
         const ang = a.yaw + (Math.random() - 0.5) * (k < 5 ? 2 : 6.28), r = (1.8 + Math.random() * 4) * sp.size;
         const to = V(a.pos.x + Math.sin(ang) * r, 0, a.pos.z + Math.cos(ang) * r);
-        if (this.hopTo(a, sp, to, wantWater)) return;
+        cands.push({ to, sc: this.comfortAt(sp, to.x, T.heightAt(to.x, to.z), to.z) * 2.2 + Math.random() });
       }
+      cands.sort((p, q) => q.sc - p.sc);
+      for (const c of cands) if (this.hopTo(a, sp, c.to, wantWater)) return;
       a.timer = 1 + Math.random() * 3;
     }
   }

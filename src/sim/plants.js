@@ -514,6 +514,7 @@ export class Plants {
     for (const p of [...this.list]) {
       const sp = PLANTS[p.id];
       p.age += dtMin;
+      p.why = [];
       let ok = 1;
       const hab = sp.habitat;
       if (hab === 'aquatic' || hab === 'floating') {
@@ -525,12 +526,26 @@ export class Plants {
         if (hab === 'floating') out.shade += p.grown * p.scale * 40;
         if (world.water.surfaceAt(p.pos.x, p.pos.z) === -Infinity) ok = 0;
       } else {
+        // Land plants read their own spot: the local air, the light that
+        // reaches them under the canopy, and how wet the soil is.
         const [hmin] = sp.humidity;
-        if (env.humidity < hmin) ok = Math.min(ok, 1 - (hmin - env.humidity) / 25);
-        if (hab !== 'emergent' && world.water.surfaceAt(p.pos.x, p.pos.z) > p.pos.y + 0.5) ok = 0;
+        const C = world.climate;
+        const hum = C.humidityAt(p.pos.x, p.pos.y, p.pos.z);
+        if (hum < hmin) { ok = Math.min(ok, 1 - (hmin - hum) / 25); p.why.push('air too dry here'); }
+        if (hab !== 'emergent' && world.water.surfaceAt(p.pos.x, p.pos.z) > p.pos.y + 0.5) { ok = 0; p.why.push('under water'); }
+        if (p.surface !== 'wall') {
+          const soil = C.soilAt(p.pos.x, p.pos.z);
+          if (soil < (sp.soilMin ?? 0.22)) { ok = Math.min(ok, 0.35 + soil * 2); p.why.push('soil too dry'); }
+          if (env.soil > 0.9 && env.drainage < 0.3 && !sp.bog && soil > 0.9) { ok = Math.min(ok, 0.5); p.why.push('waterlogged roots (no drainage)'); }
+        }
+        if (env.mold > 0.7) { ok = Math.min(ok, 0.7); p.why.push('mould'); }
       }
-      // Light hours: a crude daily light integral.
-      ok = Math.min(ok, clamp(env.lightAvg / Math.max(0.05, sp.light * 0.7), 0, 1.2));
+      // Light: a crude daily light integral, at this plant's own spot.
+      const shade = clamp(world.climate.lightAt(p.pos.x, p.pos.z) / Math.max(0.2, env.lampPower), 0.15, 1.3);
+      const lightHere = env.lightAvg * (hab === 'floating' ? 1 : shade);
+      const lightOk = clamp(lightHere / Math.max(0.05, sp.light * 0.55), 0, 1.2);
+      if (lightOk < 0.6) p.why.push(shade < 0.6 ? 'too shaded here' : 'not enough light');
+      ok = Math.min(ok, lightOk);
       const rate = dtMin / (60 * 24 * 4); // full size in ~4 days
       if (ok > 0.6) {
         p.grown = Math.min(1, p.grown + rate * ok);
