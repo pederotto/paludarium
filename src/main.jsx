@@ -12,6 +12,7 @@ import { snapshot } from './app/snapshot.js';
 import { Meta } from './app/saves.js';
 import { Director } from './app/director.js';
 import { bindLayout } from './ui/layout.js';
+import { effect } from '@preact/signals';
 
 const q = new URLSearchParams(location.search);
 window.__errs = [];
@@ -63,6 +64,7 @@ game.tickHooks.push(() => {
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal.value) closeModal(); });
 window.addEventListener('beforeunload', () => { director.save?.().catch(() => {}); });
 
+effect(() => { game.lens?.set(S.lens.value); });
 render(<App />, document.getElementById('ui'));
 bindLayout(game);
 game.start();

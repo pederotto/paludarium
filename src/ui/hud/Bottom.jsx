@@ -2,13 +2,24 @@ import { Icon } from '../icons.jsx';
 import { S, openModal } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { LENSES } from '../../tools/controller.js';
+import { LENS_INFO } from '../../render/lens.js';
 
 export function Bottom() {
   const g = ctx.game;
   const lens = S.lens.value;
   const career = S.career.value;
   const active = career?.active?.[0];
+  const li = LENS_INFO[lens];
   return (
+    <>
+    {li ? (
+      <div class="legend glass">
+        <b>{li.name}</b>
+        <div class="ramp" style={{ background: `linear-gradient(90deg, ${li.stops.join(', ')})` }} />
+        <span>{li.lo}{li.unit}</span><span style={{ marginLeft: 'auto' }}>{li.hi}{li.unit}</span>
+        <small>{li.blurb}</small>
+      </div>
+    ) : null}
     <div class="bottom">
       <div class="hintbar glass">{S.hint.value}</div>
       {active && (
@@ -34,5 +45,6 @@ export function Bottom() {
         <button onClick={() => openModal('photo')} title="Photo mode"><Icon name="camera" size={15} /></button>
       </div>
     </div>
+    </>
   );
 }

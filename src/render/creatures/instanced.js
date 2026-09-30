@@ -12,7 +12,7 @@ import { bodyGeometry } from './mesher.js';
 import { creatureMaterial, qrot } from './material.js';
 
 export class CreatureMesh {
-  constructor(scene, geometry, { cap = 64, wave = 2.2, legLift = 0.25, legStride = 0.35, finish = {}, material = null } = {}) {
+  constructor(scene, geometry, { cap = 64, wave = 2.2, legLift = 0.25, legStride = 0.35, finish = {}, material = null, textures = null } = {}) {
     const g = new THREE.InstancedBufferGeometry();
     for (const k of Object.keys(geometry.attributes)) g.setAttribute(k, geometry.attributes[k]);
     g.setIndex(geometry.index);
@@ -28,7 +28,7 @@ export class CreatureMesh {
     this.geometry = g;
 
     if (material) this.material = material;
-    else this.material = buildMaterial(finish, wave, legLift, legStride);
+    else this.material = buildMaterial(finish, wave, legLift, legStride, textures);
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.userData.keepGeometry = true;   // its attributes are shared with the species' cached geometry: never dispose them on unload
@@ -60,8 +60,8 @@ export class CreatureMesh {
   dispose() { this.geometry.dispose(); this.mesh.removeFromParent(); }
 }
 
-function buildMaterial(finish, wave, legLift, legStride) {
-  const { material: m, n } = creatureMaterial(finish);
+function buildMaterial(finish, wave, legLift, legStride, textures = null) {
+  const { material: m, n } = creatureMaterial(finish, textures ?? {});
   const rig = attribute('rig', 'vec4');
   const anim = attribute('iAnim', 'vec4');
   const q = attribute('iRot', 'vec4');
@@ -108,7 +108,8 @@ export class CreatureLOD {
     if (this.def) { if (!LO.has(this.def)) LO.set(this.def, bodyGeometry(this.def, 'lo')); loGeo = LO.get(this.def); }
     this.lo = new CreatureMesh(scene, loGeo, opts);
     this.hi = null;
-    if (this.def && HI.has(this.def)) this.hi = new CreatureMesh(scene, HI.get(this.def), { ...opts, material: this.lo.material });
+    if (opts.hiGeometry) this.hi = new CreatureMesh(scene, opts.hiGeometry, { ...opts, material: this.lo.material });
+    else if (this.def && HI.has(this.def)) this.hi = new CreatureMesh(scene, HI.get(this.def), { ...opts, material: this.lo.material });
     this.near = opts.near ?? 55;
     this.near2 = this.near * this.near;
     this.cap = opts.cap;

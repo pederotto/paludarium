@@ -167,6 +167,12 @@ select option { background: #101614; }
 .camera button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
 .meta { position: absolute; right: calc(14px + var(--sr)); bottom: calc(64px + var(--sb)); color: var(--faint); font-size: 10.5px; pointer-events: none; }
 
+/* --- Lens legend ---------------------------------------------------------------------------------- */
+.legend { position: absolute; left: 50%; bottom: calc(70px + var(--sb)); transform: translateX(-50%); padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 4px 8px; width: min(420px, calc(100vw - 20px)); align-items: center; z-index: 5; font-size: 11.5px; }
+.legend .ramp { flex: 1 1 100%; height: 8px; border-radius: 4px; }
+.legend small { flex: 1 1 100%; color: var(--dim); }
+@media (max-width: 860px), (max-aspect-ratio: 1/1) { .legend { bottom: calc(130px + var(--sb)); } }
+
 /* --- Dock of big buttons: care, lab, codex, studio ----------------------------- */
 .dock { display: flex; padding: 3px; gap: 2px; }
 .dock button { border: 0; background: transparent; padding: 7px 11px; border-radius: 9px; cursor: pointer; color: var(--dim); font-weight: 600; display: flex; align-items: center; gap: 7px; font-size: 12.5px; position: relative; }

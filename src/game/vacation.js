@@ -14,8 +14,8 @@ export async function runVacation(world, days = 7, { onProgress } = {}) {
   let lastDeaths = world.stats.deaths;
   for (let day = 0; day < days; day++) {
     for (let h = 0; h < 24; h++) {
-      world.sim.step(60);
-      world.animals.move(0.05);
+      // Animals keep moving while the clock runs (as at 20x speed): they seek damp, warm spots and find food.
+      for (let k = 0; k < 6; k++) { world.sim.step(10); for (let j = 0; j < 5; j++) world.animals.move(0.2); }
       series.temp.push(E.temp); series.humidity.push(E.humidity); series.ammonia.push(E.ammonia); series.nitrate.push(E.nitrate); series.oxygen.push(E.oxygen);
       if (h % 6 === 0) for (const arr of Object.values(world.animals.by)) for (const a of arr) for (const w of a.why ?? []) stressCounts[w] = (stressCounts[w] ?? 0) + 1;
       if (world.stats.deaths > lastDeaths) {

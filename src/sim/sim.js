@@ -75,7 +75,7 @@ export class Sim {
     E.temp = lerp(E.temp, tTarget, clamp(d * 0.004, 0, 1));
     // Humidity: water, falls, moss and plants add it; an open lid, a fan and a
     // warm tank take it away. Rain and a fogger add a lot.
-    let hTarget = 33 + waterFrac * 36 + falls * 3.5 + E.mist * 30 + (open ? -8 : 12) + (closed ? 14 : 0) + W.mossFraction() * 10 + Math.min(8, W.plants.list.length * 0.06)
+    let hTarget = 35 + waterFrac * 36 + falls * 3.5 + E.mist * 30 + (open ? -8 : 12) + (closed ? 14 : 0) + W.mossFraction() * 10 + Math.min(8, W.plants.list.length * 0.06)
       + E.rain * 26 + E.fogger * 22;
     hTarget -= Math.max(0, E.temp - 24) * 1.2;
     hTarget = lerp(hTarget, E.roomHumidity, E.fan * 0.55);
@@ -283,7 +283,8 @@ export class Sim {
       if (a.health <= 0 || a.age > life) {
         const cause = a.health <= 0 ? (why[0] ?? 'poor health') : 'old age';
         W.animals.remove(a, cause);
-        W.stats.deaths++; W.stats.lastDeathMinute = E.minute;
+        // Only real losses count for goals and the vacation report: live-food species and old age are the normal cycle.
+        if (cause !== 'old age' && a.sp !== 'fly' && a.sp !== 'springtail') { W.stats.deaths++; W.stats.lastDeathMinute = E.minute; }
         E.detritus += sp.size * (sp.kind === 'swim' || sp.kind === 'frog' || sp.kind === 'toad' ? 0.6 : 0.08);
         if (sp.cap < 60 || Math.random() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
         continue;

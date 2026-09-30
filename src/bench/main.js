@@ -5,6 +5,9 @@ import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { SPECIES, createSpeciesMesh } from '../sim/animals.js';
 import { U } from '../render/uniforms.js';
+import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
+import { CreatureLOD } from '../render/creatures/instanced.js';
+import { FINISH } from '../render/creatures/material.js';
 
 const q = new URLSearchParams(location.search);
 const id = q.get('sp') ?? 'dartfrog';
@@ -39,9 +42,19 @@ U.waterLevel.value = wet ? 1000 : -1000;
 U.daylight.value = 1;
 
 const sp = SPECIES[id];
-const swimmer = sp.kind === 'swim' || sp.kind === 'crawlWater';
-const lod = createSpeciesMesh(scene, id, { cap: 4 });
 let hiReady = false;
+const swimmer = sp.kind === 'swim' || sp.kind === 'crawlWater';
+let lod = createSpeciesMesh(scene, id, { cap: 4 });
+if (q.get('src') === 'glb') {
+  const man = await loadManifest();
+  const g = man[id] && await loadCreatureGLB(id, { legs: ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab'].includes(sp.kind), ...man[id] });
+  if (g) {
+    lod.lo.mesh.removeFromParent();
+    const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
+    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1 }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
+    hiReady = true;
+  } else console.warn('no GLB for', id);
+}
 async function setLod(name) {
   if (name === 'hi' && !hiReady) { lod.refine(); hiReady = true; }
   lod.near2 = name === 'hi' ? 1e12 : 0;

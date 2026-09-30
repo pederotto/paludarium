@@ -394,7 +394,7 @@ function frogDef(spec) {
   const mat = (X, Y, Z) => {
     const a = analyze(X, Y, Z);
     if (a.eye && a.eye.th < spec.eyeCap) return M.EYE;
-    return spec.mat ? spec.mat(a) : M.GLOSS;
+    return globalThis.__MAT ?? (spec.mat ? spec.mat(a) : M.GLOSS);
   };
   const color = (X, Y, Z) => {
     const a = analyze(X, Y, Z);
@@ -404,7 +404,7 @@ function frogDef(spec) {
   const m = 0.3;
   const def = {
     sdf, lo: [-2.2 * S, -0.12 * S, -2.5 * S], hi: [2.2 * S, 2.3 * S, 2.6 * S], color, mat, rig,
-    finish: { rough: 0.3, coat: 1, coatRough: 0.06, grain: 14, bump: 0.0005, tone: 0.02, flutter: 0.0, ...(spec.finish ?? {}) },
+    finish: { rough: 0.3, coat: 1, coatRough: 0.06, grain: 14, bump: 0.0005, tone: 0.001, flutter: 0.0, ...(spec.finish ?? {}), ...(globalThis.__FIN ?? {}) },
   };
   void m;
   return lodDef(def, spec.cell, 0.5, st);
@@ -427,6 +427,7 @@ function paintEye(a, iris, gold, pupilSize = [0.105, 0.06], lidCol = null) {
 }
 
 const azureus = (a) => {
+  if (globalThis.__FLAT) return C(0x2050d0);
   const { x, y, z, ax, n } = a;
   const eyeC = a.eye ? paintEye(a, C(0x120c08), C(0x5a4a26)) : null;
   if (eyeC) return eyeC;

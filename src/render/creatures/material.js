@@ -17,7 +17,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, attribute, positionLocal, normalLocal, vec3, float, sin, mix, select, abs, max, mx_noise_float, normalize, dot, transformNormalToView,
-  cross, time, cameraPosition, positionWorld, pow, smoothstep,
+  cross, time, cameraPosition, positionWorld, pow, smoothstep, texture, uv,
 } from 'three/tsl';
 import { wet } from '../shaders.js';
 
@@ -32,11 +32,12 @@ export const FINISH = {
   invert: { rough: 0.4, coat: 0.45, coatRough: 0.22, grain: 12, bump: 0.05, tone: 0.05, flutter: 0, sheen: 0 },
 };
 
-export function creatureMaterial(finish = {}, { animate = null } = {}) {
+export function creatureMaterial(finish = {}, { map = null, normalMap = null, roughnessMap = null } = {}) {
   const f = { ...FINISH.amphibian, ...finish };
   const m = new THREE.MeshPhysicalNodeMaterial({ roughness: f.rough, metalness: 0.0, side: f.doubleSided ? THREE.DoubleSide : THREE.FrontSide });
   const id = attribute('rig', 'vec4').w;
-  const base = attribute('color', 'vec3');
+  // Procedural bodies paint per-vertex colour; scanned or generated models bring a texture.
+  const base = map ? texture(map, uv()).rgb : attribute('color', 'vec3');
   const eye = is(id, 1), fin = is(id, 2), iri = is(id, 3), chitin = is(id, 4), gloss = is(id, 5), horn = is(id, 6), glass = is(id, 7);
   const P = positionLocal;
 
@@ -76,7 +77,9 @@ export function creatureMaterial(finish = {}, { animate = null } = {}) {
   m.opacityNode = select(fin, float(0.5), select(glass, float(f.glassOpacity ?? 0.55), float(1)));
   m.alphaHash = true;
   m.vertexColors = false;
-  return { material: m, n, is: { eye, fin, iri } };
+  if (normalMap) { m.normalMap = normalMap; m.normalScale = new THREE.Vector2(1, 1); }
+  if (roughnessMap) m.roughnessMap = roughnessMap;
+  return { material: m, n, is: { eye, fin, iri }, textured: !!map };
 }
 
 export { qrot, is };

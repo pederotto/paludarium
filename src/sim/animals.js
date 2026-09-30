@@ -5,6 +5,7 @@
 import * as THREE from 'three/webgpu';
 import { Builder, PRIM, hash3, clamp, lerp, rng } from '../render/geo.js';
 import { CreatureLOD, BODIES, FINISH, withRig } from '../render/creatures.js';
+import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { TANK, MAT } from './tank.js';
 
 const C = (h) => new THREE.Color(h);
@@ -285,6 +286,9 @@ export function createSpeciesMesh(scene, id, { cap = null } = {}) {
   });
 }
 
+const GLB_CACHE = new Map();     // id → Promise<{lo, hi, textures} | null>, shared by every tank
+const WALKERS = ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab', 'crawlLand', 'crawlWater'];
+
 let nextId = 1;
 
 // Body meshes take a moment to build (surface nets), so they are built once and shared by every tank.
@@ -303,6 +307,7 @@ export class Animals {
       this.by[id] = [];
       this.meshes[id] = createSpeciesMesh(scene, id);
     }
+    this.upgradeModels().catch((e) => console.warn('creature models', e));
     const fg = new THREE.IcosahedronGeometry(0.22, 0);
     fg.scale(1, 0.35, 1);
     this.foodMesh = new THREE.InstancedMesh(fg, new THREE.MeshStandardNodeMaterial({ color: 0xc9772f, roughness: 0.8 }), 200);
@@ -311,6 +316,27 @@ export class Animals {
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
     this._s = new THREE.Vector3();
+  }
+
+  // Swap in textured models (public/assets/creatures/) for any species that has one.
+  async upgradeModels() {
+    const man = await loadManifest();
+    for (const [id, meta] of Object.entries(man)) {
+      const sp = SPECIES[id];
+      if (!sp || meta.disabled) continue;
+      if (!GLB_CACHE.has(id)) GLB_CACHE.set(id, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
+      const g = await GLB_CACHE.get(id);
+      if (!g) continue;
+      const a = sp.anim ?? {};
+      const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
+      const lod = new CreatureLOD(this.scene, g.lo, {
+        cap: sp.cap + 20, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35,
+        finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+      });
+      const old = this.meshes[id];
+      this.meshes[id] = lod;
+      old.lo.mesh.removeFromParent(); old.hi?.mesh.removeFromParent();
+    }
   }
 
   get all() { return Object.values(this.by).flat(); }
@@ -326,10 +352,10 @@ export class Animals {
   comfortAt(sp, x, y, z) {
     const C = this.world.climate;
     let c = 1;
-    if (sp.humidity) c *= clamp((C.humidityAt(x, y, z) - (sp.humidity - 16)) / 16, 0.05, 1);
+    if (sp.humidity) c *= clamp(1 - Math.max(0, sp.humidity - C.humidityAt(x, y, z)) / 8, 0.05, 1);
     const T = C.tempAt(x, y, z), [lo, hi] = sp.temp;
-    if (T < lo) c *= clamp(1 - (lo - T) / 5, 0.05, 1);
-    else if (T > hi) c *= clamp(1 - (T - hi) / 5, 0.05, 1);
+    if (T < lo) c *= clamp(1 - (lo - T) / 3, 0.05, 1);
+    else if (T > hi) c *= clamp(1 - (T - hi) / 3, 0.05, 1);
     return c;
   }
 
@@ -703,11 +729,13 @@ export class Animals {
     if (a.timer <= 0) {
       // Wander: mostly short hops; toads now and then head for water.
       const wantWater = toad && Math.random() < 0.3;
+      // A stressed frog (air too dry or cold) casts a wider net and goes for the best spot.
+      const uneasy = (a.why?.length ?? 0) > 0;
       const cands = [];
-      for (let k = 0; k < 10; k++) {
-        const ang = a.yaw + (Math.random() - 0.5) * (k < 5 ? 2 : 6.28), r = (1.8 + Math.random() * 4) * sp.size;
+      for (let k = 0; k < (uneasy ? 16 : 10); k++) {
+        const ang = a.yaw + (Math.random() - 0.5) * (k < 5 && !uneasy ? 2 : 6.28), r = (1.8 + Math.random() * 4) * sp.size * (uneasy ? 2.2 : 1);
         const to = V(a.pos.x + Math.sin(ang) * r, 0, a.pos.z + Math.cos(ang) * r);
-        cands.push({ to, sc: this.comfortAt(sp, to.x, T.heightAt(to.x, to.z), to.z) * 2.2 + Math.random() });
+        cands.push({ to, sc: this.comfortAt(sp, to.x, T.heightAt(to.x, to.z), to.z) * (uneasy ? 6 : 3) + Math.random() });
       }
       cands.sort((p, q) => q.sc - p.sc);
       for (const c of cands) if (this.hopTo(a, sp, c.to, wantWater)) return;

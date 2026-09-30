@@ -1,12 +1,15 @@
 {
   "name": "paludarium",
   "version": "0.1.0",
-  "description": "Build and simulate a living terrarium/aquarium in the browser. three.js + WebGPU.",
+  "description": "Build, grow and study living terrariums and paludariums in the browser. three.js WebGPU.",
   "scripts": {
-    "test": "node tools/test.cjs --query='fresh&webgl&lowres'",
-    "test:sim": "node tools/test.cjs --query='fresh&webgl&lowres' --script=tools/fastforward.js --out=ff.png",
-    "test:tools": "node tools/test.cjs --query='fresh&webgl&lowres' --script=tools/interact.js --out=tools.png",
-    "serve": "python3 -m http.server 8000",
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "test:unit": "node --test tests/*.test.mjs",
+    "shot": "node tools/shot.mjs",
+    "bench": "node tools/bench.mjs",
+    "import-creatures": "node tools/import-creatures.mjs",
     "import-assets": "node tools/import-seedthree.cjs"
   },
   "license": "MIT",

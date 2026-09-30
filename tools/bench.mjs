@@ -12,7 +12,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d}`).split('=').slice(1).join('=');
 const ids = args.filter((a) => !a.startsWith('--'));
 if (!ids.length) { console.error('usage: node tools/bench.mjs <species id> … [--lod=hi] [--water=1]'); process.exit(2); }
-const lod = opt('lod', 'lo'), water = opt('water', '0'), size = +opt('size', 520), url = opt('url', 'http://localhost:5173');
+const src = opt('src', ''), lod = opt('lod', 'lo'), water = opt('water', '0'), size = +opt('size', 520), url = opt('url', 'http://localhost:5173');
 const views = opt('views', 'front,side,back,top,three,low').split(',');
 fs.mkdirSync('test-output/bench', { recursive: true });
 
@@ -22,7 +22,7 @@ const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
 page.on('pageerror', (e) => errors.push(String(e.message ?? e).slice(0, 300)));
 for (const id of ids) {
-  await page.goto(`${url}/bench.html?sp=${id}&lod=${lod}&water=${water}&size=${size}`, { waitUntil: 'load' });
+  await page.goto(`${url}/bench.html?sp=${id}&src=${src}&lod=${lod}&water=${water}&size=${size}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.bench?.ready, null, { timeout: 60000 }).catch(() => {});
   if (!(await page.evaluate(() => !!window.bench))) { console.log(id, 'FAILED to load\n' + errors.slice(0, 5).join('\n')); continue; }
   const shots = [];

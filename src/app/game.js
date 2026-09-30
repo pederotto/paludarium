@@ -15,6 +15,7 @@ import { World } from '../sim/world.js';
 import { WaterFX, FX } from '../render/waterfx.js';
 import { Mist } from '../render/mist.js';
 import { U } from '../render/uniforms.js';
+import { Lens } from '../render/lens.js';
 
 export class Game {
   constructor(host, params = new URLSearchParams(location.search)) {
@@ -78,6 +79,8 @@ export class Game {
     world.mist = this.mist;
     world.stage = this.stage;
     world.animals.camera = this.camera;
+    this.lens = new Lens(this.worldRoot, world);
+    world.lens = this.lens;
     FX.lightDir.value.copy(this.stage.lightDir);
     if (save) world.load(save);
     else if (layout === 'starter' && spec.id === 'standard') world.starter();
@@ -130,6 +133,8 @@ export class Game {
       this.mist.update(dt);
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
+      this.lens?.update(dt);
+      this.lens?.update(dt);
       const E = W.env, light = E.bright();
       U.daylight.value = Math.min(1, light);
       this.stage.setDaylight(light, E.lampWarmth, E.moonlight);

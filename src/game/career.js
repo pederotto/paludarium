@@ -160,6 +160,7 @@ export class Career {
   // --- Achievements ------------------------------------------------------------------------------
   checkAchievements(ctx) {
     const earned = [];
+    if (this.sandbox) return earned;
     for (const a of ACHIEVEMENTS) {
       if (this.achievements[a.id]) continue;
       let ok = false;

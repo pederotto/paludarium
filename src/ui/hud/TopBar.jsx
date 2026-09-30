@@ -36,7 +36,7 @@ export function TopBar() {
         <Icon name="thermo" size={15} style={{ color: 'var(--moss)' }} /><span class="vday">D{live.clock.day}</span>{live.env.temp.toFixed(0)}° <Icon name="drop" size={14} style={{ color: 'var(--water)' }} />{Math.round(live.env.humidity)}%
       </button>
       <div class="spacer" />
-      {career && (
+      {career && career.mode === 'career' && (
         <div class="wallet glass">
           <div class="funds" title="Funds"><Icon name="coin" size={16} /><span class="num">{Math.round(career.funds).toLocaleString()}</span></div>
           <div class="rank" onClick={() => openModal('studio', 'career')} title={`${career.rank} · ${career.rep} rep`}>
