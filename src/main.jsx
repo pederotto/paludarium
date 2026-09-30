@@ -14,6 +14,7 @@ import { Director } from './app/director.js';
 import { bindLayout } from './ui/layout.js';
 import { effect } from '@preact/signals';
 import { Ambience } from './engine/audio.js';
+import { tickTimelapse } from './app/timelapse.js';
 
 const q = new URLSearchParams(location.search);
 window.__errs = [];
@@ -67,6 +68,7 @@ setInterval(() => { if (S.screen.value === 'play') audio.update(S.live.value, 0.
 game.tickHooks.push(() => {
   S.live.value = snapshot(game);
   S.fps.value = game.gfx.stats.fps;
+  tickTimelapse();
 });
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal.value) closeModal(); });
 window.addEventListener('beforeunload', () => { director.save?.().catch(() => {}); });

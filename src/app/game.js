@@ -23,6 +23,7 @@ export class Game {
     this.params = params;
     this.events = new Emitter();
     this.speed = 1;                // index into SPEEDS
+    this.lapse = 0;                // time-lapse: game minutes per real second, overrides the speed buttons
     this.frozen = false;           // paused by a menu, independent of the speed buttons
     this.world = null;
     this.stage = null;
@@ -117,7 +118,7 @@ export class Game {
   }
 
   // The simulated speed multiplier right now (0 while paused).
-  get rate() { return this.frozen ? 0 : SPEEDS[this.speed]; }
+  get rate() { return this.frozen ? 0 : this.lapse || SPEEDS[this.speed]; }
   setSpeed(i) { this.speed = Math.max(0, Math.min(SPEEDS.length - 1, i)); this.events.emit('speed', this.speed); }
 
   start() {
@@ -134,15 +135,20 @@ export class Game {
     const W = this.world;
     if (W) {
       const speed = this.rate;
-      W.sim.step(dt * speed * MINUTES_PER_SECOND);
-      W.animals.move(dt * Math.min(speed, 4));
+      if (this.lapse) {
+        // Time-lapse: animals keep moving between the sim steps, as at 20x, so they still find food and comfort.
+        for (let m = dt * speed * MINUTES_PER_SECOND; m > 0; m -= 10) { const d = Math.min(10, m); W.sim.step(d); for (let k = 0; k < 5; k++) W.animals.move(0.1 * d / 10); }
+      } else {
+        W.sim.step(dt * speed * MINUTES_PER_SECOND);
+        W.animals.move(dt * Math.min(speed, 4));
+      }
       W.water.animate(dt, speed);
       this.mist.update(dt);
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
       this.lens?.update(dt);
       this.lens?.update(dt);
-      const E = W.env, light = E.bright();
+      const E = W.env, light = Math.max(E.bright(), this.lapse ? 0.34 : 0);   // a time-lapse keeps nights readable
       U.daylight.value = Math.min(1, light);
       this.stage.setDaylight(light, E.lampWarmth, E.moonlight);
     }
