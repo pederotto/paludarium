@@ -50,7 +50,7 @@ export class Ecology {
     const W = this.world, E = W.env;
     const days = d / 1440;
     const hasWater = W.water.level > 0.5 || W.water.pools.length > 0;
-    const grazers = W.animals.count('shrimp') * 0.02 + W.animals.count('tadpole') * 0.015 + W.animals.count('cory') * 0.01;
+    const grazers = W.animals.count('shrimp') * 0.02 + W.animals.count('tadpole') * 0.015 + W.animals.count('cory') * 0.01 + W.animals.count('oto') * 0.02 + W.animals.count('snail') * 0.006;
     // Fresh substrate leaches ammonia (which feeds the first bacteria and,
     // once they turn it into nitrate, the first algae) and silicate (which
     // feeds diatoms) for about three weeks.

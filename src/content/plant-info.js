@@ -1,0 +1,107 @@
+// Field-guide entries for plants: what they are, where they come from and the
+// job they do in a living tank.
+
+export const PLANT_INFO = {
+  fernph: {
+    sci: 'Athyrium filix-femina', region: 'Temperate forests of the northern hemisphere',
+    role: 'Shade cover and humidity',
+    facts: ['Ferns are older than flowers: they reproduce with spores, released from the brown dots under the fronds, not with seeds.', 'Each frond unrolls from a curled "fiddlehead". The fern is a tell-tale of a moist, shaded, undisturbed forest floor.'],
+    care: ['Loves shade and damp air; leaves crisp and brown when the air is dry.', 'Its leaves shade the ground below: a fern canopy can lower the light that reaches moss.'],
+    lesson: 'photoperiod',
+  },
+  weed: {
+    sci: 'Lysimachia nummularia', region: 'Europe, naturalised elsewhere',
+    role: 'Ground cover; softens rock edges',
+    facts: ['Creeping jenny, or moneywort, spreads by trailing stems that root wherever they touch damp soil: a living carpet.', 'Its coin-shaped leaves give it its Latin name: nummularia means "coin-like".'],
+    care: ['Trims easily. Will happily trail into shallow water.'],
+    lesson: 'succession',
+  },
+  fern: {
+    sci: 'Nephrolepis and relatives', region: 'Tropics worldwide',
+    role: 'Understorey; transpiration',
+    facts: ['Tropical ferns can move a lot of water: transpiration from a dense fern floor is a large part of a rainforest\'s humidity.'],
+    care: ['Needs damp air. Feeds through its roots, so leaf litter helps.'],
+    lesson: 'water-cycle',
+  },
+  bilberry: {
+    sci: 'Vaccinium myrtillus (as a stand-in for small shrubs)', region: 'Cool forests and heaths of Europe and Asia',
+    role: 'Structure; height',
+    facts: ['A small woody shrub gives a tank a "middle layer" between moss and the canopy.'],
+    care: ['Needs good light and airy conditions.'],
+    lesson: 'composition',
+  },
+  grass: {
+    sci: 'Poaceae', region: 'Worldwide',
+    role: 'Fine texture; waterside cover',
+    facts: ['Grasses grow from the base of the leaf, not the tip, so they survive grazing and mowing. That is why a lawn can be cut.'],
+    care: ['Likes bright light.'],
+    lesson: 'composition',
+  },
+  bromeliad: {
+    sci: 'Bromeliaceae (e.g. Neoregelia, Vriesea)', region: 'Central and South America',
+    role: 'Tadpole nursery; epiphyte',
+    facts: [
+      'Many bromeliads grow on tree branches high in the forest and have leaves arranged in a cup that holds rainwater: a tiny pond in the sky.',
+      'These "phytotelmata" are full of life: insect larvae, frogs and tadpoles. Poison frogs carry their tadpoles up into the trees and deposit one in each cup.',
+      'Bromeliads take nutrients from the water and debris in the cup, not just the roots: the roots mostly cling.',
+    ],
+    care: ['Mount it high on the background. Keep water in the cup.', 'Bright but not harsh light.'],
+    lesson: 'parental-care',
+  },
+  pothos: {
+    sci: 'Ficus pumila', region: 'East Asia',
+    role: 'Living background: covers the wall',
+    facts: ['Creeping fig has two kinds of leaf: small, heart-shaped juvenile leaves that climb by clinging roots, and much larger adult leaves and fruit.'],
+    care: ['Hides a plain background quickly: keep it trimmed so it does not smother other plants.'],
+    lesson: 'composition',
+  },
+  cattail: {
+    sci: 'Typha', region: 'Wetlands worldwide',
+    role: 'Waterline plant; filters water',
+    facts: ['Cattails grow in shallow water and take up nitrogen and phosphorus. Constructed wetlands with cattails are used to clean sewage and runoff.', 'The brown "cat tail" is a dense spike of thousands of tiny flowers.'],
+    care: ['Needs its roots in wet ground and its leaves in the air.'],
+    lesson: 'nitrogen-cycle',
+  },
+  bamboo: {
+    sci: 'Cyperus involucratus', region: 'Africa and Madagascar; naturalised elsewhere',
+    role: 'Waterline plant; vertical structure',
+    facts: ['A sedge, not a grass: its stems are triangular in cross-section. The "umbrella" is a whorl of leaf-like bracts at the top.', 'It grows in swamps and along rivers where the soil is always wet.'],
+    care: ['Likes to stand in shallow water.'],
+    lesson: 'nitrogen-cycle',
+  },
+  vallisneria: {
+    sci: 'Vallisneria', region: 'Tropical and temperate fresh waters',
+    role: 'Underwater grass: uses nitrate, makes oxygen',
+    facts: ['Vallisneria pollination is remarkable: male flowers break loose, float to the surface and drift until they bump into a female flower, which is held on a long stalk at the surface.', 'It spreads by runners, and a few plants make a meadow.'],
+    care: ['Needs light. It takes up nitrate from the water.'],
+    lesson: 'nitrogen-cycle',
+  },
+  sword: {
+    sci: 'Echinodorus', region: 'Central and South America',
+    role: 'Centrepiece for the aquatic floor',
+    facts: ['A rosette plant: a big root system feeds heavily from the substrate.', 'The leaves come in two forms: submerged and, if it grows above the surface, tougher emergent leaves.'],
+    care: ['Hungry. Needs a nutrient-rich substrate or fertiliser.'],
+    lesson: 'photoperiod',
+  },
+  javafern: {
+    sci: 'Microsorum pteropus', region: 'South-east Asia',
+    role: 'Low-light plant for wood and stone',
+    facts: ['A fern that lives underwater. It grows attached to rocks and wood, not planted in the substrate, so burying the rhizome kills it.', 'It grows slowly, so it uses little light and nutrients: hard to kill.'],
+    care: ['Tie it to rock or wood. Shade is fine.'],
+    lesson: 'photoperiod',
+  },
+  frogbit: {
+    sci: 'Limnobium laevigatum', region: 'South and Central America',
+    role: 'Floating cover: shades algae and takes up nutrients',
+    facts: ['Floating plants take carbon dioxide from the air rather than the water, so they grow fast. Their roots hang in the water and absorb nutrients directly.', 'A carpet of frogbit blocks light from reaching algae: a floating plant is one of the strongest ways to suppress an algae bloom.'],
+    care: ['Multiplies fast. Thin it out or it will shade everything below.'],
+    lesson: 'algae',
+  },
+  lily: {
+    sci: 'Nymphaea', region: 'Fresh waters worldwide',
+    role: 'Surface cover; a focal point',
+    facts: ['Water lily leaves have stomata on the upper surface, because the underside is in the water. The leaf stalk is hollow, and pumps air down to the roots buried in mud.', 'Flowers open by day (or by night, depending on the species) and are pollinated by beetles.'],
+    care: ['Needs bright light and space on the surface.'],
+    lesson: 'photoperiod',
+  },
+};

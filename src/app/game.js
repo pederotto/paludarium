@@ -77,6 +77,7 @@ export class Game {
     this.mist = new Mist(this.worldRoot, world);
     world.mist = this.mist;
     world.stage = this.stage;
+    world.animals.camera = this.camera;
     FX.lightDir.value.copy(this.stage.lightDir);
     if (save) world.load(save);
     else if (layout === 'starter' && spec.id === 'standard') world.starter();

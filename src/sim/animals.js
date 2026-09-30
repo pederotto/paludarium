@@ -4,7 +4,7 @@
 
 import * as THREE from 'three/webgpu';
 import { Builder, PRIM, hash3, clamp, lerp, rng } from '../render/geo.js';
-import { CreatureMesh, BODIES, bodyGeometry, withRig } from '../render/creatures.js';
+import { CreatureLOD, BODIES, FINISH, withRig } from '../render/creatures.js';
 import { TANK, MAT } from './tank.js';
 
 const C = (h) => new THREE.Color(h);
@@ -120,7 +120,7 @@ function frogGeo({ back, belly, spots = null, eye = 0x111111, size = 1 }) {
 // `size` only tunes behaviour (reach, hop length). `anim`: undulation
 // amplitude (cm), wave count along the body, leg lift and stride (cm).
 // `eggs`: how the species reproduces (clutch size, days to hatch, what hatches).
-const sdfBody = (k) => () => bodyGeometry(BODIES[k]());
+const sdfBody = (k) => () => BODIES[k]();
 
 export const SPECIES = {
   neon: {
@@ -144,27 +144,27 @@ export const SPECIES = {
   shrimp: {
     name: 'Cherry shrimp', group: 'Crustaceans', kind: 'crawlWater', size: 1.0, speed: 1.2,
     temp: [18, 28], hungerHours: 200, lifeDays: 365, eats: ['detritus', 'biofilm', 'flake'], cap: 80, breed: 0.04, adultDays: 20,
-    body: () => withRig(shrimpGeo()), note: 'Grazes biofilm and detritus. Breeds in mature tanks.',
+    body: () => BODIES.shrimp?.() ?? withRig(shrimpGeo()), note: 'Grazes biofilm and detritus. Breeds in mature tanks.',
   },
   crab: {
     name: 'Vampire crab', group: 'Crustaceans', kind: 'crab', size: 1.0, speed: 2,
     temp: [22, 28], humidity: 70, hungerHours: 200, lifeDays: 900, eats: ['detritus', 'flake', 'springtail'], cap: 10, breed: 0,
-    body: () => withRig(crabGeo()), note: 'Semi-terrestrial: needs land and shallow water.',
+    body: () => BODIES.crab?.() ?? withRig(crabGeo()), note: 'Semi-terrestrial: needs land and shallow water.',
   },
   isopod: {
     name: 'Dwarf isopods', group: 'Crustaceans', kind: 'crawlLand', size: 1.0, speed: 0.8,
     temp: [18, 28], humidity: 60, hungerHours: 150, lifeDays: 300, eats: ['detritus'], cap: 90, breed: 0.1, adultDays: 12,
-    body: () => withRig(isopodGeo()), note: 'Clean-up crew. Eat detritus on land.',
+    body: () => BODIES.isopod?.() ?? withRig(isopodGeo()), note: 'Clean-up crew. Eat detritus on land.',
   },
   springtail: {
     name: 'Springtails', group: 'Insects', kind: 'crawlLand', hop: true, size: 1.4, speed: 0.9,
     temp: [16, 28], humidity: 70, hungerHours: 100, lifeDays: 40, eats: ['detritus'], cap: 160, breed: 0.3, adultDays: 5,
-    body: () => withRig(springtailGeo()), note: 'Tiny cleaners and frog food. Like damp moss.',
+    body: () => BODIES.springtail?.() ?? withRig(springtailGeo()), note: 'Tiny cleaners and frog food. Like damp moss.',
   },
   fly: {
     name: 'Fruit flies', group: 'Insects', kind: 'fly', size: 1.4, speed: 6,
     temp: [18, 30], humidity: 30, hungerHours: 30, lifeDays: 6, eats: ['detritus'], cap: 70, breed: 0.25, adultDays: 2,
-    body: () => withRig(flyGeo()), note: 'Flightless culture: live frog food.',
+    body: () => BODIES.fly?.() ?? withRig(flyGeo()), note: 'Flightless culture: live frog food.',
   },
   dartfrog: {
     name: 'Blue dart frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.4, speed: 1,
@@ -207,6 +207,50 @@ export const SPECIES = {
     body: sdfBody('gecko'), anim: { amp: 0.35, wave: 1.0, lift: 0.18, stride: 0.3 },
     note: 'Climbs the background and glass hunting insects. Females lay eggs without males.',
   },
+  cardinal: {
+    name: 'Cardinal tetra', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 3.4, speed: 5,
+    temp: [24, 29], hungerHours: 120, lifeDays: 1500, eats: ['flake'], cap: 60, breed: 0,
+    body: sdfBody('cardinal'), anim: { amp: 0.22, wave: 1.6 },
+    note: 'Blackwater schooling fish with a red stripe from nose to tail. Likes it warm and soft.',
+  },
+  ember: {
+    name: 'Ember tetra', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 2.2, speed: 4.5,
+    temp: [23, 29], hungerHours: 110, lifeDays: 800, eats: ['flake'], cap: 70, breed: 0,
+    body: sdfBody('ember'), anim: { amp: 0.2, wave: 1.7 },
+    note: 'A glowing orange nano fish, barely 2 cm. Shy: give it plants and company.',
+  },
+  betta: {
+    name: 'Betta', scale: 1, group: 'Fish', kind: 'swim', band: 'top', school: false, size: 5, speed: 3,
+    temp: [24, 30], hungerHours: 130, lifeDays: 1200, eats: ['flake'], cap: 4, breed: 0,
+    body: sdfBody('betta'), anim: { amp: 0.32, wave: 1.3 },
+    note: 'Long-finned labyrinth fish: it breathes air from the surface. Keep one male alone.',
+  },
+  oto: {
+    name: 'Otocinclus', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: true, size: 3, speed: 2.5,
+    temp: [22, 27], hungerHours: 100, lifeDays: 1000, eats: ['biofilm', 'detritus', 'flake'], cap: 20, breed: 0,
+    body: sdfBody('oto'), anim: { amp: 0.2, wave: 1.5 },
+    note: 'A tiny algae grazer that clings to leaves and glass. Fragile in new tanks: wait until there is biofilm.',
+  },
+  snail: {
+    name: 'Trumpet snail', scale: 1, group: 'Molluscs', kind: 'crawlWater', size: 1.2, speed: 0.5,
+    temp: [18, 30], hungerHours: 200, lifeDays: 500, eats: ['detritus', 'biofilm', 'flake'], cap: 120, breed: 0.2, adultDays: 14,
+    body: () => BODIES.snail(), anim: { amp: 0, wave: 1 },
+    note: 'Burrows through the substrate and keeps it aerated. Overfeed and it multiplies fast.',
+  },
+  leucomelas: {
+    name: 'Yellow-banded poison frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.3, speed: 1,
+    temp: [21, 28], humidity: 70, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod'], cap: 8, breed: 0.05, adultDays: 25,
+    eggs: { n: 4, days: 12, into: 'tadpole', where: 'shallow' },
+    body: sdfBody('leucomelas'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
+    note: 'Bold yellow and black "bumblebee" frog from the Guiana Shield. Hardy and out in the open.',
+  },
+  auratus: {
+    name: 'Green and black poison frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.25, speed: 1,
+    temp: [21, 28], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod'], cap: 8, breed: 0.05, adultDays: 25,
+    eggs: { n: 4, days: 12, into: 'tadpole', where: 'shallow' },
+    body: sdfBody('auratus'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
+    note: 'Metallic green on black, from Central America. Its colour differs from island to island.',
+  },
   tadpole: {
     name: 'Tadpoles', scale: 1, group: 'Amphibians', kind: 'swim', band: 'bottom', school: false, size: 1.2, speed: 1.6, young: true,
     temp: [16, 29], hungerHours: 90, lifeDays: 90, eats: ['biofilm', 'detritus', 'flake'], cap: 80, breed: 0, metamorphDays: 14,
@@ -220,12 +264,26 @@ export const SPECIES = {
   },
 };
 
-export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch' };
+export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog' };
 export const one = (id) => ONE[id] ?? SPECIES[id].name.toLowerCase();
 
 export const FOOD_VALUE = { fly: 0.25, springtail: 0.07, isopod: 0.12, shrimp: 0.35, flake: 0.3, tadpole: 0.2 };
 
 // ---------------------------------------------------------------------------
+
+// The instanced mesh for one species (also used by the creature bench).
+export function createSpeciesMesh(scene, id, { cap = null } = {}) {
+  const sp = SPECIES[id];
+  const a = sp.anim ?? {};
+  const src = (BODY_CACHE[id] ??= sp.body());
+  const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
+  return new CreatureLOD(scene, src, {
+    cap: cap ?? sp.cap + 20,
+    wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35,
+    finish: { ...FINISH[group], ...(src.finish ?? {}) },
+    near: 34 + sp.size * 10,
+  });
+}
 
 let nextId = 1;
 
@@ -240,14 +298,10 @@ export class Animals {
     this.meshes = {};
     this.tails = {};
     this.food = [];
+    this.camera = null;   // set by Game: fine meshes are used for animals near it
     for (const [id, sp] of Object.entries(SPECIES)) {
       this.by[id] = [];
-      const a = sp.anim ?? {};
-      this.meshes[id] = new CreatureMesh(scene, (BODY_CACHE[id] ??= sp.body()), {
-        cap: sp.cap + 20,
-        rough: sp.group === 'Fish' ? 0.3 : sp.group === 'Amphibians' ? 0.35 : 0.55,
-        wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35,
-      });
+      this.meshes[id] = createSpeciesMesh(scene, id);
     }
     const fg = new THREE.IcosahedronGeometry(0.22, 0);
     fg.scale(1, 0.35, 1);
@@ -863,6 +917,7 @@ export class Animals {
     const e = new THREE.Euler();
     const tq = new THREE.Quaternion();
     const fix = new THREE.Quaternion();
+    const cam = this.camera?.position;
     for (const [id, arr] of Object.entries(this.by)) {
       const sp = SPECIES[id];
       const cm = this.meshes[id];
@@ -894,11 +949,13 @@ export class Animals {
         let hop = 0;
         if (a.hop) { const t = Math.min(1, a.hop.t); hop = t < 0.6 ? Math.sin((t / 0.6) * Math.PI * 0.5) : 1 - (t - 0.6) / 0.4; }
         else if ((sp.kind === 'frog' || sp.kind === 'toad') && a.swimming) hop = 0.45 + 0.55 * Math.max(0, Math.sin((a.kick ?? 0) * Math.PI));
-        cm.put(a.pos, q, sc, a.wph, amp, a.gait ?? 0, hop);
+        cm.put(a.pos, q, sc, a.wph, amp, a.gait ?? 0, hop, cam ? cam.distanceToSquared(a.pos) : 1e9);
       }
       cm.end();
     }
     void fix;
+    // Build one fine mesh per frame at most, and only for species the camera is close to.
+    for (const cm of Object.values(this.meshes)) if (cm.wants && cm.canRefine) { cm.refine(); cm.wants = false; break; }
     this.food = this.food.filter((f) => !f.eaten);
     let k = 0;
     const fq = new THREE.Quaternion();
