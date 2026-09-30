@@ -229,6 +229,9 @@ export const FOOD_VALUE = { fly: 0.25, springtail: 0.07, isopod: 0.12, shrimp: 0
 
 let nextId = 1;
 
+// Body meshes take a moment to build (surface nets), so they are built once and shared by every tank.
+const BODY_CACHE = {};
+
 export class Animals {
   constructor(scene, world) {
     this.scene = scene;
@@ -240,7 +243,7 @@ export class Animals {
     for (const [id, sp] of Object.entries(SPECIES)) {
       this.by[id] = [];
       const a = sp.anim ?? {};
-      this.meshes[id] = new CreatureMesh(scene, sp.body(), {
+      this.meshes[id] = new CreatureMesh(scene, (BODY_CACHE[id] ??= sp.body()), {
         cap: sp.cap + 20,
         rough: sp.group === 'Fish' ? 0.3 : sp.group === 'Amphibians' ? 0.35 : 0.55,
         wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35,

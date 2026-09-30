@@ -8,7 +8,7 @@
 // the pieces again over the untouched base.
 
 import * as THREE from 'three/webgpu';
-import { TANK, TERRAIN_RES, WALL_RES, WALL_MAX_DEPTH, MATERIALS, NMAT, MAT } from './tank.js';
+import { TANK, TERRAIN_RES, WALL_RES, LIMITS, MATERIALS, NMAT, MAT } from './tank.js';
 import { substrateMaterial } from '../render/shaders.js';
 import { hash3, clamp, smooth } from '../render/geo.js';
 
@@ -381,7 +381,7 @@ export class Terrain {
 export class Wall {
   constructor(scene) {
     const { nx, ny } = WALL_RES;
-    this.field = new Field(nx, ny, TANK.w - MARGIN * 2, TANK.h, -TANK.w / 2 + MARGIN, 0, WALL_MAX_DEPTH);
+    this.field = new Field(nx, ny, TANK.w - MARGIN * 2, TANK.h, -TANK.w / 2 + MARGIN, 0, LIMITS.wallDepth);
     const g = new THREE.PlaneGeometry(1, 1, nx, ny);
     const nv = (nx + 1) * (ny + 1);
     g.setAttribute('w0', new THREE.Float32BufferAttribute(new Float32Array(nv * 3), 3));

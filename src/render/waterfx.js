@@ -212,6 +212,14 @@ export class WaterFX {
     this.updateTerrain();
   }
 
+  dispose() {
+    for (const t of [...this.rt, this.causRT]) t.dispose();
+    this.hTex?.dispose();
+    for (const q of this.simQuads) q.material.dispose();
+    this.causMesh.geometry.dispose();
+    this.causMesh.material.dispose();
+  }
+
   updateTerrain() {
     const f = this.world.terrain.field;
     // Texture rows run with v, which maps to +z (front).

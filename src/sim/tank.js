@@ -1,16 +1,36 @@
 // World units are centimetres. The tank sits on the origin: x runs left→right,
 // z runs back→front and y is up. The glass floor is at y = 0.
+//
+// The tank's size is configurable (see content/tanks.js): call configureTank()
+// before building a World. Everything that needs the dimensions reads them at
+// call time, so these objects are mutated in place and never replaced.
 
 export const TANK = {
+  id: 'standard',
+  name: 'Standard paludarium',
   w: 90,   // inside width  (x)
   d: 45,   // inside depth  (z)
   h: 60,   // inside height (y)
+  closed: false, // sealed jar: no lid to open, no top-up, and it fogs up
 };
 
 // Substrate heightfield (x,z) and background wall relief (x,y).
 export const TERRAIN_RES = { nx: 120, nz: 60 };
 export const WALL_RES = { nx: 120, ny: 80 };
-export const WALL_MAX_DEPTH = 16; // how far the background may bulge forward
+export const LIMITS = { wallDepth: 16 }; // how far the background may bulge forward
+
+export function configureTank(spec) {
+  const cpc = spec.cellsPerCm ?? 1.33;
+  Object.assign(TANK, { id: spec.id, name: spec.name, w: spec.w, d: spec.d, h: spec.h, closed: !!spec.closed });
+  TERRAIN_RES.nx = Math.round(spec.w * cpc);
+  TERRAIN_RES.nz = Math.round(spec.d * cpc);
+  WALL_RES.nx = TERRAIN_RES.nx;
+  WALL_RES.ny = Math.round(spec.h * cpc);
+  LIMITS.wallDepth = Math.min(16, Math.round(spec.d * 0.36));
+  return TANK;
+}
+
+export const tankLitres = () => (TANK.w * TANK.d * TANK.h) / 1000;
 
 // Substrate/wall materials. Index order matters for saves.
 export const MATERIALS = [
