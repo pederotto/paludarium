@@ -256,15 +256,20 @@ function makeEye(loft, x, dz, z, r, sink = 0.35) {
 // AXOLOTL  (Ambystoma mexicanum, juvenile about 12 cm)
 // ==================================================================================================
 
+// Morph palettes (sRGB hex; C() converts to linear). Spec morph ids: wild, leucistic, golden, melanoid, white_albino.
+// skin/back/belly: body tints; fin/finEdge: tail fin; gill/gillBase: gill tip/root; lip: mouth line;
+// eye/iris/ring: pupil+limbus, outer iris, inner iris (eye palette); spots: gold flecks; blotch: dark patches.
 export const AXOLOTL_MORPHS = {
   // Leucistic ("pink"): pale pink-white body, deep red gills, black eyes.
   leucistic: { name: 'leucistic', skin: 0xf3cdc9, back: 0xf1c6c4, belly: 0xfae7e1, fin: 0xf6cfcf, finEdge: 0xf0b3b6, gill: 0xc41e3a, gillBase: 0xe05a6e, lip: 0xd99aa0, eye: 0x080506, iris: 0x24120e, ring: 0x40261c, spots: null, blotch: null },
-  // Wild type: dark olive-brown with darker blotches and gold iridophore flecks; dusky gills.
-  wild: { name: 'wild', skin: 0x4a3f30, back: 0x2c2820, belly: 0x6b6152, fin: 0x3c352b, finEdge: 0x2a251d, gill: 0x5b2a33, gillBase: 0x6a4038, lip: 0x554a3a, eye: 0x070605, iris: 0x2a2010, ring: 0xa88a30, spots: { col: 0xb8a458, amt: 0.35, scale: 5.5 }, blotch: { col: 0x171612, scale: 1.3, thr: 0.5 } },
-  // Golden albino: yellow-gold, orange gills, pink-red eyes.
-  golden: { name: 'golden', skin: 0xe4b442, back: 0xdea63a, belly: 0xf3d67e, fin: 0xeac35c, finEdge: 0xe6a23a, gill: 0xe06a32, gillBase: 0xf29a58, lip: 0xc9903a, eye: 0x7a1f26, iris: 0xa63a3a, ring: 0xd9a25a, spots: null, blotch: null },
-  // Melanoid: all-over slate black, no reflective flecks, dark plum gills.
+  // Wild type: dark olive-brown with darker blotches and gold iridophore flecks; dusky gills, dark eyes.
+  wild: { name: 'wild', skin: 0x5a4d36, back: 0x382f22, belly: 0x82755e, fin: 0x4a4030, finEdge: 0x2a251d, gill: 0x5b2a33, gillBase: 0x6a4038, lip: 0x554a3a, eye: 0x070605, iris: 0x2a2010, ring: 0xa88a30, spots: { col: 0xc2a84a, amt: 0.35, scale: 5.5 }, blotch: { col: 0x171612, scale: 1.3, thr: 0.5 } },
+  // Golden albino: yellow-gold, orange gills, pale pink eyes.
+  golden: { name: 'golden', skin: 0xe8b640, back: 0xe2a838, belly: 0xf6dc86, fin: 0xeec860, finEdge: 0xeaa638, gill: 0xe8602a, gillBase: 0xf49a5c, lip: 0xcc9238, eye: 0x93303e, iris: 0xd9707e, ring: 0xf2a8b2, spots: null, blotch: null },
+  // Melanoid: all-over slate black, no reflective flecks, dark plum gills, black eyes.
   melanoid: { name: 'melanoid', skin: 0x1c1b20, back: 0x121216, belly: 0x2a2a30, fin: 0x1a191e, finEdge: 0x101014, gill: 0x3c2438, gillBase: 0x3a2a3a, lip: 0x2a2a30, eye: 0x030304, iris: 0x0c0b0d, ring: 0x1a1a20, spots: null, blotch: null },
+  // White albino: cream-white body, pale pink gills, pink-red eyes.
+  white_albino: { name: 'white_albino', skin: 0xf6efe2, back: 0xf1e8d8, belly: 0xfdf8ee, fin: 0xf8f1e6, finEdge: 0xf4e0da, gill: 0xf4a2b2, gillBase: 0xf9cfd2, lip: 0xeac6bf, eye: 0x93303e, iris: 0xdc7284, ring: 0xf6b0ba, spots: null, blotch: null },
 };
 
 // The axolotl's shape. Built once per definition; `st.hi` selects the fine detail level.
@@ -519,6 +524,8 @@ export const SALAMANDERS = {
   axolotl: () => axolotlBody('leucistic'),
   gecko: () => geckoBody(),
 };
+// One body per axolotl morph: BODIES['axolotl:golden'] etc. (same geometry, different palette).
+for (const k of Object.keys(AXOLOTL_MORPHS)) SALAMANDERS[`axolotl:${k}`] = () => axolotlBody(k);
 
 // The limb (if any) whose surface is nearest to a point: { id, t, pad } with t = legT for the rig.
 // An analytic eye (material.js finish.eyes) for the +x eye of `e` (makeEye); the material mirrors it to -x.

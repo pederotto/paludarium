@@ -1,5 +1,6 @@
 // Creature bench: one species, lit like the tank, seen from any angle.
 //   /bench.html?sp=dartfrog&view=front|side|back|top|three|low|closeup&lod=lo|hi&water=0|1&size=640&anim=0|1
+//   sp may name a genetic morph: sp=axolotl:golden (BODIES['axolotl:golden'], see bodies/index.js).
 // window.bench.setView(name) etc. drive it from tools/bench.mjs, which builds contact sheets.
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -8,9 +9,11 @@ import { U } from '../render/uniforms.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { CreatureLOD } from '../render/creatures/instanced.js';
 import { FINISH } from '../render/creatures/material.js';
+import { BODIES } from '../render/creatures/bodies/index.js';
 
 const q = new URLSearchParams(location.search);
-const id = q.get('sp') ?? 'dartfrog';
+const fullId = q.get('sp') ?? 'dartfrog';
+const [id, morph] = fullId.split(':');      // species id and optional morph id
 const size = +(q.get('size') ?? 640);
 const info = document.getElementById('info');
 
@@ -44,7 +47,16 @@ U.daylight.value = 1;
 const sp = SPECIES[id];
 let hiReady = false;
 const swimmer = sp.kind === 'swim' || sp.kind === 'crawlWater';
-let lod = createSpeciesMesh(scene, id, { cap: 4 });
+function makeLod() {
+  if (!morph) return createSpeciesMesh(scene, id, { cap: 4 });
+  const make = BODIES[`${id}:${morph}`];
+  if (!make) throw new Error(`no body registered for ${id}:${morph}`);
+  const src = make();
+  const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
+  const a = sp.anim ?? {};
+  return new CreatureLOD(scene, src, { cap: 4, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, finish: { ...FINISH[group], ...(src.finish ?? {}) }, near: 34 + sp.size * 10 });
+}
+let lod = makeLod();
 if (q.get('src') === 'glb') {
   const man = await loadManifest();
   const g = man[id] && await loadCreatureGLB(id, { legs: ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab'].includes(sp.kind), ...man[id] });
@@ -94,7 +106,7 @@ function frame() {
   renderer.render(scene, cam);
 }
 window.bench = {
-  id, setView, setLod, frame, verts: () => ({ lo: lod.lo.geometry.attributes.position.count, hi: lod.hi?.geometry.attributes.position.count ?? 0 }),
+  id: fullId, setView, setLod, frame, verts: () => ({ lo: lod.lo.geometry.attributes.position.count, hi: lod.hi?.geometry.attributes.position.count ?? 0 }),
   water: (on) => { U.waterLevel.value = on ? 1000 : -1000; },
   anim: (on) => { animOn = on; },
   ready: true,
@@ -102,5 +114,5 @@ window.bench = {
 setView(q.get('view') ?? 'three');
 await setLod(q.get('lod') ?? 'lo');
 const v = window.bench.verts();
-info.textContent = `${sp.name}  [${id}]  lo ${v.lo} verts${v.hi ? `, hi ${v.hi}` : ''}`;
+info.textContent = `${sp.name}  [${fullId}]  lo ${v.lo} verts${v.hi ? `, hi ${v.hi}` : ''}`;
 renderer.setAnimationLoop(frame);
