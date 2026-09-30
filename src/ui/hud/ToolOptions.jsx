@@ -1,7 +1,9 @@
 import { Icon } from '../icons.jsx';
 import { S, toast, hint, openModal } from '../store.js';
 import { ctx } from '../../app/ctx.js';
-import { TOOLS, WATER_TOOLS, SCULPT_OPS } from '../../tools/defs.js';
+import { TOOLS, WATER_TOOLS, SCULPT_OPS, MIRROR_WATER } from '../../tools/defs.js';
+import { KITS, kitById, kitPrice, kitRank } from '../../content/kits.js';
+import '../builder.css';
 import { MATERIALS, TANK } from '../../sim/tank.js';
 import { SPECIES } from '../../sim/animals.js';
 import { PLANTS } from '../../sim/plants.js';
@@ -50,9 +52,20 @@ function Brush({ depth }) {
   );
 }
 
-function UndoRow() {
+// Symmetry: repeat everything you build across the middle of the tank (key M).
+function MirrorToggle() {
+  const on = S.mirror.value;
+  return (
+    <button class={'chip mirror' + (on ? ' on' : '')} title="Mirror across the middle of the tank (M)" aria-pressed={on} onClick={() => ctx.tools.toggleMirror()}>
+      <Icon name="swap" size={13} /> Mirror
+    </button>
+  );
+}
+
+function UndoRow({ mirror }) {
   return (
     <div class="chips">
+      {mirror ? <MirrorToggle /> : null}
       <button class="chip" onClick={() => ctx.tools.undo()} title="Ctrl+Z" disabled={!S.undoDepth.value}><Icon name="undo" size={13} /> Undo</button>
     </div>
   );
@@ -65,13 +78,28 @@ function Price({ kind, id }) {
   return <span class="price">{info.price > 0 ? `¤${info.price}` : 'free'}</span>;
 }
 
+// What a kit costs and needs in a career: null in the sandbox (everything is free there).
+export function kitInfo(kit) {
+  const c = ctx.career;
+  if (!c || c.sandbox) return null;
+  const level = kitRank(kit);
+  return { locked: level > c.level, level, price: kitPrice(kit) };
+}
+
+export function KitPrice({ kit }) {
+  const info = kitInfo(kit);
+  if (!info) return null;
+  if (info.locked) return <span class="lockmark"><Icon name="lock" size={11} /> Rank {info.level}</span>;
+  return <span class="price">¤{info.price}</span>;
+}
+
 function Sculpt() {
   const sub = S.sub.value;
   return (
     <>
       <div class="chips">{SCULPT_OPS.map(([id, name]) => <button key={id} class={'chip' + (sub.sculpt === id ? ' on' : '')} onClick={() => ctx.tools.setSub('sculpt', id)}>{name}</button>)}</div>
       <Brush />
-      <UndoRow />
+      <UndoRow mirror />
       <p class="note">Sculpt the substrate <i>and</i> the background wall. Slopes drain; hollows hold water; a wall that bulges forward makes ledges for epiphytes and a face for a waterfall.</p>
     </>
   );
@@ -89,7 +117,7 @@ function Paint() {
         ))}
       </div>
       <Brush />
-      <UndoRow />
+      <UndoRow mirror />
       <p class="note">Moss grows where the air and soil stay damp and light reaches it. Sand and gravel suit stream beds; soil suits plants.</p>
     </>
   );
@@ -98,6 +126,7 @@ function Paint() {
 function Rock() {
   const sub = S.sub.value, piece = S.piece.value, mode = S.pieceMode.value, b = S.brush.value;
   const T = ctx.tools;
+  const kit = kitById(sub.kit);
   return (
     <>
       <div class="pick-grid">
@@ -112,6 +141,24 @@ function Rock() {
         })}
       </div>
       <Slider label="Size" value={b.size} min={1.5} max={14} step={0.5} onInput={(v) => { S.brush.value = { ...b, size: v }; }} />
+      <div class="grp">Kits</div>
+      <div class="pick-grid">
+        {KITS.map((k) => {
+          const info = kitInfo(k);
+          return (
+            <button key={k.id} class={'pick' + (sub.kit === k.id ? ' on' : '') + (info?.locked ? ' lock' : '')} title={k.blurb} onClick={() => T.setKit(sub.kit === k.id ? null : k.id)}>
+              <b>{k.name}</b>
+              <small>{k.pieces.length} pieces <KitPrice kit={k} /></small>
+            </button>
+          );
+        })}
+      </div>
+      {kit ? (
+        <div class="kit-armed">
+          <p class="note" style={{ marginTop: 0 }}><b>{kit.name}</b>: click the tank to place it. {kit.teaches}</p>
+          <div class="chips"><button class="chip" onClick={() => T.setKit(null)}>Put away</button></div>
+        </div>
+      ) : null}
       {piece ? (
         <>
           <div class="grp">Selected: {PIECES[piece.type].name}</div>
@@ -128,8 +175,8 @@ function Rock() {
             <button class="chip" onClick={() => T.selectPiece(null)}>Done</button>
           </div>
         </>
-      ) : <p class="note">Click the ground to place; click a piece to move, turn or scale it. Stack pieces by clicking on top. Odd numbers and a clear focal point read best.</p>}
-      <UndoRow />
+      ) : kit ? null : <p class="note">Click the ground to place; click a piece to move, turn or scale it. Stack pieces by clicking on top. Odd numbers and a clear focal point read best.</p>}
+      <UndoRow mirror />
     </>
   );
 }
@@ -165,7 +212,7 @@ function Water() {
           ))}
         </>
       ) : null}
-      <UndoRow />
+      <UndoRow mirror={MIRROR_WATER.includes(sub.water)} />
     </>
   );
 }
@@ -196,7 +243,7 @@ function Plants() {
           </div>
         );
       })}
-      <div class="chips"><button class="chip" onClick={() => openModal('codex', 'plant:' + sub.plant)}><Icon name="book" size={13} /> Field guide: {PLANTS[sub.plant]?.name}</button></div>
+      <div class="chips"><MirrorToggle /><button class="chip" onClick={() => openModal('codex', 'plant:' + sub.plant)}><Icon name="book" size={13} /> Field guide: {PLANTS[sub.plant]?.name}</button></div>
       <p class="note">{PLANTS[sub.plant]?.note}</p>
       {void live}
     </>

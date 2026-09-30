@@ -13,9 +13,12 @@ import { SPECIES } from '../sim/animals.js';
 import { PLANTS } from '../sim/plants.js';
 import { PIECES } from '../sim/decor.js';
 import { TANK } from '../sim/tank.js';
+import { kitById, kitCounts, kitReach } from '../content/kits.js';
+import { buildKit, kitReady, kitScale, kitSeed, mirrorSpec, placeSpec } from '../sim/kits.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const BRUSH_TOOLS = ['sculpt', 'paint'];
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 export class ToolController {
   constructor(game) {
@@ -38,7 +41,12 @@ export class ToolController {
     this.marker.renderOrder = 21; this.marker.visible = false;
     this.pathLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicNodeMaterial({ color: 0xffe08a, depthTest: false }));
     this.pathLine.renderOrder = 22; this.pathLine.frustumCulled = false; this.pathLine.visible = false;
-    this.scene.add(this.cursor, this.marker, this.pathLine);
+    // The mirror image of the brush ring and of the path being drawn (symmetry on).
+    this.cursor2 = new THREE.Mesh(this.cursor.geometry, this.cursor.material);
+    this.cursor2.renderOrder = 20; this.cursor2.visible = false;
+    this.pathLine2 = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicNodeMaterial({ color: 0xffe08a, depthTest: false, transparent: true, opacity: 0.6 }));
+    this.pathLine2.renderOrder = 22; this.pathLine2.frustumCulled = false; this.pathLine2.visible = false;
+    this.scene.add(this.cursor, this.cursor2, this.marker, this.pathLine, this.pathLine2);
 
     // Handles for moving, turning and scaling hardscape.
     this.tc = new TransformControls(this.camera, this.dom);
@@ -66,6 +74,19 @@ export class ToolController {
   get tool() { return S.tool.value; }
   get sub() { return S.sub.value; }
   get brush() { return S.brush.value; }
+  get mirror() { return S.mirror.value; }
+
+  // --- Symmetry ------------------------------------------------------------------
+  // With Mirror on, every edit is repeated across the tank's centre plane (x -> -x; the
+  // tank sits on the origin). `gap` is how close to the plane an edit may be before its
+  // mirror image would land on top of it, so we skip the copy.
+  mirrored(x, gap = 0.6) { return this.mirror && Math.abs(x) > gap; }
+  usedMirror() { this.game.career?.stat('mirrorUsed'); }
+  toggleMirror(v = !S.mirror.value) {
+    S.mirror.value = v;
+    if (!v) { this.cursor2.visible = false; this.pathLine2.visible = false; }
+    toast(v ? 'Mirror on: what you build is copied across the middle of the tank.' : 'Mirror off.');
+  }
 
   onTank() {
     this.selectPiece(null);
@@ -80,6 +101,7 @@ export class ToolController {
     S.tool.value = id;
     this.setButtons();
     if (id !== 'rock') this.selectPiece(null);
+    if (id !== 'rock' && S.sub.value.kit) S.sub.value = { ...S.sub.value, kit: null };
     const W = this.W;
     if (id !== 'water') W?.water.hideTrace();
     hint(TOOLS.find((t) => t.id === id).hint);
@@ -91,8 +113,19 @@ export class ToolController {
   }
 
   setSub(key, val, h) {
-    S.sub.value = { ...S.sub.value, [key]: val };
+    const next = { ...S.sub.value, [key]: val };
+    if (key === 'rock') next.kit = null;     // picking a single piece puts the kit away
+    S.sub.value = next;
     if (h) hint(h);
+  }
+
+  // Arms a kit (Hardscape tool): the next click on the tank drops the whole composition.
+  setKit(id) {
+    const kit = id ? kitById(id) : null;
+    if (kit) { this.setTool('rock'); this.selectPiece(null); }
+    S.sub.value = { ...S.sub.value, kit: kit?.id ?? null };
+    if (kit) hint(`${kit.name}: click the tank to place it. Each placement varies a little. Esc puts it away.`);
+    else if (this.tool === 'rock') hint(TOOLS.find((t) => t.id === 'rock').hint);
   }
 
   // Look: left orbits, right pans. Editing tools: left edits, right orbits,
@@ -258,7 +291,8 @@ export class ToolController {
   hover() {
     const W = this.W;
     if (!W) return;
-    const brushTools = BRUSH_TOOLS.includes(this.tool) || (this.tool === 'water' && ['channel', 'bank', 'basin'].includes(this.sub.water));
+    const kit = this.tool === 'rock' ? kitById(this.sub.kit) : null;
+    const brushTools = BRUSH_TOOLS.includes(this.tool) || (this.tool === 'water' && ['channel', 'bank', 'basin'].includes(this.sub.water)) || !!kit;
     if (this.tool === 'water' && ['outlet', 'fill'].includes(this.sub.water) && !this.down) {
       const now = performance.now();
       if (now - (this._traceT ?? 0) > 90) {
@@ -272,14 +306,27 @@ export class ToolController {
         } else W.water.hideTrace();
       }
     }
-    if (!brushTools) { this.cursor.visible = false; return; }
-    const hit = this.pick(this.tool === 'water' ? ['terrain'] : ['terrain', 'wall']);
-    if (!hit) { this.cursor.visible = false; return; }
+    if (!brushTools) { this.cursor.visible = false; this.cursor2.visible = false; return; }
+    const hit = this.pick(this.tool === 'water' || kit ? ['terrain'] : ['terrain', 'wall']);
+    if (!hit) { this.cursor.visible = false; this.cursor2.visible = false; return; }
     this.cursor.visible = true;
     this.cursor.position.copy(hit.point).addScaledVector(hit.normal, 0.15);
     this.cursor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), hit.surface === 'wall' ? new THREE.Vector3(0, 0, 1) : UP);
-    const s = this.brush.size;
+    const s = kit ? kitReach(kit) * kitScale() : this.brush.size;
     this.cursor.scale.set(s, s, s);
+    this.hoverMirror(hit, s);
+  }
+
+  // The mirror image of the brush ring, sitting on the ground (or the background) over there.
+  hoverMirror(hit, s) {
+    const c = this.cursor2, W = this.W, x = -hit.point.x;
+    if (!this.mirrored(hit.point.x) || !W) { c.visible = false; return; }
+    const wall = hit.surface === 'wall';
+    if (wall) c.position.set(x, hit.point.y, W.wall.zAt(x, hit.point.y)).addScaledVector(Z_AXIS, 0.15);
+    else c.position.set(x, W.terrain.heightAt(x, hit.point.z) + 0.15, hit.point.z);
+    c.quaternion.copy(this.cursor.quaternion);
+    c.scale.set(s, s, s);
+    c.visible = true;
   }
 
   // Paths for channels and banks.
@@ -294,19 +341,29 @@ export class ToolController {
     this.pathLine.geometry.dispose();
     this.pathLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
     this.pathLine.visible = pts.length > 1;
+    this.pathLine2.geometry.dispose();
+    this.pathLine2.geometry = new THREE.BufferGeometry().setFromPoints(pts.map((p) => p.clone().setX(-p.x)));
+    this.pathLine2.visible = this.mirror && pts.length > 1;
   }
 
   finishPath() {
     const W = this.W, pts = this.path;
     this.path = null;
     this.pathLine.visible = false;
+    this.pathLine2.visible = false;
     if (pts.length < 2) return;
     this.pushUndo();
-    if (this.sub.water === 'channel') W.terrain.carveChannel(pts, this.brush.size * 0.5, this.brush.strength);
-    else W.terrain.raiseBank(pts, this.brush.size * 0.5, this.brush.strength * 1.5);
+    // With Mirror on the same path is drawn again on the other side (one undo step for both).
+    const paths = [pts];
+    if (this.mirror && pts.some((p) => Math.abs(p.x) > 0.6)) { paths.push(pts.map((p) => new THREE.Vector3(-p.x, p.y, p.z))); this.usedMirror(); }
+    for (const P of paths) {
+      if (this.sub.water === 'channel') W.terrain.carveChannel(P, this.brush.size * 0.5, this.brush.strength);
+      else W.terrain.raiseBank(P, this.brush.size * 0.5, this.brush.strength * 1.5);
+    }
     W.groundChanged();
     this.game.events.emit('edit');
-    toast(this.sub.water === 'channel' ? 'Channel dug. Water will run along it from where you started.' : 'Bank raised.');
+    const both = paths.length > 1 ? ' and its mirror' : '';
+    toast(this.sub.water === 'channel' ? `Channel${both} dug. Water will run along it from where you started.` : `Bank${both} raised.`);
   }
 
   // Continuous brush while the button is held.
@@ -325,11 +382,15 @@ export class ToolController {
     const f = onWall ? W.wall.field : W.terrain.field;
     const [a, b] = onWall ? [hit.point.x, hit.point.y] : [hit.point.x, hit.point.z];
     const st = this.brush.strength * dt * 12;
-    if (this.tool === 'paint') f.brush(a, b, this.brush.size, 'paint', st, { mat: this.sub.paint });
-    else {
-      const op = this.sub.sculpt;
-      if (this.flatTarget == null) this.flatTarget = onWall ? f.sample(a, b) : W.terrain.baseAt(a, b);
-      f.brush(a, b, this.brush.size, op, st * (op === 'raise' || op === 'lower' ? 0.5 : 1), { target: this.flatTarget });
+    // With Mirror on every dab is repeated at (-a, b) as well: the same stroke, mirrored.
+    const dabs = this.mirrored(a) ? [a, -a] : [a];
+    for (const x of dabs) {
+      if (this.tool === 'paint') f.brush(x, b, this.brush.size, 'paint', st, { mat: this.sub.paint });
+      else {
+        const op = this.sub.sculpt;
+        if (this.flatTarget == null) this.flatTarget = onWall ? f.sample(a, b) : W.terrain.baseAt(a, b);
+        f.brush(x, b, this.brush.size, op, st * (op === 'raise' || op === 'lower' ? 0.5 : 1), { target: this.flatTarget });
+      }
     }
     this.strokeChanged = true;
     if (!onWall) W.terrain.compose();
@@ -353,6 +414,7 @@ export class ToolController {
       case 'sculpt':
       case 'paint':
         this.pushUndo();
+        if (this.mirror) this.usedMirror();
         break;
       case 'rock': this.clickRock(); break;
       case 'water': this.clickWater(); break;
@@ -368,7 +430,10 @@ export class ToolController {
         const pos = hit.point.clone();
         if (floating) pos.y = W.water.surfaceAt(pos.x, pos.z, 0.2);
         const p = W.plants.add(id, pos, { normal: hit.normal, surface: hit.surface === 'wall' ? 'wall' : 'terrain' });
-        if (!p) { toast('Too many of this plant.', 'bad'); this.game.career?.refund('plant', id); } else this.game.events.emit('placed', 'plant', id);
+        if (!p) { toast('Too many of this plant.', 'bad'); this.game.career?.refund('plant', id); } else {
+          this.game.events.emit('placed', 'plant', id);
+          if (this.mirrored(pos.x, 1.5)) this.mirrorPlant(id, p, floating);
+        }
         break;
       }
       case 'animal': this.clickAnimal(); break;
@@ -382,6 +447,7 @@ export class ToolController {
     const W = this.W;
     const hit = this.pick(['terrain']);
     if (!hit) return;
+    if (this.sub.kit) { this.clickKit(hit); return; }
     const piece = hit.object && W.decor.pieceAt(hit.object);
     const cur = S.piece.value;
     // Click a piece to select it; Shift+click (or click with one selected) places a new one on top.
@@ -394,11 +460,101 @@ export class ToolController {
     if (err) { toast(err, 'bad'); return; }
     this.pushUndo();
     const onTop = piece || !PIECES[type].stamp;
-    const p = W.decor.addPiece(type, hit.point.x, hit.point.z, { size, y: onTop ? hit.point.y - size * 0.08 : undefined });
+    // The variant and yaw are chosen here so that the mirror copy can match them.
+    const variant = Math.floor(Math.random() * (W.decor.parts[type]?.length || 1)), rot = Math.random() * Math.PI * 2;
+    const p = W.decor.addPiece(type, hit.point.x, hit.point.z, { size, variant, rot, y: onTop ? hit.point.y - size * 0.08 : undefined });
     if (!p) { toast('Still loading models…', 'bad'); this.game.career?.refund('piece', type); return; }
+    if (this.mirrored(hit.point.x, 1)) this.mirrorPiece({ type, size, variant, rot, onTop: !!onTop, x: hit.point.x, z: hit.point.z });
     W.groundChanged();
     this.selectPiece(p);
     this.game.events.emit('placed', 'piece', type);
+  }
+
+  // The mirror image of a piece just placed (flipped model, reversed yaw); paid for like the first.
+  mirrorPiece({ type, size, variant, rot, onTop, x, z }) {
+    const err = this.charge('piece', type);
+    if (err) { toast(`Mirror copy skipped: ${err}`, 'bad'); return; }
+    const q = placeSpec(this.W, mirrorSpec({ type, x, z, size, variant, rot, stack: onTop, flip: false }));
+    if (!q) { this.game.career?.refund('piece', type); return; }
+    this.usedMirror();
+  }
+
+  // The same plant on the mirrored spot, if it can grow there.
+  mirrorPlant(id, p, floating) {
+    const W = this.W, x = -p.pos.x, wall = p.surface === 'wall';
+    const pos = new THREE.Vector3(x, p.pos.y, p.pos.z);
+    let normal = new THREE.Vector3(0, 1, 0);
+    if (wall) {
+      pos.z = W.wall.zAt(x, p.pos.y);
+      const [gx, gy] = W.wall.field.gradient(x, p.pos.y);
+      normal = new THREE.Vector3(-gx, -gy, 1).normalize();
+    } else {
+      pos.y = floating ? W.water.surfaceAt(x, pos.z, 0.2) : W.terrain.heightAt(x, pos.z);
+      normal = W.terrain.normalAt(x, pos.z);
+      if (floating && W.water.surfaceAt(x, pos.z, 0.2) - W.terrain.heightAt(x, pos.z) < 1.5) return;
+    }
+    if (W.plants.canPlace(id, { point: pos, surface: floating ? 'water' : wall ? 'wall' : 'terrain', normal }, W)) return;
+    if (this.charge('plant', id)) return;
+    const q = W.plants.add(id, pos, { normal, surface: wall ? 'wall' : 'terrain', variant: p.variant, scale: p.scale, rot: -p.rot });
+    if (q) this.usedMirror(); else this.game.career?.refund('plant', id);
+  }
+
+  // --- Kits ----------------------------------------------------------------------------
+  // Buys a kit's pieces (one purchase per piece type, like the Hardscape tool). Checks the
+  // rank and the total first so it never half-buys. Returns an error message, or null.
+  chargeKit(kit) {
+    const c = this.game.career;
+    if (!c) return null;
+    const counts = Object.entries(kitCounts(kit));
+    let total = 0;
+    for (const [type, n] of counts) {
+      const info = c.info('piece', type);
+      if (info?.locked) return `${kit.name} needs the ${PIECES[type].name.toLowerCase()}, unlocked at rank ${info.level}.`;
+      total += c.cost('piece', type, n);
+    }
+    if (!c.has(total)) return `Not enough funds: this kit costs ¤${total} and you have ¤${Math.floor(c.funds)}.`;
+    const bought = [];
+    for (const [type, n] of counts) {
+      const err = c.buy('piece', type, n);
+      if (err) { for (const [t, m] of bought) c.refund('piece', t, m); return err; }
+      bought.push([type, n]);
+    }
+    return null;
+  }
+  refundKit(kit) { for (const [type, n] of Object.entries(kitCounts(kit))) this.game.career?.refund('piece', type, n); }
+
+  // One click drops the whole composition (and its mirror image, with Mirror on) as one undo step.
+  clickKit(hit) {
+    const W = this.W, kit = kitById(this.sub.kit);
+    if (!kit) return;
+    if (!kitReady(W, kit)) { toast('Still loading models…', 'bad'); return; }
+    const x = hit.point.x, z = hit.point.z;
+    let mirror = this.mirrored(x, kitReach(kit) * kitScale() * 0.35);
+    const err = this.chargeKit(kit);
+    if (err) { toast(err, 'bad'); return; }
+    let paid = 1;
+    if (mirror) {
+      const err2 = this.chargeKit(kit);
+      if (err2) { toast(`Mirror copy skipped: ${err2}`, 'bad'); mirror = false; } else paid = 2;
+    }
+    this.pushUndo();
+    const res = buildKit(W, kit, { x, z, seed: kitSeed(x, z, W.decor.pieces.length), mirror });
+    if (!res.pieces.length) {
+      W.undoStack.pop(); S.undoDepth.value = W.undoStack.length;
+      for (let k = 0; k < paid; k++) this.refundKit(kit);
+      toast('Still loading models…', 'bad');
+      return;
+    }
+    W.water.outletMeshes.forEach((m) => { m.visible = false; });
+    W.groundChanged();
+    W.log(`Placed a kit: ${kit.name}${mirror ? ' and its mirror image' : ''}.`);
+    const c = this.game.career;
+    c?.stat('kitsPlaced');
+    if (mirror) this.usedMirror();
+    this.game.events.emit('placed', 'piece', kit.pieces[0].type);
+    this.game.events.emit('edit', 'rock');
+    toast(`${kit.name} placed${res.outlets.length ? ', with an outlet on top: it pours once the main pool has water' : ''}.`, 'good', 3500);
+    hint(kit.teaches);
   }
 
   clickWater() {
@@ -413,6 +569,7 @@ export class ToolController {
       if (!hit) return;
       this.pushUndo();
       W.terrain.digBasin(hit.point.x, hit.point.z, this.brush.size, this.brush.strength * 2);
+      if (this.mirrored(hit.point.x, this.brush.size * 0.5)) { W.terrain.digBasin(-hit.point.x, hit.point.z, this.brush.size, this.brush.strength * 2); this.usedMirror(); }
       W.groundChanged();
       this.game.events.emit('edit');
       toast('Pool dug. Fill it, or lead a stream into it.');
@@ -426,6 +583,11 @@ export class ToolController {
       const pos = hit.point.clone();
       if (wall) pos.z += 0.6; else pos.y += 0.2;
       W.water.addOutlet(pos, wall);
+      if (this.mirrored(pos.x, 1.5)) {
+        const mx = -pos.x;
+        W.water.addOutlet(wall ? new THREE.Vector3(mx, pos.y, W.wall.zAt(mx, pos.y) + 0.6) : new THREE.Vector3(mx, W.terrain.heightAt(mx, pos.z) + 0.2, pos.z), wall);
+        this.usedMirror();
+      }
       W.log(wall ? 'Added a spring on the background.' : 'Added a pump outlet.');
       toast(W.water.hydro.pump.running || W.water.level > 3 ? 'Outlet placed: water is flowing.' : 'Outlet placed. The main pool needs water for the pump to run.');
       this.game.events.emit('edit');
@@ -583,11 +745,12 @@ export class ToolController {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const piece = S.piece.value;
       if (e.code === 'Space') { this.game.setSpeed(this.game.speed === 0 ? 1 : 0); e.preventDefault(); }
-      else if (k === 'escape') { if (piece) this.selectPiece(null); else if (S.selection.value) this.select(null); else this.setTool('view'); }
+      else if (k === 'escape') { if (this.sub.kit) this.setKit(null); else if (piece) this.selectPiece(null); else if (S.selection.value) this.select(null); else this.setTool('view'); }
       else if (k === 'delete' || k === 'backspace') this.deletePiece();
       else if (piece && k === 'g') this.setPieceMode('translate');
       else if (piece && k === 'r') this.setPieceMode('rotate');
       else if (piece && k === 't') this.setPieceMode('scale');
+      else if (k === 'm') this.toggleMirror();
       else if (k === 'f') this.focus();
       else if (k === 'h') { S.left.value = !S.left.value; S.right.value = !S.right.value; }
       else if (k === 'l') S.lens.value = nextLens(S.lens.value);

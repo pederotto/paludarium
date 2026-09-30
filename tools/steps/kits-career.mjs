@@ -1,0 +1,43 @@
+// Career mode: kits cost the sum of their pieces, lock by rank, and a mirrored kit costs twice.
+export default async (page, shot, name) => {
+  const log = (...a) => console.log(name, ...a);
+  let fails = 0;
+  const check = (label, ok, extra = '') => { log(ok ? 'ok  ' : 'FAIL', label, extra); if (!ok) fails++; };
+  const ev = (fn, arg) => page.evaluate(fn, arg);
+  await page.getByRole('button', { name: /New career/i }).click({ force: true, timeout: 90000 });
+  await page.waitForTimeout(4500);
+  await page.locator('.tool', { hasText: 'Hardscape' }).click({ force: true });
+  await page.waitForTimeout(600);
+  if (!(await page.locator('.opts').count())) { await page.locator('.vchip').click(); await page.waitForTimeout(500); }
+  const lockedWaterfall = await page.locator('.opts .pick.lock', { hasText: 'Waterfall cliff' }).count();
+  check('waterfall kit is locked at rank 1', lockedWaterfall === 1);
+  const steps = page.locator('.opts .pick', { hasText: 'Stepping stones' });
+  const priceText = await steps.innerText();
+  check('stepping stones shows its price', /¤27/.test(priceText), priceText.replace(/\n/g, ' '));
+  await shot('kits-career-list');
+  await steps.click();
+  const scr = (x, z) => ev(([x, z]) => { const g = window.game, y = g.world.terrain.heightAt(x, z); const v = new g.camera.position.constructor(x, y, z).project(g.camera); const r = g.renderer.domElement.getBoundingClientRect(); return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]; }, [x, z]);
+  const state = () => ev(() => ({ funds: game.career.funds, pieces: game.world.decor.pieces.length, kits: game.career.stats.kitsPlaced, mirror: game.career.stats.mirrorUsed }));
+  await ev(() => game.rig.view('front')); await page.waitForTimeout(1200);
+  const s0 = await state();
+  await page.mouse.click(...(await scr(-6, 0)));
+  await page.waitForTimeout(900);
+  const s1 = await state();
+  check('one kit: 7 pieces, ¤27 spent, kit counted', s1.pieces - s0.pieces === 7 && Math.round(s0.funds - s1.funds) === 27 && s1.kits === s0.kits + 1, JSON.stringify([s0, s1]));
+  await page.keyboard.press('m');
+  await page.waitForTimeout(200);
+  await page.mouse.click(...(await scr(7, 0)));
+  await page.waitForTimeout(900);
+  const s2 = await state();
+  // Two kits cost ¤54; the Symmetry achievement may pay its ¤15 reward at the same moment.
+  const paid = Math.round(s1.funds - s2.funds);
+  check('mirrored kit costs twice and counts the mirror', s2.pieces - s1.pieces === 14 && (paid === 54 || paid === 39) && s2.mirror >= 1, JSON.stringify(s2));
+  await page.waitForTimeout(6000);
+  check('Symmetry achievement earned in the career', await ev(() => !!game.career.achievements.symmetry), JSON.stringify(await ev(() => Object.keys(game.career.achievements))));
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(500);
+  await shot('kits-career-placed');
+  const errs = await ev(() => window.__errs.filter((e) => !e.startsWith('warn')).slice(0, 6));
+  check('no console errors', errs.length === 0, JSON.stringify(errs));
+  log(fails ? `${fails} CHECKS FAILED` : 'all checks passed');
+};

@@ -13,7 +13,7 @@ import { ACHIEVEMENTS } from '../content/achievements.js';
 import { sellPrice, sellQuote, isSellable } from './market.js';
 
 const COUNTERS = ['animalsBought', 'animalsSold', 'animalsBorn', 'births', 'metamorphs', 'plantsPlaced', 'piecesPlaced', 'moneyEarned', 'moneySpent', 'deaths',
-  'commissionsDone', 'vacationsSurvived', 'rulesWritten', 'rainPrograms', 'photos', 'pagesRead', 'bestGrade', 'grandBuilt', 'rainBreedings', 'heatwavesSurvived', 'axolotlDays', 'tanksBuilt'];
+  'commissionsDone', 'vacationsSurvived', 'rulesWritten', 'rainPrograms', 'photos', 'pagesRead', 'bestGrade', 'grandBuilt', 'rainBreedings', 'heatwavesSurvived', 'axolotlDays', 'tanksBuilt', 'mirrorUsed', 'kitsPlaced', 'timelapses'];
 
 export class Career {
   constructor({ mode = 'career' } = {}) {
