@@ -99,6 +99,20 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
   return m;
 }
 
+// White mould creeping over wood and stone in stale, wet air: patches open up
+// where a coarse noise passes a threshold that falls as U.mold rises, with a
+// fine fuzz inside them. Only above the waterline.
+export function mouldMix(base, pw) {
+  const coarse = mx_noise_float(pw.mul(1.7)).mul(0.5).add(0.5);
+  const mid = mx_noise_float(pw.mul(6.3)).mul(0.5).add(0.5);
+  const n = coarse.mul(0.78).add(mid.mul(0.22));
+  const edge = float(1.02).sub(U.mold.mul(0.62));
+  const dry = smoothstep(0.0, 1.0, pw.y.sub(U.waterLevel));
+  const patch = smoothstep(edge, edge.add(0.2), n).mul(smoothstep(0.02, 0.12, U.mold)).mul(dry);
+  const fuzz = mx_noise_float(pw.mul(24)).mul(0.5).add(0.5);
+  return mix(base, mix(vec3(0.68, 0.7, 0.64), vec3(0.88, 0.89, 0.84), fuzz), patch.mul(0.72));
+}
+
 // Photoscanned hardscape (Poly Haven): keeps the scan's own textures and grows
 // moss on the faces that point up (more with the `moss` amount), the way moss
 // covers the tops of stones in a humid tank.
@@ -122,6 +136,7 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9 } = {}) {
   }
   const film = smoothstep(0.2, -0.5, pw.y.sub(U.waterLevel)).mul(U.algaeFilm).mul(mx_noise_float(pw.mul(0.5)).mul(0.4).add(0.6));
   base = mix(base, U.algaeColor, clamp(film, 0, 0.7));
+  base = mouldMix(base, pw);
   const [color, emissive] = wet(base, pw);
   m.colorNode = color;
   m.emissiveNode = emissive;

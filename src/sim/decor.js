@@ -23,7 +23,7 @@ import { float, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWor
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { TEX, modelParts } from '../render/assets.js';
-import { plantMaterial, hardscapeMaterial, wet, triplanar, blendWeights } from '../render/shaders.js';
+import { plantMaterial, hardscapeMaterial, mouldMix, wet, triplanar, blendWeights } from '../render/shaders.js';
 import { U } from '../render/uniforms.js';
 import { MAT, NMAT, TANK } from './tank.js';
 import { rng, clamp } from '../render/geo.js';
@@ -91,7 +91,7 @@ function spireMaterial() {
   const aboveWater = smoothstep(0.0, 1.5, pw.y.sub(U.waterLevel));
   const cover = smoothstep(0.45, 0.8, up.add(n).sub(float(1).sub(U.rockMoss).mul(0.9))).mul(aboveWater);
   const mossCol = triplanar(TEX.ground[4], 1 / 8, pw, bf).mul(vec3(0.55, 0.8, 0.42));
-  const [color, emissive] = wet(mix(stone, mossCol, cover), pw);
+  const [color, emissive] = wet(mouldMix(mix(stone, mossCol, cover), pw), pw);
   m.colorNode = color;
   m.emissiveNode = emissive;
   return m;

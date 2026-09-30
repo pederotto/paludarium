@@ -13,6 +13,7 @@ import { Meta } from './app/saves.js';
 import { Director } from './app/director.js';
 import { bindLayout } from './ui/layout.js';
 import { effect } from '@preact/signals';
+import { Ambience } from './engine/audio.js';
 
 const q = new URLSearchParams(location.search);
 window.__errs = [];
@@ -40,7 +41,7 @@ mq.addEventListener('change', (e) => { S.compact.value = e.matches; S.right.valu
 // The title screen shows the starter tank slowly turning behind the menu.
 await game.loadTank('standard', { layout: 'starter' });
 ctx.tools = new ToolController(game);
-const director = ctx.director = new Director(game);
+const director = ctx.director = window.__director = new Director(game);
 game.rig.startOrbit(0.04);
 game.rig.view('hero', false);
 
@@ -56,6 +57,12 @@ ctx.start = {
   preset: (id, seed, tier) => busy('Growing a terrarium…', async () => { await director.startSandbox('preset', tier, { id, seed }); director.enterPlay(); }),
   continue: () => busy('Loading…', async () => { if (await director.load()) director.enterPlay(); else toast('No saved game found.', 'bad'); }),
 };
+
+// Ambient sound: starts on the first click or key press (browsers require one), then follows the tank.
+const audio = ctx.audio = window.__audio = new Ambience();
+const wake = () => { audio.start(); window.removeEventListener('pointerdown', wake); window.removeEventListener('keydown', wake); };
+window.addEventListener('pointerdown', wake); window.addEventListener('keydown', wake);
+setInterval(() => { if (S.screen.value === 'play') audio.update(S.live.value, 0.5); }, 500);
 
 game.tickHooks.push(() => {
   S.live.value = snapshot(game);
