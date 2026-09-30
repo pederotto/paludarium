@@ -9,7 +9,7 @@ import {
 import { TEX } from './assets.js';
 import { U } from './uniforms.js';
 import { causticLight } from './waterfx.js';
-import { TANK } from './config.js';
+import { TANK } from '../sim/tank.js';
 
 export { U };
 

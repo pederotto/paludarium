@@ -3,9 +3,9 @@
 // instanced, procedurally animated mesh (see creatures.js).
 
 import * as THREE from 'three/webgpu';
-import { Builder, PRIM, hash3, clamp, lerp, rng } from './geo.js';
-import { CreatureMesh, BODIES, bodyGeometry, withRig } from './creatures.js';
-import { TANK, MAT } from './config.js';
+import { Builder, PRIM, hash3, clamp, lerp, rng } from '../render/geo.js';
+import { CreatureMesh, BODIES, bodyGeometry, withRig } from '../render/creatures.js';
+import { TANK, MAT } from './tank.js';
 
 const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);

@@ -4,13 +4,13 @@
 
 import * as THREE from 'three/webgpu';
 import { Terrain, Wall } from './terrain.js';
-import { Water } from './water.js';
+import { Water } from '../render/water.js';
 import { Plants, PLANTS } from './plants.js';
 import { Animals, SPECIES } from './animals.js';
 import { Decor } from './decor.js';
 import { Env, Sim } from './sim.js';
-import { TANK, MAT, NMAT } from './config.js';
-import { rng, smooth, clamp, lerp } from './geo.js';
+import { TANK, MAT, NMAT } from './tank.js';
+import { rng, smooth, clamp, lerp } from '../render/geo.js';
 
 export class World {
   constructor(scene) {

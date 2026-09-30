@@ -5,7 +5,7 @@ import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const loader = new THREE.TextureLoader();
-const base = new URL('../assets/', import.meta.url);
+const base = new URL(`${import.meta.env.BASE_URL}assets/`, location.href);
 
 function load(path, { srgb = true, repeat = true } = {}) {
   const t = loader.load(new URL(path, base).href);

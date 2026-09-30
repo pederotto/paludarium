@@ -8,9 +8,9 @@
 // the pieces again over the untouched base.
 
 import * as THREE from 'three/webgpu';
-import { TANK, TERRAIN_RES, WALL_RES, WALL_MAX_DEPTH, MATERIALS, NMAT, MAT } from './config.js';
-import { substrateMaterial } from './shaders.js';
-import { hash3, clamp, smooth } from './geo.js';
+import { TANK, TERRAIN_RES, WALL_RES, WALL_MAX_DEPTH, MATERIALS, NMAT, MAT } from './tank.js';
+import { substrateMaterial } from '../render/shaders.js';
+import { hash3, clamp, smooth } from '../render/geo.js';
 
 export class Field {
   // (a, b) are the two plane axes in world units; h is the height/offset.

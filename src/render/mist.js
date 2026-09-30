@@ -5,7 +5,7 @@
 
 import * as THREE from 'three/webgpu';
 import { texture, uv, float, vec3, uniform, instanceIndex } from 'three/tsl';
-import { TANK } from './config.js';
+import { TANK } from '../sim/tank.js';
 import { U } from './uniforms.js';
 
 function puffTexture(size = 128) {

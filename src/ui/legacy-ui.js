@@ -4,11 +4,11 @@
 import * as THREE from 'three/webgpu';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import CameraControls from 'camera-controls';
-import { MATERIALS, SPEEDS, TANK, MAT } from './config.js';
-import { PLANTS } from './plants.js';
-import { SPECIES } from './animals.js';
-import { PIECES } from './decor.js';
-import { STAGES } from './ecology.js';
+import { MATERIALS, SPEEDS, TANK, MAT } from '../sim/tank.js';
+import { PLANTS } from '../sim/plants.js';
+import { SPECIES } from '../sim/animals.js';
+import { PIECES } from '../sim/decor.js';
+import { STAGES } from '../sim/ecology.js';
 
 const $ = (s) => document.querySelector(s);
 const h = (tag, attrs = {}, ...kids) => {

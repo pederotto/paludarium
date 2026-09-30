@@ -12,10 +12,10 @@ import {
   float, vec3, vec2, uv, time, mix, smoothstep, mx_noise_float, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
   attribute, fract, length, max, Fn, reflect,
 } from 'three/tsl';
-import { TANK } from './config.js';
+import { TANK } from '../sim/tank.js';
 import { U } from './uniforms.js';
 import { waterSurfaceMaterial, SIM, FX } from './waterfx.js';
-import { Hydro, WET } from './hydro.js';
+import { Hydro, WET } from '../sim/hydro.js';
 
 let ribbonId = 1;
 

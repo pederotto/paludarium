@@ -12,8 +12,8 @@ import * as THREE from 'three/webgpu';
 import { SPECIES, FOOD_VALUE, one } from './animals.js';
 import { Ecology } from './ecology.js';
 import { PLANTS } from './plants.js';
-import { clamp, lerp } from './geo.js';
-import { TANK } from './config.js';
+import { clamp, lerp } from '../render/geo.js';
+import { TANK } from './tank.js';
 
 export class Env {
   constructor() {

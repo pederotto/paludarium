@@ -5,18 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Paludarium</title>
 <meta name="description" content="Build and simulate a living terrarium and aquarium in the browser. three.js + WebGPU.">
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.webgpu.js",
-    "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.webgpu.js",
-    "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.tsl.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/",
-    "camera-controls": "https://cdn.jsdelivr.net/npm/camera-controls@3.1.2/dist/camera-controls.module.js",
-    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.15/build/index.module.js"
-  }
-}
-</script>
 <style>
   :root {
     --bg: #101316; --panel: rgba(20, 24, 28, 0.9); --line: rgba(255, 255, 255, 0.09); --text: #e8ecef; --dim: #93a0aa;
@@ -126,12 +114,6 @@
   <div class="meta"><span id="backend">…</span> · <span id="fps"></span> · <a href="https://github.com/pederotto/paludarium" target="_blank" rel="noopener">source</a></div>
 </footer>
 <div id="toast"></div>
-<script type="module">
-  const fail = (e) => {
-    document.getElementById('loading').innerHTML = `<div style="max-width:520px;padding:20px">Couldn't start: ${e?.message ?? e}.<br><br>Paludarium needs a browser with WebGPU or WebGL 2 (recent Chrome, Edge, Firefox or Safari) and an internet connection the first time, to load three.js.</div>`;
-    console.error(e);
-  };
-  import('./src/main.js').then(() => document.getElementById('loading').classList.add('gone')).catch(fail);
-</script>
+<script type="module" src="/src/main.js"></script>
 </body>
 </html>

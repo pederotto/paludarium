@@ -4,15 +4,15 @@
 import * as THREE from 'three/webgpu';
 import CameraControls from 'camera-controls';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { TANK, SPEEDS, MINUTES_PER_SECOND } from './config.js';
+import { TANK, SPEEDS, MINUTES_PER_SECOND } from './sim/tank.js';
 import { pass, screenUV, float, smoothstep, vec3, mrt, output, normalView, directionToColor, colorToDirection, sample, mix } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
-import { U } from './shaders.js';
-import { World } from './world.js';
-import { UI } from './ui.js';
-import { WaterFX, FX } from './waterfx.js';
-import { Mist } from './mist.js';
+import { U } from './render/shaders.js';
+import { World } from './sim/world.js';
+import { UI } from './ui/legacy-ui.js';
+import { WaterFX, FX } from './render/waterfx.js';
+import { Mist } from './render/mist.js';
 
 const params = new URLSearchParams(location.search);
 const canvasHost = document.getElementById('view');
@@ -233,3 +233,5 @@ function buildTank(scene) {
   floor.receiveShadow = true;
   scene.add(floor);
 }
+
+document.getElementById('loading').classList.add('gone');

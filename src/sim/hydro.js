@@ -19,7 +19,7 @@
 // at the foot of the drop, which is how waterfalls form.
 
 import * as THREE from 'three/webgpu';
-import { TANK } from './config.js';
+import { TANK } from './tank.js';
 
 const G = 981;                // cm/s²
 const DAMP = 0.992;           // pipe friction per sub-step

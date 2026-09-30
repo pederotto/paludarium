@@ -23,7 +23,7 @@ import {
   sin, cos, time, varying, positionLocal, dFdx, dFdy, mix, smoothstep, pow, cameraPosition, positionWorld,
   transformNormalToView, min, viewportSharedTexture, viewportSafeUV, screenUV, reflect,
 } from 'three/tsl';
-import { TANK } from './config.js';
+import { TANK } from '../sim/tank.js';
 import { U } from './uniforms.js';
 
 export const SIM = [256, 128];     // ripple grid (x, z)

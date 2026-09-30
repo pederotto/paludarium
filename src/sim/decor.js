@@ -22,11 +22,11 @@ import * as THREE from 'three/webgpu';
 import { float, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWorld, smoothstep, normalWorld, mix, mx_noise_float } from 'three/tsl';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
-import { TEX, modelParts } from './assets.js';
-import { plantMaterial, hardscapeMaterial, wet, triplanar, blendWeights } from './shaders.js';
-import { U } from './uniforms.js';
-import { MAT, NMAT, TANK } from './config.js';
-import { rng, clamp } from './geo.js';
+import { TEX, modelParts } from '../render/assets.js';
+import { plantMaterial, hardscapeMaterial, wet, triplanar, blendWeights } from '../render/shaders.js';
+import { U } from '../render/uniforms.js';
+import { MAT, NMAT, TANK } from './tank.js';
+import { rng, clamp } from '../render/geo.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;

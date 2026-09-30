@@ -3,10 +3,10 @@
 // with the conditions in the tank.
 
 import * as THREE from 'three/webgpu';
-import { Builder, PRIM, rng, lerp, clamp } from './geo.js';
-import { plantMaterial } from './shaders.js';
-import { MAT } from './config.js';
-import { TEX, modelParts } from './assets.js';
+import { Builder, PRIM, rng, lerp, clamp } from '../render/geo.js';
+import { plantMaterial } from '../render/shaders.js';
+import { MAT } from './tank.js';
+import { TEX, modelParts } from '../render/assets.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 

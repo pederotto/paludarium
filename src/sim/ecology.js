@@ -18,9 +18,9 @@
 // neighbours, scaled by how good each spot is).
 
 import * as THREE from 'three/webgpu';
-import { MAT, NMAT } from './config.js';
-import { U } from './uniforms.js';
-import { clamp, lerp } from './geo.js';
+import { MAT, NMAT } from './tank.js';
+import { U } from '../render/uniforms.js';
+import { clamp, lerp } from '../render/geo.js';
 
 const CLEAR = new THREE.Color(0.3, 0.62, 0.62);
 const GREEN = new THREE.Color(0.32, 0.55, 0.2);
