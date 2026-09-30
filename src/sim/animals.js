@@ -145,16 +145,19 @@ export const SPECIES = {
   shrimp: {
     name: 'Cherry shrimp', group: 'Crustaceans', kind: 'crawlWater', size: 1.0, speed: 1.2,
     temp: [18, 28], hungerHours: 200, lifeDays: 365, eats: ['detritus', 'biofilm', 'flake'], cap: 80, breed: 0.04, adultDays: 20,
+    anim: { lift: 0.06, stride: 0.1 },
     body: () => BODIES.shrimp?.() ?? withRig(shrimpGeo()), note: 'Grazes biofilm and detritus. Breeds in mature tanks.',
   },
   crab: {
     name: 'Vampire crab', group: 'Crustaceans', kind: 'crab', size: 1.0, speed: 2,
     temp: [22, 28], humidity: 70, hungerHours: 200, lifeDays: 900, eats: ['detritus', 'flake', 'springtail'], cap: 10, breed: 0,
+    anim: { lift: 0.15, stride: 0.2 },
     body: () => BODIES.crab?.() ?? withRig(crabGeo()), note: 'Semi-terrestrial: needs land and shallow water.',
   },
   isopod: {
     name: 'Dwarf isopods', group: 'Crustaceans', kind: 'crawlLand', size: 1.0, speed: 0.8,
     temp: [18, 28], humidity: 60, hungerHours: 150, lifeDays: 300, eats: ['detritus'], cap: 90, breed: 0.1, adultDays: 12,
+    anim: { lift: 0.03, stride: 0.05 },
     body: () => BODIES.isopod?.() ?? withRig(isopodGeo()), note: 'Clean-up crew. Eat detritus on land.',
   },
   springtail: {

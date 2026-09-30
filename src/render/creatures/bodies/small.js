@@ -92,11 +92,160 @@ function snail() {
   return {
     sdf,
     lo: [-0.75, -0.06, -1.6], hi: [0.75, 2.55, 1.9], cell: 0.04, hiScale: 0.5,
-    color: (x, y, z) => (shellD(x, y, z) < bodyD(x, y, z) ? shellColor(x, y, z) : skinColor(x, y, z)),
-    mat: (x, y, z) => (shellD(x, y, z) < bodyD(x, y, z) ? M.CHITIN : M.SKIN),
+    // Colour blends across the seam; the two materials are neighbours in the id list (4 and 5), because ids are
+    // interpolated across triangles and skin (0) to chitin (4) would pass through the eye, fin and film materials.
+    color: (x, y, z) => {
+      const t = smoothstep(-0.05, 0.05, bodyD(x, y, z) - shellD(x, y, z));
+      return t >= 1 ? shellColor(x, y, z) : t <= 0 ? skinColor(x, y, z) : lerp3(skinColor(x, y, z), shellColor(x, y, z), t);
+    },
+    mat: (x, y, z) => (shellD(x, y, z) < bodyD(x, y, z) ? M.CHITIN : M.GLOSS),
     rig: (x, y, z) => [clamp01((1.4 - z) / 2.6), 0, 0],
     finish: { rough: 0.5, coat: 0.7, coatRough: 0.1, grain: 45, bump: 0.05, tone: 0.03 },
   };
 }
 
-export const SMALL = { snail };
+// ---------------------------------------------------------------------------------
+// Helpers for the insects
+// ---------------------------------------------------------------------------------
+const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+// Orthonormal frame [u, n, w]: u along `dir`, n as close to `hint` as it can be.
+const frameOf = (dir, hint) => { const u = norm(dir), w = norm(cross(hint, u)); return [u, cross(u, w), w]; };
+// Ellipsoid with radii (a, b, c) along the frame's u, n, w axes, centred at c0.
+const oell = (x, y, z, c0, F, a, b, c) => {
+  const dx = x - c0[0], dy = y - c0[1], dz = z - c0[2];
+  return ell(dx * F[0][0] + dy * F[0][1] + dz * F[0][2], dx * F[1][0] + dy * F[1][1] + dz * F[1][2], dx * F[2][0] + dy * F[2][1] + dz * F[2][2], a, b, c);
+};
+// Six legs as chains: [id, points, radii]. Ids follow the rig: 1 / 2 front-left / right, 3 / 4 back-left / right;
+// the middle legs take 3 / 4 and the hind legs 1 / 2 so that the tripods (1, 4, 1) and (2, 3, 2) alternate.
+const sixLegs = (pts, radii) => {
+  const out = [];
+  pts.forEach((P, k) => {
+    for (const s of [-1, 1]) out.push({ id: s < 0 ? [1, 3, 1][k] : [2, 4, 2][k], pts: P(s), radii });
+  });
+  return out;
+};
+// The leg nearest to a point: [id, legT] with legT ramped along the leg and scaled by `amp`,
+// because the rig's default stride and lift are in centimetres and these animals are a few millimetres long.
+const legRig = (legs, x, y, z, dBody, amp) => {
+  let best = 1e9, id = 0, t = 0;
+  for (const l of legs) { const [d, tt] = chain([x, y, z], l.pts, l.radii); if (d < best) { best = d; id = l.id; t = tt; } }
+  return best < dBody ? [id, clamp01((t - 0.2) / 0.8) * amp] : [0, 0];
+};
+
+// ---------------------------------------------------------------------------------
+// Springtail (Collembola, ~0.25 cm): a cream-white segmented body, a rounded head with
+// dark eye spots, short antennae, six legs and the furcula folded under the abdomen.
+// ---------------------------------------------------------------------------------
+function springtail() {
+  const Y0 = 0.055;
+  const R = [0.034, 0.036, 0.039, 0.041, 0.042, 0.042, 0.041, 0.038, 0.033, 0.026];   // head, 3 thorax, 6 abdomen segments
+  const Z = R.map((_, i) => 0.10 - i * 0.022), RZ = 0.017;
+  const legs = sixLegs([
+    (s) => [[s * 0.02, 0.043, 0.078], [s * 0.055, 0.052, 0.09], [s * 0.068, 0.005, 0.104]],
+    (s) => [[s * 0.02, 0.043, 0.056], [s * 0.057, 0.052, 0.056], [s * 0.072, 0.005, 0.056]],
+    (s) => [[s * 0.02, 0.043, 0.034], [s * 0.055, 0.052, 0.02], [s * 0.068, 0.005, 0.008]],
+  ], [0.0085, 0.0065, 0.0055]);
+  const feelers = [-1, 1].map((s) => ({ pts: [[s * 0.014, 0.066, 0.12], [s * 0.028, 0.078, 0.15], [s * 0.036, 0.075, 0.172]], radii: [0.008, 0.0065, 0.0055] }));
+  const furcula = { pts: [[0, 0.022, -0.07], [0, 0.012, -0.02], [0, 0.010, 0.008]], radii: [0.010, 0.008, 0.0065] };
+  const tines = [-1, 1].map((s) => ({ pts: [[0, 0.010, 0.008], [s * 0.012, 0.009, 0.03]], radii: [0.0065, 0.0055] }));
+  const bodyD = (x, y, z) => {
+    let d = 1e9;
+    for (let i = 0; i < 10; i++) {
+      if (Math.abs(z - Z[i]) > 0.06) continue;
+      const e = ell(x, y - Y0, z - Z[i], R[i], R[i] * 0.95, RZ + (i === 0 ? 0.01 : 0));
+      d = d > 1e8 ? e : smin(d, e, 0.006);
+    }
+    return d;
+  };
+  const limbD = (x, y, z) => {
+    let d = 1e9;
+    for (const l of legs) d = Math.min(d, chain([x, y, z], l.pts, l.radii)[0]);
+    for (const a of feelers) d = Math.min(d, chain([x, y, z], a.pts, a.radii)[0]);
+    d = Math.min(d, chain([x, y, z], furcula.pts, furcula.radii)[0]);
+    for (const t of tines) d = Math.min(d, chain([x, y, z], t.pts, t.radii)[0]);
+    return d;
+  };
+  const CREAM = C(0xf0e8d2), LEG = C(0xd8d1bd), EYE = C(0x2b2932), HEAD = C(0xe2d9c4), FURC = C(0xcfc6ae);
+  return {
+    sdf: (x, y, z) => smin(bodyD(x, y, z), limbD(x, y, z), 0.008),
+    lo: [-0.1, -0.02, -0.15], hi: [0.1, 0.13, 0.22], cell: 0.006, hiScale: 0.5,
+    color: (x, y, z) => {
+      const db = bodyD(x, y, z), dl = limbD(x, y, z);
+      if (dl < db - 0.002) return z < 0.0 && y < 0.04 && Math.abs(x) < 0.02 ? FURC : LEG;
+      const groove = 0.5 + 0.5 * Math.cos(TAU * (0.10 - z) / 0.022);
+      let c = lerp3(CREAM, HEAD, smoothstep(0.085, 0.11, z) * 0.7);
+      c = mul3(c, 0.9 + 0.1 * groove);
+      // eye spots on the sides of the head
+      const de = Math.hypot((Math.abs(x) - 0.03) * 1.3, (y - Y0 - 0.006) * 1.3, z - 0.108);
+      return lerp3(c, EYE, smoothstep(0.014, 0.006, de) * 0.9);
+    },
+    mat: () => M.SKIN,
+    rig: (x, y, z) => { const [id, t] = legRig(legs, x, y, z, bodyD(x, y, z), 0.1); return [clamp01((0.13 - z) / 0.245), id, t]; },
+    finish: { rough: 0.5, coat: 0.25, coatRough: 0.3, grain: 0.6, bump: 0.004, tone: 0.01 },
+  };
+}
+
+// ---------------------------------------------------------------------------------
+// Fruit fly (Drosophila melanogaster, ~0.3 cm): dominant red compound eyes, a tan thorax,
+// a banded abdomen, six legs and translucent wings folded back over the abdomen.
+// ---------------------------------------------------------------------------------
+function fly() {
+  const legs = sixLegs([
+    (s) => [[s * 0.022, 0.108, 0.06], [s * 0.072, 0.098, 0.095], [s * 0.088, 0.045, 0.125], [s * 0.092, 0.006, 0.15]],
+    (s) => [[s * 0.026, 0.104, 0.012], [s * 0.085, 0.10, 0.016], [s * 0.108, 0.045, 0.0], [s * 0.115, 0.006, -0.004]],
+    (s) => [[s * 0.024, 0.104, -0.035], [s * 0.07, 0.095, -0.07], [s * 0.09, 0.05, -0.12], [s * 0.095, 0.006, -0.15]],
+  ], [0.011, 0.009, 0.0075, 0.0065]);
+  const wings = [-1, 1].map((s) => {
+    const u = norm([s * 0.24, -0.11, -1]), base = [s * 0.03, 0.19, 0.03];
+    return { C: [base[0] + u[0] * 0.11, base[1] + u[1] * 0.11, base[2] + u[2] * 0.11], F: frameOf(u, [s * 0.3, 1, 0]) };
+  });
+  const headD = (x, y, z) => ell(x, y - 0.135, z - 0.105, 0.044, 0.045, 0.04);
+  const eyeD = (x, y, z) => Math.min(ell(x - 0.041, y - 0.14, z - 0.113, 0.034, 0.044, 0.042), ell(x + 0.041, y - 0.14, z - 0.113, 0.034, 0.044, 0.042));
+  const thoraxD = (x, y, z) => ell(x, y - 0.15, z - 0.02, 0.055, 0.06, 0.078);
+  const abdD = (x, y, z) => ell(x, y - 0.135, z + 0.085, 0.05, 0.047, 0.088);
+  const wingD = (x, y, z) => Math.min(oell(x, y, z, wings[0].C, wings[0].F, 0.115, 0.007, 0.045), oell(x, y, z, wings[1].C, wings[1].F, 0.115, 0.007, 0.045));
+  const legD = (x, y, z) => { let d = 1e9; for (const l of legs) d = Math.min(d, chain([x, y, z], l.pts, l.radii)[0]); return d; };
+  const nubD = (x, y, z) => Math.hypot(Math.abs(x) - 0.014, y - 0.163, z - 0.148) - 0.012;
+  const bodyD = (x, y, z) => {
+    let d = smin(headD(x, y, z), eyeD(x, y, z), 0.014);
+    d = smin(d, thoraxD(x, y, z), 0.015);
+    d = smin(d, abdD(x, y, z), 0.012);
+    return smin(d, nubD(x, y, z), 0.006);
+  };
+  const TAN = C(0xc9a25e), THORAX = C(0xb98a48), ABD = C(0xd3ac68), BAND = C(0x2d2117), RED = C(0xa4131a), WING = C(0xcfd6d9), LEGC = C(0xb59d6c), FOOT = C(0x6e5a3a), HEADC = C(0xc0995a);
+  const part = (x, y, z) => {
+    const p = [[bodyD(x, y, z), 'body'], [wingD(x, y, z), 'wing'], [legD(x, y, z), 'leg']];
+    p.sort((a, b) => a[0] - b[0]);
+    return p[0][1];
+  };
+  return {
+    sdf: (x, y, z) => smin(Math.min(bodyD(x, y, z), wingD(x, y, z)), legD(x, y, z), 0.012),
+    lo: [-0.2, -0.03, -0.32], hi: [0.2, 0.26, 0.22], cell: 0.008, hiScale: 0.5,
+    color: (x, y, z) => {
+      const dw = wingD(x, y, z), dl = legD(x, y, z), db = bodyD(x, y, z);
+      if (dw < db && dw < dl) return lerp3(WING, C(0x9a8e78), smoothstep(0.02, -0.02, y - 0.19) * 0.0 + 0.08 * hash(x * 90, 1, z * 90));
+      if (dl < db - 0.002) return lerp3(LEGC, FOOT, smoothstep(0.02, 0.0, y));
+      const de = eyeD(x, y, z), dh = headD(x, y, z), dt = thoraxD(x, y, z), da = abdD(x, y, z);
+      if (de < dh && de < dt && de < da) return mul3(RED, 0.85 + 0.3 * vnoise(x * 70, y * 70, z * 70));
+      if (dh < dt && dh < da) return HEADC;
+      if (dt < da) return lerp3(THORAX, mul3(THORAX, 0.7), smoothstep(-0.03, -0.06, z) * 0.6 + 0.25 * smoothstep(0.02, 0.0, Math.abs(Math.abs(x) - 0.02)));
+      // abdomen: the hind edge of every segment is a dark band, the belly stays pale, the last segments are dark
+      const f = fract((z + 0.17) / 0.034), top = smoothstep(0.1, 0.16, y);
+      const band = smoothstep(0.55, 0.7, f) * top;
+      return lerp3(lerp3(ABD, C(0xe6d6a8), smoothstep(0.13, 0.09, y)), BAND, Math.max(band * 0.85, smoothstep(-0.12, -0.15, z) * 0.9));
+    },
+    mat: (x, y, z) => {
+      const p = part(x, y, z);
+      // ids 4, 5 and 7 are used because they are close together: ids are interpolated across triangles, so
+      // skin (0) next to a wing (2) or a glossy eye (5) would flash through the black eye material (1).
+      if (p === 'wing') return M.TRANSLUCENT;
+      if (p === 'body' && eyeD(x, y, z) < Math.min(headD(x, y, z), thoraxD(x, y, z), abdD(x, y, z))) return M.GLOSS;
+      return M.CHITIN;
+    },
+    rig: (x, y, z) => { const [id, t] = legRig(legs, x, y, z, Math.min(bodyD(x, y, z), wingD(x, y, z)), 0.1); return [clamp01((0.16 - z) / 0.33), id, t]; },
+    finish: { rough: 0.45, coat: 0.3, coatRough: 0.3, grain: 0.6, bump: 0.004, tone: 0.01, glassOpacity: 0.45 },
+  };
+}
+
+export const SMALL = { snail, springtail, fly };

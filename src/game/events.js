@@ -26,7 +26,7 @@ export class EventDirector {
     }
     if (!this.enabled || E.tankDays < 8) return;
     const day = Math.floor(minute / 1440);
-    if (day === this.lastRoll || (minute % 1440) < 8 * 60) return;
+    if (day < 1 || day === this.lastRoll || (minute % 1440) < 8 * 60) return;   // never on the first day of a game
     this.lastRoll = day;
     const r = rng(this.seed * 7919 + day * 104729);
     if (r() > this.rate) return;
