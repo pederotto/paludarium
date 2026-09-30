@@ -1,4 +1,6 @@
+import { useState } from 'preact/hooks';
 import { Icon } from '../icons.jsx';
+import { ViewMenu } from './Bottom.jsx';
 import { S, openModal } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { SPEEDS } from '../../sim/tank.js';
@@ -51,6 +53,7 @@ export function TopBar() {
 }
 
 function Dock() {
+  const [more, setMore] = useState(false);
   const m = S.modal.value;
   const career = S.career.value;
   const btn = (id, icon, label, dot) => (
@@ -64,6 +67,12 @@ function Dock() {
       {btn('lab', 'flask', 'Lab')}
       {btn('codex', 'book', 'Field guide')}
       {btn('studio', 'briefcase', 'Studio', career?.attention)}
+      {S.compact.value ? (
+        <>
+          <button class={more ? 'on' : ''} onClick={() => setMore(!more)} title="Views, lens, photo, time-lapse"><Icon name="camera" size={17} /><span>View</span></button>
+          {more ? <ViewMenu onClose={() => setMore(false)} /> : null}
+        </>
+      ) : null}
     </div>
   );
 }

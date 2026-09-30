@@ -9,14 +9,16 @@ import { Toasts } from './hud/Toasts.jsx';
 import { InfoBanner } from './hud/InfoBanner.jsx';
 import { Coach } from './hud/Coach.jsx';
 import { Photo } from './hud/Photo.jsx';
+import { Timelapse } from './hud/Timelapse.jsx';
 import { Modals } from './panels/Modals.jsx';
 
 export function App() {
   const playing = S.screen.value === 'play';
   const photo = S.photo.value;
+  const lapse = !!S.timelapse.value;
   return (
     <>
-      {playing && !photo ? (
+      {playing && !photo && !lapse ? (
         <>
           <TopBar />
           <ToolRail />
@@ -28,6 +30,7 @@ export function App() {
         </>
       ) : null}
       {playing && photo ? <Photo /> : null}
+      {playing ? <Timelapse /> : null}
       {S.screen.value === 'title' ? <Title /> : null}
       <Toasts />
       <Modals />

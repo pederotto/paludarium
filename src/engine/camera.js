@@ -53,7 +53,7 @@ export class CameraRig {
     const aspect = this.camera.aspect;
     return {
       // A portrait screen has spare height: look down into the tank a little more.
-      front: aspect < 0.8 ? [0, h * 1.05, D, 0, h * 0.34, 0] : [0, h * 0.62, D, 0, h * 0.44, 0],
+      front: aspect < 0.8 ? [0, h * 1.4, D * 1.02, 0, h * 0.27, d * 0.05] : [0, h * 0.62, D, 0, h * 0.44, 0],
       top: [0, h * 2.7 + w * 0.15, d * 0.3, 0, h * 0.13, 0],
       left: [-w * 1.65, h * 0.75, d * 0.9, 0, h * 0.37, -d * 0.09],
       right: [w * 1.65, h * 0.75, d * 0.9, 0, h * 0.37, -d * 0.09],

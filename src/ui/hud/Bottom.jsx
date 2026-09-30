@@ -1,11 +1,32 @@
+import { useState } from 'preact/hooks';
 import { Icon } from '../icons.jsx';
+import { startTimelapse } from '../../app/timelapse.js';
 import { S, openModal } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { LENSES } from '../../tools/controller.js';
 import { LENS_INFO } from '../../render/lens.js';
 
+// Everything the wide screen's camera bar does, as a list for phones (where that bar is hidden).
+export function ViewMenu({ onClose }) {
+  const g = ctx.game;
+  const lens = S.lens.value;
+  const go = (fn) => () => { onClose(); fn(); };
+  return (
+    <div class="viewmenu glass strong">
+      <div class="vm-views">
+        {['front', 'top', 'left', 'right', 'close'].map((v) => <button key={v} onClick={go(() => g.rig.view(v))}>{v[0].toUpperCase() + v.slice(1)}</button>)}
+      </div>
+      <button onClick={() => { S.lens.value = LENSES[(LENSES.indexOf(lens) + 1) % LENSES.length]; }}><Icon name="lens" size={16} />Lens: {lens === 'off' ? 'off' : lens}</button>
+      <button onClick={go(() => openModal('curator'))}><Icon name="trophy" size={16} />Score this tank</button>
+      <button onClick={go(() => { S.photo.value = true; })}><Icon name="camera" size={16} />Photo mode</button>
+      <div class="vm-lapse"><Icon name="clock" size={16} /><span>Time-lapse</span>{[7, 30, 90].map((d) => <button key={d} onClick={go(() => startTimelapse(d))}>{d}d</button>)}</div>
+    </div>
+  );
+}
+
 export function Bottom() {
   const g = ctx.game;
+  const [lapseMenu, setLapseMenu] = useState(false);
   const lens = S.lens.value;
   const career = S.career.value;
   const active = career?.active?.[0];
@@ -42,6 +63,14 @@ export function Bottom() {
           <Icon name="lens" size={15} />{lens === 'off' ? 'Lens' : lens}
         </button>
         <button onClick={() => openModal('curator')} title="The Curator: score this tank"><Icon name="trophy" size={15} />Score</button>
+        <span class="lapse-wrap">
+          <button onClick={() => setLapseMenu(!lapseMenu)} title="Time-lapse: watch the tank change over days"><Icon name="clock" size={15} /></button>
+          {lapseMenu ? (
+            <div class="lapse-menu glass strong">
+              {[7, 30, 90].map((d) => <button key={d} onClick={() => { setLapseMenu(false); startTimelapse(d); }}>{d} days</button>)}
+            </div>
+          ) : null}
+        </span>
         <button onClick={() => { S.photo.value = true; }} title="Photo mode"><Icon name="camera" size={15} /></button>
       </div>
     </div>

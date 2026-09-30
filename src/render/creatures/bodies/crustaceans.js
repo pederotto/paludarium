@@ -21,6 +21,16 @@ const PI = Math.PI, RAD = PI / 180;
 const { sqrt, abs, cos, sin, max, min } = Math;
 const sstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 
+// An analytic eye (material.js finish.eyes) on the +x side (mirrored by the material): ball centre c, radius r, looking along
+// `axis`; h is the horizontal tangent and w the other one.
+function eyeSpec(c, r, axis, o) {
+  const l = Math.hypot(...axis), a = axis.map((v) => v / l);
+  let h = [-a[2], 0, a[0]];                                             // a x up
+  const hl = Math.hypot(...h) || 1; h = h.map((v) => v / hl);
+  const w = [a[1] * h[2] - a[2] * h[1], a[2] * h[0] - a[0] * h[2], a[0] * h[1] - a[1] * h[0]];
+  return { c, r, axis: a, h, w, ...o };
+}
+
 // ---- allocation-free distance helpers ----------------------------------------------------------------
 let TT = 0;       // parameter along the last chain / capsule that was measured (0 at the start … 1 at the tip)
 function segD(px, py, pz, ax, ay, az, bx, by, bz, ra, rb) {
@@ -220,13 +230,16 @@ function shrimp() {
   };
   return {
     sdf, lo: [-0.95, -0.05, -1.6], hi: [0.95, 1.15, 2.6], cell: 0.05, hiScale: 0.5,
-    color, mat: (x, y, z) => { sdf(x, y, z); return ID === 30 ? M.EYE : M.TRANSLUCENT; },
+    color, mat: () => M.TRANSLUCENT,          // one id everywhere: the eyes are analytic, and interpolating 7 to 1 would cross the fin id
     rig: (x, y, z) => {
       sdf(x, y, z);
       const leg = ID >= 10 && ID < 20 ? legId(ID - 10, x < 0) : 0;
       return [clamp01((1.0 - z) / 2.5), leg, leg ? WT : 0];
     },
-    finish: { rough: 0.3, coat: 0.5, coatRough: 0.15, grain: 60, bump: 0.006, grainAmt: 0.15, tone: 0.03, glassOpacity: 0.95 },
+    finish: { rough: 0.3, coat: 0.5, coatRough: 0.15, grain: 60, bump: 0.006, grainAmt: 0.15, tone: 0.03, glassOpacity: 0.95,
+      // black bead eyes with a catchlight
+      eyes: [eyeSpec(EYE.slice(0, 3), EYE[3], [0.75, 0.3, 0.6], { pupil: [0.3, 0.3], inner: C(0x0c0a0a), outer: C(0x050404), rim: C(0x030303), cap: 0.95 })],
+    },
   };
 }
 
@@ -325,13 +338,17 @@ function crab() {
   };
   return {
     sdf, lo: [-2.6, -0.05, -1.5], hi: [2.6, 1.45, 2.6], cell: 0.06, hiScale: 0.5,
-    color, mat: (x, y, z) => { sdf(x, y, z); return M.CHITIN; },   // yellow eyes: the glossy M.EYE material paints them black
+    color, mat: (x, y, z) => { sdf(x, y, z); return M.CHITIN; },
     rig: (x, y, z) => {
       sdf(x, y, z);
       const leg = ID >= 10 && ID < 20 ? legId(ID - 10, x < 0) : 0;
       return [clamp01((0.9 - z) / 1.8), leg, leg ? WT : 0];
     },
-    finish: { rough: 0.4, coat: 0.6, coatRough: 0.2, grain: 60, bump: 0.006, grainAmt: 0.15, tone: 0.02 },
+    finish: {
+      rough: 0.4, coat: 0.6, coatRough: 0.2, grain: 60, bump: 0.006, grainAmt: 0.15, tone: 0.02,
+      // glossy yellow eyes on stalks with a dark central pupil patch
+      eyes: [eyeSpec(EYE.slice(0, 3), EYE[3], [0.4, 0.15, 0.9], { pupil: [0.34, 0.34], inner: C(0xf4d030), outer: C(0xd39a14), rim: C(0x0a0805), limb: C(0x9c6a0e), cap: 0.97, seed: 4 })],
+    },
   };
 }
 
@@ -378,10 +395,10 @@ function isopod() {
   const legs = [];
   for (let k = 0; k < 7; k++) {
     const zc = (ZB[k + 1] + ZB[k + 2]) / 2, a = RIM[k + 1], s = (3 - k) * 0.005;
-    legs.push(mkChain([a * 0.55, 0.05, zc, a * 0.95, 0.03, zc + s * 0.3, a + 0.01, 0.008, zc + s * 0.6], [0.02, 0.016, 0.012]));
+    legs.push(mkChain([a * 0.55, 0.05, zc, a * 0.95, 0.03, zc + s * 0.3, a + 0.01, 0.008, zc + s * 0.6], [0.024, 0.019, 0.016]));
   }
-  const antenna = mkChain([0.045, 0.11, 0.31, 0.1, 0.125, 0.43, 0.17, 0.1, 0.53, 0.2, 0.08, 0.57], [0.016, 0.013, 0.011, 0.01]);
-  const uropod = mkChain([0.035, 0.065, -0.29, 0.06, 0.055, -0.36, 0.085, 0.045, -0.44], [0.024, 0.018, 0.013]);
+  const antenna = mkChain([0.045, 0.11, 0.31, 0.1, 0.125, 0.43, 0.17, 0.1, 0.53, 0.2, 0.08, 0.57], [0.023, 0.019, 0.016, 0.014]);
+  const uropod = mkChain([0.035, 0.065, -0.29, 0.06, 0.055, -0.36, 0.085, 0.045, -0.44], [0.03, 0.023, 0.017]);
   const EYEP = [0.076, 0.088, 0.29, 0.024];
 
   const sdf = (x, y, z) => {
@@ -409,13 +426,16 @@ function isopod() {
   };
   return {
     sdf, lo: [-0.32, -0.03, -0.5], hi: [0.32, 0.26, 0.66], cell: 0.02, hiScale: 0.5,
-    color, mat: (x, y, z) => { sdf(x, y, z); return ID === 30 ? M.EYE : M.CHITIN; },
+    color, mat: () => M.CHITIN,
     rig: (x, y, z) => {
       sdf(x, y, z);
       const leg = ID >= 10 && ID < 20 ? legId(ID - 10, x < 0) : 0;
       return [clamp01((0.36 - z) / 0.7), leg, leg ? WT : 0];
     },
-    finish: { rough: 0.5, coat: 0.3, coatRough: 0.5, grain: 150, bump: 0.004, grainAmt: 0.15, tone: 0.015 },
+    finish: {
+      rough: 0.5, coat: 0.3, coatRough: 0.5, grain: 150, bump: 0.004, grainAmt: 0.15, tone: 0.015,
+      eyes: [eyeSpec(EYEP.slice(0, 3), EYEP[3], [0.7, 0.25, 0.65], { pupil: [0.3, 0.3], inner: C(0x0c0a0a), outer: C(0x050404), rim: C(0x030303), cap: 0.95 })],
+    },
   };
 }
 

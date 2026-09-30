@@ -5,12 +5,16 @@
 //
 //   SKIN        matte-to-satin skin with micro-relief (grain) and fine colour variation
 //   EYE         wet, black, very glossy: catches the lamp as a small bright glint
-//   FIN         thin membrane: see-through (hashed alpha), lit from behind, flutters
+//   FIN         thin membrane: see-through (alpha-blended in a second pass), lit from behind, flutters
 //   IRIDESCENT  thin-film interference: hue shifts with the angle you look from
 //   CHITIN      hard, glossy shell with a clear coat
 //   GLOSS       very wet mucous skin: strong clear coat, low roughness
 //   KERATIN     claws and horn: matte and pale
-//   TRANSLUCENT glassy see-through shell (shrimp, larvae): hashed alpha, faint glow
+//   TRANSLUCENT glassy see-through shell (shrimp, larvae): alpha-blended, faint glow
+//
+// Translucent parts are drawn by a second material (creatureMaterial(..., { pass: 'blend' })) on a second
+// mesh sharing the geometry: the 'opaque' pass discards the fin/glass fragments and writes depth, the 'blend'
+// pass draws only those with real alpha blending and no depth write. Pass 'all' is the old single hashed pass.
 //
 // Underwater tint, caustics and dark-room lighting come from wet() (shaders.js).
 
@@ -38,8 +42,9 @@ export const FINISH = {
 // Eyes drawn per fragment from the eyeball's geometry, so the pupil edge is exact whatever the mesh
 // resolution. Each eye: { c: [x, y, z] ball centre, r radius, axis (unit, looking direction),
 // h, w (unit tangents: horizontal and up-ish), pupil: [a, b] half sizes in units of r, shape: 'oval' | 'tri',
-// inner, outer (linear iris colours near the pupil and near the rim), cap: sine of the visible cap
-// angle (0.84), mirror: also draw at -x (default true) }. Positions are in the mesh's own frame.
+// inner, outer (linear iris colours near the pupil and near the rim), rim (pupil colour, near black), limb (colour of the
+// ring at the cap's edge, default rim), shape: 'oval' | 'tri' | 'slit' (vertical lens, gecko), cap: sine of the visible
+// cap angle (0.84), mirror: also draw at -x (default true) }. Positions are in the mesh's own frame.
 // Returns the eye mask k (0…1), its colour, and glint(nWorld, toEye): a small catchlight for a lamp overhead.
 function analyticEyes(eyes) {
   const P = attribute('position', 'vec3');
@@ -59,13 +64,16 @@ function analyticEyes(eyes) {
     if (e.shape === 'tri') {                                                          // rounded triangle, flat on top, apex down (Bombina)
       const a = abs(x).mul(2).add(y), b = y.negate();
       q = a.add(b).add(sqrt(a.sub(b).mul(a.sub(b)).add(0.06))).mul(0.5);
+    } else if (e.shape === 'slit') {                                                  // vertical lens slit, pointed at both ends (geckos, cats)
+      q = max(abs(y), abs(x).div(max(float(1).sub(y.mul(y)), 0.05)));
     } else q = sqrt(x.mul(x).add(y.mul(y)));
     const pup = float(1).sub(smoothstep(0.86, 1.08, q));
     const dir = vec2(u, v).div(max(length(vec2(u, v)), 1e-4));                       // fine radial streaks in the iris
     const streak = mx_noise_float(vec3(dir.x.mul(6), dir.y.mul(6), t.mul(2.5).add(e.seed ?? 3))).mul(0.22).add(1);
     const rim = vec3(...(e.rim ?? [0.006, 0.006, 0.008]));
+    const limb = e.limb ? vec3(...e.limb) : rim;                                     // colour of the limbal ring at the edge of the cap
     let iris = mix(vec3(...e.inner), vec3(...e.outer), smoothstep(0.3, 0.9, t)).mul(streak);
-    iris = mix(iris, rim, smoothstep(0.7, 0.98, t));
+    iris = mix(iris, limb, smoothstep(0.7, 0.98, t));
     col = mix(col, mix(iris, rim, pup), mask);
     k = max(k, mask);
     spots.push(mask);
@@ -77,7 +85,7 @@ function analyticEyes(eyes) {
   return { k, col, glint };
 }
 
-export function creatureMaterial(finish = {}, { map = null, normalMap = null, roughnessMap = null } = {}) {
+export function creatureMaterial(finish = {}, { map = null, normalMap = null, roughnessMap = null, pass = 'all' } = {}) {
   const f = { ...FINISH.amphibian, ...finish };
   const m = new THREE.MeshPhysicalNodeMaterial({ roughness: f.rough, metalness: 0.0, side: f.doubleSided ? THREE.DoubleSide : THREE.FrontSide });
   const id = attribute('rig', 'vec4').w;
@@ -138,10 +146,28 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   m.clearcoatRoughnessNode = coatRough;
   m.sheenNode = float(f.sheen);
   m.sheenRoughnessNode = float(0.5);
-  // Fins: hashed (stochastic) transparency keeps depth writing and sorting simple.
-  // A view-dependent see-through: more transparent face-on, denser at the rim (shrimp shells, fins).
-  m.opacityNode = select(fin, float(0.5), select(glass, float(f.glassOpacity ?? 0.55), float(1)));
-  m.alphaHash = true;
+  // Translucent parts (fins, glass shells). One pass: hashed (stochastic) alpha. Two passes: the opaque pass
+  // discards them; the blend pass draws only them, alpha blended and without depth write, so the opaque body keeps
+  // writing depth and nothing sorts wrongly. Membranes are more see-through face-on and denser at the rim.
+  const glassSolid = (f.glassOpacity ?? 0.55) >= 0.9;                       // an almost opaque shell (shrimp) is drawn as solid
+  const trans = glassSolid ? fin : fin.or(glass);
+  const rimK = float(1).sub(ndv);
+  const finOp = float(f.finOpacity ?? 0.5).mul(rimK.mul(0.5).add(0.8)), glassOp = float(f.glassOpacity ?? 0.55).mul(rimK.mul(0.5).add(0.8));
+  const tOp = select(fin, finOp, glassOp).min(0.92);
+  if (pass === 'opaque') {
+    m.opacityNode = select(trans, float(0), float(1));
+    m.alphaTest = 0.5;
+  } else if (pass === 'blend') {
+    m.opacityNode = select(trans, tOp, float(0));
+    m.alphaTest = 0.02;
+    m.transparent = true;
+    m.depthWrite = false;
+  } else if (pass === 'solid') {
+    m.opacityNode = float(1);                                                     // nothing translucent in this mesh: no alpha at all
+  } else {
+    m.opacityNode = select(fin, float(0.5), select(glass, float(f.glassOpacity ?? 0.55), float(1)));
+    m.alphaHash = true;
+  }
   m.vertexColors = false;
   if (normalMap) { m.normalMap = normalMap; m.normalScale = new THREE.Vector2(1, 1); }
   if (roughnessMap) m.roughnessMap = roughnessMap;

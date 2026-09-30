@@ -436,65 +436,66 @@ export function axolotlBody(morph = 'leucistic') {
     }
     if (bl && bd < dc + 0.01 && dc > 0) {
       a.kind = 'limb'; a.leg = bl.id;
-      a.legT = clamp01((a.lt - 0.08) / 0.92) * sstep(0.0, 0.45, dc);
+      a.legT = clamp01((a.lt - 0.08) / 0.92) * sm(0.0, 0.45, dc);
     }
     return (last = a);
   };
 
   const spatter = (x, y, z, scale, thr) => {
     const c = cells(x, y, z, scale);
-    return sstep(thr + 0.06, thr - 0.06, c + (vnoise(x * 3, y * 3, z * 3) - 0.5) * 0.35);
+    return sm(thr + 0.06, thr - 0.06, c + (vnoise(x * 3, y * 3, z * 3) - 0.5) * 0.35);
   };
 
   const color = (x, y, z) => {
     const a = analyze(x, y, z);
     if (a.kind === 'eye') {
       const { c, e } = a.eye, th = Math.acos(Math.min(1, c));
-      const pupil = sstep(0.42, 0.34, th), ring = sstep(0.95, 0.6, th);
-      let col = lerp3(cs.ring, cs.iris, sstep(0.3, 0.7, th));
+      const pupil = sm(0.42, 0.34, th), ring = sm(0.95, 0.6, th);
+      let col = lerp3(cs.ring, cs.iris, sm(0.3, 0.7, th));
       col = lerp3(col, cs.eye, pupil);
       return lerp3(cs.eye, col, ring);
     }
     if (a.kind === 'gill') {
       const t = clamp01((Math.hypot(x - a.gill.B[0], y - a.gill.B[1], z - a.gill.B[2])) / 1.6);
-      return lerp3(cs.gillBase, cs.gill, sstep(0.05, 0.4, t));
+      return lerp3(cs.gillBase, cs.gill, sm(0.05, 0.4, t));
     }
     if (a.kind === 'fin') {
-      const e = sstep(0.0, 0.5, a.fin === 0 ? 0.3 : 0);
-      return lerp3(cs.fin, cs.finEdge, sstep(0.25, 0.7, clamp01(a.dc / 1.1)));
+      const e = sm(0.0, 0.5, a.fin === 0 ? 0.3 : 0);
+      return lerp3(cs.fin, cs.finEdge, sm(0.25, 0.7, clamp01(a.dc / 1.1)));
     }
     // body: dorsal to ventral tint from the loft cross-section
     loft.sect(z, sc);
     const yy = y - sc[0], v = yy / (yy >= 0 ? sc[2] : sc[3]);
-    let col = lerp3(cs.belly, cs.back, sstep(-0.75, 0.25, v));
+    let col = lerp3(cs.belly, cs.back, sm(-0.75, 0.25, v));
     col = lerp3(col, cs.skin, 0.35);
     // head: soft flush; mouth line and nostrils
     if (z > 2.1) {
       const e = y - mouthY(z);
-      const line = Math.exp(-(e * e) / 0.0035) * sstep(2.1, 2.6, z);
+      const line = Math.exp(-(e * e) / 0.0035) * sm(2.1, 2.6, z);
       col = lerp3(col, cs.lip, line * 0.75);
       for (const s of [-1, 1]) {
         const dn = Math.hypot(x - s * 0.3, y - (loft.top(0.3, 4.05) - 0.03), z - 4.05);
-        col = lerp3(col, mul3(cs.back, 0.25), sstep(0.09, 0.03, dn) * 0.9);
+        col = lerp3(col, mul3(cs.back, 0.25), sm(0.09, 0.03, dn) * 0.9);
       }
     }
     // cloaca
     const cl = Math.hypot(x * 1.6, (y - sc[0] + sc[3]) * 1.4, (z + 2.95) * 0.9);
-    if (cl < 0.4 && v < -0.7) col = lerp3(col, mul3(cs.lip, 0.85), sstep(0.4, 0.15, cl) * 0.8);
+    if (cl < 0.4 && v < -0.7) col = lerp3(col, mul3(cs.lip, 0.85), sm(0.4, 0.15, cl) * 0.8);
     if (cs.blotch) {
-      const b = spatter(x, y, z, m.blotch.scale, m.blotch.thr) * sstep(-0.9, 0.0, v);
+      const b = spatter(x, y, z, m.blotch.scale, m.blotch.thr) * sm(-0.9, 0.0, v);
       col = lerp3(col, cs.blotch, b * 0.85);
     }
     if (cs.spot) {
       const dsp = cells(x, y, z, m.spots.scale);
-      col = lerp3(col, cs.spot, sstep(0.24, 0.16, dsp) * m.spots.amt * 2 * sstep(-0.5, 0.2, v));
+      col = lerp3(col, cs.spot, sm(0.24, 0.16, dsp) * m.spots.amt * 2 * sm(-0.5, 0.2, v));
     }
     return col;
   };
 
+  // (Skin, not GLOSS: the material id is interpolated across a triangle, and 5 to 2 would pass through the iridescent id 3.)
   const mat = (x, y, z) => {
     const a = analyze(x, y, z);
-    return a.kind === 'eye' ? M.EYE : a.kind === 'gill' || a.kind === 'fin' ? M.FIN : M.GLOSS;
+    return a.kind === 'gill' || a.kind === 'fin' ? M.FIN : M.SKIN;
   };
 
   const rig = (x, y, z) => {
@@ -502,7 +503,10 @@ export function axolotlBody(morph = 'leucistic') {
     return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT];
   };
 
-  const def = { sdf, lo: [-3.4, -0.25, -8.1], hi: [3.4, 2.5, 4.7], color, mat, rig, finish: { rough: 0.32, coat: 0.9, coatRough: 0.08, grain: 14, bump: 0.0005, tone: 0.02, flutter: 0.045 } };
+  const def = { sdf, lo: [-3.4, -0.25, -8.1], hi: [3.4, 2.5, 4.7], color, mat, rig, finish: {
+    rough: 0.36, coat: 0.7, coatRough: 0.12, grain: 14, bump: 0.0005, tone: 0.02, flutter: 0.045, finOpacity: 0.55,
+    eyes: [eyeSpec(eyes[1], { pupil: [0.5, 0.5], inner: C(m.ring), outer: C(m.iris), rim: C(m.eye), seed: 5 })],
+  } };
   return lodDef(def, 0.1, 0.5, st);
 }
 
@@ -517,6 +521,12 @@ export const SALAMANDERS = {
 };
 
 // The limb (if any) whose surface is nearest to a point: { id, t, pad } with t = legT for the rig.
+// An analytic eye (material.js finish.eyes) for the +x eye of `e` (makeEye); the material mirrors it to -x.
+// h is the horizontal tangent, w the other one (vertical in the eye's frame).
+function eyeSpec(e, o) {
+  const a = norm3(e.axis), h = norm3(cross3(a, Math.abs(a[1]) > 0.85 ? [0, 0, 1] : [0, 1, 0]));
+  return { c: e.c, r: e.r, axis: a, h, w: norm3(cross3(a, h)), ...o };
+}
 function legAt(legs, x, y, z, dc) {
   const left = x < 0;
   let bl = null, bd = 1e9, bt = 0, bp = null;
@@ -646,9 +656,14 @@ function newtBody() {
     }
     return col;
   };
-  const mat = (x, y, z) => (analyze(x, y, z).kind === 'eye' ? M.EYE : M.SKIN);
+  const mat = () => M.SKIN;
   const rig = (x, y, z) => { const a = analyze(x, y, z); return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT]; };
-  const def = { sdf, lo: [-2.6, -0.25, -6.5], hi: [2.6, 1.8, 4.9], color, mat, rig, finish: { rough: 0.55, coat: 0.12, coatRough: 0.45, grain: 0.6, bump: 0.004, tone: 0.02, flutter: 0.02 } };
+  // Moist matte skin: no clear coat to speak of, a fine warty relief (grain per cm, bump is a normal tilt), and small
+  // dark eyes with a golden-brown iris and a catchlight.
+  const def = { sdf, lo: [-2.6, -0.25, -6.5], hi: [2.6, 1.8, 4.9], color, mat, rig, finish: {
+    rough: 0.66, coat: 0.05, coatRough: 0.55, grain: 11, bump: 0.7, tone: 0.045, flutter: 0.02,
+    eyes: [eyeSpec(eyes[1], { pupil: [0.42, 0.42], inner: C(0xb07a26), outer: C(0x4a2a10), rim: C(0x040302), limb: C(0x1c1208), seed: 7 })],
+  } };
   return lodDef(def, 0.09, 0.5, st);
 }
 
@@ -792,6 +807,10 @@ function geckoBody() {
   };
   const mat = (x, y, z) => (analyze(x, y, z).kind === 'eye' ? M.GLOSS : M.KERATIN);
   const rig = (x, y, z) => { const a = analyze(x, y, z); return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT]; };
-  const def = { sdf, lo: [-2.9, -0.25, -5.8], hi: [2.9, 1.3, 3.9], color, mat, rig, finish: { rough: 0.7, coat: 0.05, coatRough: 0.5, grain: 0.6, bump: 0.004, tone: 0.02 } };
+  // Golden iris with a vertical lens-shaped slit pupil (drawn analytically, so it reads at the coarse mesh too).
+  const def = { sdf, lo: [-2.9, -0.25, -5.8], hi: [2.9, 1.3, 3.9], color, mat, rig, finish: {
+    rough: 0.7, coat: 0.05, coatRough: 0.5, grain: 0.6, bump: 0.004, tone: 0.02,
+    eyes: [eyeSpec(eyes[1], { pupil: [0.3, 0.8], shape: 'slit', inner: C(0xe6b83a), outer: C(0xa8741f), rim: C(0x050403), limb: C(0x4a3418), cap: 0.9, seed: 2 })],
+  } };
   return lodDef(def, 0.07, 0.5, st);
 }

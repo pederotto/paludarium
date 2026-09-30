@@ -25,6 +25,8 @@ export const S = {
   undoDepth: signal(0),
   guides: signal(false),          // composition guides (rule of thirds)
   photo: signal(false),
+  mirror: signal(false),          // symmetry: mirror strokes and placements across the tank's centre plane
+  timelapse: signal(null),        // null | { days, from, day } while a time-lapse runs
   tankTitle: signal(null),        // name of a generated terrarium, shown under the brand
   quality: signal('high'),
   backend: signal(''),

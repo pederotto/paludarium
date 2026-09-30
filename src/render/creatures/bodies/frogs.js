@@ -684,7 +684,7 @@ FROGS.tadpole = () => {
     sdf, lo: [-0.5, -0.4, -1.4], hi: [0.5, 0.65, 1.15], cell: 0.03,
     color: (x, y, z) => {
       if (isEye(x, y, z)) return C(0x030303);
-      if (isFin(x, y, z)) return lerp3(C(0xb8a888), C(0x5a4a36), sstep(0.5, 0.62, vnoise(x * 9, y * 9, z * 9)) * 0.7);
+      if (isFin(x, y, z)) return lerp3(C(0xb8a888), C(0x6a5a44), sstep(0.35, 0.85, vnoise(x * 7, y * 7, z * 7)) * 0.4);
       const belly = sstep(0.0, -0.22, y - 0.02);
       const base = lerp3(C(0x2a2018), C(0x4a3a2a), vnoise(x * 5, y * 5, z * 5));
       return lerp3(base, C(0x9a8a70), belly * (z > -0.1 ? 0.9 : 0.3));
@@ -706,13 +706,13 @@ FROGS.eggs = () => {
   const shell = (x, y, z) => { let d = 9; for (const [a, b, c] of pts) d = Math.min(d, Math.sqrt((x - a) ** 2 + (y - b) ** 2 + (z - c) ** 2) - R); return d; };
   const emb = (x, y, z) => { let d = 9; for (const [a, b, c] of pts) d = Math.min(d, Math.sqrt((x - a) ** 2 + (y - b + 0.02) ** 2 + (z - c) ** 2) - 0.115); return d; };
   const sdf = (x, y, z) => {
-    // hollow jelly shell (wall 0.075) plus the embryos inside
-    const s = shell(x, y, z), wall = Math.max(s, -s - 0.075);
+    // hollow jelly shell (wall 0.1) plus the embryos inside
+    const s = shell(x, y, z), wall = Math.max(s, -s - 0.1);
     return Math.min(smax(wall, -y - 0.02, 0.02), emb(x, y, z));
   };
   const isEmb = (x, y, z) => emb(x, y, z) < 0.02 && shell(x, y, z) < -0.06;
   return {
-    sdf, lo: [-1.0, -0.1, -1.0], hi: [1.0, 1.0, 1.0], cell: 0.056,
+    sdf, lo: [-1.0, -0.1, -1.0], hi: [1.0, 1.0, 1.0], cell: 0.045,
     color: (x, y, z) => {
       if (isEmb(x, y, z)) {
         let c0 = 0, bc = 9;
@@ -722,7 +722,7 @@ FROGS.eggs = () => {
       return lerp3(C(0xdce8e0), C(0xf0f4e6), vnoise(x * 4, y * 4, z * 4));
     },
     mat: (x, y, z) => (isEmb(x, y, z) ? M.SKIN : M.TRANSLUCENT),
-    finish: { rough: 0.3, coat: 0.5, coatRough: 0.1, grain: 9, bump: 0.05, grainAmt: 0.2, tone: 0.01, glassOpacity: 0.6, eyes: [] },
+    finish: { rough: 0.3, coat: 0.5, coatRough: 0.1, grain: 9, bump: 0.05, grainAmt: 0.2, tone: 0.01, glassOpacity: 0.4, eyes: [] },
   };
 };
 void hash;

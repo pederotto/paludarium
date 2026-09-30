@@ -28,12 +28,23 @@ export class CreatureMesh {
     this.geometry = g;
 
     if (material) this.material = material;
-    else this.material = buildMaterial(finish, wave, legLift, legStride, textures);
+    else this.material = buildMaterial(finish, wave, legLift, legStride, textures, hasTranslucent(geometry, finish));
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.userData.keepGeometry = true;   // its attributes are shared with the species' cached geometry: never dispose them on unload
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
+    // Translucent parts (fins, glass shells) are drawn by a second, alpha-blended mesh sharing the geometry; it is a
+    // child of the main mesh so hiding, moving or removing that one takes it along.
+    const bm = this.material.userData.blendMaterial;
+    if (bm) {
+      this.blend = new THREE.Mesh(g, bm);
+      this.blend.frustumCulled = false;
+      this.blend.userData.keepGeometry = true;
+      this.blend.castShadow = false;
+      this.blend.receiveShadow = true;
+      this.mesh.add(this.blend);
+    }
     scene.add(this.mesh);
     this.n = 0;
   }
@@ -60,8 +71,24 @@ export class CreatureMesh {
   dispose() { this.geometry.dispose(); this.mesh.removeFromParent(); }
 }
 
-function buildMaterial(finish, wave, legLift, legStride, textures = null) {
-  const { material: m, n } = creatureMaterial(finish, textures ?? {});
+// Does the geometry carry membrane (2) or glass (7) material ids? Then it needs the second, blended pass.
+// (A glass shell that is nearly opaque, finish.glassOpacity >= 0.9, is drawn solid, so only membranes count then.)
+function hasTranslucent(geometry, finish) {
+  const rig = geometry.attributes.rig;
+  if (!rig) return false;
+  const glass = (finish.glassOpacity ?? 0.55) < 0.9;
+  for (let i = 0; i < rig.count; i++) { const id = rig.getW(i); if (id > 1.5 && id < 2.5 || glass && id > 6.5) return true; }
+  return false;
+}
+
+function buildMaterial(finish, wave, legLift, legStride, textures = null, translucent = false) {
+  const m = buildPass(finish, wave, legLift, legStride, textures, translucent ? 'opaque' : 'solid');
+  if (translucent) m.userData.blendMaterial = buildPass(finish, wave, legLift, legStride, textures, 'blend');
+  return m;
+}
+
+function buildPass(finish, wave, legLift, legStride, textures, pass) {
+  const { material: m, n } = creatureMaterial(finish, { ...(textures ?? {}), pass });
   const rig = attribute('rig', 'vec4');
   const anim = attribute('iAnim', 'vec4');
   const q = attribute('iRot', 'vec4');
