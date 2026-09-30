@@ -34,7 +34,18 @@ http.createServer(async (req, res) => {
     if (u.pathname === '/run') {
       const code = await body(req);
       await hide();
-      const r = await page.evaluate(`(async () => { ${code} })()`);
+      let r;
+      for (let attempt = 0; ; attempt++) {
+        try { r = await page.evaluate(`(async () => { ${code} })()`); break; }
+        catch (e) {
+          // The dev server reloads the page when someone edits a source file: wait and run again.
+          if (attempt >= 3 || !/context was destroyed|navigation/.test(String(e.message))) throw e;
+          await page.waitForLoadState('load').catch(() => {});
+          await page.waitForFunction(() => document.getElementById('loading')?.classList.contains('gone') && window.game?.world, null, { timeout: 60000 }).catch(() => {});
+          await page.waitForTimeout(1500);
+          await hide();
+        }
+      }
       send({ ok: true, r });
     } else if (u.pathname === '/shot') {
       const name = u.searchParams.get('name') || 'shot';

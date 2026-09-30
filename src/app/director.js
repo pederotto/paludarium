@@ -70,6 +70,7 @@ export class Director {
   }
 
   async startCareer() {
+    S.tankTitle.value = null;
     const career = new Career({ mode: 'career' });
     this.attach(career);
     await this.game.loadTank('jar', { layout: 'empty' });
@@ -88,9 +89,13 @@ export class Director {
       const world = await this.game.loadTank(tank, { layout: 'empty' });
       const gen = await loadGenerator();
       if (!gen) throw new Error('The terrarium generator is not available yet.');
-      gen.generateTerrarium(world, { preset: preset.id, seed: preset.seed, tier: tank });
+      const made = gen.generateTerrarium(world, { preset: preset.id, seed: preset.seed, tier: tank });
+      S.tankTitle.value = made?.name ?? null;
       world.log(`Welcome! ${gen.describePreset?.(preset.id, preset.seed) ?? 'A generated terrarium'}. Everything is unlocked in sandbox mode.`);
-    } else await this.game.loadTank(tank, { layout: kind === 'starter' && tank === 'standard' ? 'starter' : 'empty' });
+    } else {
+      S.tankTitle.value = null;
+      await this.game.loadTank(tank, { layout: kind === 'starter' && tank === 'standard' ? 'starter' : 'empty' });
+    }
     this.syncGear();
     this.tutorial.finished = true;
     this.publish();
@@ -182,8 +187,8 @@ export class Director {
     const world = await this.game.loadTank(tier, { layout: 'empty' });
     if (preset) {
       const gen = await loadGenerator();
-      if (gen) gen.generateTerrarium(world, { preset: preset.id, seed: preset.seed, tier });
-    }
+      if (gen) S.tankTitle.value = gen.generateTerrarium(world, { preset: preset.id, seed: preset.seed, tier })?.name ?? null;
+    } else S.tankTitle.value = null;
     if (tier === 'grand') this.career.stat('grandBuilt');
     this.syncGear();
     this.enterPlay();
@@ -212,6 +217,7 @@ export class Director {
   }
 
   async load() {
+    S.tankTitle.value = null;
     const data = await Saves.get(SLOT);
     if (!data) return false;
     const career = Career.load(data.career);

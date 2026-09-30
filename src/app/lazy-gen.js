@@ -7,7 +7,9 @@ const GENERATOR = import.meta.glob('../sim/generator.js');
 
 export async function loadPresets() {
   const f = Object.values(PRESETS)[0];
-  return f ? (await f()).PRESETS ?? [] : [];
+  if (!f) return [];
+  const m = await f();
+  return (m.PRESET_ORDER ?? Object.keys(m.PRESETS ?? {})).map((id) => m.PRESETS[id]).filter(Boolean);
 }
 
 export async function loadGenerator() {

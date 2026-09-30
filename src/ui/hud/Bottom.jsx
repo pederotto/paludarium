@@ -42,7 +42,7 @@ export function Bottom() {
           <Icon name="lens" size={15} />{lens === 'off' ? 'Lens' : lens}
         </button>
         <button onClick={() => openModal('curator')} title="The Curator: score this tank"><Icon name="trophy" size={15} />Score</button>
-        <button onClick={() => openModal('photo')} title="Photo mode"><Icon name="camera" size={15} /></button>
+        <button onClick={() => { S.photo.value = true; }} title="Photo mode"><Icon name="camera" size={15} /></button>
       </div>
     </div>
     </>

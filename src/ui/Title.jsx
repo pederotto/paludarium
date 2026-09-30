@@ -53,7 +53,7 @@ function Generated({ back }) {
       <p class="tag-line" style={{ marginTop: 8 }}>Each one is composed, planted and stocked for you, then left running. Every seed is different.</p>
       <div class="seg" style={{ marginBottom: 12 }}>{TANK_ORDER.map((t) => <button key={t} class={tier === t ? 'on' : ''} onClick={() => setTier(t)}>{TANKS[t].name.split(' ')[0]}</button>)}</div>
       {presets === null ? <p class="note">Loading…</p> : !presets.length ? <p class="note">The generator is not available in this build.</p> : (
-        <div class="cols" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', maxHeight: '46vh', overflowY: 'auto' }}>
+        <div class="cols" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', maxHeight: '46vh', overflowY: 'auto', alignContent: 'start', gridAutoRows: 'max-content' }}>
           {list.map((p) => (
             <div key={p.id} class="tile glass" style={{ cursor: 'pointer' }} onClick={() => ctx.start.preset(p.id, seed(p.id), tier)}>
               <h4>{p.name}</h4><p>{p.blurb}</p>

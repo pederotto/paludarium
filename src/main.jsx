@@ -65,6 +65,7 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal.va
 window.addEventListener('beforeunload', () => { director.save?.().catch(() => {}); });
 
 effect(() => { game.lens?.set(S.lens.value); });
+effect(() => { game.setPhoto(S.photo.value); });
 render(<App />, document.getElementById('ui'));
 bindLayout(game);
 game.start();

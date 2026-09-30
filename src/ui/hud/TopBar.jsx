@@ -17,7 +17,7 @@ export function TopBar() {
         <div class="mark"><Icon name="drop" size={18} stroke={2} /></div>
         <div>
           <b>Paludarium</b>
-          <small>{live.tank.name} · {live.tank.litres} L</small>
+          <small>{S.tankTitle.value ?? live.tank.name} · {live.tank.litres} L</small>
         </div>
       </div>
       <div class="clock glass">
