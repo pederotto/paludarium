@@ -4,21 +4,22 @@ import '@fontsource-variable/fraunces';
 import './ui/theme.css';
 import { render } from 'preact';
 import { App } from './ui/App.jsx';
-import { S, closeModal } from './ui/store.js';
+import { S, closeModal, toast } from './ui/store.js';
 import { ctx } from './app/ctx.js';
 import { Game } from './app/game.js';
 import { ToolController } from './tools/controller.js';
 import { snapshot } from './app/snapshot.js';
-import { Saves, Meta } from './app/saves.js';
+import { Meta } from './app/saves.js';
+import { Director } from './app/director.js';
 import { bindLayout } from './ui/layout.js';
 
-const dev = new URLSearchParams(location.search);
+const q = new URLSearchParams(location.search);
 window.__errs = [];
 for (const k of ['error', 'warn']) { const o = console[k]; console[k] = (...a) => { window.__errs.push(k + ': ' + a.map(String).join(' ').slice(0, 400)); o.apply(console, a); }; }
 window.addEventListener('error', (e) => window.__errs.push('uncaught: ' + e.message));
 
 const loading = document.getElementById('loading');
-const game = new Game(document.getElementById('view'), dev);
+const game = new Game(document.getElementById('view'), q);
 window.game = game;
 ctx.game = game;
 try {
@@ -38,34 +39,31 @@ mq.addEventListener('change', (e) => { S.compact.value = e.matches; S.right.valu
 // The title screen shows the starter tank slowly turning behind the menu.
 await game.loadTank('standard', { layout: 'starter' });
 ctx.tools = new ToolController(game);
+const director = ctx.director = new Director(game);
 game.rig.startOrbit(0.04);
 game.rig.view('hero', false);
 
-ctx.start = {
-  async sandbox(kind) {
-    if (kind === 'empty') await game.loadTank('standard', { layout: 'empty' });
-    game.world.equipment.all = true;
-    enter();
-  },
-  async career() { ctx.start.sandbox('empty'); },
-  async continue() { ctx.start.sandbox('starter'); },
-};
-function enter() {
-  S.screen.value = 'play';
-  game.rig.stopOrbit();
-  game.rig.view('front', true);
-  ctx.tools.setTool('view');
-  game.setSpeed(1);
+async function busy(text, fn) {
+  S.busy.value = { text };
+  await new Promise((r) => setTimeout(r, 30));
+  try { await fn(); } catch (e) { console.error(e); toast('Could not start: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; }
 }
+
+ctx.start = {
+  career: () => busy('Setting up your studio…', async () => { await director.startCareer(); director.enterPlay(); }),
+  sandbox: (kind) => busy('Filling the tank…', async () => { await director.startSandbox(kind); director.enterPlay(); }),
+  preset: (id, seed, tier) => busy('Growing a terrarium…', async () => { await director.startSandbox('preset', tier, { id, seed }); director.enterPlay(); }),
+  continue: () => busy('Loading…', async () => { if (await director.load()) director.enterPlay(); else toast('No saved game found.', 'bad'); }),
+};
 
 game.tickHooks.push(() => {
   S.live.value = snapshot(game);
   S.fps.value = game.gfx.stats.fps;
 });
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal.value) closeModal(); });
+window.addEventListener('beforeunload', () => { director.save?.().catch(() => {}); });
 
 render(<App />, document.getElementById('ui'));
 bindLayout(game);
 game.start();
 loading.classList.add('gone');
-void Saves;

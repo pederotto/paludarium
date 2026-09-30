@@ -6,6 +6,8 @@ import { ToolOptions } from './hud/ToolOptions.jsx';
 import { Vitals } from './hud/Vitals.jsx';
 import { Bottom } from './hud/Bottom.jsx';
 import { Toasts } from './hud/Toasts.jsx';
+import { InfoBanner } from './hud/InfoBanner.jsx';
+import { Coach } from './hud/Coach.jsx';
 import { Modals } from './panels/Modals.jsx';
 
 export function App() {
@@ -20,11 +22,14 @@ export function App() {
           <ToolOptions />
           <Vitals />
           <Bottom />
+          <InfoBanner />
+          <Coach />
         </>
       ) : null}
       {S.screen.value === 'title' ? <Title /> : null}
       <Toasts />
       <Modals />
+      {S.busy.value ? <div class="busy"><div class="box glass strong"><div class="spin" /><div>{S.busy.value.text}</div></div></div> : null}
     </>
   );
 }

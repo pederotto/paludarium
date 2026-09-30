@@ -31,6 +31,8 @@ export class World {
     this.sim = new Sim(this);
     this.undoStack = [];
     this._moss = 0;
+    // Running counters for goals and achievements (never reset by loading a tank).
+    this.stats = { births: 0, deaths: 0, metamorphs: 0, hatched: 0, lastDeathMinute: -1e9 };
   }
 
   log(msg, kind = 'info') {

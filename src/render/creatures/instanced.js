@@ -31,6 +31,7 @@ export class CreatureMesh {
     else this.material = buildMaterial(finish, wave, legLift, legStride);
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
+    this.mesh.userData.keepGeometry = true;   // its attributes are shared with the species' cached geometry: never dispose them on unload
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     scene.add(this.mesh);

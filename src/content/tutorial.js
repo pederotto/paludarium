@@ -1,0 +1,16 @@
+// Mira's first-jar tutorial. Each step names what to do and why it matters;
+// `done` reads the metrics snapshot, the flags that tools set through
+// game.events ('edit', 'placed', 'looked') or the career.
+
+export const TUTORIAL = [
+  { id: 'look', title: 'Look around', text: 'This is your jar: a sealed glass world. Drag with the mouse (or one finger) to turn it, scroll or pinch to zoom, and click anything to learn about it.', hint: 'Drag to orbit the jar.', done: (m, f) => f.looked },
+  { id: 'sculpt', title: 'Shape the ground', text: 'Choose Sculpt on the left and drag over the soil to raise a small hill. A landscape with height gives plants different spots: high and dry, low and damp.', hint: 'Pick the Sculpt tool, then drag on the ground.', highlight: 'tool:sculpt', done: (m, f) => f.edit?.sculpt },
+  { id: 'paint', title: 'Paint some moss', text: 'Moss grows where the air is damp and the light is soft. Choose Paint, pick Moss, and brush a patch on the soil and the back wall. Watch it spread over the next days.', hint: 'Pick Paint, choose Moss, brush a patch.', highlight: 'tool:paint', done: (m, f) => f.edit?.paint },
+  { id: 'stone', title: 'Place a stone', text: 'Every good scape starts with hardscape. Pick Hardscape and click the ground to place a mossy boulder. Try three of different sizes: odd numbers look natural.', hint: 'Pick Hardscape and click the ground.', highlight: 'tool:rock', done: (m, f) => f.placed?.piece },
+  { id: 'plants', title: 'Plant it up', text: 'Choose Plants and put in four: ferns like shade and damp, grass likes light. Check a plant\'s needs in its card before you plant.', hint: 'Pick Plants and click the soil four times.', highlight: 'tool:plant', done: (m) => m.plants.total >= 4 },
+  { id: 'water', title: 'Add a little water', text: 'Open the Water tool and raise the main level a few centimetres to make a small pool. Water is what makes the jar breathe: it evaporates, condenses on the glass and rains back down.', hint: 'Water tool, then the Main level slider.', highlight: 'tool:water', done: (m) => m.litres >= 0.4 },
+  { id: 'crew', title: 'Bring in the cleaning crew', text: 'Choose Animals and release springtails and isopods (they are cheap). They eat mould and waste. A jar without them slowly goes sour.', hint: 'Pick Animals, choose Springtails, click the soil.', highlight: 'tool:animal', done: (m) => (m.animals.byId.springtail ?? 0) >= 10 },
+  { id: 'wait', title: 'Give it time', text: 'Nature is slow. Use the speed buttons at the top: 20× shows a week in a few minutes. Watch the glass fog in the morning and clear in the afternoon. That is the water cycle.', hint: 'Press 20× and watch the glass.', highlight: 'panel:speed', done: (m, f, c) => m.day >= (c.startDay ?? 1) + 2 },
+  { id: 'read', title: 'Read about it', text: 'The Field Guide explains the science of what you just saw. Open it and read the card on the water cycle.', hint: 'Field guide → Concepts → The water cycle.', highlight: 'panel:codex', done: (m, f, c, career) => career.knows('concept', 'water-cycle') },
+  { id: 'finish', title: 'You are a keeper', text: 'That is the loop: build, wait, observe, adjust. Commissions on the Studio board give you goals and funds for new stock and tools. Bigger tanks and rarer animals come with reputation. Enjoy.', hint: '', done: () => true },
+];

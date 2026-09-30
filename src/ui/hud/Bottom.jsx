@@ -30,6 +30,7 @@ export function Bottom() {
         <button onClick={() => { S.lens.value = LENSES[(LENSES.indexOf(lens) + 1) % LENSES.length]; }} title="Lens overlay (L)" class={lens !== 'off' ? 'on' : ''} style={lens !== 'off' ? { color: 'var(--moss)' } : null}>
           <Icon name="lens" size={15} />{lens === 'off' ? 'Lens' : lens}
         </button>
+        <button onClick={() => openModal('curator')} title="The Curator: score this tank"><Icon name="trophy" size={15} />Score</button>
         <button onClick={() => openModal('photo')} title="Photo mode"><Icon name="camera" size={15} /></button>
       </div>
     </div>

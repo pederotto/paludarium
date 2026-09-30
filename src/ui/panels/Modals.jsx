@@ -1,6 +1,11 @@
 import { S, closeModal } from '../store.js';
 import { Icon } from '../icons.jsx';
 import { Settings } from './Settings.jsx';
+import { Codex } from './Codex.jsx';
+import { Studio } from './Studio.jsx';
+import { CarePanel } from './Care.jsx';
+import { LabPanel } from './Lab.jsx';
+import { CuratorPanel } from './Curator.jsx';
 
 export function Sheet({ title, icon, tabs, tab, setTab, children, wide, onClose = closeModal }) {
   return (
@@ -26,5 +31,10 @@ export function Modals() {
   const m = S.modal.value;
   if (!m) return null;
   if (m === 'settings') return <Settings />;
+  if (m === 'codex') return <Codex />;
+  if (m === 'studio') return <Studio />;
+  if (m === 'care') return <CarePanel />;
+  if (m === 'lab') return <LabPanel />;
+  if (m === 'curator') return <CuratorPanel />;
   return null;
 }

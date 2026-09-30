@@ -268,12 +268,14 @@ export class Sim {
         if (!wetOk && a.where !== 'shallow') a.health -= d / 600;
         if (a.age >= (a.hatch ?? 7) * 1440) {
           W.animals.remove(a, 'hatched');
+        W.stats.hatched++;
           births.push({ hatch: true, sp: a.into ?? 'tadpole', parent: a.parent, n: a.n ?? 4, pos: a.pos.clone() });
           continue;
         }
       }
       if (sp.metamorphDays && a.age >= sp.metamorphDays * 1440 && a.parent && SPECIES[a.parent]) {
         W.animals.remove(a, 'metamorphosed');
+        W.stats.metamorphs++;
         births.push({ meta: true, sp: a.parent, pos: a.pos.clone() });
         continue;
       }
@@ -281,6 +283,7 @@ export class Sim {
       if (a.health <= 0 || a.age > life) {
         const cause = a.health <= 0 ? (why[0] ?? 'poor health') : 'old age';
         W.animals.remove(a, cause);
+        W.stats.deaths++; W.stats.lastDeathMinute = E.minute;
         E.detritus += sp.size * (sp.kind === 'swim' || sp.kind === 'frog' || sp.kind === 'toad' ? 0.6 : 0.08);
         if (sp.cap < 60 || Math.random() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
         continue;
@@ -300,6 +303,7 @@ export class Sim {
       }
     }
     for (const b of births) {
+      if (!b.lay && !b.hatch && !b.meta) W.stats.births++;
       if (b.lay) this.layEggs(b);
       else if (b.hatch) {
         let n = 0;

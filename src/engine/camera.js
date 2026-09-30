@@ -65,7 +65,7 @@ export class CameraRig {
   fit() {
     const { w, d, h } = TANK;
     const c = this.controls;
-    c.minDistance = Math.max(5, w * 0.09);
+    c.minDistance = 3;
     c.maxDistance = Math.max(w * 3, this.fitDistance(1.3, 1.3) * 1.5);
     c.setBoundary(new THREE.Box3(new THREE.Vector3(-w * 0.7, -4, -d * 0.8), new THREE.Vector3(w * 0.7, h * 1.25, d * 1.05)));
     this.moved = false;

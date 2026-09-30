@@ -238,5 +238,5 @@ export const CONCEPTS = {
 };
 
 // Resolve aliases.
-for (const [id, c] of Object.entries(CONCEPTS)) if (c.alias) CONCEPTS[id] = { ...CONCEPTS[c.alias], id };
+for (const [id, c] of Object.entries(CONCEPTS)) if (c.alias) CONCEPTS[id] = { ...CONCEPTS[c.alias], id, hidden: true };
 for (const [id, c] of Object.entries(CONCEPTS)) c.id = id;

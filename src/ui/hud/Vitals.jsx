@@ -40,7 +40,6 @@ export function Vitals() {
   const testKit = has('testKit'), hygro = has('hygro');
   return (
     <div class="vitals">
-      <Inspector live={live} />
       <div class="card glass">
         <div class="stage-line"><b>{live.stage.name}</b><span class="num" style={{ color: 'var(--dim)', fontSize: 12 }}>day {Math.floor(e.tankDays) + 1}</span></div>
         <div class="bar" title="Maturity"><i style={{ width: Math.round(live.stage.progress * 100) + '%' }} /></div>

@@ -36,7 +36,7 @@ export function Codex() {
   const [page, setPage] = useState(!!start.id);   // narrow screens: list ↔ page
   useEffect(() => { const p = parse(S.modalArg.value); setTab(p.tab); setId(p.id); setPage(!!p.id); }, [S.modalArg.value]);
   const pick = (t, i) => { setTab(t); setId(i); setPage(true); ctx.career?.discover?.(t, i); };
-  const list = tab === 'concept' ? Object.values(CONCEPTS).map((c) => [c.id, c.title, c.icon])
+  const list = tab === 'concept' ? Object.values(CONCEPTS).filter((c) => !c.hidden).map((c) => [c.id, c.title, c.icon])
     : tab === 'animal' ? animals().map(([i, s]) => [i, s.name, null])
       : tab === 'plant' ? plants().map(([i, p]) => [i, p.name, null])
         : BIOTOPE_ORDER.map((b) => [b, BIOTOPES[b].name, null]);

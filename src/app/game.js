@@ -95,6 +95,8 @@ export class Game {
     this.fx?.dispose();
     this.stage?.dispose();
     const kill = (o) => {
+      // Sprites all share one geometry, and creature meshes share attribute buffers with a cache: leave those alone.
+      if (o.userData?.keepGeometry || o.isSprite) { (Array.isArray(o.material) ? o.material : o.material ? [o.material] : []).forEach((m) => m.dispose?.()); return; }
       o.geometry?.dispose?.();
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
       for (const m of mats) m.dispose?.();

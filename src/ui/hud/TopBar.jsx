@@ -33,7 +33,7 @@ export function TopBar() {
         ))}
       </div>
       <button class="vchip glass" onClick={() => { S.right.value = !S.right.value; }} title="Tank vitals">
-        <Icon name="thermo" size={15} style={{ color: 'var(--moss)' }} />{live.env.temp.toFixed(0)}° <Icon name="drop" size={14} style={{ color: 'var(--water)' }} />{Math.round(live.env.humidity)}%
+        <Icon name="thermo" size={15} style={{ color: 'var(--moss)' }} /><span class="vday">D{live.clock.day}</span>{live.env.temp.toFixed(0)}° <Icon name="drop" size={14} style={{ color: 'var(--water)' }} />{Math.round(live.env.humidity)}%
       </button>
       <div class="spacer" />
       {career && (

@@ -88,7 +88,6 @@ export class ToolController {
       W.water.outletMeshes.forEach((m) => { m.visible = id === 'water' || id === 'erase'; });
       W.water.pumpMesh.visible = id === 'water';
     }
-    if (id !== 'inspect') S.selection.value = null;
   }
 
   setSub(key, val, h) {
@@ -163,9 +162,9 @@ export class ToolController {
       if (e.button !== 0 || !this.W) return;
       if (this.tc.dragging || this.tc.axis) return;
       this.setMouse(e);
-      if (this.tool === 'view') {
-        const hit = this.pick(['terrain', 'water']);
-        if (hit?.surface === 'water') this.W.fx?.addDrop(hit.point.x, hit.point.z, -9, 1.1);
+      if (this.tool === 'view' || this.tool === 'inspect') {
+        // A tap (not a drag) selects whatever is under the pointer; on water it also ripples.
+        this._tap = { x: e.clientX, y: e.clientY, t: performance.now() };
         return;
       }
       this.down = true;
@@ -178,9 +177,17 @@ export class ToolController {
       if (!this.down) return;
       this.down = false;
       if (this.path) this.finishPath();
-      if (this.strokeChanged) { this.W.groundChanged(); this.strokeChanged = false; this.game.events.emit('edit'); }
+      if (this.strokeChanged) { this.W.groundChanged(); this.strokeChanged = false; this.game.events.emit('edit', this.tool); }
     };
-    el.addEventListener('pointerup', up);
+    el.addEventListener('pointerup', (e) => {
+      const t = this._tap;
+      this._tap = null;
+      if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 6 && performance.now() - t.t < 500 && this.W) {
+        this.setMouse(e);
+        this.tap();
+      }
+      up();
+    });
     el.addEventListener('pointercancel', up);
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('dblclick', (e) => {
@@ -190,6 +197,62 @@ export class ToolController {
       this.controls.moveTo(hit.point.x, hit.point.y, hit.point.z, true);
       if (this.controls.distance > 70) this.controls.dollyTo(Math.max(30, TANK.w * 0.65), true);
     });
+  }
+
+  // --- Selecting things: animals, plants, stones and pools ------------------------
+  tap() {
+    const W = this.W;
+    this.ray.setFromCamera(this.mouse, this.camera);
+    const a = W.animals.pick(this.ray.ray, 2.2);
+    const hit = this.pick(['terrain', 'wall', 'water']);
+    if (hit?.surface === 'water' && !a) W.fx?.addDrop(hit.point.x, hit.point.z, -9, 1.1);
+    if (a) { this.select({ kind: 'animal', obj: a }); return; }
+    if (hit) {
+      const plant = W.plants.near(hit.point, 4);
+      if (plant) { this.select({ kind: 'plant', obj: plant }); return; }
+      const piece = hit.object && W.decor.pieceAt(hit.object);
+      if (piece) { this.select({ kind: 'piece', obj: piece }); return; }
+      const pool = W.water.pondAt(hit.point.x, hit.point.z);
+      if (pool) { this.select({ kind: 'pool', obj: pool }); return; }
+    }
+    this.select(null);
+  }
+
+  select(sel) {
+    S.selection.value = sel;
+    if (!sel) this.follow(null);
+  }
+
+  // The world position of a selection, and a sensible distance to look at it from.
+  focusOf(sel) {
+    const o = sel.obj;
+    if (sel.kind === 'animal') return { p: o.pos.clone(), d: Math.max(9, SPECIES[o.sp].size * 7 + 4) };
+    if (sel.kind === 'plant') return { p: o.pos.clone().add(new THREE.Vector3(0, 3, 0)), d: 20 };
+    if (sel.kind === 'piece') {
+      const b = new THREE.Box3().setFromObject(o.mesh), c = b.getCenter(new THREE.Vector3());
+      return { p: c, d: Math.max(20, b.getSize(new THREE.Vector3()).length() * 1.4) };
+    }
+    return { p: new THREE.Vector3(o.x ?? 0, (o.level ?? 5), o.z ?? 0), d: 30 };
+  }
+
+  // Fly the camera close to the selection, keeping the direction we look from.
+  zoomTo(sel = S.selection.value) {
+    if (!sel) return;
+    const { p, d } = this.focusOf(sel);
+    const dir = this.camera.position.clone().sub(p).normalize();
+    if (dir.y < 0.05) dir.y = 0.05;
+    dir.normalize();
+    const c = this.controls;
+    c.minDistance = 3;
+    c.setLookAt(p.x + dir.x * d, p.y + dir.y * d, p.z + dir.z * d, p.x, p.y, p.z, true);
+    this.game.rig.moved = true;
+    // Animals move: keep the camera on them after zooming in (Follow toggles it off).
+    if (sel.kind === 'animal') this.follow(sel.obj);
+  }
+
+  // Keep the camera on a moving animal.
+  follow(obj) {
+    S.following.value = obj ?? null;
   }
 
   hover() {
@@ -248,6 +311,9 @@ export class ToolController {
 
   // Continuous brush while the button is held.
   frame(dt) {
+    const fol = S.following.value;
+    if (fol && !fol.dead && fol.pos) this.controls.moveTo(fol.pos.x, fol.pos.y, fol.pos.z, true);
+    else if (fol) S.following.value = null;
     this.frameMarker();
     this.frameKeys(dt);
     if (S.piece.value) this.box.update();
@@ -307,16 +373,7 @@ export class ToolController {
       }
       case 'animal': this.clickAnimal(); break;
       case 'gear': this.clickGear(); break;
-      case 'inspect': {
-        this.ray.setFromCamera(this.mouse, this.camera);
-        const a = W.animals.pick(this.ray.ray, 2.5);
-        if (a) { S.selection.value = { kind: 'animal', obj: a }; break; }
-        const hit = this.pick(['terrain', 'wall', 'water']);
-        const p = hit && W.plants.near(hit.point, 5);
-        const pool = hit && !p && W.water.pondAt(hit.point.x, hit.point.z);
-        S.selection.value = p ? { kind: 'plant', obj: p } : pool ? { kind: 'pool', obj: pool } : null;
-        break;
-      }
+      case 'inspect': break;   // handled by tap(): a click selects in Look and Inspect alike
       case 'erase': this.clickErase(); break;
     }
   }
@@ -509,7 +566,7 @@ export class ToolController {
 
   frameMarker() {
     const s = S.selection.value;
-    if (!s || s.obj?.dead || !s.obj || s.kind === 'pool') { this.marker.visible = false; return; }
+    if (!s || s.obj?.dead || !s.obj || s.kind === 'pool' || s.kind === 'piece') { this.marker.visible = false; return; }
     this.marker.visible = true;
     this.marker.position.copy(s.obj.pos).add(new THREE.Vector3(0, 0.3, 0));
     this.marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), UP);
@@ -526,7 +583,7 @@ export class ToolController {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const piece = S.piece.value;
       if (e.code === 'Space') { this.game.setSpeed(this.game.speed === 0 ? 1 : 0); e.preventDefault(); }
-      else if (k === 'escape') { if (piece) this.selectPiece(null); else if (S.selection.value) S.selection.value = null; else this.setTool('view'); }
+      else if (k === 'escape') { if (piece) this.selectPiece(null); else if (S.selection.value) this.select(null); else this.setTool('view'); }
       else if (k === 'delete' || k === 'backspace') this.deletePiece();
       else if (piece && k === 'g') this.setPieceMode('translate');
       else if (piece && k === 'r') this.setPieceMode('rotate');

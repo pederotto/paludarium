@@ -18,6 +18,7 @@ export const S = {
   hint: signal(''),
   toasts: signal([]),
   selection: signal(null),        // { kind: 'animal' | 'plant' | 'pool' | 'piece', obj }
+  following: signal(null),        // an animal the camera is tracking
   lens: signal('off'),            // 'off' | 'humidity' | 'temperature' | 'light' | 'soil' | 'flow'
   piece: signal(null),            // selected hardscape piece
   pieceMode: signal('translate'),
