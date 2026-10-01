@@ -1,5 +1,5 @@
 import { Icon } from '../icons.jsx';
-import { S, toast, hint, openModal } from '../store.js';
+import { S, toast, hint, openModal, morphChoice } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { TOOLS, WATER_TOOLS, SCULPT_OPS, MIRROR_WATER } from '../../tools/defs.js';
 import { KITS, kitById, kitPrice, kitRank } from '../../content/kits.js';
@@ -8,6 +8,9 @@ import { MATERIALS, TANK } from '../../sim/tank.js';
 import { SPECIES } from '../../sim/animals.js';
 import { PLANTS } from '../../sim/plants.js';
 import { PIECES } from '../../sim/decor.js';
+import { hasGenetics, morphList } from '../../sim/genetics.js';
+import { morphInfo } from '../../content/morphs.js';
+import { MorphDot, Stars } from '../GeneBits.jsx';
 
 // A compact "will it thrive right now?" light for a species in this tank.
 function fit(sp, live) {
@@ -252,6 +255,32 @@ function Plants() {
 
 const lightWord = (l) => (l <= 0.25 ? 'shade' : l <= 0.45 ? 'part shade' : l <= 0.6 ? 'bright' : 'full light');
 
+// Which colour morph to release, for species with genetics. A rare morph costs more in a career.
+function MorphPicker({ id }) {
+  const chosen = S.morph.value[id] === '*' ? '*' : morphChoice(id);
+  const info = ctx.career?.info('animal', id);
+  const base = info && !info.locked ? info.price : null;
+  const set = (m) => { S.morph.value = { ...S.morph.value, [id]: m }; };
+  const cur = chosen !== '*' ? morphInfo(id, chosen) : null;
+  return (
+    <div class="morph-pick">
+      <div class="grp">Colour morph</div>
+      <div class="chips">
+        {morphList(id).map((m) => {
+          const mi = morphInfo(id, m);
+          return (
+            <button key={m} class={'chip' + (chosen === m ? ' on' : '')} title={mi.blurb} aria-pressed={chosen === m} onClick={() => set(m)}>
+              <MorphDot sp={id} morph={m} /> {mi.name} <Stars r={mi.rarity} />{base != null ? <small>¤{Math.ceil(base * mi.price)}</small> : null}
+            </button>
+          );
+        })}
+        <button class={'chip' + (chosen === '*' ? ' on' : '')} title="Each animal gets random genes, like wild-caught stock: some may be hidden carriers" aria-pressed={chosen === '*'} onClick={() => set('*')}>Mixed</button>
+      </div>
+      <p class="morph-note">{cur ? cur.blurb : 'Random wild genes: some animals will carry hidden colours.'}</p>
+    </div>
+  );
+}
+
 function Animals() {
   const sub = S.sub.value, live = S.live.value;
   const groups = {};
@@ -278,6 +307,7 @@ function Animals() {
           </div>
         </div>
       ))}
+      {hasGenetics(sub.animal) ? <MorphPicker id={sub.animal} /> : null}
       {(() => { const s = SPECIES[sub.animal], f = fit(s, live); return (
         <>
           <div class="chips"><button class="chip" onClick={() => openModal('codex', 'animal:' + sub.animal)}><Icon name="book" size={13} /> Field guide: {s.name}</button></div>

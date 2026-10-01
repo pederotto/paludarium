@@ -3,6 +3,7 @@
 // second, and components re-render from these signals.
 
 import { signal } from '@preact/signals';
+import { morphList } from '../sim/genetics.js';
 
 export const S = {
   screen: signal('title'),        // 'title' | 'play'
@@ -36,7 +37,18 @@ export const S = {
   coach: signal(null),            // a teaching card shown at the bottom
   busy: signal(null),             // { text } while a long thing runs (vacation, time-lapse)
   compact: signal(false),         // small screens
+  morph: signal({}),              // the colour morph chosen per species for the Animals tool ('*' = a random wild mix)
+  pairing: signal(null),          // an animal waiting to be paired with the next animal you tap
+  geneParents: signal([]),        // ids of the two animals shown in the Lab's Genetics tab
 };
+
+// The morph the Animals tool will release for a species: the chosen one, else the first listed, or null for a random mix.
+export function morphChoice(id) {
+  const v = S.morph.value[id];
+  if (v === '*') return null;
+  const list = morphList(id);
+  return v && list.includes(v) ? v : list[0] ?? null;
+}
 
 let toastId = 1;
 export function toast(text, kind = 'info', ms = 2800) {

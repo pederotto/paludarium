@@ -7,6 +7,7 @@ import { Builder, PRIM, hash3, clamp, lerp, rng } from '../render/geo.js';
 import { CreatureLOD, BODIES, FINISH, withRig } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { TANK, MAT } from './tank.js';
+import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
 
 const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -200,9 +201,10 @@ export const SPECIES = {
   },
   axolotl: {
     name: 'Axolotl', scale: 1, group: 'Amphibians', kind: 'axolotl', size: 2.6, speed: 1.4,
-    temp: [14, 21], hungerHours: 260, lifeDays: 5000, eats: ['shrimp', 'flake', 'tadpole'], cap: 4, breed: 0,
+    temp: [14, 21], hungerHours: 260, lifeDays: 5000, eats: ['shrimp', 'flake', 'tadpole'], cap: 8, breed: 0.03, adultDays: 30,
+    eggs: { n: 4, days: 10, into: 'axolotl', where: 'water' },
     body: sdfBody('axolotl'), anim: { amp: 0.9, wave: 1.1, lift: 0.25, stride: 0.4 },
-    note: 'Fully aquatic and needs cold water (14–21 °C): turn the heater down or it will suffer.',
+    note: 'Fully aquatic and needs cold water (14–21 °C): turn the heater down or it will suffer. A pair lays eggs in the water; its colour genes make morphs.',
   },
   gecko: {
     name: 'Mourning gecko', scale: 1, group: 'Reptiles', kind: 'gecko', size: 1.4, speed: 4,
@@ -225,9 +227,9 @@ export const SPECIES = {
   },
   betta: {
     name: 'Betta', scale: 1, group: 'Fish', kind: 'swim', band: 'top', school: false, size: 5, speed: 3,
-    temp: [24, 30], hungerHours: 130, lifeDays: 1200, eats: ['flake'], cap: 4, breed: 0,
+    temp: [24, 30], hungerHours: 130, lifeDays: 1200, eats: ['flake'], cap: 6, breed: 0.02, adultDays: 40,
     body: sdfBody('betta'), anim: { amp: 0.32, wave: 1.3 },
-    note: 'Long-finned labyrinth fish: it breathes air from the surface. Keep one male alone.',
+    note: 'Long-finned labyrinth fish: it breathes air from the surface. A pair can breed; its colour genes make morphs.',
   },
   oto: {
     name: 'Otocinclus', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: true, size: 3, speed: 2.5,
@@ -275,11 +277,18 @@ export const FOOD_VALUE = { fly: 0.25, springtail: 0.07, isopod: 0.12, shrimp: 0
 
 // ---------------------------------------------------------------------------
 
-// The instanced mesh for one species (also used by the creature bench).
-export function createSpeciesMesh(scene, id, { cap = null } = {}) {
+// Which body a (species, morph) is drawn with: the morph's own variant `BODIES['<species>:<morph>']` when the
+// body library has one, otherwise the species' default. The result is also the key of its instanced mesh.
+export function meshKeyFor(id, morph) {
+  return morph && BODIES[`${id}:${morph}`] ? `${id}:${morph}` : id;
+}
+
+// The instanced mesh for one species and morph (also used by the creature bench and the portraits).
+export function createSpeciesMesh(scene, id, { cap = null, morph = null } = {}) {
   const sp = SPECIES[id];
   const a = sp.anim ?? {};
-  const src = (BODY_CACHE[id] ??= sp.body());
+  const key = meshKeyFor(id, morph);
+  const src = (BODY_CACHE[key] ??= key === id ? sp.body() : BODIES[key]());
   const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
   return new CreatureLOD(scene, src, {
     cap: cap ?? sp.cap + 20,
@@ -302,13 +311,15 @@ export class Animals {
     this.scene = scene;
     this.world = world;
     this.by = {};
-    this.meshes = {};
+    this.meshes = {};     // instanced meshes by key: the species id (its default look) or '<species>:<morph>'
+    this.keys = {};       // species id -> the keys of all its meshes (the default and every morph drawn so far)
     this.tails = {};
     this.food = [];
     this.camera = null;   // set by Game: fine meshes are used for animals near it
     for (const [id, sp] of Object.entries(SPECIES)) {
       this.by[id] = [];
       this.meshes[id] = createSpeciesMesh(scene, id);
+      this.keys[id] = [id];
     }
     this.upgradeModels().catch((e) => console.warn('creature models', e));
     const fg = new THREE.IcosahedronGeometry(0.22, 0);
@@ -343,6 +354,46 @@ export class Animals {
   }
 
   get all() { return Object.values(this.by).flat(); }
+
+  // The mesh that draws a morph of a species; built on first use, and the species' default mesh when the body
+  // library has no variant for it (so counts stay right and nothing is built twice).
+  meshFor(id, morph) {
+    const key = meshKeyFor(id, morph);
+    if (!this.meshes[key]) {
+      this.meshes[key] = createSpeciesMesh(this.scene, id, { morph });
+      this.keys[id].push(key);
+    }
+    return this.meshes[key];
+  }
+
+  // --- Mates -----------------------------------------------------------------------------------
+  // The animal marked as this one's mate (null if none, or if it has left the tank).
+  mateOf(a) {
+    if (a.mate == null) return null;
+    const b = (this.by[a.sp] ?? []).find((x) => x.id === a.mate);
+    return b && !b.dead ? b : null;
+  }
+  // Mark two animals of one species as a pair; breeding then prefers them for each other.
+  pairUp(a, b) {
+    if (!a || !b || a === b || a.sp !== b.sp) return false;
+    this.unpair(a); this.unpair(b);
+    a.mate = b.id; b.mate = a.id;
+    return true;
+  }
+  unpair(a) {
+    const b = this.mateOf(a);
+    if (b && b.mate === a.id) b.mate = null;
+    a.mate = null;
+  }
+  // Who would `a` breed with right now? A marked mate (if it is fit), else a random fit adult that is not marked.
+  partnerFor(a) {
+    const sp = SPECIES[a.sp];
+    const fit = (x) => x !== a && !x.dead && x.age > (sp.adultDays ?? 10) * 1440 && x.hunger < 0.5 && x.health > 0.7;
+    const m = this.mateOf(a);
+    if (m) return fit(m) ? m : null;
+    const pool = this.by[a.sp].filter((x) => fit(x) && !this.mateOf(x));
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  }
 
   // Moss and leaf litter hide the last few of any prey species.
   refuge() { return 6 + Math.round(this.world.mossFraction() * 20); }
@@ -412,12 +463,26 @@ export class Animals {
   add(id, pos, opt = {}) {
     const sp = SPECIES[id];
     if (this.by[id].length >= sp.cap + 20) return null;
+    let uid = nextId++;
+    while (this.all.some((o) => o.id === uid)) uid = nextId++;      // a loaded save may already use this number
     const a = {
-      id: nextId++, sp: id, pos: pos.clone(), vel: V(0, 0, 0), yaw: Math.random() * Math.PI * 2, pitch: 0,
+      id: uid, sp: id, pos: pos.clone(), vel: V(0, 0, 0), yaw: Math.random() * Math.PI * 2, pitch: 0,
       hunger: opt.hunger ?? 0.2, health: opt.health ?? 1, age: opt.age ?? (sp.adultDays ?? 10) * 1440,
       state: 'idle', timer: Math.random() * 3, target: null, wander: Math.random() * Math.PI * 2,
       phase: Math.random() * 10, home: pos.clone(), hop: null, name: null, cause: null,
+      gen: opt.gen ?? 0, parents: opt.parents ?? null, nick: opt.nick ?? null, mate: null,
     };
+    // Genes: founders get the genotype of the chosen morph (or a random wild one); children are given theirs.
+    // Tadpoles carry the genes of the frog they will become.
+    if (hasGenetics(id)) {
+      const ok = Array.isArray(opt.genes) && opt.genes.length === SPECIES_LOCI(id);
+      let genes = ok ? [...opt.genes] : null;
+      if (!genes && opt.morph) { try { genes = genotypeForMorph(id, opt.morph); } catch { genes = null; } }
+      a.genes = genes ?? randomGenotype(id);
+      a.morph = morphOf(id, a.genes);
+    } else if (opt.genes && opt.gsp) {
+      a.genes = [...opt.genes]; a.morph = opt.morph ?? morphOf(opt.gsp, a.genes); a.gsp = opt.gsp;
+    }
     this.by[id].push(a);
     return a;
   }
@@ -951,10 +1016,12 @@ export class Animals {
     const cam = this.camera?.position;
     for (const [id, arr] of Object.entries(this.by)) {
       const sp = SPECIES[id];
-      const cm = this.meshes[id];
+      const dm = this.meshes[id];
       const an = sp.anim ?? {};
-      cm.begin();
+      const morphs = hasGenetics(id);
+      for (const k of this.keys[id]) this.meshes[k].begin();
       for (const a of arr) {
+        const cm = morphs && a.morph ? this.meshFor(id, a.morph) : dm;
         const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
         const sc = (sp.scale ?? sp.size) * grow;
         const swimming = sp.kind === 'swim' || a.swimming;
@@ -982,7 +1049,7 @@ export class Animals {
         else if ((sp.kind === 'frog' || sp.kind === 'toad') && a.swimming) hop = 0.45 + 0.55 * Math.max(0, Math.sin((a.kick ?? 0) * Math.PI));
         cm.put(a.pos, q, sc, a.wph, amp, a.gait ?? 0, hop, cam ? cam.distanceToSquared(a.pos) : 1e9);
       }
-      cm.end();
+      for (const k of this.keys[id]) this.meshes[k].end();
     }
     void fix;
     // Build one fine mesh per frame at most, and only for species the camera is close to.
@@ -1018,9 +1085,11 @@ export class Animals {
   }
 
   serialize() {
-    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['parent', 'into', 'n', 'hatch', 'where', 'onWall']) }));
+    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut']) }));
   }
 }
+
+const SPECIES_LOCI = (id) => lociOf(id).length;
 
 function pick(o, keys) {
   const r = {};

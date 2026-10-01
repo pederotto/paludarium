@@ -7,7 +7,7 @@
 //                knows()/discover()  snapshot()  canSell()/sellQuote()/sellAnimal()
 // kinds: 'animal' | 'plant' | 'piece' | 'gear' | 'tank'.
 
-import { START_FUNDS, entry, bulkFactor, REP_FIRST, PROMOTION_BONUS, SOURCES, ANIMALS, unlocksAt } from '../content/economy.js';
+import { START_FUNDS, entry, bulkFactor, REP_FIRST, PROMOTION_BONUS, SOURCES, ANIMALS, unlocksAt, morphFactor } from '../content/economy.js';
 import { RANKS, rankFor } from '../content/levels.js';
 import { ACHIEVEMENTS } from '../content/achievements.js';
 import { sellPrice, sellQuote, isSellable } from './market.js';
@@ -49,14 +49,16 @@ export class Career {
     return { locked: e.rank > this.level, level: e.rank, price: owned ? 0 : e.price, owned, sold: e.sold !== false };
   }
 
-  cost(kind, id, n = 1) {
+  // `morph`: the colour morph of an animal being bought (rare morphs cost more).
+  cost(kind, id, n = 1, morph = null) {
     const e = entry(kind, id);
     if (!e) return 0;
-    return kind === 'gear' || kind === 'tank' ? e.price : Math.ceil(e.price * n * bulkFactor(n));
+    const mf = kind === 'animal' ? morphFactor(id, morph) : 1;
+    return kind === 'gear' || kind === 'tank' ? e.price : Math.ceil(e.price * mf * n * bulkFactor(n));
   }
 
   // Returns null when the purchase went through, or an error message.
-  buy(kind, id, n = 1) {
+  buy(kind, id, n = 1, morph = null) {
     if (this.sandbox) { this.discover(kind, id); this.count(kind, n); return null; }
     const e = entry(kind, id);
     if (!e) return 'That is not for sale.';
@@ -64,7 +66,7 @@ export class Career {
     if (e.rank > this.level) return `Unlocked at rank ${e.rank}: ${RANKS[e.rank - 1].name}.`;
     if (kind === 'gear' && (e.owned || this.gear.has(id))) return 'You already own that.';
     if (kind === 'tank' && this.tanks.has(id)) return 'You already own that tank.';
-    const price = this.cost(kind, id, n);
+    const price = this.cost(kind, id, n, morph);
     if (this.funds < price) return `Not enough funds: this costs ¤${price} and you have ¤${Math.floor(this.funds)}.`;
     this.funds -= price;
     this.stats.moneySpent += price;
@@ -82,10 +84,10 @@ export class Career {
     else if (kind === 'piece') this.stats.piecesPlaced += n;
   }
 
-  refund(kind, id, n = 1) {
+  refund(kind, id, n = 1, morph = null) {
     if (this.sandbox) return;
-    this.funds += this.cost(kind, id, n);
-    this.stats.moneySpent -= this.cost(kind, id, n);
+    this.funds += this.cost(kind, id, n, morph);
+    this.stats.moneySpent -= this.cost(kind, id, n, morph);
     if (kind === 'animal') this.stats.animalsBought -= n;
     if (kind === 'plant') this.stats.plantsPlaced -= n;
     this.changed();

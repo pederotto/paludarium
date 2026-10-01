@@ -15,6 +15,7 @@ import { bindLayout } from './ui/layout.js';
 import { effect } from '@preact/signals';
 import { Ambience } from './engine/audio.js';
 import { tickTimelapse } from './app/timelapse.js';
+import * as Kids from './app/kids.js';
 
 const q = new URLSearchParams(location.search);
 window.__errs = [];
@@ -56,6 +57,15 @@ ctx.start = {
   career: () => busy('Setting up your studio…', async () => { await director.startCareer(); director.enterPlay(); }),
   sandbox: (kind) => busy('Filling the tank…', async () => { await director.startSandbox(kind); director.enterPlay(); }),
   preset: (id, seed, tier) => busy('Growing a terrarium…', async () => { await director.startSandbox('preset', tier, { id, seed }); director.enterPlay(); }),
+  kids: (id, seed, tier) => busy('Building your world…', async () => {
+    await director.startSandbox('preset', tier, { id, seed });
+    director.enterPlay();
+    Kids.enter();
+    S.screen.value = 'play';
+  }),
+  kidsContinue: () => busy('Loading…', async () => {
+    if (await Kids.loadSaved()) { director.enterPlay(); Kids.enter(); } else toast('No saved world yet.', 'bad');
+  }),
   continue: () => busy('Loading…', async () => { if (await director.load()) director.enterPlay(); else toast('No saved game found.', 'bad'); }),
 };
 
@@ -76,6 +86,7 @@ window.addEventListener('beforeunload', () => { director.save?.().catch(() => {}
 effect(() => { game.lens?.set(S.lens.value); });
 effect(() => { game.setPhoto(S.photo.value); });
 render(<App />, document.getElementById('ui'));
-bindLayout(game);
+ctx.relayout = bindLayout(game);
+Kids.install(game);
 game.start();
 loading.classList.add('gone');

@@ -12,6 +12,13 @@ export function bindLayout(game) {
     const q = (sel) => { const el = document.querySelector(sel); const b = el?.getBoundingClientRect(); return b && b.width > 0 ? b : null; };
     let l = 0, r = 0, t = 0, b = 0;
     if (S.screen.value !== 'play' || S.photo.value) { game.rig.setInset(0, 0, 0, 0, W, H); return; }
+    if (S.kids.value) {
+      const top = q('.kids-top'), bot = q('.kids-bottom');
+      t = (top?.bottom ?? 90) + 6;
+      b = bot ? Math.max(70, H - bot.top + 6) : 90;
+      game.rig.setInset(0, 0, t, b, W, H);
+      return;
+    }
     if (S.compact.value) {
       const top = q('.top'), rail = q('.rail'), opts = q('.opts'), vit = q('.vitals'), objs = q('.objs');
       t = (top?.bottom ?? 50) + 4;
@@ -29,7 +36,7 @@ export function bindLayout(game) {
     game.rig.setInset(l, r, t, b, W, H);
   };
   const schedule = () => { if (!raf) raf = requestAnimationFrame(() => setTimeout(measure, 30)); };
-  effect(() => { S.left.value; S.right.value; S.tool.value; S.compact.value; S.screen.value; S.photo.value; S.modal.value; schedule(); });
+  effect(() => { S.left.value; S.right.value; S.tool.value; S.compact.value; S.screen.value; S.photo.value; S.modal.value; S.kids.value; schedule(); });
   addEventListener('resize', schedule);
   game.events.on('tank', schedule);
   return schedule;

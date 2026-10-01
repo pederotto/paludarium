@@ -37,6 +37,9 @@ export const ACHIEVEMENTS = [
   { id: 'symmetry', name: 'Symmetry', text: 'Build something with Mirror on: both sides at once.', icon: 'swap', funds: 15, rep: 10, test: (s) => s.mirrorUsed >= 1 },
   { id: 'kit-builder', name: 'Kit builder', text: 'Place three aquascape kits.', icon: 'layers', funds: 40, rep: 25, test: (s) => s.kitsPlaced >= 3 },
   { id: 'patience', name: 'Patient eye', text: 'Watch a time-lapse of your tank grow.', icon: 'clock', funds: 15, rep: 10, test: (s) => s.timelapses >= 1 },
+  { id: 'punnett', name: 'Punnett player', text: 'Breed a recessive morph from two carriers.', icon: 'grid', funds: 60, rep: 40, test: (s, c) => (c?.genetics?.recessivesBred ?? 0) >= 1 },
+  { id: 'rare-find', name: 'Rare find', text: 'Breed an animal with a very rare colour (four stars or more).', icon: 'trophy', funds: 80, rep: 50, test: (s, c) => (c?.genetics?.maxBredRarity ?? 0) >= 4 },
+  { id: 'surprise', name: 'Surprise!', text: 'A mutation gives you a baby with a colour its parents could not make.', icon: 'star', funds: 50, rep: 30, test: (s, c) => (c?.genetics?.mutations ?? 0) >= 1 },
   { id: 'wall-garden', name: 'Living wall', text: 'Grow twelve plants on the background.', icon: 'leaf', funds: 50, rep: 30, test: (s, c) => (c?.wall?.plants ?? 0) >= 12 },
 ];
 
