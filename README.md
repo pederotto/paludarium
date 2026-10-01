@@ -59,7 +59,7 @@ Other scripts:
 | `npm run import-creatures` | Turns `art-src/creatures/<id>.glb` models into optimised game assets (see [docs/ASSET_BRIEF.md](docs/ASSET_BRIEF.md)). |
 | `node tools/errcheck.mjs` | Loads the game headless and reports console and page errors. |
 
-Deploying: the workflow in `.github/workflows/pages.yml` builds and publishes to GitHub Pages. In the repository settings, set Pages ▸ Source to **GitHub Actions** once.
+Deploying: `docs/pages-workflow.yml` is a ready GitHub Pages workflow (build with Vite, publish `dist`). Copy it to `.github/workflows/pages.yml` (that push needs a token with the `workflow` scope, or use the GitHub web editor) and set Pages ▸ Source to **GitHub Actions** once.
 
 ## How it is built
 
