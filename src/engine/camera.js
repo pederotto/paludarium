@@ -54,8 +54,8 @@ export class CameraRig {
     // A portrait screen is tall and narrow: the width is what limits the size, so the front glass is fitted to nearly the full
     // width (the little rail on the right floats over the tank's edge) and the view is tilted down into the tank, which uses
     // the spare height to show the floor and the ponds.
-    const D = this.fitDistance(portrait ? 1.14 : 1.16) + d * 0.5;
-    const el = THREE.MathUtils.degToRad(38), ty = h * 0.36, tz = d * 0.05;
+    const D = this.fitDistance(portrait ? 1.22 : 1.16) + d * 0.5;
+    const el = THREE.MathUtils.degToRad(46), ty = h * 0.34, tz = d * 0.05;
     return {
       front: portrait ? [0, ty + D * Math.sin(el), tz + D * Math.cos(el), 0, ty, tz] : [0, h * 0.62, D, 0, h * 0.44, 0],
       top: [0, h * 2.7 + w * 0.15, d * 0.3, 0, h * 0.13, 0],
