@@ -11,7 +11,7 @@ function load(path, { srgb = true, repeat = true } = {}) {
   const t = loader.load(new URL(path, base).href);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 4;
+  t.anisotropy = 16;   // the floor is seen at a grazing angle; the renderer clamps to what the GPU allows
   return t;
 }
 

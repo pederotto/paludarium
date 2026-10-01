@@ -23,6 +23,7 @@ import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { smaa } from 'three/addons/tsl/display/SMAANode.js';
 import { sharpen } from 'three/addons/tsl/display/SharpenNode.js';
+import { denoise } from 'three/addons/tsl/display/DenoiseNode.js';
 import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
 
 export const QUALITY = {
@@ -134,7 +135,9 @@ export class Gfx {
         aoPass.radius.value = 3.5;
         aoPass.thickness.value = 2.5;
         aoPass.distanceExponent.value = 1.5;
-        color = col.mul(mix(float(1), aoPass.getTextureNode().r, nrm.a.mul(0.85)));   // alpha 0 = foliage: no AO
+        // GTAO is raw noise at half resolution (a dithered, smudgy floor at a grazing angle); denoise it against depth and normals.
+        const aoClean = denoise(aoPass.getTextureNode(), scenePass.getTextureNode('depth'), null, camera);
+        color = col.mul(mix(float(1), aoClean.r, nrm.a.mul(0.85)));   // alpha 0 = foliage: no AO
       }
     }
     if (this.photo) color = dof(color, scenePass.getViewZNode(), GRADE.focus, GRADE.focalLength, GRADE.bokeh);
