@@ -131,6 +131,7 @@ function AnimalPage({ id, pick }) {
           <h3>Keeping it</h3>
           <ul>{info.care.map((f, i) => <li key={i}>{f}</li>)}</ul>
           {info.lesson ? <button class="btn sm" style={{ color: '#2b2a1d', borderColor: '#a79d7a' }} onClick={() => pick('concept', info.lesson)}><Icon name="book" size={14} /> {CONCEPTS[info.lesson]?.title}</button> : null}
+          {info.lesson2 ? <button class="btn sm" style={{ color: '#2b2a1d', borderColor: '#a79d7a', marginLeft: 6 }} onClick={() => pick('concept', info.lesson2)}><Icon name="book" size={14} /> {CONCEPTS[info.lesson2]?.title}</button> : null}
         </>
       ) : <p>{sp.note}</p>}
     </div>
@@ -169,6 +170,7 @@ function PlantPage({ id, pick }) {
           <h3>Keeping it</h3>
           <ul>{info.care.map((f, i) => <li key={i}>{f}</li>)}</ul>
           {info.lesson ? <button class="btn sm" style={{ color: '#2b2a1d', borderColor: '#a79d7a' }} onClick={() => pick('concept', info.lesson)}><Icon name="book" size={14} /> {CONCEPTS[info.lesson]?.title}</button> : null}
+          {info.lesson2 ? <button class="btn sm" style={{ color: '#2b2a1d', borderColor: '#a79d7a', marginLeft: 6 }} onClick={() => pick('concept', info.lesson2)}><Icon name="book" size={14} /> {CONCEPTS[info.lesson2]?.title}</button> : null}
         </>
       ) : <p>{sp.note}</p>}
     </div>

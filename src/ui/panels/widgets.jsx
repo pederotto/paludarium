@@ -6,6 +6,10 @@ import { S, toast } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { Env } from '../../sim/env.js';
 import { LENSES } from '../../tools/controller.js';
+import { SPECIES } from '../../sim/animals.js';
+import { SPECIES_GENETICS, lociOf, describe, morphOf } from '../../sim/genetics.js';
+import { LOCI_TEXT, morphName } from '../../content/morphs.js';
+import { MorphDot, BreedingView } from '../GeneBits.jsx';
 
 const live = () => S.live.value?.env ?? {};
 
@@ -220,25 +224,48 @@ export function LensWidget() {
   );
 }
 
-// --- Punnett square ------------------------------------------------------------------------------------------------------
+// --- Genetics: Punnett squares, offspring odds, and the field-guide widget ----------------------------------------------
+// Field-guide widget: pick a species and two parents (from your tank if you have some) and see the odds.
 export function PunnettWidget() {
-  const [a, setA] = useState('Ll'), [b, setB] = useState('ll');
-  const opts = ['LL', 'Ll', 'll'];
-  const alle = (g) => [g[0], g[1]];
-  const cell = (x, y) => [x, y].sort().join('');
-  const kids = []; for (const x of alle(a)) for (const y of alle(b)) kids.push(cell(x, y));
-  const look = (g) => (g === 'll' ? 'leucistic (pink)' : g === 'Ll' ? 'wild-type, carrier' : 'wild-type');
-  const sel = (v, set) => <select value={v} onChange={(e) => set(e.currentTarget.value)} style={{ color: '#2b2a1d', background: '#fff' }}>{opts.map((o) => <option key={o} value={o}>{o} · {look(o)}</option>)}</select>;
+  const W = ctx.game?.world;
+  const tankAnimals = (id) => (W ? W.animals.by[id] ?? [] : []).filter((x) => x.genes);
+  const carrier = (id) => lociOf(id).map((l, i) => (i === 0 ? l.alleles[0] + l.alleles[1] : l.alleles[0] + l.alleles[0]));
+  const firstSp = ['axolotl', 'dartfrog', 'guppy', 'betta', 'shrimp'].find((id) => tankAnimals(id).length >= 2) ?? 'axolotl';
+  const init = (id) => { const t = tankAnimals(id); return t.length >= 2 ? [[...t[0].genes], [...t[1].genes], true] : [carrier(id), carrier(id), false]; };
+  const [sp, setSp] = useState(firstSp);
+  const [[a, b, fromTank], setAB] = useState(() => init(firstSp));
+  const pick = (id) => { setSp(id); setAB(init(id)); };
+  const opts = (i) => { const l = lociOf(sp)[i]; const [x, y] = l.alleles; return [x + x, x + y, y + y]; };
+  const label = (i, g) => describe(sp, lociOf(sp).map((_, j) => (j === i ? g : opts(j)[0])))[i];
+  const set = (who, i, g) => setAB(([p, q]) => (who === 0 ? [p.map((x, j) => (j === i ? g : x)), q, false] : [p, q.map((x, j) => (j === i ? g : x)), false]));
+  const tank = tankAnimals(sp);
+  const fromAnimal = (who, id) => { const an = tank.find((x) => String(x.id) === id); if (an) setAB(([p, q]) => (who === 0 ? [[...an.genes], q, true] : [p, [...an.genes], true])); };
+  const parent = (who, genes) => (
+    <div class="gen-parent">
+      <b>Parent {who + 1}</b>
+      {genes.map((g, i) => (
+        <select key={i} value={g} aria-label={LOCI_TEXT[sp][i].name} title={LOCI_TEXT[sp][i].name} onChange={(e) => set(who, i, e.currentTarget.value)}>
+          {opts(i).map((o) => <option key={o} value={o}>{LOCI_TEXT[sp][i].name.replace(' gene', '')} {o}: {label(i, o).label}</option>)}
+        </select>
+      ))}
+      {tank.length ? (
+        <select value="" aria-label="Use an animal from your tank" onChange={(e) => fromAnimal(who, e.currentTarget.value)}>
+          <option value="">from my tank…</option>
+          {tank.map((x) => <option key={x.id} value={x.id}>{x.nick ?? '#' + x.id}: {morphName(sp, x.morph)}</option>)}
+        </select>
+      ) : null}
+      <span><MorphDot sp={sp} morph={morphOf(sp, genes)} /> {morphName(sp, morphOf(sp, genes))}</span>
+    </div>
+  );
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '6px 0' }}>Parent 1 {sel(a, setA)} Parent 2 {sel(b, setB)}</div>
-      <table style={{ borderCollapse: 'collapse', margin: '8px 0' }}>
-        <tbody>
-          <tr><td></td>{alle(b).map((x, i) => <td key={i} style={{ padding: '4px 14px', fontWeight: 700 }}>{x}</td>)}</tr>
-          {alle(a).map((x, i) => <tr key={i}><td style={{ padding: '4px 14px', fontWeight: 700 }}>{x}</td>{alle(b).map((y, j) => <td key={j} style={{ border: '1px solid #a79d7a', padding: '6px 14px', textAlign: 'center' }}>{cell(x, y)}</td>)}</tr>)}
-        </tbody>
-      </table>
-      <div style={{ fontSize: 13 }}>{[...new Set(kids)].map((k) => `${kids.filter((x) => x === k).length * 25}% ${look(k)}`).join(' · ')}</div>
+    <div class="gen">
+      <div class="chips" style={{ margin: '6px 0' }}>
+        {Object.keys(SPECIES_GENETICS).map((id) => <button key={id} class={'btn sm' + (sp === id ? ' primary' : '')} style={sp === id ? null : { color: '#2b2a1d', borderColor: '#a79d7a' }} onClick={() => pick(id)}>{SPECIES[id].name}</button>)}
+      </div>
+      {parent(0, a)}
+      {parent(1, b)}
+      {fromTank ? <div class="gen-hint">Using animals from your tank.</div> : null}
+      <BreedingView sp={sp} a={a} b={b} />
     </div>
   );
 }

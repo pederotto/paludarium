@@ -227,11 +227,24 @@ export const CONCEPTS = {
   },
   genetics: {
     title: 'Colour genetics', icon: 'wand', widget: 'punnett',
-    blurb: 'How a pair of pink axolotls can have a dark baby.',
+    blurb: 'Why two pink axolotls can have a dark baby, and how to breed the colour you want.',
     sections: [
-      { p: ['Each animal carries two copies of a gene, one from each parent. A recessive version only shows when both copies are the same. A "carrier" has one copy and looks normal but can pass it on.'] },
-      { p: ['The leucistic (pale pink) axolotl carries two copies of a recessive gene. Two leucistic parents can only have leucistic young. A wild-type carrier crossed with a leucistic gives half wild-type carriers and half leucistic.'] },
-      { tryit: 'Pair a wild-type carrier with a leucistic and count the young.' },
+      { p: ['Every animal has two copies of each gene, called alleles: one from its mother and one from its father. Gene versions get letters. A capital letter (A) is usually the normal, dominant allele; a small letter (a) is the recessive one.'] },
+      { h: 'Dominant and recessive', ul: [
+        'A dominant allele wins: an animal with AA or Aa looks normal.',
+        'A recessive allele only shows when both copies are the small letter: aa. An albino axolotl is aa.',
+        'A carrier (Aa) looks normal but hides one recessive copy and can pass it on. Two carriers can have an albino baby, about one in four.',
+      ] },
+      { h: 'The Punnett square', p: ['A Punnett square lists what each parent can give: two alleles across the top, two down the side. Each box is one possible baby, and each box has the same chance. Aa × Aa gives AA, Aa, Aa and aa: three normal looking babies for every albino, with two of the three carrying the hidden gene.'] },
+      { h: 'In-between genes', p: ['Some genes blend instead of hiding. A guppy\'s tail colour has two alleles, red (R) and blue (B). RR is red, BB is blue and BR, one of each, is purple. A red and a blue guppy can only have purple babies; two purple guppies make red, purple and blue in a 1 : 2 : 1 mix. This is called incomplete dominance.'] },
+      { h: 'Mutations', p: ['Now and then a gene is copied wrongly and an allele flips. In the game about one baby gene in a hundred does. Most of the time nobody notices, but sometimes a mutation makes a colour that nobody in the family carries. Real breeders found many pet colours this way.'] },
+      { fact: 'The white albino axolotl is aa and ll together: it needs two recessive genes at once, so it is rare unless you plan for it. Breeders call that selective breeding: they keep the animals with the colour they want and pair them on purpose.' },
+      { h: 'Breeding on purpose', ul: [
+        'Tap an animal and press Pair up, then tap its partner. Marked pairs breed with each other.',
+        'Open the Lab, Genetics tab: choose two animals and see the odds for every colour before you pair them.',
+        'A rare colour sells for more. Keep a line of carriers and you can make it again and again.',
+      ] },
+      { tryit: 'Release two golden or carrier axolotls, pair them up, and watch the Genetics tab. Which colours can their babies have? Count what really hatches.' },
     ],
     related: ['conservation'],
   },

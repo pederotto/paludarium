@@ -8,10 +8,12 @@ import * as THREE from 'three/webgpu';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import CameraControls from 'camera-controls';
 import { TOOLS, WATER_TOOLS, BATCH } from './defs.js';
-import { S, toast, hint } from '../ui/store.js';
+import { S, toast, hint, morphChoice } from '../ui/store.js';
 import { SPECIES } from '../sim/animals.js';
 import { PLANTS } from '../sim/plants.js';
 import { PIECES } from '../sim/decor.js';
+import { hasGenetics } from '../sim/genetics.js';
+import { morphName } from '../content/morphs.js';
 import { TANK } from '../sim/tank.js';
 import { kitById, kitCounts, kitReach } from '../content/kits.js';
 import { buildKit, kitReady, kitScale, kitSeed, mirrorSpec, placeSpec } from '../sim/kits.js';
@@ -239,6 +241,7 @@ export class ToolController {
     const a = W.animals.pick(this.ray.ray, 2.2);
     const hit = this.pick(['terrain', 'wall', 'water']);
     if (hit?.surface === 'water' && !a) W.fx?.addDrop(hit.point.x, hit.point.z, -9, 1.1);
+    if (a && S.pairing.value) { this.finishPairing(a); return; }
     if (a) { this.select({ kind: 'animal', obj: a }); return; }
     if (hit) {
       const plant = W.plants.near(hit.point, 4);
@@ -253,7 +256,18 @@ export class ToolController {
 
   select(sel) {
     S.selection.value = sel;
-    if (!sel) this.follow(null);
+    if (!sel) { this.follow(null); S.pairing.value = null; }
+  }
+
+  // "Pair up" was pressed on an animal; `b` is the one tapped next. A pair is marked as each other's mate.
+  finishPairing(b) {
+    const a = S.pairing.value;
+    S.pairing.value = null;
+    if (!a || a.dead) return;
+    if (b === a) { toast('Pairing cancelled.'); return; }
+    if (!this.W.animals.pairUp(a, b)) { toast(`A pair must be two ${SPECIES[a.sp].name.toLowerCase()}. Try again.`, 'bad'); return; }
+    toast('A pair! Marked pairs breed with each other.');
+    this.select({ kind: 'animal', obj: a });
   }
 
   // The world position of a selection, and a sensible distance to look at it from.
@@ -403,8 +417,8 @@ export class ToolController {
 
   // Spend funds in career mode. Returns an error string, or null when the
   // purchase went through (sandbox: always null).
-  charge(kind, id, n = 1) {
-    return this.game.career?.buy(kind, id, n) ?? null;
+  charge(kind, id, n = 1, morph = null) {
+    return this.game.career?.buy(kind, id, n, morph) ?? null;
   }
 
   click() {
@@ -619,18 +633,19 @@ export class ToolController {
     const pl = W.animals.placement(id, hit);
     if (pl.error) { toast(pl.error, 'bad'); return; }
     const n = BATCH[id] ?? 1;
-    const err = this.charge('animal', id, n);
+    const morph = hasGenetics(id) ? morphChoice(id) : null;       // null: random wild genes (also for species without genes)
+    const err = this.charge('animal', id, n, morph);
     if (err) { toast(err, 'bad'); return; }
     let added = 0;
     for (let k = 0; k < n; k++) {
       const jitter = n > 1 ? new THREE.Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4) : new THREE.Vector3();
       const p2 = pl.pos.clone().add(jitter);
       const again = pl.wall ? pl : W.animals.placement(id, { point: p2 });
-      const a = again.pos && W.animals.add(id, again.pos, this.game.career?.newcomer(id) ?? {});
+      const a = again.pos && W.animals.add(id, again.pos, { ...(this.game.career?.newcomer(id) ?? {}), morph });
       if (a) { added++; if (pl.wall) { a.onWall = true; a.wallMode = true; a.normal = new THREE.Vector3(0, 0, 1); } }
     }
-    if (added) { W.log(`Released ${added} ${SPECIES[id].name.toLowerCase()}.`); this.game.events.emit('placed', 'animal', id, added); }
-    else this.game.career?.refund('animal', id, n);
+    if (added) { W.log(`Released ${added} ${SPECIES[id].name.toLowerCase()}${morph ? ` (${morphName(id, morph).toLowerCase()})` : ''}.`); this.game.events.emit('placed', 'animal', id, added); }
+    else this.game.career?.refund('animal', id, n, morph);
   }
 
   clickGear() {

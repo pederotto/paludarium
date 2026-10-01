@@ -10,15 +10,18 @@ import { InfoBanner } from './hud/InfoBanner.jsx';
 import { Coach } from './hud/Coach.jsx';
 import { Photo } from './hud/Photo.jsx';
 import { Timelapse } from './hud/Timelapse.jsx';
+import { KidsHud } from './kids/Kids.jsx';
 import { Modals } from './panels/Modals.jsx';
 
 export function App() {
   const playing = S.screen.value === 'play';
   const photo = S.photo.value;
   const lapse = !!S.timelapse.value;
+  const kids = S.kids.value;
   return (
     <>
-      {playing && !photo && !lapse ? (
+      {playing && kids ? <KidsHud /> : null}
+      {playing && !kids && !photo && !lapse ? (
         <>
           <TopBar />
           <ToolRail />
@@ -29,8 +32,8 @@ export function App() {
           <Coach />
         </>
       ) : null}
-      {playing && photo ? <Photo /> : null}
-      {playing ? <Timelapse /> : null}
+      {playing && !kids && photo ? <Photo /> : null}
+      {playing && !kids ? <Timelapse /> : null}
       {S.screen.value === 'title' ? <Title /> : null}
       <Toasts />
       <Modals />

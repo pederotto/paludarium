@@ -6,6 +6,8 @@ import { SPECIES } from '../sim/animals.js';
 import { PLANTS } from '../sim/plants.js';
 import { STAGES } from '../sim/ecology.js';
 import { TANK } from '../sim/tank.js';
+import { hasGenetics } from '../sim/genetics.js';
+import { morphRarity } from '../content/morphs.js';
 
 const WOOD = ['wood', 'roots', 'stump'];
 const STONE = ['boulder', 'spire', 'cliff'];
@@ -37,6 +39,16 @@ export function computeMetrics(world) {
   const frogs = (byId.dartfrog ?? 0) + (byId.strawberry ?? 0) + (byId.leucomelas ?? 0) + (byId.auratus ?? 0);
   const healthyFrogs = (healthyById.dartfrog ?? 0) + (healthyById.strawberry ?? 0) + (healthyById.leucomelas ?? 0) + (healthyById.auratus ?? 0);
   const species = Object.keys(byId).filter((id) => !SPECIES[id].young).length;
+
+  // Genetics: healthy animals by 'species:morph', those born in this tank (generation 1 or later), and what has been bred so far.
+  const morphs = {}, bredMorphs = {};
+  let bredRarity = W.stats.maxRarityBred ?? 0;
+  for (const a of W.animals.all) {
+    if (!a.morph || !hasGenetics(a.sp) || a.health <= 0.6) continue;
+    const k = `${a.sp}:${a.morph}`;
+    morphs[k] = (morphs[k] ?? 0) + 1;
+    if ((a.gen ?? 0) >= 1) { bredMorphs[k] = (bredMorphs[k] ?? 0) + 1; bredRarity = Math.max(bredRarity, morphRarity(a.sp, a.morph)); }
+  }
 
   // Plants.
   const pById = {}; let wallPlants = 0, healthyPlants = 0, waterPlants = 0;
@@ -79,6 +91,7 @@ export function computeMetrics(world) {
     mossPct, waterQuality, cycled,
     plants: { total: W.plants.list.length, healthy: healthyPlants, species: Object.keys(pById).length, byId: pById, water: waterPlants, heights },
     animals: { total, healthy, species, byId, healthyById, byGroup, adults, juveniles, frogs, healthyFrogs },
+    genetics: { morphs, bred: bredMorphs, maxBredRarity: bredRarity, mutations: W.stats.mutations ?? 0, recessivesBred: W.stats.recessivesBred ?? 0, babiesByMorph: { ...(W.stats.babiesByMorph ?? {}) } },
     hardscape: { pieces: W.decor.pieces.length, stone, wood, spires: counts.spire ?? 0, byType: counts },
     wall: { plants: wallPlants },
     equipment: { fan: E.fan, fogger: E.fogger, basking: E.basking, drainage: E.drainage, rules: W.equipment.rules.length, rainProgram: E.rainProgram.length, rain: E.rain, lampPower: E.lampPower },

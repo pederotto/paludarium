@@ -19,7 +19,9 @@ export function snapshot(game) {
     const counts = {};
     for (const a of arr) for (const w of a.why ?? []) counts[w] = (counts[w] ?? 0) + 1;
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
-    census.push({ id, name: sp.name, n: arr.length, hp, hunger: hu, why: top });
+    const morphs = {};
+    for (const a of arr) if (a.morph && !a.gsp) morphs[a.morph] = (morphs[a.morph] ?? 0) + 1;
+    census.push({ id, name: sp.name, n: arr.length, hp, hunger: hu, why: top, morphs: Object.keys(morphs).length ? morphs : undefined });
   }
   const C = W.climate.mean;
   return {

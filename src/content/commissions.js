@@ -9,6 +9,7 @@ import { BIOTOPES, BIOTOPE_ORDER } from './biotopes.js';
 import { suggestedReward } from './economy.js';
 import { SPECIES } from '../sim/animals.js';
 import { PLANTS } from '../sim/plants.js';
+import { morphName } from './morphs.js';
 
 // --- Goal builders ---------------------------------------------------------------------------
 const nm = (id) => SPECIES[id]?.name ?? id;
@@ -36,6 +37,19 @@ const temp = (lo, hi, hold) => ({
 });
 const feature = (key, text) => ({ id: `f-${key}`, text, test: (m) => !!m.features[key] });
 const goal = (id, text, test, extra = {}) => ({ id, text, test, ...extra });
+// Genetics goals read the metrics' `genetics`: healthy animals by 'species:morph', and those born in this tank.
+const morphKey = (sp, morph) => `${sp}:${morph}`;
+const morphCount = (sp, morphs, n, text) => ({
+  id: `m-${sp}-${morphs.join('+')}-${n}`, text: text ?? `Keep ${n} healthy ${morphName(sp, morphs[0]).toLowerCase()} ${nm(sp).toLowerCase()}`,
+  test: (m) => morphs.reduce((s, k) => s + (m.genetics?.morphs?.[morphKey(sp, k)] ?? 0), 0) >= n,
+  progress: (m) => pct(morphs.reduce((s, k) => s + (m.genetics?.morphs?.[morphKey(sp, k)] ?? 0), 0), n),
+  progressText: (m) => `${morphs.reduce((s, k) => s + (m.genetics?.morphs?.[morphKey(sp, k)] ?? 0), 0)}/${n}`,
+});
+const bredMorph = (sp, morph, n = 1, text) => ({
+  id: `bred-${sp}-${morph}-${n}`, text: text ?? `Breed ${n > 1 ? n : 'a'} ${morphName(sp, morph).toLowerCase()} ${nm(sp).toLowerCase()}${n > 1 ? 's' : ''} in this tank`,
+  test: (m) => (m.genetics?.bred?.[morphKey(sp, morph)] ?? 0) >= n,
+  progress: (m) => pct(m.genetics?.bred?.[morphKey(sp, morph)] ?? 0, n), progressText: (m) => `${m.genetics?.bred?.[morphKey(sp, morph)] ?? 0}/${n}`,
+});
 
 // --- The list ---------------------------------------------------------------------------------------
 const list = [
@@ -184,6 +198,45 @@ list.push(
     teaches: ['composition', 'conservation'],
     goals: [goal('grade-s', 'Earn an S from the Curator', (m, s) => (s.bestGrade ?? 0) >= 5), goal('age60', 'Keep the tank going for 60 days', (m) => m.tankDays >= 60, { progressText: (m) => `${Math.floor(m.tankDays)} d` }), goal('nolosses', 'A month without a loss', (m) => m.daysSinceDeath >= 30)],
     reward: suggestedReward(9, 4), next: [],
+  },
+);
+
+// ---- Genetics: breed the colour you want ------------------------------------------------------------------------------------
+list.push(
+  {
+    id: 'purple-guppies', tier: 2, level: 3, giver: 'Ines', title: 'A Purple Surprise',
+    brief: 'A guppy\'s tail colour is an in-between gene: one red copy and one blue copy make purple. Put a red guppy and a blue guppy together (pick the colours in the Animals tool), pair them up, and see what their babies look like. Then check the odds in the Lab.',
+    teaches: ['genetics'],
+    goals: [bredMorph('guppy', 'purple', 1, 'Breed a purple guppy in this tank'), animals('guppy', 4)],
+    reward: suggestedReward(3, 1.5), next: ['blue-guppies'],
+  },
+  {
+    id: 'blue-guppies', tier: 2, level: 3, giver: 'Ines', title: 'True Blue',
+    brief: 'Two purple guppies are both half red and half blue. Their babies are a mix: a quarter red, a half purple and a quarter blue. Breed a blue guppy from two purple parents, and you have a line that breeds true.',
+    teaches: ['genetics'],
+    goals: [bredMorph('guppy', 'blue', 1, 'Breed a blue guppy in this tank')],
+    reward: suggestedReward(3, 1.5), next: [],
+  },
+  {
+    id: 'orange-shrimp', tier: 3, level: 4, giver: 'Ines', title: 'Orange Crush',
+    brief: 'Red cherry shrimp carry a recessive red gene; yellow shrimp carry a recessive yellow gene. A shrimp with both, rr and yy, is a glowing orange. It will take a few generations: breed reds and yellows, and keep the carriers.',
+    teaches: ['genetics'],
+    goals: [bredMorph('shrimp', 'orange', 1, 'Breed an orange cherry shrimp in this tank')],
+    reward: suggestedReward(4, 2), next: [],
+  },
+  {
+    id: 'sky-frogs', tier: 3, level: 5, giver: 'Dr. Okafor', title: 'Sky-blue Frogs',
+    brief: 'Most blue dart frogs are deep cobalt, but a recessive gene makes a pale sky-blue one. Two carriers can have sky-blue young, about one in four. Collect three sky-blue frogs, and keep them healthy.',
+    teaches: ['genetics', 'parental-care'],
+    goals: [morphCount('dartfrog', ['sky_spotted', 'sky_clean'], 3, 'Keep 3 healthy sky-blue dart frogs')],
+    reward: suggestedReward(5, 2), next: [],
+  },
+  {
+    id: 'pink-axolotl', tier: 5, level: 8, giver: 'The Museum', title: 'The Pink Axolotl',
+    brief: 'The museum wants captive-bred axolotls for its new tank. Wild axolotls are dark; the pale pink leucistic form is a recessive gene. Pair two carriers or two leucistic axolotls in cold water, and raise a leucistic youngster.',
+    teaches: ['genetics', 'conservation'],
+    goals: [bredMorph('axolotl', 'leucistic', 1, 'Breed a leucistic axolotl in this tank'), animals('axolotl', 2)],
+    reward: suggestedReward(8, 2.5), next: [],
   },
 );
 

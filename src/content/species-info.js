@@ -43,6 +43,7 @@ export const ANIMAL_INFO = {
     ],
     care: ['They breed without help. In a small tank, control the population by feeding little.', 'Fine at 22–28 °C.'],
     lesson: 'carrying-capacity',
+    lesson2: 'genetics',
   },
   cory: {
     sci: 'Corydoras aeneus', family: 'Callichthyidae', status: 'Least Concern', region: 'South America east of the Andes',
@@ -65,6 +66,7 @@ export const ANIMAL_INFO = {
     ],
     care: ['Copper, even in tiny amounts, kills them: it is in some plant fertilisers and medicines.', 'Sensitive to sudden changes in water chemistry.'],
     lesson: 'algae',
+    lesson2: 'genetics',
   },
   crab: {
     sci: 'Geosesarma sp. ("vampire crab")', family: 'Sesarmidae', status: '', region: 'Streams and forest floors of Java, Indonesia',
@@ -118,6 +120,7 @@ export const ANIMAL_INFO = {
     ],
     care: ['Needs humidity of 80% or more, with a drier spot to rest.', 'Cannot swim well: give it land and a clean shallow pool or a bromeliad.', 'Wants live food every day or two.'],
     lesson: 'parental-care',
+    lesson2: 'genetics',
   },
   strawberry: {
     sci: 'Oophaga pumilio', family: 'Dendrobatidae', status: 'Least Concern', region: 'Nicaragua, Costa Rica and Panama, Caribbean lowlands',
@@ -162,6 +165,7 @@ export const ANIMAL_INFO = {
     ],
     care: ['Needs cold water: 14–20 °C. Above 21 °C it stresses, above 24 °C it can die.', 'Fully aquatic, and it eats live or frozen animal food.'],
     lesson: 'conservation',
+    lesson2: 'genetics',
   },
   gecko: {
     sci: 'Lepidodactylus lugubris', family: 'Gekkonidae', status: 'Least Concern', region: 'Islands of the Indo-Pacific',

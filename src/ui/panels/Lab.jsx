@@ -8,15 +8,19 @@ import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { GEAR, SENSORS, ACTUATORS } from '../../content/equipment.js';
 import { runVacation } from '../../game/vacation.js';
+import { SPECIES } from '../../sim/animals.js';
+import { hasGenetics, carriedGenes } from '../../sim/genetics.js';
+import { morphName } from '../../content/morphs.js';
+import { MorphDot, BreedingView } from '../GeneBits.jsx';
 
-const TABS = [['charts', 'Charts', 'chart'], ['automation', 'Automation', 'cpu'], ['vacation', 'Vacation', 'sun']];
+const TABS = [['charts', 'Charts', 'chart'], ['genetics', 'Genetics', 'wand'], ['automation', 'Automation', 'cpu'], ['vacation', 'Vacation', 'sun']];
 
 export function LabPanel() {
   const arg = S.modalArg.value;
   const [tab, setTab] = useState(['nitrogen', 'temp', 'humidity'].includes(arg) ? 'charts' : TABS.some((t) => t[0] === arg) ? arg : 'charts');
   return (
     <Sheet title="Lab" icon="flask" tabs={TABS} tab={tab} setTab={setTab} wide>
-      {tab === 'charts' ? <Charts start={arg} /> : tab === 'automation' ? <Automation /> : <Vacation />}
+      {tab === 'charts' ? <Charts start={arg} /> : tab === 'genetics' ? <GeneticsTab /> : tab === 'automation' ? <Automation /> : <Vacation />}
     </Sheet>
   );
 }
@@ -92,6 +96,66 @@ function Charts({ start }) {
       )}
     </div>
   );
+}
+
+// Pick two animals of one species, see a Punnett square for every gene and the exact odds of every colour in their babies.
+function GeneticsTab() {
+  const W = ctx.game.world;
+  S.live.value;
+  const all = W.animals.all.filter((a) => a.genes && hasGenetics(a.sp));
+  const speciesIds = [...new Set(all.map((a) => a.sp))];
+  const ids = S.geneParents.value;
+  const pre = all.find((a) => a.id === ids[0]);
+  const [sp0, setSp] = useState(pre?.sp ?? null);
+  const sp = speciesIds.includes(sp0) ? sp0 : speciesIds[0] ?? null;
+  const list = all.filter((a) => a.sp === sp);
+  const chosen = ids.map((id) => list.find((a) => a.id === id)).filter(Boolean).slice(0, 2);
+  const toggle = (a) => {
+    const cur = chosen.map((x) => x.id);
+    S.geneParents.value = cur.includes(a.id) ? cur.filter((x) => x !== a.id) : [...cur, a.id].slice(-2);
+  };
+  if (!all.length) {
+    return (
+      <div class="tile"><b>No animals with genes yet</b><p>Release axolotls, blue dart frogs, guppies, bettas or cherry shrimp with the Animals tool. Each one has a colour morph and a pair of genes behind it, and here you can see what a pair will pass on.</p>
+        <div class="foot"><button class="btn sm" onClick={() => openModal('codex', 'concept:genetics')}><Icon name="book" size={14} /> Field guide: colour genetics</button></div></div>
+    );
+  }
+  const [pa, pb] = chosen;
+  const mates = pa && pb && pa.mate === pb.id;
+  const slot = (a) => (a === pa ? 'A' : a === pb ? 'B' : null);
+  const isAdult = (a) => a.age / 1440 >= (SPECIES[a.sp].adultDays ?? 10);
+  return (
+    <div>
+      <p class="note" style={{ marginTop: 0 }}>Every animal has two copies of each gene. Choose two animals below to see what each can pass on and how likely each colour is among their babies. <a href="#" onClick={(e) => { e.preventDefault(); openModal('codex', 'concept:genetics'); }} style={{ color: 'var(--moss)' }}>Colour genetics</a></p>
+      <div class="chips">
+        {speciesIds.map((id) => <button key={id} class={'chip' + (sp === id ? ' on' : '')} onClick={() => setSp(id)}>{SPECIES[id].name} ({all.filter((a) => a.sp === id).length})</button>)}
+      </div>
+      <div class="glab-list">
+        {list.map((a) => {
+          const car = carriedGenes(a.sp, a.genes);
+          return (
+            <button key={a.id} class={'glab-card' + (slot(a) ? ' on' : '')} aria-pressed={!!slot(a)} onClick={() => toggle(a)}>
+              <span class="top"><MorphDot sp={a.sp} morph={a.morph} /><span>{a.nick || morphName(a.sp, a.morph)}</span>{slot(a) ? <span class="slot">{slot(a)}</span> : null}</span>
+              <code>{a.genes.join(' ')}</code>
+              <span class="sub">#{a.id} · gen {a.gen ?? 0} · {isAdult(a) ? 'adult' : 'young'}{a.mate != null && W.animals.mateOf(a) ? ' · paired' : ''}{car.length ? ` · carries ${car.length}` : ''}</span>
+            </button>
+          );
+        })}
+      </div>
+      {pa && pb ? (
+        <div class="glab-out">
+          <h4><MorphDot sp={sp} morph={pa.morph} /> {pa.nick || '#' + pa.id} × <MorphDot sp={sp} morph={pb.morph} /> {pb.nick || '#' + pb.id}</h4>
+          <div class="gen-hint">{[pa, pb].map((a) => `${a.nick || '#' + a.id}: ${morphName(sp, a.morph)}${carriedGenes(sp, a.genes).length ? ', hidden ' + carriedGenes(sp, a.genes).map((g) => g.replace(' gene', '').toLowerCase()).join(' and ') : ''}`).join('  |  ')}</div>
+          <BreedingView sp={sp} a={pa.genes} b={pb.genes} />
+          <div class="chips">
+            {mates ? <span class="tag moss">Marked as a pair: they will breed together</span> : <button class="btn sm primary" onClick={() => { W.animals.pairUp(pa, pb); toast('Marked as a pair. Adults that are fed and healthy will breed.'); up(); }}><Icon name="heart" size={14} /> Pair these two</button>}
+            {!isAdult(pa) || !isAdult(pb) ? <span class="tag amber">Only adults breed</span> : null}
+          </div>
+        </div>
+      ) : <p class="note">Tap {pa ? 'one more animal' : 'two animals'} above{list.length < 2 ? ' (you need at least two of this species)' : ''}.</p>}
+    </div>
+  );
+  function up() { S.live.value = { ...S.live.value }; }
 }
 
 function Automation() {

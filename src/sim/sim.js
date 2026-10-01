@@ -17,6 +17,8 @@ import { U } from '../render/uniforms.js';
 import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../render/geo.js';
 import { TANK } from './tank.js';
+import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from './genetics.js';
+import { morphName, morphRarity } from '../content/morphs.js';
 
 export { Env };
 
@@ -269,14 +271,14 @@ export class Sim {
         if (a.age >= (a.hatch ?? 7) * 1440) {
           W.animals.remove(a, 'hatched');
         W.stats.hatched++;
-          births.push({ hatch: true, sp: a.into ?? 'tadpole', parent: a.parent, n: a.n ?? 4, pos: a.pos.clone() });
+          births.push({ hatch: true, sp: a.into ?? 'tadpole', parent: a.parent, n: a.n ?? 4, pos: a.pos.clone(), pg: a.pg, gp: a.gp, gen: a.gen });
           continue;
         }
       }
       if (sp.metamorphDays && a.age >= sp.metamorphDays * 1440 && a.parent && SPECIES[a.parent]) {
         W.animals.remove(a, 'metamorphosed');
         W.stats.metamorphs++;
-        births.push({ meta: true, sp: a.parent, pos: a.pos.clone() });
+        births.push({ meta: true, sp: a.parent, pos: a.pos.clone(), genes: a.genes, gen: a.gen, parents: a.parents, mut: a.mut });
         continue;
       }
       const life = sp.lifeDays * 1440;
@@ -298,8 +300,12 @@ export class Sim {
         const clutches = W.animals.by.eggs.filter((e) => e.parent === a.sp).length * (sp.eggs?.n ?? 0);
         const room2 = room - clutches / sp.cap;
         if (damp && room2 > 0 && Math.random() < sp.breed * (d / 1440) * room2 * (sp.kind === 'crawlWater' ? E.cycle : 1)) {
-          if (sp.eggs) births.push({ lay: true, parent: a.sp, pos: a.pos.clone(), onWall: a.onWall });
-          else births.push({ sp: a.sp, pos: a.pos.clone() });
+          // Species with genes need two parents: a marked pair if there is one, else any fit adult.
+          const mate = hasGenetics(a.sp) ? W.animals.partnerFor(a) : null;
+          if (!hasGenetics(a.sp) || mate) {
+            if (sp.eggs) births.push({ lay: true, parent: a.sp, pos: a.pos.clone(), onWall: a.onWall, pa: a, pb: mate });
+            else births.push({ sp: a.sp, pos: a.pos.clone(), pa: a, pb: mate });
+          }
         }
       }
     }
@@ -308,22 +314,61 @@ export class Sim {
       if (b.lay) this.layEggs(b);
       else if (b.hatch) {
         let n = 0;
+        const babies = [];
         for (let k = 0; k < b.n; k++) {
           const p = b.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2, 0.3, (Math.random() - 0.5) * 2));
-          const c = W.animals.add(b.sp, p, { age: 0, hunger: 0.3 });
-          if (c) { c.parent = b.parent; n++; }
+          const gene = b.pg ? this.childGenes(b.parent, b.pg[0], b.pg[1]) : null;
+          const opt = { age: 0, hunger: 0.3 };
+          if (gene) Object.assign(opt, hasGenetics(b.sp) ? { genes: gene.genes } : { genes: gene.genes, gsp: b.parent }, { gen: b.gen ?? 1, parents: b.gp ?? null });
+          const c = W.animals.add(b.sp, p, opt);
+          if (c) { c.parent = b.parent; n++; if (gene) { c.mut = gene.surprise || undefined; babies.push(gene); } }
         }
         if (n) W.log(`${n} ${b.sp === 'tadpole' ? 'tadpoles' : one(b.sp) + 's'} hatched from a ${one(b.parent)} clutch.`, 'good');
+        this.logBabies(b.parent, babies, 'hatched');
       } else if (b.meta) {
         // Climb out: the nearest dry ground.
         const p = W.randomSpot((x, y, z, s) => s === -Infinity && Math.hypot(x - b.pos.x, z - b.pos.z) < 25) ?? b.pos;
-        const c = W.animals.add(b.sp, p, { age: 0, hunger: 0.4 });
-        if (c) W.log(`A tadpole turned into a young ${one(b.sp)} and left the water.`, 'good');
+        const c = W.animals.add(b.sp, p, { age: 0, hunger: 0.4, genes: b.genes, gen: b.gen ?? 0, parents: b.parents ?? null });
+        if (c) { c.mut = b.mut; W.log(`A tadpole turned into a young ${one(b.sp)} and left the water.`, 'good'); }
       } else {
-        const child = W.animals.add(b.sp, b.pos, { age: 0, hunger: 0.3 });
-        if (child && (SPECIES[b.sp].cap <= 40 || Math.random() < 0.08)) W.log(`A ${one(b.sp)} was born.`, 'good');
+        const gene = b.pa && b.pb ? this.childGenes(b.sp, b.pa.genes, b.pb.genes) : null;
+        const opt = { age: 0, hunger: 0.3 };
+        if (gene) Object.assign(opt, { genes: gene.genes, gen: Math.max(b.pa.gen ?? 0, b.pb.gen ?? 0) + 1, parents: [b.pa.id, b.pb.id] });
+        const child = W.animals.add(b.sp, b.pos, opt);
+        if (child && gene) { child.mut = gene.surprise || undefined; this.logBabies(b.sp, [gene], 'was born'); }
+        if (child && (SPECIES[b.sp].cap <= 40 || Math.random() < 0.08) && !(gene && (gene.surprise || gene.rare))) W.log(`A ${one(b.sp)} was born.`, 'good');
       }
     }
+  }
+
+  // One child of two genotypes (species `id`): its genes, and what it means for the player's counters.
+  // Counts babies by morph, mutations ("surprises": a colour its parents could not make) and recessives bred.
+  childGenes(id, genesA, genesB) {
+    if (!hasGenetics(id) || !genesA || !genesB) return null;
+    const S = this.world.stats;
+    S.babiesByMorph ??= {}; S.mutations ??= 0; S.recessivesBred ??= 0; S.maxRarityBred ??= 0;
+    const genes = breed(id, genesA, genesB);
+    const morph = morphOf(id, genes), rarity = morphRarity(id, morph);
+    const surprise = isSurprise(id, genesA, genesB, genes);
+    const recessive = !surprise && recessiveFromCarriers(id, genesA, genesB, genes);
+    const key = `${id}:${morph}`;
+    S.babiesByMorph[key] = (S.babiesByMorph[key] ?? 0) + 1;
+    if (surprise) S.mutations++;
+    if (recessive) S.recessivesBred++;
+    if (rarity > S.maxRarityBred) S.maxRarityBred = rarity;
+    return { genes, morph, rarity, surprise, recessive, rare: rarity >= 3 };
+  }
+
+  // A friendly line for babies worth noticing: rare colours, surprise mutations, hidden genes that showed up.
+  logBabies(id, babies, verb) {
+    const W = this.world;
+    const first = (f) => babies.find(f);
+    const s = first((x) => x.surprise);
+    if (s) W.log(`Surprise! A baby ${one(id)} (${morphName(id, s.morph)}) came from a mutation: its parents could not make that colour.`, 'good');
+    const r = first((x) => x.recessive);
+    if (r) W.log(`Two carriers had a baby ${one(id)} that shows the hidden gene: ${morphName(id, r.morph)}!`, 'good');
+    const rare = babies.filter((x) => x.rare && !x.surprise).sort((p, q) => q.rarity - p.rarity)[0];
+    if (rare && !r) W.log(`Rare colour! A baby ${one(id)} (${morphName(id, rare.morph)}) ${verb}.`, 'good');
   }
 
   // Put a clutch where this species lays: in the water, at the water's
@@ -349,6 +394,12 @@ export class Sim {
     const e = W.animals.add('eggs', pos, { age: 0, hunger: 0 });
     if (!e) return;
     Object.assign(e, { parent: b.parent, into: sp.eggs.into, n: sp.eggs.n, hatch: sp.eggs.days, where });
+    // The clutch carries both parents' genotypes; each hatchling draws its own.
+    if (b.pa?.genes && b.pb?.genes) {
+      e.pg = [[...b.pa.genes], [...b.pb.genes]];
+      e.gp = [b.pa.id, b.pb.id];
+      e.gen = Math.max(b.pa.gen ?? 0, b.pb.gen ?? 0) + 1;
+    }
     if (where === 'wall') { e.onWall = true; e.normal = new THREE.Vector3(0, 0, 1); e.wallMode = true; }
     W.log(`A ${one(b.parent)} laid eggs.`, 'good');
   }

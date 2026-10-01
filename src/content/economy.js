@@ -22,9 +22,15 @@
 //   adult     days to reach adulthood (mirrors sim/animals.js adultDays)
 //   group     species group (mirrors sim/animals.js), sets how much demand swings
 //   frog      counts for the Frog Parent achievements
+//
+// Colour morphs (content/morphs.js) multiply the price: buying a chosen morph costs `price × morphFactor(id, morph)`,
+// and a bred animal of that morph sells for the same factor more (see game/market.js).
 
 import { GEAR } from './equipment.js';
 import { TANKS } from './tanks.js';
+import { morphFactor } from './morphs.js';
+
+export { morphFactor };
 
 export const START_FUNDS = 350;
 
@@ -47,7 +53,7 @@ export const ANIMALS = {
   snail: { name: 'Trumpet snail', price: 2, rank: 2, source: 'captive', sellable: false, adult: 14, group: 'Molluscs' },
   cory: { name: 'Corydoras', price: 6, rank: 3, batch: 3, resale: 0.4, source: 'shop', adult: 10, group: 'Fish' },
   ember: { name: 'Ember tetra', price: 4, rank: 3, batch: 8, resale: 0.4, source: 'shop', adult: 10, group: 'Fish' },
-  betta: { name: 'Betta', price: 10, rank: 3, resale: 0.4, source: 'captive', adult: 10, group: 'Fish' },
+  betta: { name: 'Betta', price: 10, rank: 3, resale: 0.4, source: 'captive', adult: 40, group: 'Fish' },
   cardinal: { name: 'Cardinal tetra', price: 5, rank: 4, batch: 6, resale: 0.4, source: 'wild', adult: 10, group: 'Fish' },
   oto: { name: 'Otocinclus', price: 6, rank: 4, resale: 0.35, source: 'wild', adult: 10, group: 'Fish' },
   // Poison frogs, geckos, toads, newts and the axolotl.
@@ -59,7 +65,7 @@ export const ANIMALS = {
   crab: { name: 'Vampire crab', price: 15, rank: 5, resale: 0.4, source: 'wild', adult: 10, group: 'Crustaceans' },
   toad: { name: 'Fire-bellied toad', price: 20, rank: 6, resale: 0.4, source: 'captive', adult: 30, group: 'Amphibians', frog: true },
   newt: { name: 'Paddle-tail newt', price: 35, rank: 7, resale: 0.45, source: 'wild', adult: 30, group: 'Amphibians' },
-  axolotl: { name: 'Axolotl', price: 60, rank: 8, resale: 0.5, source: 'captive', adult: 10, group: 'Amphibians' },
+  axolotl: { name: 'Axolotl', price: 60, rank: 8, resale: 0.5, source: 'captive', adult: 30, group: 'Amphibians' },
   // Young stock: raised, never bought.
   tadpole: { name: 'Tadpoles', price: 0, rank: 1, sold: false, sellable: false, source: 'captive', adult: 10, group: 'Amphibians' },
   eggs: { name: 'Egg clutches', price: 0, rank: 1, sold: false, sellable: false, source: 'captive', adult: 10, group: 'Amphibians' },
