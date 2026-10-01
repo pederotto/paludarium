@@ -20,18 +20,18 @@ export function bindLayout(game) {
       return;
     }
     if (S.compact.value) {
-      const top = q('.top'), rail = q('.rail'), opts = q('.opts'), vit = q('.vitals'), objs = q('.objs');
+      // Phones: the pill and chip on top, the dock at the very bottom, the tool rail down the left edge, the options sheet above the dock.
+      const top = q('.pill'), rail = q('.rail'), opts = q('.opts'), dock = q('.dock2');
       t = (top?.bottom ?? 50) + 4;
-      if (vit) t = Math.max(t, vit.bottom);
-      b = rail ? H - rail.top + 6 : 70;
+      b = dock ? H - dock.top + 6 : 70;
       if (opts) b = Math.max(b, H - opts.top + 4);
-      if (objs && !opts) b = Math.max(b, H - objs.top + 4);
-      r = 46;
+      if (rail) l = rail.right + 4;
     } else {
-      const rail = q('.rail'), opts = q('.opts'), vit = q('.vitals');
+      // Wide screens: the tool rail and options on the left, the status drawer (when open) on the right.
+      const rail = q('.rail'), opts = q('.opts'), drawer = q('.sdrawer');
       l = (opts ?? rail)?.right ?? 0;
-      r = vit ? W - vit.left : 0;
-      t = 58; b = 58;
+      r = drawer ? W - drawer.left : 0;
+      t = 58; b = 66;
     }
     game.rig.setInset(l, r, t, b, W, H);
   };

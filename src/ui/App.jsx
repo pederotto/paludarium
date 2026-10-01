@@ -3,7 +3,7 @@ import { Title } from './Title.jsx';
 import { TopBar } from './hud/TopBar.jsx';
 import { ToolRail } from './hud/ToolRail.jsx';
 import { ToolOptions } from './hud/ToolOptions.jsx';
-import { Vitals } from './hud/Vitals.jsx';
+import { StatusDrawer } from './hud/StatusDrawer.jsx';
 import { Bottom } from './hud/Bottom.jsx';
 import { Toasts } from './hud/Toasts.jsx';
 import { InfoBanner } from './hud/InfoBanner.jsx';
@@ -27,7 +27,7 @@ export function App() {
           <TopBar />
           <ToolRail />
           <ToolOptions />
-          <Vitals />
+          <StatusDrawer />
           <Bottom />
           <InfoBanner />
           <Coach />

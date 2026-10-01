@@ -1,4 +1,5 @@
 // Career mode: kits cost the sum of their pieces, lock by rank, and a mirrored kit costs twice.
+import { pickTool } from './_tools.mjs';
 export default async (page, shot, name) => {
   const log = (...a) => console.log(name, ...a);
   let fails = 0;
@@ -6,9 +7,8 @@ export default async (page, shot, name) => {
   const ev = (fn, arg) => page.evaluate(fn, arg);
   await page.getByRole('button', { name: /New career/i }).click({ force: true, timeout: 90000 });
   await page.waitForTimeout(4500);
-  await page.locator('.tool', { hasText: 'Hardscape' }).click({ force: true });
+  await pickTool(page, 'kits');
   await page.waitForTimeout(600);
-  if (!(await page.locator('.opts').count())) { await page.locator('.vchip').click(); await page.waitForTimeout(500); }
   const lockedWaterfall = await page.locator('.opts .pick.lock', { hasText: 'Waterfall cliff' }).count();
   check('waterfall kit is locked at rank 1', lockedWaterfall === 1);
   const steps = page.locator('.opts .pick', { hasText: 'Stepping stones' });

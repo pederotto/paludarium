@@ -2,17 +2,10 @@
 export default async (page, shot, name) => {
   await page.getByRole('button', { name: /starter paludarium/i }).click({ force: true, timeout: 90000 });
   await page.waitForTimeout(2500);
-  if (name === 'phone') {
-    await page.locator('.dock button[title^="Views"]').click({ force: true });
-    await page.waitForTimeout(400);
-    await shot('lapse-menu');
-    await page.locator('.vm-lapse button', { hasText: '7d' }).click({ force: true });
-  } else {
-    await page.locator('.camera button[title^="Time-lapse"]').click({ force: true });
-    await page.waitForTimeout(400);
-    await shot('lapse-menu');
-    await page.locator('.lapse-menu button', { hasText: '7 days' }).click({ force: true });
-  }
+  await page.locator('.dock2 [data-hub="camera"]').click({ force: true });
+  await page.waitForTimeout(400);
+  await shot('lapse-menu');
+  await page.locator('.hubmenu [title="Time-lapse 7 days"]').click({ force: true });
   await page.waitForTimeout(6000);
   await shot('lapse-running');
   await page.waitForFunction(() => document.querySelector('.lapse .acts .primary'), null, { timeout: 120000 });

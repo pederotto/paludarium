@@ -1,10 +1,11 @@
+import { openDockItem } from './_hud.mjs';
 // New career → jar + tutorial coach → each panel.
 export default async (page, shot, name) => {
   await page.getByRole('button', { name: /New career/i }).click({ force: true, timeout: 90000 });
   await page.waitForTimeout(4500);
   await shot('c1-career-start');
   const openPanel = async (label, file, extra) => {
-    await page.locator(`.dock button[title="${label}"]`).click({ force: true, timeout: 60000 });
+    await openDockItem(page, label);
     await page.waitForTimeout(1600);
     if (extra) await extra();
     await shot(file);

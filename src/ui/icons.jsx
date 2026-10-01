@@ -34,6 +34,7 @@ const P = {
   minus: 'M5 12h14',
   chevronR: 'M9 5l7 7-7 7',
   chevronL: 'M15 5l-7 7 7 7',
+  chevronU: 'M5 15l7-7 7 7',
   chevronD: 'M5 9l7 7 7-7',
   info: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v6M12 7.500h.01',
   book: 'M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4zM5 17a3 3 0 0 1 3-3h11',

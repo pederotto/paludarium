@@ -209,12 +209,30 @@ export class Director {
   async save() {
     const g = this.game;
     if (!g.world || !this.career) return;
+    if (S.screen.value !== 'play') return;   // never write the title screen's showcase tank over the player's game
     const data = {
       v: 4, tank: g.tankId, world: g.world.serialize(), career: this.career.serialize(), commissions: this.commissions.serialize(),
       tutorial: this.tutorial.serialize(), events: this.events.serialize(), biotope: this.biotope, speed: g.speed, mode: S.mode.value,
     };
     await Saves.put(SLOT, data);
     Meta.set({ name: `${this.career.sandbox ? 'Sandbox' : this.career.levelInfo().rank} · ${TANKS[data.tank]?.name ?? 'tank'}`, day: g.world.env.day + 1, mode: this.career.mode, at: Date.now() });
+    ctx.meta = Meta.get();
+  }
+
+  // Back to the title screen: save the game, clear the transient state, show the starter tank turning behind the menu.
+  async goHome() {
+    const g = this.game;
+    try { await this.save(); } catch (e) { console.error(e); }
+    const T = ctx.tools;
+    if (T) { T.keys?.delete('shift'); T.selectPiece?.(null); T.select?.(null); T.setTool('view'); if (S.mirror.value) T.toggleMirror(false); }
+    S.photo.value = false; S.timelapse.value = null; g.lapse = 0;
+    S.lens.value = 'off'; S.selection.value = null; S.following.value = null; S.coach.value = null; S.smartBar.value = null; S.pairing.value = null;
+    S.modal.value = null; S.modalArg.value = null; S.hub.value = null; S.right.value = false;
+    S.tankTitle.value = null;
+    await g.loadTank('standard', { layout: 'starter' });
+    g.rig.startOrbit(0.04);
+    g.rig.view('hero', false);
+    S.screen.value = 'title';
     ctx.meta = Meta.get();
   }
 

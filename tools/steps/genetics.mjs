@@ -1,3 +1,4 @@
+import { openDockItem } from './_hud.mjs';
 // Release red and blue guppies, run the sim: babies must inherit (purple from red x blue) and be drawn with their own morph meshes.
 export default async (page, shot, name) => {
   await page.getByRole('button', { name: /starter paludarium/i }).click({ force: true, timeout: 90000 });
@@ -17,7 +18,7 @@ export default async (page, shot, name) => {
   });
   console.log(JSON.stringify(r));
   await page.waitForTimeout(500);
-  await page.locator('.dock button[title="Lab"]').click({ force: true }).catch(() => {});
+  await openDockItem(page, 'Lab').catch(() => {});
   await page.waitForTimeout(1000);
   await page.getByText('Genetics', { exact: true }).first().click({ force: true }).catch(() => {});
   await page.waitForTimeout(1200);

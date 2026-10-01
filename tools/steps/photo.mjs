@@ -1,8 +1,9 @@
+import { openDockItem } from './_hud.mjs';
 export default async (page, shot, name) => {
   if (name !== 'desktop') return;
   await page.getByRole('button', { name: /starter paludarium/i }).click({ force: true, timeout: 90000 });
   await page.waitForTimeout(2500);
-  await page.locator('.camera button[title="Photo mode"]').click({ force: true });
+  await openDockItem(page, 'Photo mode');
   await page.waitForTimeout(2500);
   await page.mouse.click(520, 430);
   await page.waitForTimeout(1500);
