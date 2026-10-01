@@ -72,3 +72,7 @@ The plan for water physics, erosion, structure, humus and decay, game modes, mor
 ## Credits
 
 See [CREDITS.md](CREDITS.md). Rocks, roots and ferns are CC0 photoscans from Poly Haven; textures and the rock generator come from SeedThree; the ripple, caustics and meshing ideas from CAUSTIC//VOLUME. MIT licensed.
+
+## Adding art
+
+Drop raw assets (models, textures, images, audio) in `art-src/drop/` and ask Claude to optimise them; the originals are kept in `art-src/raw/` and the game's files land in `public/assets/`. **Rule: keep every file under 50 MB.** GitHub refuses files over 100 MB, so anything larger needs Git LFS set up first. `npm run backup` makes a local backup of the history and the art.

@@ -10,7 +10,9 @@
     "shot": "node tools/shot.mjs",
     "bench": "node tools/bench.mjs",
     "import-creatures": "node tools/import-creatures.mjs",
-    "import-assets": "node tools/import-seedthree.cjs"
+    "import-assets": "node tools/import-seedthree.cjs",
+    "backup": "sh tools/backup.sh",
+    "drop-pull": "node tools/drop-pull.mjs"
   },
   "license": "MIT",
   "private": true,
