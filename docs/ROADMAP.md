@@ -55,6 +55,10 @@ so that early ones unblock later ones.
 ### Shared foundation for 2b and 2d
 Both need to know, every few ticks, which wet cells form one body of water and how water moves between bodies. 2a builds that **water-body graph** (connected wet cells plus the flow links between them). Erosion works per cell on the flow field; water quality works per body on the graph; sediment ties them together (turbidity per body cuts light, so algae and plants respond; eroded soil releases nutrients to the body that receives it).
 
+### References for 2b and 2d (GitHub, read before building)
+- **CAUSTIC//VOLUME** (github.com/scottiefox/caustic-volume, MIT; already the source of our ripples, caustics and creature meshing): its sandbox has `27_sand.js` / `65_sand.js` (sand that falls, settles in layers, and is **lifted off the bed by stirring**) and `67_particulate.js` (specks that drift with the flow). These are the model for how sediment is *seen*: suspended particles that follow the current, sand lifted by strong flow and redeposited, and a settling layer.
+- **LanLou123/Webgl-Erosion** and **bshishov/UnityTerrainErosionGPU** (the Mei et al. family): the model for how sediment is *computed* (capacity, erosion, deposition, thermal slumping).
+
 ### 2b. Erosion, sand and soil (M-L)
 - Extend the shallow-water step with **suspended sediment** (capacity grows with flow speed and slope, shrinks with depth),
   **erosion and deposition** that really change the height field, material **hardness** (rock does not move, gravel a little,
