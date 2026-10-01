@@ -100,7 +100,7 @@ const fr = await page.evaluate(async (secs) => {
     fps: +(dts.length / (total / 1000)).toFixed(1), p50: q(0.5), p95: q(0.95), p99: q(0.99), worst: q(1),
     over33ms: dts.filter((d) => d > 33.4).length, frames: dts.length,
     gfxFrameMs: g.gfx?.stats?.frameMs, adapt: g.gfx?.stats?.adapt ?? g.gfx?.stats?.scale, quality: g.gfx?.quality, backend: g.gfx?.backend,
-    calls: info.render.calls, tris: info.render.triangles, geoms: info.memory.geometries, textures: info.memory.textures,
+    calls: info.render.drawCalls, renderCallsCumulative: info.render.calls, tris: info.render.triangles, geoms: info.memory.geometries, textures: info.memory.textures,
     pr: +g.renderer.getPixelRatio().toFixed(2), animals: Object.values(g.world.animals.by).reduce((s, a) => s + a.length, 0),
   };
 }, secs);

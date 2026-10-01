@@ -23,6 +23,7 @@ import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { smaa } from 'three/addons/tsl/display/SMAANode.js';
 import { sharpen } from 'three/addons/tsl/display/SharpenNode.js';
+import { denoise } from 'three/addons/tsl/display/DenoiseNode.js';
 import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
 
 export const QUALITY = {
@@ -55,6 +56,8 @@ export class Gfx {
     this.pipeline = null;
     this.stats = { fps: 0, frameMs: 0, gpuMs: null, calls: 0, triangles: 0 };
     this._acc = 0; this._n = 0; this._slow = 0; this._fast = 0;
+    this.shadowEvery = Math.max(1, +params.get('shadowevery') || 2);   // redraw the shadow map every Nth frame (1 = every frame)
+    this._shadowLights = []; this._frameNo = 0;
   }
 
   async init() {
@@ -132,7 +135,9 @@ export class Gfx {
         aoPass.radius.value = 3.5;
         aoPass.thickness.value = 2.5;
         aoPass.distanceExponent.value = 1.5;
-        color = col.mul(mix(float(1), aoPass.getTextureNode().r, nrm.a.mul(0.85)));   // alpha 0 = foliage: no AO
+        // GTAO is raw noise at half resolution (a dithered, smudgy floor at a grazing angle); denoise it against depth and normals.
+        const aoClean = denoise(aoPass.getTextureNode(), scenePass.getTextureNode('depth'), null, camera);
+        color = col.mul(mix(float(1), aoClean.r, nrm.a.mul(0.85)));   // alpha 0 = foliage: no AO
       }
     }
     if (this.photo) color = dof(color, scenePass.getViewZNode(), GRADE.focus, GRADE.focalLength, GRADE.bokeh);
@@ -177,7 +182,9 @@ export class Gfx {
 
   applyLightQuality() {
     const q = this.q;
+    this._shadowLights = []; this._frameNo = 0;
     this.scene?.traverse((o) => {
+      if (o.isDirectionalLight && o.castShadow) { o.shadow.autoUpdate = true; this._shadowLights.push(o.shadow); }
       if (o.isDirectionalLight && o.castShadow && o.shadow.mapSize.x !== q.shadow) {
         o.shadow.mapSize.set(q.shadow, q.shadow);
         o.shadow.map?.dispose();
@@ -187,6 +194,12 @@ export class Gfx {
   }
 
   render() {
+    // The shadow pass is a third of all draws; a shadow one frame (16 ms) old is not something the eye can place.
+    // Not for the first 90 frames after a (re)build: pipelines and the shadow map are still being created.
+    if (this.shadowEvery > 1 && this._frameNo++ > 90) {
+      const due = this._frameNo % this.shadowEvery === 0;
+      for (const sh of this._shadowLights) { sh.autoUpdate = false; if (due) sh.needsUpdate = true; }
+    }
     this.pipeline.render();
   }
 
@@ -198,7 +211,7 @@ export class Gfx {
     this.stats.fps = Math.round(fps);
     this.stats.frameMs = +(1000 / fps).toFixed(1);
     const info = this.renderer.info.render;
-    this.stats.calls = info.calls; this.stats.triangles = info.triangles;
+    this.stats.calls = info.drawCalls ?? info.calls; this.stats.triangles = info.triangles;
     this._acc = 0; this._n = 0;
     if (this.params.has('perf') && this.renderer.resolveTimestampsAsync) {
       this.renderer.resolveTimestampsAsync('render').then((t) => { if (typeof t === 'number') this.stats.gpuMs = +t.toFixed(2); }).catch(() => {});
