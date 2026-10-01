@@ -12,6 +12,8 @@ Built with [three.js](https://threejs.org) on **WebGPU** (TSL shaders, WebGL 2 f
 
 - **Career.** Start with a jar and a little money. Take commissions ("hold a dart frog terrarium at 80% humidity for ten days"), earn funds and reputation, climb twelve ranks, unlock species, plants and equipment, and work up to grand tanks, automation rules, heatwave and vacation tests and exhibitions. A Curator scores your tanks; a tutorial guide (Mira) teaches the basics as you go. Sell animals to the market, keep a portfolio of tanks, save to slots.
 - **Sandbox.** Everything unlocked and free. Start from a blank tank, the starter paludarium, or one of the **generated terrariums**: a stream through ferns, a cascade canyon, a Suriname forest island, a blackwater lagoon, karst towers, a lowland swamp or a sealed moss jar. Every one is built from a seed, so each is different and complete with plants and a suitable community.
+- **Kids' corner.** A simplified mode for children: pick a world, tap picture cards to add animals, plants and kits, feed and care with big buttons, earn stickers, name your pets. Pets never die (a care helper looks after them), and the game still teaches one fact at a time.
+- **Genetics.** Axolotls, blue dart frogs, guppies, bettas and cherry shrimp have colour genes: dominant and recessive alleles, carriers, incomplete dominance (red × blue guppy gives purple) and rare mutations. Choose morphs, pair animals, read the Punnett square in the Lab, and breed rare colours for commissions. See [docs/GENETICS_SPEC.md](docs/GENETICS_SPEC.md).
 - **Field guide.** An in-game encyclopaedia of concepts (nitrogen cycle, dew point, photoperiod, drainage, bioactive clean-up crews…), animals, plants and real biotopes, with a live "See it in your tank" for each idea.
 
 ## What it simulates
@@ -62,6 +64,10 @@ Deploying: the workflow in `.github/workflows/pages.yml` builds and publishes to
 ## How it is built
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the architecture. In short: `src/engine` (renderer, camera, stage), `src/sim` (world, climate, animals, plants, hydrology, generator), `src/render` (terrain, water, lens, creatures), `src/game` (career, market, commissions, curator, events), `src/content` (all the words and numbers), `src/ui` (HUD and panels), `src/app` (the director that ties it together).
+
+## What is next
+
+The plan for water physics, erosion, structure, humus and decay, game modes, more tank sizes and new assets is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Credits
 
