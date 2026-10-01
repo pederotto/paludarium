@@ -10,6 +10,7 @@ import * as THREE from 'three/webgpu';
 import { texture, float, vec2, vec3, vec4, mix, smoothstep, positionWorld, positionLocal, normalLocal, uniform } from 'three/tsl';
 import { TANK } from '../sim/tank.js';
 import { stressMap } from '../sim/support.js';
+import { signal, effect } from '@preact/signals';
 
 export const LENS_INFO = {
   humidity: { name: 'Humidity', unit: '%', lo: 45, hi: 100, stops: ['#8a6a32', '#4aa08a', '#2a6ee0'], blurb: 'Waterfalls, pools, moss and plants raise it; a fan and the lamp lower it.' },
@@ -26,6 +27,23 @@ export const LENS_INFO = {
 // 0 clean … 1 loaded: the worst of ammonia, nitrite, nitrate and low oxygen.
 export function qualityScore(b) {
   return Math.max(0, Math.min(1, Math.max(b.ammonia / 0.5, b.nitrite / 0.6, (7 - b.oxygen) / 3.5, (b.nitrate - 10) / 70)));
+}
+
+// Which reading the water-quality lens paints. 'worst' is the old single score; the others colour every pond by one reading.
+export const qualityMetric = signal('worst');
+export const QUALITY_METRICS = {
+  worst:   { label: 'Worst', score: qualityScore, lo: 'clean', hi: 'loaded' },
+  ammonia: { label: 'Ammonia', score: (b) => b.ammonia / 0.5, lo: '0 mg/L', hi: '0.5+ mg/L', blurb: 'Ammonia from waste and rot; the nitrogen cycle turns it into nitrite then nitrate.' },
+  nitrate: { label: 'Nitrate', score: (b) => b.nitrate / 80, lo: '0 mg/L', hi: '80+ mg/L', blurb: 'Nitrate builds up until plants, algae or a water change remove it.' },
+  oxygen:  { label: 'Oxygen', score: (b) => (8.5 - b.oxygen) / 5, lo: '8.5 mg/L', hi: '3.5 mg/L', blurb: 'Blue is well oxygenated, red is starving: still, warm, crowded ponds run low.' },
+  temp:    { label: 'Temperature', score: (b) => (b.temp - 18) / 14, lo: '18°C', hi: '32°C', stops: ['#3868e0', '#e6d24a', '#e0402a'], blurb: 'Small ponds follow the air; the lamp warms them and a stream or fan cools them.' },
+};
+// What the legend shows for a lens (the water-quality lens follows the chosen reading).
+export function lensLegend(name, metric = qualityMetric.value) {
+  const info = LENS_INFO[name];
+  if (name !== 'quality' || !info) return info;
+  const m = QUALITY_METRICS[metric] ?? QUALITY_METRICS.worst;
+  return { ...info, name: m === QUALITY_METRICS.worst ? info.name : `Water quality: ${m.label.toLowerCase()}`, lo: m.lo, hi: m.hi, stops: m.stops ?? info.stops, blurb: m.blurb ?? info.blurb };
 }
 
 export class Lens {
@@ -61,12 +79,13 @@ export class Lens {
     this.terrainMesh = build(world.terrain.geo, false);
     this.wallMesh = build(world.wall.geo, true);
     this.t = 0;
+    this.stopFx = effect(() => { void qualityMetric.value; if (this.name === 'quality') { this.set('quality'); } });
   }
 
   set(name) {
     this.name = name;
     this.group.visible = name !== 'off';
-    const info = LENS_INFO[name];
+    const info = lensLegend(name);
     if (info) info.stops.forEach((c, i) => this.stops[i].value.set(c));
     this.wallMesh.visible = name !== 'flow' && name !== 'quality' && name !== 'fertility' && name !== 'stability' && name !== 'sediment';
     this.mask.value = name === 'quality' || name === 'sediment' ? 1 : 0;
@@ -121,8 +140,10 @@ export class Lens {
       // Water quality: every body of water in its own colour (worst reading).
       const H = W.water.hydro, B = W.water.bodies;
       const val = new Float32Array(64);
-      val[1] = qualityScore(B.sump);
-      B.slots.forEach((b, i) => { if (b) val[15 + i] = qualityScore(b); });
+      const score = (QUALITY_METRICS[qualityMetric.peek()] ?? QUALITY_METRICS.worst).score;
+      const sc = (b) => Math.max(0, Math.min(1, score(b)));
+      val[1] = sc(B.sump);
+      B.slots.forEach((b, i) => { if (b) val[15 + i] = sc(b); });
       d.fill(0);
       for (let n = 0; n < H.N; n++) {
         const g = H.grp[n];
@@ -150,5 +171,5 @@ export class Lens {
     this.tex.needsUpdate = true;
   }
 
-  dispose() { this.tex.dispose(); this.group.removeFromParent(); }
+  dispose() { this.stopFx?.(); this.tex.dispose(); this.group.removeFromParent(); }
 }

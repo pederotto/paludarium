@@ -4,6 +4,29 @@ import { Sheet } from './Modals.jsx';
 import { ctx } from '../../app/ctx.js';
 import { QUALITY } from '../../engine/gfx.js';
 import { DISPLAY, toggleFullscreen, toggleZen, fullscreenSupported, isStandalone } from '../fullscreen.js';
+import { MODES } from '../../app/modes.js';
+import { setMode } from '../../app/modes-runtime.js';
+import { saveSmart } from '../store.js';
+import '../explorer.css';
+
+// How this tank is played. Switch at any time; the choice is saved with the game.
+function ModePicker() {
+  const cur = S.kids.value ? 'kids' : S.mode.value;
+  const smart = S.smart.value;
+  return (
+    <>
+      <div class="h3">How you play this tank</div>
+      <div class="modelist">
+        {['kids', 'explorer', 'naturalist'].map((id) => (
+          <button key={id} class={cur === id ? 'on' : ''} disabled={id === 'kids'} title={id === 'kids' ? 'Open the Kids corner from the title screen' : ''} onClick={() => setMode(id)}>
+            <b>{MODES[id].name}{id === 'kids' ? ' (from the title screen)' : ''}</b><span>{MODES[id].blurb}</span>
+          </button>
+        ))}
+      </div>
+      {cur === 'naturalist' ? <div class="row" style={{ gap: 8 }}><button class={'chip' + (smart ? ' on' : '')} onClick={() => { S.smart.value = !smart; saveSmart(!smart); ctx.tools?.setButtons?.(); }}>Smart place {smart ? 'on' : 'off'}</button><span class="note" style={{ margin: 0 }}>One tap places, orients and spaces things for you.</span></div> : null}
+    </>
+  );
+}
 
 function Sound() {
   const a = ctx.audio;
@@ -22,6 +45,7 @@ function Realism() {
   const w = ctx.game?.world?.water;
   const [v, setV] = useState(w?.erosion?.strength ?? 1);
   if (!w?.erosion) return null;
+  if (S.mode.value === 'explorer' && !S.kids.value) return <><div class="h3" style={{ marginTop: 14 }}>Simulation realism</div><p class="note">Explorer keeps erosion at half strength, slumping gentle, and looks after the pump and water level. Switch to Naturalist for every setting.</p></>;
   const set = (x) => { w.setErosion(x); setV(x); };
   return (
     <>
@@ -44,7 +68,8 @@ export function Settings() {
     <Sheet title="Settings" icon="settings">
       <div class="two">
         <div>
-          <div class="h3">Graphics quality</div>
+          <ModePicker />
+          <div class="h3" style={{ marginTop: 14 }}>Graphics quality</div>
           <div class="seg">
             {Object.entries(QUALITY).map(([id, v]) => (
               <button key={id} class={q === id ? 'on' : ''} onClick={() => { g.gfx.setQuality(id, g.scene, g.camera); S.quality.value = id; ctx.saveSettings?.(); }}>{v.label}</button>

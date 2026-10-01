@@ -137,7 +137,7 @@ export class Erosion {
 
   // dt: hydro seconds; T: virtual seconds of flow they stand for. Returns true when the ground changed.
   run(dt, T) {
-    const S = this.strength;
+    const S = this.strength * (this.scale ?? 1);   // scale: the mode's multiplier (modes.js), 1 by default
     if (S <= 0) return false;
     const H = this.H, f = this.f, B = f.base, h = f.h, st = f.stamped, N = this.N, area = this.area, cols = f.cols;
     const d = H.d, res = H.res, nb = H.nb, F = H.flux, jump = H.jump, vx = H.vx, vz = H.vz;
@@ -319,7 +319,7 @@ export class Erosion {
     let slumped = 0;
     const passes = clamp(1 + Math.floor(T / 4), 1, 4);
     this.ev.length = 0;
-    for (let p = 0; p < passes; p++) slumped += slumpPass(f, this.ret, 0.35, this.dz, p === 0 ? this.ev : null, this.grand);
+    for (let p = 0; p < passes; p++) slumped += slumpPass(f, this.ret, 0.35 * (this.slump ?? 1), this.dz, p === 0 ? this.ev : null, this.grand);
     if (this.ev.length) {
       this.ev.sort((a, b) => b[1] - a[1]);
       for (const [n, a] of this.ev.slice(0, 3)) {

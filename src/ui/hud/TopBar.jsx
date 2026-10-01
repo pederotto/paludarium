@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
 import { Icon } from '../icons.jsx';
 import { ViewMenu } from './Bottom.jsx';
-import { S, openModal } from '../store.js';
+import { S, openModal, hudRules } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { SPEEDS } from '../../sim/tank.js';
 import { DISPLAY, toggleFullscreen, toggleZen, fullscreenSupported } from '../fullscreen.js';
@@ -69,7 +69,7 @@ function Dock() {
   return (
     <div class="dock glass">
       {btn('care', 'heart', 'Care')}
-      {btn('lab', 'flask', 'Lab')}
+      {hudRules().lab ? btn('lab', 'flask', 'Lab') : null}
       {btn('codex', 'book', 'Field guide')}
       {btn('studio', 'briefcase', 'Studio', career?.attention)}
       {S.compact.value ? (

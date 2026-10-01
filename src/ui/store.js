@@ -4,6 +4,11 @@
 
 import { signal } from '@preact/signals';
 import { morphList } from '../sim/genetics.js';
+import { DEFAULT_MODE, normalizeMode, rules } from '../app/modes.js';
+
+const MODE_KEY = 'paludarium.mode', SMART_KEY = 'paludarium.smart';
+const read = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+export const lastMode = () => { const m = normalizeMode(read(MODE_KEY, DEFAULT_MODE)); return m === 'kids' ? DEFAULT_MODE : m; };
 
 export const S = {
   screen: signal('title'),        // 'title' | 'play'
@@ -40,6 +45,9 @@ export const S = {
   morph: signal({}),              // the colour morph chosen per species for the Animals tool ('*' = a random wild mix)
   pairing: signal(null),          // an animal waiting to be paired with the next animal you tap
   geneParents: signal([]),        // ids of the two animals shown in the Lab's Genetics tab
+  mode: signal(lastMode()),       // the adult mode of this tank: 'explorer' | 'naturalist' (Kids is S.kids); see app/modes.js
+  smart: signal(read(SMART_KEY, '0') === '1'),   // Naturalist: the optional 'Smart place' toggle
+  smartBar: signal(null),         // the floating mini bar after a smart placement: { kind, id, n, adjust } or null
 };
 
 // The morph the Animals tool will release for a species: the chosen one, else the first listed, or null for a random mix.
@@ -59,5 +67,15 @@ export function toast(text, kind = 'info', ms = 2800) {
 
 export const hint = (text) => { S.hint.value = text; };
 
-export function openModal(name, arg = null) { S.modal.value = name; S.modalArg.value = arg; }
+export function openModal(name, arg = null) {
+  // Explorer keeps the pump, valves and top-up in order itself: the Flow balance panel stays shut.
+  if (name === 'flow' && !S.kids.value && rules(S.mode.value).hud.flowPanel === false) { toast('Explorer keeps the pump and water level balanced for you. Switch to Naturalist in Settings to tune the flow.'); return; }
+  S.modal.value = name; S.modalArg.value = arg;
+}
+export function saveModeChoice(m) { try { if (m !== 'kids') localStorage.setItem(MODE_KEY, m); } catch { /* private window */ } }
+export function saveSmart(v) { try { localStorage.setItem(SMART_KEY, v ? '1' : '0'); } catch { /* private window */ } }
+// The mode in force: Kids' corner, else the adult mode of this tank.
+export const modeId = () => (S.kids.value ? 'kids' : S.mode.value);
+export const explorer = () => modeId() === 'explorer';
+export const hudRules = () => rules(modeId()).hud;
 export function closeModal() { S.modal.value = null; S.modalArg.value = null; }

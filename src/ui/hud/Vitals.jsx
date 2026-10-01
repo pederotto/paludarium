@@ -1,5 +1,6 @@
 import { Icon } from '../icons.jsx';
-import { S, toast, openModal } from '../store.js';
+import { S, toast, openModal, hudRules } from '../store.js';
+import { chemChip } from '../../app/modes.js';
 import { ctx } from '../../app/ctx.js';
 import { Care } from '../../app/actions.js';
 import { SPECIES } from '../../sim/animals.js';
@@ -25,6 +26,18 @@ function Row({ label, value, level = '', onClick }) {
   return <div class={'stat ' + level + (onClick ? ' link' : '')} onClick={onClick}><span>{label}</span><b>{value}</b></div>;
 }
 
+// Explorer: the water as plain status chips instead of ppm numbers.
+function WaterChips({ e }) {
+  const c = chemChip(e);
+  return (
+    <div class="chipline">
+      <span class={'st ' + (c.ok ? 'ok' : 'bad')} title={c.why}>{c.text}{c.ok ? '' : `: ${c.why}`}</span>
+      {e.cycle < 0.5 ? <span class="st warn">Water still settling</span> : null}
+      {e.algae > 0.3 ? <span class="st bad">Algae bloom</span> : null}
+    </div>
+  );
+}
+
 export function Vitals() {
   const live = S.live.value;
   if (!live) return null;
@@ -37,7 +50,7 @@ export function Vitals() {
     );
   }
   const e = live.env, has = (id) => ctx.game.world.equipment.has(id);
-  const testKit = has('testKit'), hygro = has('hygro');
+  const testKit = has('testKit'), hygro = has('hygro'), hud = hudRules();
   return (
     <div class="vitals">
       <div class="card glass">
@@ -52,21 +65,22 @@ export function Vitals() {
           </div>
         ) : <p class="note">Fit a thermo-hygrometer in the Studio shop to read temperature and humidity.</p>}
         <Row label="Water" value={`${live.water.litres.toFixed(1)} L`} level={live.water.outlets && !live.water.pumpRunning && live.water.pumpOn ? 'bad' : ''} />
-        {testKit ? (
+        {!hud.numbers ? <WaterChips e={e} /> : null}
+        {hud.numbers && testKit ? (
           <>
             <Row label="Ammonia" value={e.ammonia.toFixed(2) + ' ppm'} level={cls(e.ammonia, 0.2, 0.5)} onClick={() => openModal('codex', 'concept:nitrogen-cycle')} />
             <Row label="Nitrite" value={e.nitrite.toFixed(2) + ' ppm'} level={cls(e.nitrite, 0.25, 0.5)} onClick={() => openModal('codex', 'concept:nitrogen-cycle')} />
             <Row label="Nitrate" value={Math.round(e.nitrate) + ' ppm'} level={cls(e.nitrate, 40, 60)} onClick={() => openModal('codex', 'concept:nitrogen-cycle')} />
           </>
         ) : null}
-        <Row label="Oxygen" value={e.oxygen.toFixed(1) + ' mg/L'} level={cls(e.oxygen, 5, 4, true)} />
-        <Row label="Bacteria" value={Math.round(e.cycle * 100) + '% cycled'} level={e.cycle < 0.5 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:nitrogen-cycle')} />
+        {hud.numbers ? <Row label="Oxygen" value={e.oxygen.toFixed(1) + ' mg/L'} level={cls(e.oxygen, 5, 4, true)} /> : null}
+        {hud.numbers ? <Row label="Bacteria" value={Math.round(e.cycle * 100) + '% cycled'} level={e.cycle < 0.5 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:nitrogen-cycle')} /> : null}
         <Row label="Algae" value={e.algae > 0.3 ? 'bloom' : e.diatoms > 0.3 ? 'diatoms' : e.algae > 0.15 ? 'some' : 'little'} level={e.algae > 0.3 ? 'bad' : e.algae > 0.15 || e.diatoms > 0.3 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:algae')} />
         <Row label="Moss cover" value={Math.round(live.moss * 100) + '%'} />
-        <Row label="Soil moisture" value={Math.round(e.soil * 100) + '%'} level={e.soil > 0.92 ? 'warn' : e.soil < 0.2 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:soil-moisture')} />
+        <Row label="Soil moisture" value={hud.numbers ? Math.round(e.soil * 100) + '%' : e.soil > 0.92 ? 'soggy' : e.soil < 0.2 ? 'dry' : 'good'} level={e.soil > 0.92 ? 'warn' : e.soil < 0.2 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:soil-moisture')} />
         {e.mold > 0.15 ? <Row label="Mould" value={e.mold > 0.6 ? 'spreading' : 'appearing'} level={e.mold > 0.6 ? 'bad' : 'warn'} onClick={() => openModal('codex', 'concept:mould')} /> : null}
         {e.condense > 0.25 ? <Row label="Glass" value="fogged with dew" onClick={() => openModal('codex', 'concept:dew-point')} /> : null}
-        {hygro ? <Row label="Damp ↔ dry spots" value={`${Math.round(live.micro.humRange[0])}–${Math.round(live.micro.humRange[1])}%`} onClick={() => { S.lens.value = 'humidity'; }} /> : null}
+        {hygro && hud.numbers ? <Row label="Damp ↔ dry spots" value={`${Math.round(live.micro.humRange[0])}–${Math.round(live.micro.humRange[1])}%`} onClick={() => { S.lens.value = 'humidity'; }} /> : null}
       </div>
       <QuickCare />
       <div class="card glass">

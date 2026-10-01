@@ -79,7 +79,7 @@ export const GEAR = {
   },
   flyCulture: {
     id: 'flyCulture', group: 'Feeding', name: 'Fruit fly culture', level: 3, price: 20, icon: 'bug',
-    blurb: 'A culture that releases a few flightless fruit flies every other day for frogs and geckos.',
+    blurb: 'A culture that releases a few flightless fruit flies and a bit of rotting fruit every other day for frogs and geckos. The flies breed on the fruit and the litter.',
     teach: 'Dart frogs eat live prey all their lives. Keepers run several cultures so there is always a fresh one ready.',
   },
   // --- Foundation (chosen when building) -------------------------------------

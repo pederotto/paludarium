@@ -98,7 +98,7 @@ export class Humus {
     this.writeTexture();
   }
 
-  reset() { const C = this.C; C.litter.fill(0); C.humus.fill(0); C.fert.fill(0); this.rev++; this.summarise(); this.writeTexture(); }
+  reset() { const C = this.C; C.litter.fill(0); C.humus.fill(0); C.fert.fill(0); this.world.flies?.reset(); this.rev++; this.summarise(); this.writeTexture(); }
 
   // --- The clock -----------------------------------------------------------------
   step(dtMin) {
@@ -114,7 +114,7 @@ export class Humus {
     const n = C.nx * C.nz, { litter: L, humus: H, fert: F } = C;
     const count = (id) => { try { return W.animals?.count?.(id) ?? 0; } catch { return 0; } };
     // The clean-up crew: isopods and springtails eat litter and leave frass (humus).
-    const crew = clamp(count('isopod') * 0.05 + count('springtail') * 0.012, 0, 2.5);
+    const crew = clamp(count('isopod') * 0.05 + count('springtail') * 0.012 + count('flylarva') * 0.006, 0, 2.5);
     this.crew = crew;
     const crewShare = crew / (1 + crew);
     let moldLoad = 0, changed = false;
@@ -213,11 +213,12 @@ export class Humus {
   // --- Saving --------------------------------------------------------------------
   serialize() {
     const C = this.C, q = (a) => Array.from(a, (v) => Math.round(v * 1000) / 1000);
-    return { nx: C.nx, nz: C.nz, litter: q(C.litter), humus: q(C.humus), fert: q(C.fert) };
+    return { nx: C.nx, nz: C.nz, litter: q(C.litter), humus: q(C.humus), fert: q(C.fert), flies: this.world.flies?.serialize() };
   }
   load(o) {
     const C = this.C;
     if (!o || o.nx !== C.nx || o.nz !== C.nz) { this.reset(); return false; }
+    this.world.flies?.load(o.flies);
     C.litter.set(o.litter); C.humus.set(o.humus); C.fert.set(o.fert);
     this.rev++; this.summarise(); this.writeTexture();
     return true;

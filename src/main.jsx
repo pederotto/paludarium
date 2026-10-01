@@ -16,6 +16,7 @@ import { effect } from '@preact/signals';
 import { Ambience } from './engine/audio.js';
 import { tickTimelapse } from './app/timelapse.js';
 import * as Kids from './app/kids.js';
+import * as Modes from './app/modes-runtime.js';
 
 const q = new URLSearchParams(location.search);
 window.__errs = [];
@@ -42,7 +43,7 @@ mq.addEventListener('change', (e) => { S.compact.value = e.matches; S.right.valu
 
 // The title screen shows the starter tank slowly turning behind the menu.
 await game.loadTank('standard', { layout: 'starter' });
-ctx.tools = new ToolController(game);
+ctx.tools = window.__tools = new ToolController(game);
 const director = ctx.director = window.__director = new Director(game);
 game.rig.startOrbit(0.04);
 game.rig.view('hero', false);
@@ -88,5 +89,7 @@ effect(() => { game.setPhoto(S.photo.value); });
 render(<App />, document.getElementById('ui'));
 ctx.relayout = bindLayout(game);
 Kids.install(game);
+Modes.install(game);
+window.__S = S; window.__setMode = Modes.setMode;   // debug handles for tools/steps
 game.start();
 loading.classList.add('gone');

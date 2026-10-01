@@ -46,6 +46,9 @@ export const ANIMALS = {
   springtail: { name: 'Springtails', price: 0.3, rank: 1, batch: 20, source: 'captive', sellable: false, adult: 5, group: 'Insects' },
   isopod: { name: 'Dwarf isopods', price: 0.7, rank: 1, batch: 10, source: 'captive', sellable: false, adult: 12, group: 'Crustaceans' },
   fly: { name: 'Fruit flies', price: 0.4, rank: 3, batch: 10, source: 'captive', sellable: false, adult: 2, group: 'Insects' },
+  // The fruit fly's young come from its own life cycle (sim/flylife.js): never bought or sold.
+  flylarva: { name: 'Fruit fly maggots', price: 0, rank: 1, sold: false, sellable: false, source: 'captive', adult: 4.5, group: 'Insects' },
+  flypupa: { name: 'Fruit fly pupae', price: 0, rank: 1, sold: false, sellable: false, source: 'captive', adult: 0.2, group: 'Insects' },
   // Fish and other aquarium life.
   neon: { name: 'Neon tetra', price: 3, rank: 2, batch: 6, resale: 0.4, source: 'shop', adult: 10, group: 'Fish' },
   guppy: { name: 'Guppy', price: 2, rank: 2, batch: 3, resale: 0.4, source: 'captive', adult: 8, group: 'Fish' },

@@ -16,7 +16,12 @@ export const Care = {
       const p = W.randomSpot((x, y, z, s) => s === -Infinity);
       if (p && W.animals.add('fly', p.clone().setY(p.y + 4))) n++;
     }
-    return n ? `Added ${n} fruit flies.` : 'No dry land for flies to land on.';
+    if (!n) return 'No dry land for flies to land on.';
+    // A culture is flies and a bit of rotting fruit: the flies lay eggs on it and the maggots eat it (sim/flylife.js).
+    let fruit = 0;
+    const spot = W.randomSpot((x, y, z, s) => s === -Infinity && y > W.water.level + 1) ?? W.randomSpot((x, y, z, s) => s === -Infinity);
+    if (spot && W.flies) for (let k = 0; k < 2; k++) { W.flies.addFruit(spot.x + (k ? 3 : 0), spot.z + (k ? 2 : 0)); fruit++; }
+    return fruit ? `Added ${n} fruit flies and ${fruit} pieces of rotting fruit: they lay eggs on it and the maggots eat it.` : `Added ${n} fruit flies.`;
   },
   mist(game) {
     const E = game.world.env;

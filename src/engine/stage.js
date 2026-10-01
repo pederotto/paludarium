@@ -108,11 +108,14 @@ export class Stage {
     cab.position.set(0, -35.8, 0);
     cab.receiveShadow = true;
     root.add(cab);
+    this.parts.cab = cab;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), new THREE.MeshStandardNodeMaterial({ color: 0x17140f, roughness: 0.9 }));
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -71;
     floor.receiveShadow = true;
     root.add(floor);
+    this.parts.floor = floor;
+    this.fitScreen(this.aspect ?? 1.6);
 
     // Lights: an LED bar over the tank, room fill, and night moonlight.
     const L = this.lights;
@@ -132,6 +135,17 @@ export class Stage {
     L.moon.position.set(-w / 3, h * 1.5, d);
     root.add(L.led, L.led.target, L.hemi, L.moon);
     this.lightDir = L.led.position.clone().negate().normalize();
+  }
+
+  // On a portrait screen the tall dark cabinet wastes the view: it shrinks to a thin plinth (and the floor rises to meet it).
+  fitScreen(aspect) {
+    this.aspect = aspect;
+    const { cab, floor } = this.parts;
+    if (!cab) return;
+    const k = aspect < 0.8 ? 0.1 : 1;
+    cab.scale.y = k;
+    cab.position.y = -0.8 - 35 * k;
+    if (floor) floor.position.y = k < 1 ? -0.8 - 70 * k - 0.3 : -71;
   }
 
   setLid(on) { if (this.parts.lid) this.parts.lid.visible = on; }

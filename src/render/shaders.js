@@ -5,6 +5,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, vec3, float, positionWorld, time, mix, smoothstep, clamp, mx_noise_float, exp, max, min, attribute, sin, cos,
   instanceIndex, positionLocal, dot, vec2, saturate, instanceColor, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
+  mrt, packNormalToRGB,
 } from 'three/tsl';
 import { TEX } from './assets.js';
 import { U, SOIL } from './uniforms.js';
@@ -13,6 +14,15 @@ import { causticLight } from './waterfx.js';
 import { TANK } from '../sim/tank.js';
 
 export { U };
+
+// Foliage and ambient occlusion: GTAO on thin, overlapping blades is noisy (a dark speckle across dense clumps),
+// so plant materials write 0 into the alpha of the scene pass's normal target, and gfx.js skips the AO darkening
+// where that alpha is 0. Only valid while the scene pass has an MRT (AO or photo mode): gfx.js flips it.
+export const FOLIAGE = { mrt: false };
+export function setFoliageMRT(m, on) {
+  m.mrtNode = on ? mrt({ normal: vec4(packNormalToRGB(normalView), 0) }) : null;
+  m.needsUpdate = true;
+}
 
 // Anything under water. Two things happen to the light:
 //  - on the way down from the lamp, water soaks up red first, so deep
@@ -171,6 +181,8 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // texture) so nothing glows white.
 export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.96, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
+  m.userData.foliage = true;
+  if (FOLIAGE.mrt) m.mrtNode = mrt({ normal: vec4(packNormalToRGB(normalView), 0) });
   let base = vec3(1);
   if (map) {
     const tx = texture(map, uv());
@@ -195,17 +207,26 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
   m.positionNode = positionLocal.add(off);
   // The leaf's own colour, as the diffuse term will see it (the material multiplies it in on its own).
   const leaf = base.mul(attribute('color', 'vec3')).mul(instanceColor);
+  // A natural leaf: a soft patchy variation along the leaf (a faint vein and mottling), a little less saturated, and darker
+  // the deeper it stands in the water.
+  const pl = positionLocal;
+  const vein = sin(pl.x.mul(9).add(pl.z.mul(6.5)).add(pl.y.mul(0.45))).mul(0.5).add(sin(pl.x.mul(23).sub(pl.z.mul(17))).mul(0.5));
+  const patch = mx_noise_float(positionWorld.mul(0.55)).mul(0.5);
+  const under = smoothstep(-0.5, 2.5, U.waterLevel.sub(positionWorld.y));
+  const tone = mix(vec3(1.0), vec3(0.62, 0.74, 0.72), under).mul(vein.mul(0.035).add(patch.mul(0.12)).add(1));
+  const leafTint = vec3(0.9, 0.8, 0.86).mul(tone);
+  base = base.mul(leafTint);
   const [color, emissive] = wet(base, positionWorld, U.waterLevel, U.plantWater, U.plantWater.mul(0.5));
   m.colorNode = color;
   // Caustic light and the water's own scatter in `emissive` were computed on a white base: the caustic part must
   // carry the leaf colour, the scatter is cut down (the leaf is not a mirror of the water).
   const lum = leaf.x.mul(0.3).add(leaf.y.mul(0.59)).add(leaf.z.mul(0.11));
-  const sat = mix(vec3(lum), leaf, 1.1);
+  const sat = mix(vec3(lum), leaf, 0.8);
   const tinted = emissive.mul(sat);
   // Back-light: the face we see is turned away from the lamp (n.up < 0) or edge-on to it.
   const facing = dot(normalWorld, vec3(0, 1, 0));
   const back = saturate(facing.mul(-0.7).add(0.35));
-  const glow = sat.mul(vec3(1.0, 1.12, 0.62)).mul(U.daylight.mul(0.2).add(0.02)).mul(back.mul(0.7).add(0.3));
+  const glow = sat.mul(vec3(1.0, 1.1, 0.7)).mul(U.daylight.mul(0.16).add(0.02)).mul(back.mul(0.8).add(0.3));
   m.emissiveNode = tinted.add(glow.mul(color));
   return m;
 }

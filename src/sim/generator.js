@@ -740,7 +740,7 @@ BUILDERS.stream = (g) => {
   const P = [
     { x: X(0.56), z: g.Z(0.1), r: clamp(w * 0.045, 3, 6), H: Math.round(h * 0.42) },
     { x: X(0.36), z: g.Z(0.33), r: clamp(w * 0.07, 4, 8.5), H: Math.round(h * 0.31) },
-    { x: X(0.02), z: g.Z(0.5), r: clamp(w * 0.085, 5, 10), H: Math.round(h * 0.23) },
+    { x: X(0.02), z: g.Z(0.5), r: clamp(w * 0.155, 8, 18), H: Math.round(h * 0.27), big: true },
   ];
   const lag = { x: X(-0.42), z: g.Z(0.76), rx: w * 0.3, rz: d * 0.28 };
   const rock = { x: X(0.64), z: g.Z(0.05), rx: w * 0.3, rz: d * 0.34, H: h * 0.7 };
@@ -761,7 +761,9 @@ BUILDERS.stream = (g) => {
     hgt = ledged(hgt, mr * (1 - mr) * 4, 5);
     return g.sill(hgt, z, 4, 7);
   });
-  for (const p of P) T.digBasin(p.x, p.z, p.r * 0.75, 2.5);
+  // Most basins are small cups; the biggest is a real pond (about 1.5 L in a standard tank, scaling with the tank) with room
+  // for its own chemistry, deep enough for a fish.
+  for (const p of P) { if (p.big) T.digBasin(p.x, p.z, p.r * 0.92, clamp(h * 0.105, 4, 8)); else T.digBasin(p.x, p.z, p.r * 0.75, 2.5); }
   const chan = (a, b, r0, r1, wd, bend) => {
     const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
     const ax = a.x + (dx / len) * r0, az = a.z + (dz / len) * r0, bx = b.x - (dx / len) * r1, bz = b.z - (dz / len) * r1;
@@ -787,7 +789,7 @@ BUILDERS.stream = (g) => {
   g.spire(X(0.88), g.Z(0.16), h * 0.5, 7 * g.sc);
   g.spire(X(-0.92), g.Z(0.1), h * 0.36, 6 * g.sc);
 
-  g.water({ pump: [lag.x, lag.z], level: L, outlets: [{ x: P[0].x, y: h * 0.8, wall: true }], rate: 200 });
+  g.water({ pump: [lag.x, lag.z], level: L, outlets: [{ x: P[0].x, y: h * 0.8, wall: true }, { x: P[2].x + P[2].r * 0.5, z: P[2].z }], rate: 320, settle: 900 });   // the second outlet fills the big pond
   g.info = { ...g.info, L };
   const Z = g.zones(L);
   const clingy = (x, y, z, s) => Z.land(x, y, z, s) && y > L + 3 && T.normalAt(x, z).y > 0.55;

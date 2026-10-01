@@ -79,8 +79,8 @@ export class Builder {
     g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
     g.setAttribute('sway', new THREE.Float32BufferAttribute(sw, 1));
     g.setIndex(idx);
+    g.computeVertexNormals();           // smooth: shared ring vertices average their faces, so a bent blade is not faceted
     const ng = g.toNonIndexed();
-    ng.computeVertexNormals();
     const pa = ng.attributes.position, na = ng.attributes.normal, ca = ng.attributes.color, sa = ng.attributes.sway;
     for (let i = 0; i < pa.count; i++) {
       this.pos.push(pa.getX(i), pa.getY(i), pa.getZ(i));

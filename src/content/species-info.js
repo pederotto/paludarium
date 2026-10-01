@@ -121,6 +121,29 @@ export const ANIMAL_INFO = {
     care: ['Keep a culture going, or you will run out of food.', 'Flies that escape into the tank die out within days.'],
     lesson: 'carrying-capacity',
   },
+  flylarva: {
+    sci: 'Drosophila melanogaster (larva)', family: 'Drosophilidae', status: 'Not assessed', region: 'Worldwide',
+    habitat: 'Inside rotting fruit and damp leaf litter.',
+    facts: [
+      'Fruit flies have complete metamorphosis: egg, larva (the maggot), pupa, adult. The maggot looks nothing like the fly and has no legs or wings.',
+      'A maggot eats almost all day and grows about fifty times heavier in four days, moulting twice. It tunnels through the rot and breathes through two spots at the tail.',
+      'Maggots are a composting crew: their feeding and their frass (droppings) break litter and fruit down into humus faster, and release nitrogen that plants can use.',
+      'They need damp but not flooded ground, and they starve when the rot runs out. That is why a fly culture booms and then collapses.',
+    ],
+    care: ['Give them rotting fruit or a thick layer of damp leaf litter.', 'Frogs and newts eat a few; most of a crop becomes flies.'],
+    lesson: 'carrying-capacity',
+  },
+  flypupa: {
+    sci: 'Drosophila melanogaster (pupa)', family: 'Drosophilidae', status: 'Not assessed', region: 'Worldwide',
+    habitat: 'Stuck to dry surfaces: a leaf, the glass or the background.',
+    facts: [
+      'When a maggot is full it crawls to a dry place, its skin hardens into an amber barrel (the puparium) and it stops moving.',
+      'Inside, the maggot dissolves almost completely and is rebuilt as a fly: this is the "complete" in complete metamorphosis.',
+      'At 25 °C the pupa takes about four days. Cooler tanks slow it down, and below 12 °C it does not develop at all.',
+    ],
+    care: ['Leave them alone: pupae cannot move or eat.', 'Warmth speeds the cycle: at 25 °C the whole egg-to-adult trip takes about ten days.'],
+    lesson: 'carrying-capacity',
+  },
   dartfrog: {
     sci: 'Dendrobates tinctorius "azureus"', family: 'Dendrobatidae', status: 'CITES Appendix II (as are all poison frogs)', region: 'Sipaliwini savanna, southern Suriname',
     habitat: 'Small islands of forest in savanna. Warm, humid days and cool nights, with a distinct wet and dry season.',

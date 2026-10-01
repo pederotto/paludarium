@@ -17,7 +17,7 @@ import { startTimelapse } from './timelapse.js';
 import { STICKERS, SAY, animalName, animalPlural, kidAnimal } from '../content/kids.js';
 
 const STORE = 'paludarium.kids.v1', META = 'paludarium.kids.meta', SLOT = 'kids1';
-const NOT_PETS = new Set(['fly', 'springtail', 'isopod', 'eggs']);
+const NOT_PETS = new Set(['fly', 'flylarva', 'flypupa', 'springtail', 'isopod', 'eggs']);
 const HUNGER_PER_SECOND = 0.0016;     // a fed pet is hungry after about four minutes of play
 const MIN_HEALTH = 0.4;               // pets look sad instead of dying
 

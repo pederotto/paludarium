@@ -49,11 +49,15 @@ export class CameraRig {
   // Named camera positions [px, py, pz, tx, ty, tz] scaled to the tank.
   views() {
     const { w, d, h } = TANK;
-    const D = this.fitDistance() + d * 0.5;
     const aspect = this.camera.aspect;
+    const portrait = aspect < 0.8;
+    // A portrait screen is tall and narrow: the width is what limits the size, so the front glass is fitted to nearly the full
+    // width (the little rail on the right floats over the tank's edge) and the view is tilted down into the tank, which uses
+    // the spare height to show the floor and the ponds.
+    const D = this.fitDistance(portrait ? 1.14 : 1.16) + d * 0.5;
+    const el = THREE.MathUtils.degToRad(38), ty = h * 0.36, tz = d * 0.05;
     return {
-      // A portrait screen has spare height: look down into the tank a little more.
-      front: aspect < 0.8 ? [0, h * 1.4, D * 1.02, 0, h * 0.27, d * 0.05] : [0, h * 0.62, D, 0, h * 0.44, 0],
+      front: portrait ? [0, ty + D * Math.sin(el), tz + D * Math.cos(el), 0, ty, tz] : [0, h * 0.62, D, 0, h * 0.44, 0],
       top: [0, h * 2.7 + w * 0.15, d * 0.3, 0, h * 0.13, 0],
       left: [-w * 1.65, h * 0.75, d * 0.9, 0, h * 0.37, -d * 0.09],
       right: [w * 1.65, h * 0.75, d * 0.9, 0, h * 0.37, -d * 0.09],
@@ -87,7 +91,9 @@ export class CameraRig {
   setInset(l, r, t, b, W, H) {
     this.inset = { l, r, t, b };
     this.size = { w: W, h: H };
-    this.free = { w: Math.max(0.72, (W - l - r) / W), h: Math.max(0.72, (H - t - b) / H) };
+    // On a portrait phone the width is the limit and the thin right-hand rail may overlap the tank: do not shrink for it.
+    const fw = W / H < 0.8 ? Math.max(0.94, (W - l - r * 0.3) / W) : Math.max(0.72, (W - l - r) / W);
+    this.free = { w: fw, h: Math.max(0.72, (H - t - b) / H) };
     if (!this.moved && TANK.w) this.view('front', true);
   }
 

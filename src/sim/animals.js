@@ -187,40 +187,51 @@ export const SPECIES = {
   },
   fly: {
     name: 'Fruit flies', group: 'Insects', kind: 'fly', size: 1.4, speed: 6,
-    temp: [18, 30], humidity: 30, hungerHours: 30, lifeDays: 6, eats: ['detritus'], cap: 70, breed: 0.25, adultDays: 2,
-    body: () => BODIES.fly?.() ?? withRig(flyGeo()), note: 'Flightless culture: live frog food.',
+    temp: [18, 30], humidity: 30, hungerHours: 30, lifeDays: 14, eats: ['detritus'], cap: 70, breed: 0, adultDays: 2,   // eggs: sim/flylife.js
+    body: () => BODIES.fly?.() ?? withRig(flyGeo()), note: 'Flightless culture: live frog food. Lays eggs on rotting fruit and litter.',
+  },
+  // The fruit fly's young (sim/flylife.js): egg -> maggot -> pupa -> adult. They are made by the life cycle, never bought.
+  flylarva: {
+    name: 'Fruit fly maggots', group: 'Insects', kind: 'crawlLand', litterLover: true, crawlOpt: { restP: 0.3, rest: [1, 4], speed: 1 }, size: 1.4, r: 0.35, speed: 0.16,
+    temp: [14, 34], hungerHours: 30, lifeDays: 16, eats: [], cap: 150, breed: 0, adultDays: 4.5,
+    body: sdfBody('flylarva'), anim: { amp: 1.4, wave: 2.4, lift: 0, stride: 0 }, note: 'Fruit fly larvae: live in rotting litter and fruit and eat it, which speeds up composting.',
+  },
+  flypupa: {
+    name: 'Fruit fly pupae', group: 'Insects', kind: 'crawlLand', sessile: true, size: 1.4, r: 0.3, speed: 0,
+    temp: [12, 36], hungerHours: 1e9, lifeDays: 16, eats: [], cap: 150, breed: 0, adultDays: 0.2,
+    body: sdfBody('flypupa'), anim: { amp: 0, wave: 1, lift: 0, stride: 0 }, note: 'The still stage between maggot and fly, stuck to a wall or leaf.',
   },
   dartfrog: {
     name: 'Blue dart frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.4, speed: 1,
-    temp: [20, 27], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod'], cap: 8, breed: 0.05, adultDays: 25,
+    temp: [20, 27], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 5, days: 10, into: 'tadpole', where: 'shallow' },
     body: sdfBody('dartfrog'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
     note: 'Terrestrial. Needs high humidity and live insects. Lays eggs by shallow water.',
   },
   strawberry: {
     name: 'Strawberry dart frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.1, speed: 0.9,
-    temp: [21, 27], humidity: 80, hungerHours: 150, lifeDays: 3500, eats: ['springtail', 'fly'], cap: 8, breed: 0.04, adultDays: 25,
+    temp: [21, 27], humidity: 80, hungerHours: 150, lifeDays: 3500, eats: ['springtail', 'fly', 'flylarva'], cap: 8, breed: 0.04, adultDays: 25,
     eggs: { n: 4, days: 10, into: 'tadpole', where: 'shallow' },
     body: sdfBody('strawberry'), anim: { amp: 0, wave: 1, lift: 0.22, stride: 0.26 },
     note: 'Tiny red frog with blue legs. Lives on springtails; needs very damp air and plenty of moss.',
   },
   toad: {
     name: 'Fire-bellied toad', scale: 1, group: 'Amphibians', kind: 'toad', size: 1.9, speed: 1.2,
-    temp: [18, 26], humidity: 60, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'shrimp'], cap: 6, breed: 0.04, adultDays: 30,
+    temp: [18, 26], humidity: 60, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'shrimp', 'flylarva'], cap: 6, breed: 0.04, adultDays: 30,
     eggs: { n: 8, days: 7, into: 'tadpole', where: 'water' },
     body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45 },
     note: 'Semi-aquatic: needs both land and open water. Spawns in the water.',
   },
   newt: {
     name: 'Paddle-tail newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.6, speed: 2,
-    temp: [15, 24], humidity: 60, hungerHours: 200, lifeDays: 3000, eats: ['springtail', 'fly', 'isopod', 'flake', 'tadpole'], cap: 8, breed: 0.03, adultDays: 30,
+    temp: [15, 24], humidity: 60, hungerHours: 200, lifeDays: 3000, eats: ['springtail', 'fly', 'isopod', 'flake', 'tadpole', 'flylarva'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 6, days: 8, into: 'tadpole', where: 'water' },
     body: sdfBody('newt'), anim: { amp: 0.6, wave: 1.2, lift: 0.2, stride: 0.3 },
     note: 'Mostly aquatic, comes ashore at times. Prefers cool water (under 24 °C).',
   },
   firesal: {
     name: 'Fire salamander', scale: 1, group: 'Amphibians', kind: 'newt', size: 2.4, speed: 1.6, landBias: 0.9,
-    temp: [8, 22], humidity: 70, hungerHours: 220, lifeDays: 7000, eats: ['springtail', 'fly', 'isopod'], cap: 6, breed: 0, adultDays: 40,
+    temp: [8, 22], humidity: 70, hungerHours: 220, lifeDays: 7000, eats: ['springtail', 'fly', 'isopod', 'flylarva'], cap: 6, breed: 0, adultDays: 40,
     body: sdfBody('newt'), anim: { amp: 0.6, wave: 1.2, lift: 0.25, stride: 0.35 },
     note: 'A forest salamander of cool, damp woods: bold black and yellow-orange warns that its skin is toxic. Lives on land, near shallow water.',
   },
@@ -233,7 +244,7 @@ export const SPECIES = {
   },
   gecko: {
     name: 'Mourning gecko', scale: 1, group: 'Reptiles', kind: 'gecko', size: 1.4, speed: 4,
-    temp: [21, 29], humidity: 55, hungerHours: 150, lifeDays: 3500, eats: ['fly', 'springtail'], cap: 10, breed: 0.04, adultDays: 25,
+    temp: [21, 29], humidity: 55, hungerHours: 150, lifeDays: 3500, eats: ['fly', 'springtail', 'flylarva'], cap: 10, breed: 0.04, adultDays: 25,
     eggs: { n: 2, days: 12, into: 'gecko', where: 'wall' },
     body: sdfBody('gecko'), anim: { amp: 0.35, wave: 1.0, lift: 0.18, stride: 0.3 },
     note: 'Climbs the background and glass hunting insects. Females lay eggs without males.',
@@ -270,14 +281,14 @@ export const SPECIES = {
   },
   leucomelas: {
     name: 'Yellow-banded poison frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.3, speed: 1,
-    temp: [21, 28], humidity: 70, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod'], cap: 8, breed: 0.05, adultDays: 25,
+    temp: [21, 28], humidity: 70, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 4, days: 12, into: 'tadpole', where: 'shallow' },
     body: sdfBody('leucomelas'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
     note: 'Bold yellow and black "bumblebee" frog from the Guiana Shield. Hardy and out in the open.',
   },
   auratus: {
     name: 'Green and black poison frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.25, speed: 1,
-    temp: [21, 28], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod'], cap: 8, breed: 0.05, adultDays: 25,
+    temp: [21, 28], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 4, days: 12, into: 'tadpole', where: 'shallow' },
     body: sdfBody('auratus'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
     note: 'Metallic green on black, from Central America. Its colour differs from island to island.',
@@ -295,10 +306,10 @@ export const SPECIES = {
   },
 };
 
-export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog' };
+export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', flylarva: 'fruit fly maggot', flypupa: 'fruit fly pupa', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog' };
 export const one = (id) => ONE[id] ?? SPECIES[id].name.toLowerCase();
 
-export const FOOD_VALUE = { fly: 0.25, springtail: 0.07, isopod: 0.12, shrimp: 0.35, flake: 0.3, tadpole: 0.2 };
+export const FOOD_VALUE = { fly: 0.25, flylarva: 0.03, springtail: 0.07, isopod: 0.12, shrimp: 0.35, flake: 0.3, tadpole: 0.2 };
 
 // ---------------------------------------------------------------------------
 
@@ -563,7 +574,7 @@ export class Animals {
         switch (sp.kind) {
           case 'swim': this.swim(a, sp, arr, dt); break;
           case 'crawlWater': this.crawl(a, sp, dt, 'water'); break;
-          case 'crawlLand': this.crawl(a, sp, dt, 'land'); break;
+          case 'crawlLand': if (!sp.sessile) this.crawl(a, sp, dt, 'land', sp.crawlOpt ?? null); break;
           case 'crab': this.crawl(a, sp, dt, 'any'); break;
           case 'fly': this.fly(a, sp, dt); break;
           case 'frog':
@@ -942,6 +953,7 @@ export class Animals {
           const x = a.pos.x + (Math.random() - 0.5) * r * 2, z = a.pos.z + (Math.random() - 0.5) * r * 2;
           if (!this.okFor(medium, x, z)) continue;
           let s = Math.random();
+          if (sp.litterLover) s += W.climate.sample(W.climate.litter, x, z) * 5 + W.climate.sample(W.climate.humus, x, z) * 1.5;   // maggots head for rot
           if (medium === 'land') s += T.field.matAt(x, z, MAT.moss) * 1.5 + (W.nearWater(V(x, T.heightAt(x, z), z), 6) ? 0.5 : 0) + this.comfortAt(sp, x, T.heightAt(x, z), z) * 3;
           if (medium === 'any') s += (W.nearWater(V(x, T.heightAt(x, z), z), 4) ? 1 : 0) + this.comfortAt(sp, x, T.heightAt(x, z), z) * 2;
           if (s > bs) { bs = s; best = V(x, 0, z); }
@@ -1507,7 +1519,7 @@ export class Animals {
   // Animals of the same medium (water, land, the background wall, air) steer apart when closer than the sum of
   // their body radii, using a spatial hash rebuilt every tick: nobody sits on top of anyone else.
   groupOf(a, sp) {
-    if (sp.kind === 'egg') return null;
+    if (sp.kind === 'egg' || sp.sessile) return null;
     if (a.wallMode) return 'wall';
     if (sp.kind === 'fly') return 'air';
     if (sp.kind === 'swim' || sp.kind === 'crawlWater' || sp.kind === 'axolotl' || a.swimming) return 'water';
@@ -1863,7 +1875,7 @@ export class Animals {
   }
 
   serialize() {
-    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut']) }));
+    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev']) }));
   }
 }
 

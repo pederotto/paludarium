@@ -4,7 +4,7 @@ import { startTimelapse } from '../../app/timelapse.js';
 import { S, openModal } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { LENSES } from '../../tools/controller.js';
-import { LENS_INFO } from '../../render/lens.js';
+import { lensLegend, qualityMetric, QUALITY_METRICS } from '../../render/lens.js';
 
 // Everything the wide screen's camera bar does, as a list for phones (where that bar is hidden).
 export function ViewMenu({ onClose }) {
@@ -30,12 +30,19 @@ export function Bottom() {
   const lens = S.lens.value;
   const career = S.career.value;
   const active = career?.active?.[0];
-  const li = LENS_INFO[lens];
+  const li = lensLegend(lens, qualityMetric.value);
   return (
     <>
     {li ? (
       <div class="legend glass">
         <b>{li.name}</b>
+        {lens === 'quality' ? (
+          <div class="lens-metrics" style={{ flex: '1 1 100%', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {Object.entries(QUALITY_METRICS).map(([k, m]) => (
+              <button key={k} class={'chip' + (qualityMetric.value === k ? ' on' : '')} onClick={() => { qualityMetric.value = k; }}>{m.label}</button>
+            ))}
+          </div>
+        ) : null}
         <div class="ramp" style={{ background: `linear-gradient(90deg, ${li.stops.join(', ')})` }} />
         <span>{li.lo}{li.unit}</span><span style={{ marginLeft: 'auto' }}>{li.hi}{li.unit}</span>
         <small>{li.blurb}</small>

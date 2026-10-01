@@ -8,6 +8,7 @@ import { Bottom } from './hud/Bottom.jsx';
 import { Toasts } from './hud/Toasts.jsx';
 import { InfoBanner } from './hud/InfoBanner.jsx';
 import { Coach } from './hud/Coach.jsx';
+import { SmartBar } from './hud/SmartBar.jsx';
 import { Photo } from './hud/Photo.jsx';
 import { Timelapse } from './hud/Timelapse.jsx';
 import { KidsHud } from './kids/Kids.jsx';
@@ -30,6 +31,7 @@ export function App() {
           <Bottom />
           <InfoBanner />
           <Coach />
+          <SmartBar />
         </>
       ) : null}
       {playing && !kids && photo ? <Photo /> : null}
