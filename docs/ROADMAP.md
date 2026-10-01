@@ -17,7 +17,7 @@ so that early ones unblock later ones.
    GitHub Pages site still shows the old game. Did you mean that, or something else (for example random sets of plants and objects
    inside a tank, or random layouts for the starter tank)?
 4. **Modes.** Child mode exists. I propose three adult-facing levels, named below. Do the names and the split in section 4 feel right?
-5. **Priority inside realism:** erosion and structural support first, or per-pond water quality first?
+5. **Decided:** erosion and per-pond water quality are both wanted, and they can co-exist (see 2b and 2d: they share one water-body graph, built once in 2a).
 
 ## 1. Quick correctness fixes (do first, S each)
 
@@ -51,6 +51,9 @@ so that early ones unblock later ones.
      when you bury its intake.
   4. Pools get real weirs: overflow height, spill direction, level that follows inflow minus outflow, so ponds fill and settle
      the way real ones do instead of just accumulating.
+
+### Shared foundation for 2b and 2d
+Both need to know, every few ticks, which wet cells form one body of water and how water moves between bodies. 2a builds that **water-body graph** (connected wet cells plus the flow links between them). Erosion works per cell on the flow field; water quality works per body on the graph; sediment ties them together (turbidity per body cuts light, so algae and plants respond; eroded soil releases nutrients to the body that receives it).
 
 ### 2b. Erosion, sand and soil (M-L)
 - Extend the shallow-water step with **suspended sediment** (capacity grows with flow speed and slope, shrinks with depth),
