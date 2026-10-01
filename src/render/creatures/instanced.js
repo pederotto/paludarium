@@ -89,7 +89,23 @@ function hasTranslucent(geometry, finish) {
   return false;
 }
 
+// Species whose finish, animation numbers and textures are identical draw with ONE material: building a node graph
+// into a shader is the expensive part of loading a tank (tens of milliseconds each), and the graph depends only on
+// these values. Shared materials live for the whole session (flagged `userData.shared`, so a tank unload leaves them).
+const MATERIALS = new Map();
+const texIds = new WeakMap();
+let nextTexId = 1;
+const texId = (t) => { if (!t) return 0; if (!texIds.has(t)) texIds.set(t, nextTexId++); return texIds.get(t); };
+const finishKey = (_, v) => (v && v.isTexture ? 'tex' + texId(v) : v);
+
 function buildMaterial(finish, wave, legLift, legStride, textures = null, translucent = false) {
+  const key = JSON.stringify([finish, wave, legLift, legStride, translucent, textures && Object.entries(textures).map(([k, t]) => [k, texId(t)])], finishKey);
+  let m = MATERIALS.get(key);
+  if (!m) { m = buildUncached(finish, wave, legLift, legStride, textures, translucent); m.userData.shared = true; if (m.userData.blendMaterial) m.userData.blendMaterial.userData.shared = true; MATERIALS.set(key, m); }
+  return m;
+}
+
+function buildUncached(finish, wave, legLift, legStride, textures = null, translucent = false) {
   const m = buildPass(finish, wave, legLift, legStride, textures, translucent ? 'opaque' : 'solid');
   if (translucent) m.userData.blendMaterial = buildPass(finish, wave, legLift, legStride, textures, 'blend');
   return m;

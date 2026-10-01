@@ -118,7 +118,7 @@ export class Gfx {
     }
     const post = this.pipeline = new THREE.RenderPipeline(this.renderer);
 
-    const scenePass = pass(scene, camera, { samples: useAO || this.photo ? 0 : q.aa === 'msaa' ? 4 : 0 });
+    const scenePass = this.scenePass = pass(scene, camera, { samples: useAO || this.photo ? 0 : q.aa === 'msaa' ? 4 : 0 });
     let color = scenePass;
     if (useAO || this.photo) {
       scenePass.setMRT(mrt({ output, normal: packNormalToRGB(normalView) }));
@@ -152,6 +152,27 @@ export class Gfx {
     post.outputNode = out;
     this.applyLightQuality();
     return post;
+  }
+
+  // Builds every shader and pipeline the scene pass will need, off the main thread's critical path (three yields between
+  // materials), so the first visible frames do not stall on node-graph builds. The pass's render target is set up the way
+  // PassNode.setup does it on its first frame: its sample count, format and size are part of the pipeline cache keys, and a
+  // pipeline built for a differently configured target would be thrown away. Returns false when it could not run.
+  // Opt-in (?precompile) because it measured no faster: compileAsync awaits each pipeline in turn, so the wall time
+  // is the same or worse (seconds to tens of seconds on a loaded machine) and the node-graph build is merely spread out.
+  async compile() {
+    const sp = this.scenePass, r = this.renderer;
+    if (!sp || !r?.compileAsync ) return false;
+    try {
+      const rt = sp.renderTarget;
+      rt.samples = sp.options?.samples === undefined ? r.samples : sp.options.samples;
+      rt.texture.type = r.getOutputBufferType();
+      const size = r.getDrawingBufferSize(new THREE.Vector2());
+      sp.setSize(size.x, size.y);
+      this.applyLightQuality();
+      await sp.compileAsync(r);
+      return true;
+    } catch (e) { console.warn('Precompile skipped', e); return false; }
   }
 
   applyLightQuality() {

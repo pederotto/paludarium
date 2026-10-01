@@ -100,6 +100,8 @@ export class Game {
     this.rig.fit();
     this.gfx.build(this.scene, this.camera);
     this.stage.setLid(world.env.lid);
+    // Opt-in (?precompile): builds the shaders before the first frame instead of inside it. Measured no faster, see gfx.compile.
+    if (this.gfx.params.has('precompile')) await this.gfx.compile();
     this.events.emit('tank', world, spec);
     return world;
   }
