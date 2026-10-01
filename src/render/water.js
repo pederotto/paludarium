@@ -397,7 +397,8 @@ export class Water {
     H.step(hs);
     this.erode(hs, dt * speed * MINUTES_PER_SECOND, dt);
     this.syncLevel();
-    this.updateFlowMesh();
+    // The surface mesh and its three uploads change slowly; every second frame is indistinguishable.
+    if ((this._flowTick = (this._flowTick || 0) + 1) % 2 === 0 || this._flowTick === 1) this.updateFlowMesh();
     this._t -= dt;
     if (this._t <= 0) { this._t = 0.4; this.syncFalls(); }
     // Droplets riding the falls; splashes stir the main pool's ripples.

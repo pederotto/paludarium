@@ -161,9 +161,9 @@ export class Gfx {
 
   applyLightQuality() {
     const q = this.q;
-    this._shadowLights = [];
+    this._shadowLights = []; this._frameNo = 0;
     this.scene?.traverse((o) => {
-      if (o.isDirectionalLight && o.castShadow) { o.shadow.autoUpdate = this.shadowEvery === 1; this._shadowLights.push(o.shadow); }
+      if (o.isDirectionalLight && o.castShadow) { o.shadow.autoUpdate = true; this._shadowLights.push(o.shadow); }
       if (o.isDirectionalLight && o.castShadow && o.shadow.mapSize.x !== q.shadow) {
         o.shadow.mapSize.set(q.shadow, q.shadow);
         o.shadow.map?.dispose();
@@ -174,8 +174,9 @@ export class Gfx {
 
   render() {
     // The shadow pass is a third of all draws; a shadow one frame (16 ms) old is not something the eye can place.
-    if (this.shadowEvery > 1) {
-      const due = this._frameNo++ % this.shadowEvery === 0;
+    // Not for the first 90 frames after a (re)build: pipelines and the shadow map are still being created.
+    if (this.shadowEvery > 1 && this._frameNo++ > 90) {
+      const due = this._frameNo % this.shadowEvery === 0;
       for (const sh of this._shadowLights) { sh.autoUpdate = false; if (due) sh.needsUpdate = true; }
     }
     this.pipeline.render();
