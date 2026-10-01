@@ -7,6 +7,8 @@ import { Builder, PRIM, hash3, clamp, lerp, rng } from '../render/geo.js';
 import { CreatureLOD, BODIES, FINISH, withRig } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { TANK, MAT } from './tank.js';
+import { Occupancy } from './occupancy.js';
+import { PIECES } from './decor.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
 
 const C = (h) => new THREE.Color(h);
@@ -328,6 +330,10 @@ export class Animals {
     this.tails = {};
     this.food = [];
     this.camera = null;   // set by Game: fine meshes are used for animals near it
+    this.occ = new Occupancy();   // hardscape that is not part of the height field (roots, wood, overhangs)
+    this.avoid = true;            // steer around it and unstick animals (the stuck test switches it off for a baseline)
+    this._occWall = 0; this._occSigT = 0;
+    this.stuckStats = { unstuck: 0, relocated: 0, worst: 0 };
     for (const [id, sp] of Object.entries(SPECIES)) {
       this.by[id] = [];
       this.meshes[id] = createSpeciesMesh(scene, id);
@@ -532,6 +538,7 @@ export class Animals {
   move(dt) {
     const W = this.world;
     this.t = (this.t ?? 0) + dt;
+    if (dt > 0) this.syncOccupancy();
     for (const [id, arr] of Object.entries(this.by)) {
       const sp = SPECIES[id];
       for (const a of arr) {
@@ -549,10 +556,23 @@ export class Animals {
           case 'gecko': this.gecko(a, sp, dt); break;
           case 'egg': break;
         }
+        if (dt > 0 && this.avoid) this.keepFree(a, sp, dt);
         // Distance walked drives the leg cycle.
         const moved = Math.hypot(a.pos.x - px, a.pos.y - py, a.pos.z - pz);
         a.gait = (a.gait ?? a.phase) + moved * 2.6;
         a.speedNow = dt > 0 ? moved / dt : 0;
+      }
+    }
+    // Second look: nobody may end the step inside a piece or under the ground (animals that moved after their own check).
+    if (this.avoid && dt > 0) {
+      const T = W.terrain;
+      for (const [id, arr] of Object.entries(this.by)) {
+        const sp = SPECIES[id];
+        for (const a of arr) {
+          if (a.onWall || a.hop || a.wallMode) continue;
+          if (sp.kind !== 'swim' && sp.kind !== 'fly') { const g = T.heightAt(a.pos.x, a.pos.z); if (a.pos.y < g - 0.3) a.pos.y = g; }
+          if (this.insideSolid(a, sp)) this.relocate(a, sp, true, true);
+        }
       }
     }
     // Food flakes drift and sink, then settle.
@@ -567,11 +587,168 @@ export class Animals {
     this.draw(dt);
   }
 
+
+  // --- Occupancy: keep animals out of roots and wood, and unstick them -------------------------------------------------
+  // Rebuild the occupancy grid when a piece was added, moved or removed (at most four times a second).
+  syncOccupancy(force = false) {
+    const D = this.world.decor;
+    if (!D) return;
+    let stale = this.occ.stale(D);
+    if (!stale && this.t - this._occSigT > 1) {
+      this._occSigT = this.t;
+      stale = Occupancy.signature(D) !== this.occ.sig;       // a piece that was dragged without a version bump
+    }
+    if (!stale) return;
+    const now = performance.now();
+    if (!force && now - this._occWall < 250) return;
+    this._occWall = now;
+    this.occ.rebuild(D, PIECES);
+  }
+
+  // The water surface where a fish is (-Infinity when there is no water there).
+  waterTop(x, z) {
+    const s = this.world.water.surfaceAt(x, z, 0.3);
+    return Number.isFinite(s) ? s : -Infinity;
+  }
+
+  // The height at which a walker's body is tested against the occupancy grid.
+  bodyY(a, sp) { return sp.kind === 'swim' || sp.kind === 'fly' || a.swimming ? a.pos.y : a.pos.y + 0.5; }
+  insideSolid(a, sp) {
+    if (a.onWall || a.hop || a.wallMode) return false;
+    return this.occ.solidAt(a.pos.x, this.bodyY(a, sp), a.pos.z);
+  }
+
+  // Is it plausible that this animal is trying to get somewhere right now?
+  wantsMove(a, sp = SPECIES[a.sp]) {
+    if (a.dead || a.hop || a.onWall || a.stranded) return false;
+    switch (sp.kind) {
+      case 'swim': return true;
+      case 'crawlWater': case 'crawlLand': case 'crab': return a.state === 'walk' && !!a.target;
+      case 'frog': case 'toad': return (a.hopFail ?? 0) >= 1 || (!!a.swimming && !!a.shore);
+      case 'newt': case 'axolotl': return a.swimming ? true : a.state === 'walk' && !!a.target;
+      case 'fly': return a.state === 'fly';
+    }
+    return false;
+  }
+
+  // Per animal and tick: a body inside a solid cell is moved out; one that wants to move but has hardly moved
+  // for several seconds backs off and picks a new target, and as a last resort jumps to the nearest free cell.
+  keepFree(a, sp, dt) {
+    if (a.dead) return;
+    // Ground that rose under a walker (a piece was dropped on it, erosion): stand on it again.
+    if (sp.kind !== 'swim' && sp.kind !== 'fly' && !a.onWall && !a.hop && !a.wallMode) {
+      const g = this.world.terrain.heightAt(a.pos.x, a.pos.z);
+      if (a.pos.y < g - 0.3) a.pos.y = g;
+    }
+    if (this.insideSolid(a, sp)) { this.stuckStats.inside = (this.stuckStats.inside ?? 0) + 1; const by = this.stuckStats.by ??= {}; by[a.sp] = (by[a.sp] ?? 0) + 1; this.relocate(a, sp, false, true); return; }
+    if (sp.kind === 'egg') return;
+    if (!this.wantsMove(a, sp)) { a.stillT = 0; a.anchor = null; return; }
+    if (!a.anchor) { a.anchor = a.pos.clone(); a.stillT = 0; return; }
+    if (a.pos.distanceTo(a.anchor) > 0.25 + 0.1 * sp.size) { a.anchor.copy(a.pos); a.stillT = 0; return; }
+    a.stillT = (a.stillT ?? 0) + dt;
+    this.stuckStats.worst = Math.max(this.stuckStats.worst, a.stillT);
+    if (a.stillT < 3.5) return;
+    // Stuck.
+    this.stuckStats.unstuck++;
+    const recent = this.t - (a.lastStuck ?? -1e9) < 25;
+    a.lastStuck = this.t;
+    a.stuckLevel = recent ? (a.stuckLevel ?? 0) + 1 : 1;
+    a.stillT = 0; a.anchor = null;
+    if (a.stuckLevel >= 2) { this.relocate(a, sp); return; }
+    // Back off: away from the nearest free space's opposite, i.e. toward free space, and choose again.
+    const nf = this.occ.count ? this.occ.nearestFree(a.pos.x, this.bodyY(a, sp), a.pos.z, null, 4) : null;
+    const ang = nf && (nf[0] !== a.pos.x || nf[2] !== a.pos.z) ? Math.atan2(nf[0] - a.pos.x, nf[2] - a.pos.z) : Math.random() * Math.PI * 2;
+    a.target = null; a.shore = null; a.hop = null; a.timer = 0; a.hopFail = 0;
+    a.wander = ang; a.yaw = ang; a.side = -(a.side ?? 1);
+    if (sp.kind === 'swim' || a.swimming) {
+      a.vel.set(Math.sin(ang), 0, Math.cos(ang)).multiplyScalar(sp.speed);
+      a.home = this.randomWater(2) ?? a.home;
+    } else {
+      a.state = 'idle';
+      const nx = a.pos.x + Math.sin(ang) * 0.8, nz = a.pos.z + Math.cos(ang) * 0.8;
+      if (this.okFor(this.mediumOf(sp), nx, nz)) { a.pos.x = nx; a.pos.z = nz; }
+    }
+  }
+
+  mediumOf(sp) {
+    switch (sp.kind) {
+      case 'crawlWater': case 'axolotl': return 'water';
+      case 'crawlLand': case 'frog': case 'toad': case 'gecko': return 'land';
+      default: return 'any';
+    }
+  }
+
+  // Last resort: the nearest free cell that suits the animal; when that is where it already is (a pool or an
+  // island too small to leave) or it keeps happening, a random free spot of the right kind.
+  relocate(a, sp, far = a.stuckLevel >= 3, inside = false) {
+    const W = this.world, T = W.terrain, occ = this.occ;
+    const from = a.pos.clone();
+    this.stuckStats.relocated++;
+    a.stillT = 0; a.anchor = null; a.target = null; a.shore = null; a.hop = null; a.hopFail = 0;
+    a.timer = 0; a.state = 'idle'; a.vel.set(0, 0, 0);
+    const swimmer = sp.kind === 'swim' || (a.swimming && sp.kind !== 'frog' && sp.kind !== 'toad');
+    if (!swimmer) a.swimming = false;
+    const fly = sp.kind === 'fly';
+    const wx = TANK.w / 2 - 2, wz = TANK.d / 2 - 2;
+    const okSwim = (x, y, z) => {
+      const f = T.heightAt(x, z), L = this.waterTop(x, z);
+      return L - f >= 1.6 && y >= f + 0.6 && y <= L - 0.6 && Math.abs(x) < wx - 0.5 && Math.abs(z) < wz - 0.5;
+    };
+    const okFly = (x, y, z) => y > Math.max(T.heightAt(x, z), this.waterTop(x, z)) + 1.2 && y < TANK.h - 3 && Math.abs(x) < wx && Math.abs(z) < wz;
+    if (swimmer || fly) {
+      const ok = fly ? okFly : okSwim;
+      let to = far ? null : occ.nearestFree(a.pos.x, a.pos.y, a.pos.z, ok, 14);
+      if (to && !inside && Math.hypot(to[0] - from.x, to[1] - from.y, to[2] - from.z) < 2) to = null;
+      for (let k = 0; k < 250 && !to; k++) {
+        const x = (Math.random() - 0.5) * (TANK.w - 6), z = (Math.random() - 0.5) * (TANK.d - 6);
+        if (fly) {
+          const y = Math.max(T.heightAt(x, z), this.waterTop(x, z)) + 2 + Math.random() * 6;
+          if (okFly(x, y, z) && !occ.solidAt(x, y, z)) to = [x, y, z];
+        } else if (this.waterTop(x, z) - T.heightAt(x, z) >= 1.7) {
+          const f = T.heightAt(x, z), y = lerp(f, this.waterTop(x, z), 0.3 + Math.random() * 0.4);
+          if (okSwim(x, y, z) && !occ.solidAt(x, y, z)) to = [x, y, z];
+        }
+      }
+      if (to) { a.pos.set(to[0], to[1], to[2]); a.home = a.pos.clone(); a.wander = Math.random() * 6.28; }
+      return;
+    }
+    const medium = this.mediumOf(sp);
+    const free = (x, z) => this.okFor(medium, x, z) && !occ.solidAt(x, T.heightAt(x, z) + 0.5, z);
+    let best = null;
+    for (let r = far ? 1e9 : 1.5; r <= 30 && !best; r += 1.5) {
+      const n = Math.ceil(r * 2.4);
+      for (let k = 0; k < n; k++) {
+        const ang = (k / n) * Math.PI * 2;
+        const x = a.pos.x + Math.sin(ang) * r, z = a.pos.z + Math.cos(ang) * r;
+        if (free(x, z)) { best = [x, z]; break; }
+      }
+    }
+    for (let k = 0; k < 300 && !best; k++) {
+      const x = (Math.random() - 0.5) * (TANK.w - 4), z = (Math.random() - 0.5) * (TANK.d - 4);
+      if (free(x, z)) best = [x, z];
+    }
+    if (best) { a.pos.x = best[0]; a.pos.z = best[1]; a.pos.y = T.heightAt(best[0], best[1]); a.home = a.pos.clone(); }
+  }
+
+  // A heading (radians) that is free of solids for the next `reach` cm from (x, y, z), nearest to `want`.
+  freeHeading(x, y, z, want, reach, ok = null) {
+    const occ = this.occ;
+    for (const da of [0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6, 2.3, -2.3]) {
+      const h = want + da, dx = Math.sin(h), dz = Math.cos(h);
+      let free = true;
+      for (let d = reach * 0.4; d <= reach; d += reach * 0.3) {
+        if (occ.solidAt(x + dx * d, y, z + dz * d) || (ok && !ok(x + dx * d, y, z + dz * d))) { free = false; break; }
+      }
+      if (free) return h;
+    }
+    return null;
+  }
+
   swim(a, sp, arr, dt) {
     const W = this.world, T = W.terrain;
-    const L = W.water.level;
+    const L = this.waterTop(a.pos.x, a.pos.z);
     const floor = T.heightAt(a.pos.x, a.pos.z);
-    if (L - floor < 1.2) {
+    if (!(L - floor >= 1.2)) {
       // Stranded: flop and suffocate.
       a.stranded = true;
       a.pos.y = floor + 0.3;
@@ -620,7 +797,22 @@ export class Animals {
     const sp2 = a.vel.lengthSq() > 0.01 ? a.vel.clone().normalize() : V(Math.sin(a.yaw), 0, Math.cos(a.yaw));
     const ahead = a.pos.clone().addScaledVector(sp2, 4);
     const hx = TANK.w / 2 - 1.5, hz = TANK.d / 2 - 1.5;
-    const blocked = Math.abs(ahead.x) > hx || Math.abs(ahead.z) > hz || T.heightAt(ahead.x, ahead.z) > Math.min(L - 1, a.pos.y - 0.3);
+    const Lh = this.waterTop(ahead.x, ahead.z);
+    const blocked = Math.abs(ahead.x) > hx || Math.abs(ahead.z) > hz || T.heightAt(ahead.x, ahead.z) > Math.min(Lh - 1, a.pos.y - 0.3) || !(Lh > -Infinity);
+    // Roots and wood: steer round them.
+    const occ = this.avoid && this.occ.count ? this.occ : null;
+    if (occ && (occ.solidAt(ahead.x, ahead.y, ahead.z) || occ.solidAt(a.pos.x + sp2.x * 2, a.pos.y + sp2.y * 2, a.pos.z + sp2.z * 2))) {
+      const okWater = (x, y, z) => this.waterTop(x, z) - T.heightAt(x, z) >= 1.5 && Math.abs(x) < hx && Math.abs(z) < hz;
+      const h = this.freeHeading(a.pos.x, a.pos.y, a.pos.z, Math.atan2(sp2.x, sp2.z), 4.5, okWater);
+      if (h !== null) {
+        desired.set(Math.sin(h), 0, Math.cos(h)).multiplyScalar(sp.speed * 1.4);
+        a.wander = h;
+      } else {
+        desired.set(-sp2.x, 0, -sp2.z).multiplyScalar(sp.speed * 1.4);
+        desired.y += (occ.solidAt(a.pos.x, a.pos.y + 2.5, a.pos.z) ? -1 : 1) * sp.speed;
+        a.wander = Math.atan2(-sp2.x, -sp2.z) + (Math.random() - 0.5);
+      }
+    }
     if (blocked) {
       if (a.home.distanceTo(a.pos) < 3 || !W.water.isWater(a.home.x, a.home.z, 2)) a.home = this.randomWater(2) ?? a.home;
       desired.addScaledVector(a.home.clone().sub(a.pos).setY(0).normalize(), sp.speed * 2.5);
@@ -633,9 +825,20 @@ export class Animals {
     a.pos.addScaledVector(a.vel, dt);
     a.pos.x = clamp(a.pos.x, -hx - 0.5, hx + 0.5);
     a.pos.z = clamp(a.pos.z, -hz - 0.5, hz + 0.5);
-    const f2 = T.heightAt(a.pos.x, a.pos.z);
-    if (L - f2 < 1.3) a.pos.copy(prev);
-    a.pos.y = clamp(a.pos.y, T.heightAt(a.pos.x, a.pos.z) + 0.5, L - 0.5);
+    let f2 = T.heightAt(a.pos.x, a.pos.z), L2 = this.waterTop(a.pos.x, a.pos.z);
+    if (!(L2 - f2 >= 1.3)) { a.pos.copy(prev); f2 = T.heightAt(a.pos.x, a.pos.z); L2 = L; }
+    a.pos.y = clamp(a.pos.y, f2 + 0.5, Math.max(f2 + 0.6, L2 - 0.5));
+    if (occ && occ.solidAt(a.pos.x, a.pos.y, a.pos.z)) {
+      // Inside a piece: slide along it on whichever single axis is free, else stay where we were.
+      const t = [[a.pos.x, prev.y, prev.z], [prev.x, a.pos.y, prev.z], [prev.x, prev.y, a.pos.z]];
+      const hit = t.find(([x, y, z]) => {
+        const f = T.heightAt(x, z), Lt = this.waterTop(x, z);
+        return !occ.solidAt(x, y, z) && Lt - f >= 1.3 && y >= f + 0.45 && y <= Lt - 0.4;
+      });
+      if (hit) a.pos.set(hit[0], hit[1], hit[2]); else a.pos.copy(prev);
+      a.vel.multiplyScalar(0.3);
+      a.wander += (Math.random() < 0.5 ? -1 : 1) * (0.8 + Math.random());
+    }
     const hs = Math.hypot(a.vel.x, a.vel.z);
     if (hs > 0.05) a.yaw = Math.atan2(a.vel.x, a.vel.z);
     a.pitch = lerp(a.pitch, -Math.atan2(a.vel.y, Math.max(0.3, hs)) * 0.6, Math.min(1, dt * 4));
@@ -661,6 +864,7 @@ export class Animals {
     const g = W.terrain.heightAt(x, z);
     const s = W.water.surfaceAt(x, z);
     const depth = s - g;
+    if (this.avoid && this.occ.count && this.occ.solidAt(x, g + 0.5, z)) return false;
     if (medium === 'water') return depth > 1;
     if (medium === 'land') return !(depth > -0.2);
     return !(depth > maxDepth);
@@ -697,10 +901,24 @@ export class Animals {
       else {
         d.normalize();
         const step = sp.speed * dt * (0.7 + 0.3 * Math.sin(this.t * 6 + a.phase));
-        const nx = a.pos.x + d.x * step, nz = a.pos.z + d.z * step;
-        if (this.okFor(medium, nx, nz)) { a.pos.x = nx; a.pos.z = nz; }
-        else a.timer = 0;
-        const want = Math.atan2(d.x, d.z) + (sp.kind === 'crab' ? Math.PI / 2 : 0);
+        let nx = a.pos.x + d.x * step, nz = a.pos.z + d.z * step;
+        let dirx = d.x, dirz = d.z;
+        if (this.okFor(medium, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.blockedN = 0; }
+        else {
+          // Something is in the way: slide round it, trying the side that worked last time first.
+          let moved = false;
+          if (this.avoid) {
+            const sd = a.side ?? 1, base = Math.atan2(d.x, d.z);
+            for (const da of [0.7 * sd, -0.7 * sd, 1.4 * sd, -1.4 * sd, 2.1 * sd]) {
+              const sx = Math.sin(base + da), sz = Math.cos(base + da);
+              nx = a.pos.x + sx * step * 1.2; nz = a.pos.z + sz * step * 1.2;
+              if (this.okFor(medium, nx, nz)) { a.pos.x = nx; a.pos.z = nz; dirx = sx; dirz = sz; a.side = Math.sign(da) || 1; moved = true; break; }
+            }
+          }
+          a.blockedN = (a.blockedN ?? 0) + 1;
+          if (!moved || a.blockedN > 40) { a.timer = 0; a.blockedN = 0; }
+        }
+        const want = Math.atan2(dirx, dirz) + (sp.kind === 'crab' ? Math.PI / 2 : 0);
         a.yaw = angLerp(a.yaw, want, Math.min(1, dt * 6));
       }
     }
@@ -722,11 +940,13 @@ export class Animals {
     if (a.state === 'rest') {
       if (a.timer <= 0) { a.state = 'fly'; a.timer = 2 + Math.random() * 5; }
       a.pos.y = Math.max(T.heightAt(a.pos.x, a.pos.z), W.water.surfaceAt(a.pos.x, a.pos.z));
+      if (this.avoid && this.occ.solidAt(a.pos.x, a.pos.y, a.pos.z)) { a.state = 'fly'; a.timer = 2 + Math.random() * 3; }   // do not rest inside a root
       return;
     }
     a.wander += (Math.random() - 0.5) * dt * 8;
     const d = V(Math.sin(a.wander), Math.sin(this.t * 1.7 + a.phase) * 0.6, Math.cos(a.wander)).multiplyScalar(sp.speed * 0.6);
     a.vel.lerp(d, Math.min(1, dt * 3));
+    const before = a.pos.clone();
     a.pos.addScaledVector(a.vel, dt);
     const g = Math.max(T.heightAt(a.pos.x, a.pos.z), W.water.surfaceAt(a.pos.x, a.pos.z));
     if (a.pos.y < g + 1.2) { a.pos.y = g + 1.2; a.vel.y = Math.abs(a.vel.y); }
@@ -736,11 +956,12 @@ export class Animals {
     if (Math.abs(a.pos.z) > hz) { a.pos.z = Math.sign(a.pos.z) * hz; a.wander = Math.atan2(0, -a.pos.z); }
     const wz = W.wall.zAt(a.pos.x, a.pos.y) + 1;
     if (a.pos.z < wz) { a.pos.z = wz; a.wander = 0; }
+    if (this.avoid && this.occ.solidAt(a.pos.x, a.pos.y, a.pos.z) && !this.occ.solidAt(before.x, before.y, before.z)) { a.pos.copy(before); a.vel.multiplyScalar(-0.5); a.wander += Math.PI * (0.6 + Math.random() * 0.8); }
     a.yaw = Math.atan2(a.vel.x, a.vel.z);
     if (a.timer <= 0) {
       a.timer = 3 + Math.random() * 8;
       // Land only on dry ground.
-      if (W.water.surfaceAt(a.pos.x, a.pos.z) === -Infinity) a.state = 'rest';
+      if (W.water.surfaceAt(a.pos.x, a.pos.z) === -Infinity && !(this.avoid && this.occ.solidAt(a.pos.x, T.heightAt(a.pos.x, a.pos.z), a.pos.z))) a.state = 'rest';
     }
   }
 
@@ -818,7 +1039,8 @@ export class Animals {
         cands.push({ to, sc: this.comfortAt(sp, to.x, T.heightAt(to.x, to.z), to.z) * (uneasy ? 6 : 3) + Math.random() });
       }
       cands.sort((p, q) => q.sc - p.sc);
-      for (const c of cands) if (this.hopTo(a, sp, c.to, wantWater)) return;
+      for (const c of cands) if (this.hopTo(a, sp, c.to, wantWater)) { a.hopFail = 0; return; }
+      a.hopFail = (a.hopFail ?? 0) + 1;
       a.timer = 1 + Math.random() * 3;
     }
   }
@@ -829,6 +1051,7 @@ export class Animals {
     const d = dir.clone().setY(0).normalize().multiplyScalar(sp.speed * 0.6 * dt);
     const nx = a.pos.x + d.x, nz = a.pos.z + d.z;
     if (W.water.surfaceAt(nx, nz, 0.3) > -Infinity) return false;
+    if (this.avoid && this.occ.solidAt(nx, W.terrain.heightAt(nx, nz) + 0.5, nz)) return false;
     a.pos.x = nx; a.pos.z = nz;
     a.pos.y = W.terrain.heightAt(nx, nz);
     return true;
@@ -836,7 +1059,7 @@ export class Animals {
 
   frogSwim(a, sp, dt, s, toad) {
     const W = this.world, T = W.terrain;
-    a.pos.y = s - 0.35 * sp.size;
+    a.pos.y = Math.max(s - 0.35 * sp.size, T.heightAt(a.pos.x, a.pos.z));
     a.normal = null;
     // Kick now and then; glide in between.
     a.kick = (a.kick ?? 0) + dt * 2.2;
@@ -867,8 +1090,10 @@ export class Animals {
     a.yaw = angLerp(a.yaw, Math.atan2(dir.x, dir.z), Math.min(1, dt * 3));
     const v = sp.speed * (toad ? 3 : 2.2) * (0.3 + push);
     const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt;
-    if (Math.abs(nx) < TANK.w / 2 - 1 && Math.abs(nz) < TANK.d / 2 - 1) { a.pos.x = nx; a.pos.z = nz; }
+    if (this.avoid && this.occ.solidAt(nx, a.pos.y, nz)) { a.shore = null; a.timer = 0; }
+    else if (Math.abs(nx) < TANK.w / 2 - 1 && Math.abs(nz) < TANK.d / 2 - 1) { a.pos.x = nx; a.pos.z = nz; }
     if (push > 0.9 && Math.random() < dt * 4) W.fx?.addDrop(a.pos.x, a.pos.z, -1.2, 0.5);
+    if (!a.shore) return;
     // Close to the bank: climb out with a hop.
     if (dist < 2.5 * sp.size) {
       const to = a.shore.clone();
@@ -890,7 +1115,8 @@ export class Animals {
     if (wet && !(sp.kind === 'toad' && intoWater)) return false;
     if (!wet && T.normalAt(to.x, to.z).y < 0.6) return false;       // too steep to land on
     if (!wet && W.water.nearestFall(V(to.x, g, to.z), 1.5)) return false;
-    to.y = wet ? s - 0.35 * sp.size : g;
+    to.y = wet ? Math.max(s - 0.35 * sp.size, g) : g;
+    if (this.avoid && this.occ.solidAt(to.x, to.y + 0.5, to.z)) return false;
     const rise = to.y - a.pos.y;
     if (rise > 5 * sp.size || rise < -14 * sp.size) return false;
     const dist = Math.hypot(to.x - a.pos.x, to.z - a.pos.z);
@@ -904,6 +1130,7 @@ export class Animals {
       const y = y0 + (to.y - y0) * t + 4 * h * t * (1 - t);
       const under = Math.max(T.heightAt(x, z), W.water.surfaceAt(x, z, 0.3));
       if (y < under + 0.3 && !(wet && t > 0.75)) return false;
+      if (this.avoid && this.occ.solidAt(x, y + 0.4, z)) return false;
     }
     this.startHop(a, to, h, wet);
     return true;
@@ -911,6 +1138,7 @@ export class Animals {
 
   startHop(a, to, h, splash = false) {
     const d = a.pos.distanceTo(to);
+    a.hopFail = 0;
     a.hop = { from: a.pos.clone(), to, t: 0, dur: 0.22 + Math.sqrt(d) * 0.1, h: Math.max(h, 0.6), splash };
     a.yaw = Math.atan2(to.x - a.pos.x, to.z - a.pos.z);
     a.floating = false;

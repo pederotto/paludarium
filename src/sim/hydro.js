@@ -20,6 +20,7 @@
 
 import * as THREE from 'three/webgpu';
 import { TANK } from './tank.js';
+import { WaterBodies, NODE } from './waterbodies.js';
 
 const G = 981;                // cm/s²
 const DAMP = 0.992;           // pipe friction per sub-step
@@ -27,6 +28,10 @@ const SUB_DT = 1 / 240;       // s
 const JUMP = 1.6;             // cm of drop between neighbouring cells that makes water leave the surface
 export const WET = 0.05;      // cm: thinner films count as dry
 const NB8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+const HMAX = 80;              // cm of lift at which the pump delivers nothing
+const NN = NODE.MAX;          // ledger nodes: 0 ground, 1 sump, 2 outside, 3.. outlets, 15.. ponds and streams
+// Share of the rated flow the pump really delivers when it lifts water `head` cm (a simple pump curve).
+export const pumpCurve = (head) => Math.max(0, 1 - (head / HMAX) * (head / HMAX));
 
 export class Hydro {
   constructor(world) {
@@ -53,7 +58,7 @@ export class Hydro {
     }
     this.level = 0;
     this.resVol = 0;                       // cm³ in the main pool
-    this.pump = { on: true, rate: 160, intake: null, running: false }; // rate in L/h
+    this.pump = { on: true, rate: 160, intake: null, running: false, submerge: 1, lph: 0, bypass: 0 }; // rate in L/h
     this.outlets = [];                     // { pos, wall, cell, pts }
     this.topUp = true;
     this.targetTotal = 0;                  // cm³ the top-up keeps
@@ -61,8 +66,27 @@ export class Hydro {
     this.falls = [];
     this.flowOut = 0;                      // cm³/s currently pumped
     this._poolT = 0;
+    // Flow ledger: every movement of water between two places is booked in `xfer`
+    // (cm³, from node a to node b) for one window of simulated time; at the end
+    // of the window the books are balanced (in = out + change in storage).
+    this.hPrev = f.h.slice();             // the ground the water last saw
+    this.groundVer = 0;
+    this.grp = new Uint8Array(N);         // ledger node of each cell, fixed for a window
+    this.xfer = new Float64Array(NN * NN);
+    this.S0 = new Float64Array(NN);
+    this.winT = 0;
+    this.bypassAcc = 0;
+    this.linkAvg = new Map();
+    this.evapLph = 0;
+    this.topUpLph = 0;
+    this.ledger = { t: 0, window: 0, nodes: [], links: [], pump: {}, warnings: [], check: { maxImbalance: 0, total: 0 } };
+    this.bodies = new WaterBodies(world, this);
     this.rebuild();
   }
+
+  // Books `v` cm³ moving from node a to node b.
+  x(a, b, v) { if (a !== b && v > 0) this.xfer[a * NN + b] += v; }
+  outNode(i) { return NODE.OUT0 + Math.min(i, NODE.OUTS - 1); }
 
   cellOf(x, z) {
     const f = this.f;
@@ -82,12 +106,116 @@ export class Hydro {
   }
 
   // --- After the ground changed ----------------------------------------------
+  // Every edit conserves water: standing water on ground that was raised is
+  // pushed into the nearest hollow (or the main pool), the main pool simply
+  // rises when its floor does, and a pump whose intake got buried moves to
+  // the deepest part of the pool.
   rebuild() {
+    const h = this.f.h, hp = this.hPrev;
+    const oldRes = this.res.slice(), oldLevel = this.level;
+    this.groundVer++;
+    this.displace(hp);
+    this.guardIntake(oldRes, oldLevel, hp);
     this.computeFlood();
     this.computeJumps();
     for (const o of this.outlets) this.placeOutlet(o);
     this.solveLevel();
     this.updateMembership();
+    hp.set(h);
+    this.closeWindow(true);
+  }
+
+  // Water standing outside the main pool on cells that rose: the ground takes
+  // its place and the water goes downhill to the nearest hollow.
+  displace(hp) {
+    const h = this.f.h, d = this.d, res = this.res, area = this.area;
+    const moves = new Map();
+    for (let n = 0; n < this.N; n++) {
+      const rise = h[n] - hp[n];
+      if (rise <= 0.01 || res[n] || d[n] <= 0) continue;
+      const m = Math.min(d[n], rise);
+      d[n] -= m;
+      this.x(this.grp[n], NODE.TRANSIT, m * area);
+      const end = this.descend(n);
+      moves.set(end, (moves.get(end) ?? 0) + m * area);
+    }
+    for (const [end, v] of moves) this.pour(NODE.TRANSIT, end, v);
+  }
+
+  // Steepest descent over the ground from cell n to a hollow or the main pool.
+  descend(n) {
+    const { h, cols, nx, ny } = this.f;
+    let cur = n;
+    for (let s = 0; s < 400; s++) {
+      if (this.res[cur]) return cur;
+      const i = cur % cols, j = Math.floor(cur / cols);
+      let best = -1, bh = h[cur] - 1e-4;
+      for (const [di, dj] of NB8) {
+        const ni = i + di, nj = j + dj;
+        if (ni < 0 || nj < 0 || ni > nx || nj > ny) continue;
+        const q = nj * cols + ni;
+        if (h[q] < bh) { bh = h[q]; best = q; }
+      }
+      if (best < 0) break;
+      cur = best;
+    }
+    return cur;
+  }
+
+  // Pours `vol` cm³ (booked as coming from ledger node g0) into the hollow
+  // around `cell`: fills it up to its spill point and sends the rest over the lip.
+  pour(g0, cell, vol, depth = 0) {
+    if (vol <= 1e-6) return;
+    const area = this.area, d = this.d, h = this.f.h;
+    if (this.res[cell] || depth > 6) { this.resVol += vol; this.x(g0, NODE.SUMP, vol); return; }
+    const b = this.basin(cell);
+    if (!b || !b.cells.length) { d[cell] += vol / area; this.x(g0, this.grp[cell], vol); return; }
+    const cells = b.cells.slice().sort((p, q) => (h[p] + d[p]) - (h[q] + d[q]));
+    let sum = 0, cnt = 0, L = 0;
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      sum += h[c] + d[c]; cnt++;
+      L = (vol / area + sum) / cnt;
+      const nx = i + 1 < cells.length ? h[cells[i + 1]] + d[cells[i + 1]] : Infinity;
+      if (L <= nx) break;
+    }
+    L = Math.min(L, b.level);
+    let added = 0;
+    for (let i = 0; i < cnt; i++) {
+      const c = cells[i];
+      const a = Math.max(0, L - h[c] - d[c]);
+      if (a <= 0) continue;
+      d[c] += a; added += a * area;
+      this.x(g0, this.grp[c], a * area);
+    }
+    const rest = vol - added;
+    if (rest > 1e-6) {
+      if (b.spillCell >= 0 && b.spillCell !== cell) this.pour(g0, b.spillCell, rest, depth + 1);
+      else { this.resVol += rest; this.x(g0, NODE.SUMP, rest); }
+    }
+  }
+
+  // The pump's intake is buried when the ground under it rose to the water
+  // surface: move it to the deepest cell of the pool, and say so.
+  guardIntake(oldRes, oldLevel, hp) {
+    const P = this.pump;
+    if (!P.intake || this.resVol < 50) return;
+    const h = this.f.h, c = this.cellOf(P.intake.x, P.intake.z);
+    if (!(h[c] - hp[c] > 0.05) || !(oldLevel - hp[c] > 1.5) || !(h[c] > oldLevel - 1.5)) return;
+    let best = -1, bs = Infinity;
+    const stamped = this.f.stamped;
+    for (let n = 0; n < this.N; n++) {
+      if (!oldRes[n] || stamped?.[n] || h[n] > oldLevel - 2.5) continue;
+      const [x, z] = this.cellXZ(n);
+      const sc = h[n] + 0.01 * Math.hypot(x - P.intake.x, z - P.intake.z);
+      if (sc < bs) { bs = sc; best = n; }
+    }
+    if (best < 0) return;
+    const [x, z] = this.cellXZ(best);
+    P.intake = { x, z };
+    const msg = 'The pump intake was buried by the ground: it moved to the deepest part of the main pool.';
+    this.intakeNote = { text: msg, at: this.ledger.t };
+    this.world.log?.(msg, 'info');
   }
 
   // Priority flood from the pump: the lowest level at which the main pool
@@ -171,7 +299,9 @@ export class Hydro {
   solveLevel() { this.level = this.levelFor(this.resVol); }
 
   setLevel(y) {
+    const before = this.resVol;
     this.resVol = this.volumeAt(Math.max(this.f.h[this.seed], Math.min(TANK.h - 6, y)));
+    if (this.resVol > before) this.x(NODE.EXT, NODE.SUMP, this.resVol - before); else this.x(NODE.SUMP, NODE.EXT, before - this.resVol);
     this.solveLevel();
     this.updateMembership();
     this.targetTotal = this.total();
@@ -179,22 +309,34 @@ export class Hydro {
 
   // Cells join the main pool when it rises over them (their water merges
   // into it) and leave it when it drops (a cut-off hollow keeps its water).
+  // Every move is a transfer between the pool and the cell, so no water is
+  // created or lost.
   updateMembership() {
-    const { h } = this.f, fl = this.fl, d = this.d, res = this.res;
-    const L = this.level;
-    let changed = false;
-    for (let n = 0; n < this.N; n++) {
-      const inside = fl[n] < L ? 1 : 0;
-      if (inside === res[n]) continue;
-      if (inside) { this.resVol += d[n] * this.area; d[n] = 0; } else {
-        // Only a hollow behind a sill keeps water (up to the sill).
-        d[n] = Math.max(0, Math.min(this.prevLevel ?? L, fl[n]) - h[n]);
-        this.resVol = Math.max(0, this.resVol - d[n] * this.area);
+    const { h } = this.f, fl = this.fl, d = this.d, res = this.res, area = this.area, grp = this.grp;
+    for (let pass = 0; pass < 4; pass++) {
+      const L = this.level;
+      let changed = false;
+      for (let n = 0; n < this.N; n++) {
+        const inside = fl[n] < L ? 1 : 0;
+        if (inside === res[n]) continue;
+        if (inside) {
+          const v = d[n] * area;
+          this.resVol += v; d[n] = 0;
+          this.x(grp[n], NODE.SUMP, v);
+        } else {
+          // Only a hollow behind a sill keeps water (up to the sill).
+          let v = Math.max(0, Math.min(this.prevLevel ?? L, fl[n]) - h[n]) * area;
+          v = Math.min(v, this.resVol);
+          d[n] = v / area;
+          this.resVol -= v;
+          this.x(NODE.SUMP, grp[n], v);
+        }
+        res[n] = inside;
+        changed = true;
       }
-      res[n] = inside;
-      changed = true;
+      if (!changed) break;
+      this.solveLevel();
     }
-    if (changed) this.solveLevel();
     this.prevLevel = this.level;
   }
 
@@ -209,7 +351,7 @@ export class Hydro {
   // An outlet on the background runs down the wall face first and lands on
   // the substrate; one on the ground or a rock wells up where it is.
   addOutlet(pos, wall = false) {
-    const o = { pos: pos.clone(), wall, share: 1 };
+    const o = { pos: pos.clone(), wall, valve: 1, q: 0 };
     this.placeOutlet(o);
     this.outlets.push(o);
     return o;
@@ -219,7 +361,12 @@ export class Hydro {
 
   placeOutlet(o) {
     const W = this.world;
-    if (!o.wall) { o.cell = this.cellOf(o.pos.x, o.pos.z); o.pts = null; return; }
+    if (!o.wall) {
+      o.cell = this.cellOf(o.pos.x, o.pos.z);
+      o.pos.y = this.f.h[o.cell] + 0.2;   // rides on the ground, whatever you did to it
+      o.pts = null;
+      return;
+    }
     const T = W.terrain, Wl = W.wall;
     const pts = [];
     const p = o.pos.clone();
@@ -244,28 +391,59 @@ export class Hydro {
   }
 
   // --- Simulation ------------------------------------------------------------------
+  // How far the intake is under water: 0 (dry or only just touching) … 1.
+  submergence() {
+    if (this.resVol <= 1) return 0;
+    return Math.max(0, Math.min(1, (this.level - this.f.h[this.seed] - 0.4) / 2));
+  }
+
   step(dt) {
     if (dt <= 0) return;
-    const { h } = this.f, d = this.d, F = this.flux, res = this.res, nb = this.nb, jump = this.jump;
+    const { h } = this.f, d = this.d, F = this.flux, res = this.res, nb = this.nb, jump = this.jump, grp = this.grp, X = this.xfer;
     const area = this.area, N = this.N;
     const kA = G * this.f.da;
-    // The pump runs while its intake is under water.
-    const Q = this.pump.rate * 1000 / 3600;
-    const pumpOk = this.pump.on && this.outlets.length > 0 && this.level > h[this.seed] + 2.5;
-    this.pump.running = pumpOk;
-    this.flowOut = pumpOk ? Q : 0;
+    // The circuit: sump -> intake -> pump -> valves -> outlets, and whatever
+    // the valves do not pass goes straight back to the sump through a bypass.
+    const P = this.pump, outs = this.outlets;
+    P.submerge = this.submergence();
+    let sv = 0;
+    for (const o of outs) sv += o.valve ?? 1;
+    const denom = Math.max(1, sv);
+    const Qmax = P.rate * 1000 / 3600;
+    const running = P.on && P.submerge > 0.02;
+    P.running = running;
+    let shared = 0, sumOut = 0;
+    for (const o of outs) {
+      const frac = (o.valve ?? 1) / denom;
+      shared += frac;
+      o.head = Math.max(0, o.pos.y - this.level);
+      o.q = running ? Qmax * P.submerge * frac * pumpCurve(o.head) : 0;
+      sumOut += o.q;
+    }
+    const bypassQ = running ? Qmax * P.submerge * Math.max(0, 1 - shared) : 0;
+    this.flowOut = sumOut;
+    P.lph = (sumOut + bypassQ) * 3.6;
+    P.bypass = bypassQ * 3.6;
     const steps = Math.min(10, Math.ceil(dt / SUB_DT));
     const sdt = dt / steps;
     let intoPool = 0;
     for (let s = 0; s < steps; s++) {
       // Sources.
-      if (pumpOk) {
-        const q = Math.min(Q * sdt, this.resVol);
-        this.resVol -= q;
-        const per = q / this.outlets.length;
-        for (const o of this.outlets) {
-          if (res[o.cell]) intoPool += per; else d[o.cell] += per / area;
+      if (running) {
+        for (let i = 0; i < outs.length; i++) {
+          const o = outs[i];
+          if (o.q <= 0) continue;
+          const q = Math.min(o.q * sdt, this.resVol);
+          if (q <= 0) continue;
+          this.resVol -= q;
+          const on = this.outNode(i);
+          X[NODE.SUMP * NN + on] += q;
+          if (res[o.cell]) { intoPool += q; X[on * NN + NODE.SUMP] += q; } else {
+            d[o.cell] += q / area;
+            if (grp[o.cell] !== on) X[on * NN + grp[o.cell]] += q;
+          }
         }
+        this.bypassAcc += bypassQ * sdt;
       }
       // Pipe flows.
       for (let n = 0; n < N; n++) {
@@ -291,13 +469,16 @@ export class Hydro {
       // Move the water.
       for (let n = 0; n < N; n++) {
         const o = n * 4;
+        const gn = grp[n];
         for (let k = 0; k < 4; k++) {
           const f = F[o + k];
           if (!f) continue;
           const q = f * sdt;
           d[n] -= q / area;
           const t = jump[o + k] >= 0 ? jump[o + k] : nb[o + k];
-          if (res[t]) intoPool += q; else d[t] += q / area;
+          let gt;
+          if (res[t]) { intoPool += q; gt = NODE.SUMP; } else { d[t] += q / area; gt = grp[t]; }
+          if (gn !== gt) X[gn * NN + gt] += q;
         }
         if (d[n] < 0) d[n] = 0;
       }
@@ -305,14 +486,94 @@ export class Hydro {
     // Thin films soak into the substrate and drain down to the main pool
     // (a real paludarium's substrate sits on a drainage layer).
     for (let n = 0; n < N; n++) {
-      if (!res[n] && d[n] > 0 && d[n] < 0.004) { intoPool += d[n] * area; d[n] = 0; }
+      if (!res[n] && d[n] > 0 && d[n] < 0.004) {
+        const v = d[n] * area;
+        intoPool += v; d[n] = 0;
+        if (grp[n] !== NODE.SUMP) X[grp[n] * NN + NODE.SUMP] += v;
+      }
     }
     this.resVol += intoPool;
     this.solveLevel();
     this.updateMembership();
     this.velocities();
+    this.winT += dt;
     this._poolT -= dt;
     if (this._poolT <= 0) { this._poolT = 0.4; this.findPools(); this.findFalls(); }
+    if (this.winT >= 1) this.closeWindow();
+  }
+
+  // --- The ledger ----------------------------------------------------------------------
+  // Water held by each ledger node (cm³): the cells booked to it, plus the
+  // main pool's own volume for the sump.
+  storage(out = new Float64Array(NN)) {
+    out.fill(0);
+    const d = this.d, grp = this.grp, a = this.area;
+    for (let n = 0; n < this.N; n++) if (d[n] > 0) out[grp[n]] += d[n] * a;
+    out[NODE.SUMP] += this.resVol;
+    return out;
+  }
+
+  // Balances the books for the window that just ended, publishes litres per
+  // hour for every link, then regroups the cells for the next window.
+  closeWindow(early = false) {
+    const T = this.winT, B = this.bodies, X = this.xfer;
+    const S1 = this.storage(), S0 = this.S0;
+    const inn = new Float64Array(NN), out = new Float64Array(NN);
+    const raw = [];
+    for (let a = 0; a < NN; a++) for (let b = 0; b < NN; b++) {
+      const v = X[a * NN + b];
+      if (v > 1e-9) { out[a] += v; inn[b] += v; raw.push([a, b, v]); }
+    }
+    let maxImb = 0, total = 0;
+    for (let i = 0; i < NN; i++) {
+      total += S1[i];
+      if (i === NODE.EXT) continue;
+      const imb = inn[i] - out[i] - (S1[i] - S0[i]);
+      if (Math.abs(imb) > maxImb) maxImb = Math.abs(imb);
+    }
+    this.ledger.check = { maxImbalance: maxImb, total, window: T };
+    if (T >= 0.25) {
+      const k = 3.6 / T;                    // cm³ per window -> L/h
+      const seen = new Set();
+      const bump = (key, from, to, kind, inst) => {
+        seen.add(key);
+        const m = this.linkAvg.get(key);
+        if (m) { m.lph += (inst - m.lph) * 0.35; m.inst = inst; } else this.linkAvg.set(key, { from, to, kind, lph: inst, inst });
+      };
+      for (const [a, b, v] of raw) {
+        const ka = B.keyOf(a), kb = B.keyOf(b);
+        if (ka === 'ext' || kb === 'ext') continue;
+        const kind = a === NODE.SUMP && b >= NODE.OUT0 && b < NODE.BODY0 ? 'pump' : a >= NODE.OUT0 && a < NODE.BODY0 ? 'outlet'
+          : b === NODE.SUMP ? (a === NODE.GROUND ? 'seep' : 'return') : 'flow';
+        bump(ka + '>' + kb, ka, kb, kind, v * k);
+      }
+      if (this.bypassAcc > 0) bump('sump>sump', 'sump', 'sump', 'bypass', this.bypassAcc * k);
+      for (const [key, m] of this.linkAvg) if (!seen.has(key)) { m.lph *= 0.6; m.inst = 0; if (m.lph < 0.05) this.linkAvg.delete(key); }
+      const links = [...this.linkAvg.values()].filter((m) => m.lph >= 0.05).map((m) => ({ ...m }));
+      if (this.evapLph > 0.001) links.push({ from: 'sump', to: 'ext', kind: 'evap', lph: this.evapLph, inst: this.evapLph });
+      if (this.topUpLph > 0.001) links.push({ from: 'ext', to: 'sump', kind: 'topup', lph: this.topUpLph, inst: this.topUpLph });
+      this.ledger = { ...this.ledger, t: this.ledger.t + T, window: T, links };
+      B.annotate(this.ledger, S1, S0, inn, out, T);
+      this.ledger.warnings = B.warnings(this.ledger);
+    }
+    // Next window: regroup the cells and open the books again.
+    this.findPools();
+    B.identify(this);
+    this.storage(this.S0);
+    X.fill(0);
+    this.bypassAcc = 0;
+    this.winT = 0;
+  }
+
+  // After something that rewrites the water outright (load, clear).
+  resetLedger() {
+    this.xfer.fill(0);
+    this.linkAvg.clear();
+    this.bypassAcc = 0;
+    this.winT = 0;
+    this.findPools();
+    this.bodies.identify(this);
+    this.storage(this.S0);
   }
 
   velocities() {
@@ -333,11 +594,18 @@ export class Hydro {
   // float valve of a real tank.
   evaporate(minutes, humidity, temp, openArea) {
     const rate = openArea * 1e-5 * Math.max(0.05, 1 - humidity / 100) * (1 + Math.max(0, temp - 20) * 0.05);
-    this.resVol = Math.max(0, this.resVol - rate * minutes * 60);
+    const lose = Math.min(this.resVol, rate * minutes * 60);
+    this.resVol -= lose;
+    this.x(NODE.SUMP, NODE.EXT, lose);
+    this.evapLph = rate * 3.6;
+    let added = 0;
     if (this.topUp && this.targetTotal > 0) {
       const lack = this.targetTotal - this.total();
-      if (lack > 0) this.resVol += lack;
+      if (lack > 0) { this.resVol += lack; added = lack; this.x(NODE.EXT, NODE.SUMP, lack); }
     }
+    // Top-up as litres per (game) hour, smoothed.
+    const per = minutes > 0 ? added / minutes * 60 * 3.6 / 3600 : 0;
+    this.topUpLph += (per - this.topUpLph) * 0.2;
   }
 
   // --- Reading the water ----------------------------------------------------------
@@ -377,7 +645,8 @@ export class Hydro {
         }
       }
       if (cells.length < 5) continue;
-      pools.push({ cells, level: lv / cells.length, litres: vol * this.area / 1000, area: cells.length * this.area });
+      const g = this.grp[cells[0]];
+      pools.push({ cells, level: lv / cells.length, litres: vol * this.area / 1000, area: cells.length * this.area, body: g >= 15 ? this.bodies.slots[g - 15] ?? null : null });
     }
     this.pools = pools;
   }
@@ -513,7 +782,11 @@ export class Hydro {
     need *= this.area;
     if (need < 1) return { error: 'That hollow is already full.' };
     if (need > this.resVol * 0.8) return { error: 'Not enough water in the main pool for that. Raise the water level first.' };
-    for (const c of pit.cells) d[c] = Math.max(d[c], lv - h[c]);
+    for (const c of pit.cells) {
+      const add = Math.max(0, lv - h[c] - d[c]);
+      d[c] += add;
+      this.x(NODE.SUMP, this.grp[c], add * this.area);
+    }
     this.resVol -= need;
     this.solveLevel();
     this.updateMembership();
@@ -533,7 +806,7 @@ export class Hydro {
 
   drainPool(pool) {
     let v = 0;
-    for (const c of pool.cells) { v += this.d[c]; this.d[c] = 0; }
+    for (const c of pool.cells) { v += this.d[c]; this.x(this.grp[c], NODE.SUMP, this.d[c] * this.area); this.d[c] = 0; }
     this.resVol += v * this.area;
     this.solveLevel();
     this.updateMembership();
@@ -552,7 +825,8 @@ export class Hydro {
     return {
       resVol: Math.round(this.resVol), d: b64(q.buffer), target: Math.round(this.targetTotal), topUp: this.topUp,
       pump: { on: this.pump.on, rate: this.pump.rate, intake: this.pump.intake ? [this.pump.intake.x, this.pump.intake.z] : null },
-      outlets: this.outlets.map((o) => ({ p: o.pos.toArray().map((v) => +v.toFixed(2)), w: o.wall })),
+      outlets: this.outlets.map((o) => ({ p: o.pos.toArray().map((v) => +v.toFixed(2)), w: o.wall, v: +(o.valve ?? 1).toFixed(2) })),
+      bodies: this.bodies.serialize(),
     };
   }
 
@@ -564,7 +838,7 @@ export class Hydro {
     this.outlets = [];
     this.computeFlood();
     this.computeJumps();
-    for (const q of o.outlets ?? []) this.addOutlet(new THREE.Vector3(...q.p), q.w);
+    for (const q of o.outlets ?? []) this.addOutlet(new THREE.Vector3(...q.p), q.w).valve = q.v ?? 1;
     this.d.fill(0);
     if (o.d) {
       const q = new Uint16Array(unb64(o.d));
@@ -575,7 +849,10 @@ export class Hydro {
     this.solveLevel();
     this.updateMembership();
     this.targetTotal = o.target || this.total();
+    this.hPrev.set(this.f.h);
+    this.bodies.pending = o.bodies ?? null;
     this.findPools();
+    this.resetLedger();
   }
 }
 

@@ -38,13 +38,14 @@ export function layoutKit(kit, { x = 0, z = 0, seed = 1, sc = kitScale() } = {})
     const [px, pz] = at(p.dx, p.dz, p.stack || p.bridge || p.atTop != null ? 0 : 2.4);
     const size = p.size * sc * (0.92 + r() * 0.16);
     const rr = r() * TAU, v = r(), lx = r() - 0.5, lz = r() - 0.5;
+    const look = r() * 2 ** 31 | 0;       // one seed for the flip, tint and the little scale differences
     return {
       type: p.type, x: px, z: pz, size,
-      variant: p.variants ? p.variants[Math.floor(v * p.variants.length)] : Math.floor(v * 16),
+      variant: p.variants ? p.variants[Math.floor(v * p.variants.length)] : undefined, look,
       rot: p.rot != null ? p.rot + spin : rr,
       tilt: p.lean ? [lx * p.lean, lz * p.lean] : undefined,
       scale: p.scale, width: p.width ? p.width * sc * (0.92 + r() * 0.16) : undefined,
-      stack: !!p.stack, bridge: p.bridge, atTop: p.atTop, flip: false,
+      stack: !!p.stack, bridge: p.bridge, atTop: p.atTop, flip: undefined, tint: undefined, mirrored: false,
     };
   });
   const banks = (kit.banks ?? []).map((b) => ({ pts: ring(x, z, b.ring * sc), cx: x, cz: z, r: b.ring * sc, width: b.width * sc, height: b.height * sc, moss: !!b.moss }));
@@ -59,7 +60,7 @@ function ring(cx, cz, R, n = 32) {
 // One piece spec seen in the mirror (x -> -x about the centre of the tank). The yaw and the
 // lean about Z reverse; the model is drawn flipped on x, so it reads as a mirror image.
 export function mirrorSpec(s) {
-  return { ...s, x: -s.x, rot: -(s.rot ?? 0), tilt: s.tilt ? [s.tilt[0], -s.tilt[1]] : undefined, flip: !s.flip };
+  return { ...s, x: -s.x, rot: -(s.rot ?? 0), tilt: s.tilt ? [s.tilt[0], -s.tilt[1]] : undefined, mirrored: !s.mirrored };
 }
 
 export function mirrorLayout(l) {
@@ -93,7 +94,13 @@ export function placeSpec(W, s, placed = []) {
   const D = W.decor, T = W.terrain, def = PIECES[s.type];
   const list = D.parts[s.type];
   if (!def || !list?.length) return null;
-  const variant = (s.variant ?? 0) % list.length;
+  // The seeded look (variant, small scale differences, flip and tint) is the same for a piece and
+  // its mirror image; the mirror image is drawn flipped.
+  const look = D.look(s.type, s.look ?? 1);
+  const variant = ((s.variant ?? look.variant) % list.length + list.length) % list.length;
+  const flip = s.mirrored ? !(s.flip ?? look.flip) : !!(s.flip ?? look.flip);
+  const tint = s.tint ?? look.tint;
+  const jit = s.exact ? [1, 1, 1] : look.scale.map((v) => 1 + (v - 1) * 0.55);
   const bb = list[variant].geometry.boundingBox;
   const ext = [bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z];
   const m = 1.5 + s.size * 0.25;
@@ -114,7 +121,8 @@ export function placeSpec(W, s, placed = []) {
       const k = size / Math.max(...ext);
       sc = [s.width / (ext[0] * k), 1, (s.width * 0.85) / (ext[2] * k)];
     }
-    return D.addPiece(s.type, x, z, { variant, size, rot: s.rot, tilt: s.tilt, scale: [sc[0] * (s.flip ? -1 : 1), sc[1], sc[2]], y: yFor(size), sink });
+    sc = [sc[0] * jit[0], sc[1] * jit[1], sc[2] * jit[2]];
+    return D.addPiece(s.type, x, z, { variant, size, rot: s.rot, tilt: s.tilt, scale: sc, flip, tint, y: yFor(size), sink, snap: s.snap ?? (def.face ? 30 * kitScale() : undefined) });
   };
   let size = s.size;
   let p = make(size);

@@ -107,7 +107,7 @@ export class World {
       terrain: this.terrain.field.snapshot(),
       wall: this.wall.field.snapshot(),
       pieces: this.decor.serialize(),
-      outlets: this.water.outlets.map((o) => ({ pos: o.pos.clone(), wall: o.wall })),
+      outlets: this.water.outlets.map((o) => ({ pos: o.pos.clone(), wall: o.wall, valve: o.valve ?? 1 })),
       intake: this.water.hydro.pump.intake ? { ...this.water.hydro.pump.intake } : null,
     });
     if (this.undoStack.length > 30) this.undoStack.shift();
@@ -123,7 +123,7 @@ export class World {
     const H = this.water.hydro;
     H.outlets = [];
     H.pump.intake = s.intake;
-    for (const o of s.outlets) H.addOutlet(o.pos, o.wall);
+    for (const o of s.outlets) H.addOutlet(o.pos, o.wall).valve = o.valve ?? 1;
     this.groundChanged();
     this.water.updateMarkers();
     return true;
@@ -356,6 +356,7 @@ export class World {
       if (n?.onWall) { n.wallMode = true; n.normal = new THREE.Vector3(0, 0, 1); }
     }
     this.env.load(o.env);
+    this.water.bodies.afterLoad();   // ponds get their saved chemistry back
     this.equipment.load(o.equipment);
     this.climate.settle();
     this.fx?.updateTerrain();

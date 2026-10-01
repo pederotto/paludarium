@@ -16,6 +16,7 @@ import { WaterFX, FX } from '../render/waterfx.js';
 import { Mist } from '../render/mist.js';
 import { U } from '../render/uniforms.js';
 import { Lens } from '../render/lens.js';
+import { updateAirflow } from '../render/airflow.js';
 
 export class Game {
   constructor(host, params = new URLSearchParams(location.search)) {
@@ -144,6 +145,7 @@ export class Game {
       }
       W.water.animate(dt, speed);
       this.mist.update(dt);
+      updateAirflow(W, speed, dt);   // plant sway follows the real air and water movement
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
       this.lens?.update(dt);

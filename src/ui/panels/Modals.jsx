@@ -6,6 +6,7 @@ import { Studio } from './Studio.jsx';
 import { CarePanel } from './Care.jsx';
 import { LabPanel } from './Lab.jsx';
 import { CuratorPanel } from './Curator.jsx';
+import { FlowPanel } from './Flow.jsx';
 
 export function Sheet({ title, icon, tabs, tab, setTab, children, wide, onClose = closeModal }) {
   return (
@@ -36,5 +37,6 @@ export function Modals() {
   if (m === 'care') return <CarePanel />;
   if (m === 'lab') return <LabPanel />;
   if (m === 'curator') return <CuratorPanel />;
+  if (m === 'flow') return <FlowPanel />;
   return null;
 }

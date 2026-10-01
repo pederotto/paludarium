@@ -5,7 +5,8 @@
 import * as THREE from 'three/webgpu';
 import { Builder, PRIM, rng, lerp, clamp } from '../render/geo.js';
 import { plantMaterial } from '../render/shaders.js';
-import { MAT } from './tank.js';
+import { MAT, TANK } from './tank.js';
+import { plantFit } from './placement.js';
 import { TEX, modelParts } from '../render/assets.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -397,6 +398,7 @@ export class Plants {
 
   // Checks whether species `id` may grow at a surface hit.
   canPlace(id, hit, world) {
+    this.world = world;
     const sp = PLANTS[id];
     const hab = sp.habitat.split('|');
     const { point, surface } = hit;
@@ -436,15 +438,33 @@ export class Plants {
     const v = variant ?? Math.floor(Math.random() * nv);
     const im = this.meshes[PLANTS[id].model ? id + '#' + v : id];
     if (!im || im.count >= this.cap) return null;
+    const scaleV = scale ?? 0.8 + Math.random() * 0.4;
+    // The canopy (at full size) must stay inside the glass: keep the stem clear of the walls.
+    const reach = this.reachOf(im, id, scaleV);
+    pos = pos.clone();
+    const fit = plantFit(pos.x, pos.z, reach, TANK, { clampZ: surface !== 'wall' });
+    if (fit.x !== pos.x || fit.z !== pos.z) {
+      pos.x = fit.x; pos.z = fit.z;
+      if (surface === 'terrain' && PLANTS[id].habitat !== 'floating' && this.world) pos.y = this.world.terrain.heightAt(pos.x, pos.z);
+    }
     const p = {
-      id, pos: pos.clone(), normal: normal ? normal.clone() : new THREE.Vector3(0, 1, 0), surface,
-      rot: rot ?? Math.random() * Math.PI * 2, scale: scale ?? 0.8 + Math.random() * 0.4,
+      id, pos, reach, normal: normal ? normal.clone() : new THREE.Vector3(0, 1, 0), surface,
+      rot: rot ?? Math.random() * Math.PI * 2, scale: scaleV,
       grown, health, age: 0, index: im.count, variant: v,
     };
     im.count++;
     this.list.push(p);
     this.writeInstance(p);
     return p;
+  }
+
+  // How far the canopy of a full-grown plant reaches sideways from its stem (cm).
+  reachOf(im, id, scale) {
+    const g = im.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    const b = g.boundingBox;
+    const hr = Math.max(-b.min.x, b.max.x, -b.min.z, b.max.z);
+    return hr * 0.9 * scale * (PLANTS[id].modelSize ?? 1);
   }
 
   remove(p) {
@@ -473,6 +493,11 @@ export class Plants {
       q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
     }
     q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot));
+    // Near a wall the plant leans inward so its canopy stays inside the glass.
+    if (p.reach && PLANTS[p.id].habitat !== 'floating') {
+      const f = plantFit(p.pos.x, p.pos.z, p.reach * (0.3 + 0.7 * p.grown), TANK, { clampZ: p.surface !== 'wall' });
+      if (f.lean > 0.01) q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(f.dz, 0, -f.dx), f.lean));
+    }
     const s = p.scale * (0.3 + 0.7 * p.grown) * (PLANTS[p.id].modelSize ?? 1);
     const m = new THREE.Matrix4().compose(p.pos, q, new THREE.Vector3(s, s, s));
     im.setMatrixAt(p.index, m);
@@ -495,6 +520,7 @@ export class Plants {
   // Keep floating plants on the water when the level changes, and drop
   // plants the new water has drowned or left dry.
   onWaterChanged(world) {
+    this.world = world;
     for (const p of [...this.list]) {
       const sp = PLANTS[p.id];
       if (sp.habitat === 'floating') {
@@ -510,6 +536,7 @@ export class Plants {
 
   // Sim step: `env` gives light, humidity, nitrate. dtMin = game minutes.
   step(dtMin, env, world) {
+    this.world = world;
     const out = { nitrateUse: 0, shade: 0, deaths: [], born: [] };
     for (const p of [...this.list]) {
       const sp = PLANTS[p.id];

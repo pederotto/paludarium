@@ -8,6 +8,7 @@ import {
 } from 'three/tsl';
 import { TEX } from './assets.js';
 import { U } from './uniforms.js';
+import { AIR } from './airflow.js';
 import { causticLight } from './waterfx.js';
 import { TANK } from '../sim/tank.js';
 
@@ -116,11 +117,12 @@ export function mouldMix(base, pw) {
 // Photoscanned hardscape (Poly Haven): keeps the scan's own textures and grows
 // moss on the faces that point up (more with the `moss` amount), the way moss
 // covers the tops of stones in a humid tank.
-export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9 } = {}) {
+export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = null } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
   m.shadowSide = THREE.BackSide;
   const pw = positionWorld;
   let base = src.map ? texture(src.map, uv()).rgb : vec3(src.color?.r ?? 0.5, src.color?.g ?? 0.5, src.color?.b ?? 0.5);
+  if (tint) base = base.mul(vec3(tint[0], tint[1], tint[2]));   // per-piece colour variation
   if (src.normalMap) {
     m.normalMap = src.normalMap;
     m.normalScale = new THREE.Vector2(1, 1);
@@ -160,7 +162,9 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
   const phase = float(instanceIndex).mul(1.618);
   const pw = positionLocal;
   const underw = smoothstep(0.0, 1.5, U.waterLevel.sub(pw.y));
-  const a = mix(float(amp), float(underwaterAmp), underw).mul(sw).mul(sw);
+  // `amp` and `underwaterAmp` are the full-strength bends; how much of that happens is set by the real air and
+  // water movement (render/airflow.js): still air and still water mean still plants.
+  const a = mix(float(amp).mul(AIR.air), float(underwaterAmp).mul(AIR.flow), underw).mul(sw).mul(sw);
   const t = time.mul(speed);
   const off = vec3(
     sin(t.mul(1.1).add(phase).add(pw.x.mul(0.05))).mul(a),

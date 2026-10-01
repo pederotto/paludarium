@@ -326,7 +326,19 @@ export class ToolController {
     this.cursor.visible = true;
     this.cursor.position.copy(hit.point).addScaledVector(hit.normal, 0.15);
     this.cursor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), hit.surface === 'wall' ? new THREE.Vector3(0, 0, 1) : UP);
-    const s = kit ? kitReach(kit) * kitScale() : this.brush.size;
+    let s = kit ? kitReach(kit) * kitScale() : this.brush.size;
+    // A cliff snaps to a wall or slope: show where its back will be anchored (the ring lies on that surface).
+    const fp = this.tool === 'rock' && !kit ? PIECES[this.sub.rock] : null;
+    if (fp?.face && !(hit.object && W.decor.pieceAt(hit.object))) {
+      const sf = W.decor.faceSurface(hit.point.x, hit.point.z);
+      if (sf.kind !== 'free') {
+        const n = new THREE.Vector3(...sf.n);
+        this.cursor.position.set(...sf.anchor).addScaledVector(n, 0.2);
+        this.cursor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+        s = fp.size * (this.brush.size / 6) * 0.6;
+        if (this._faceHint !== sf.kind) { this._faceHint = sf.kind; hint(sf.kind === 'slope' ? 'The cliff lies along the slope.' : `The cliff stands against the ${sf.kind === 'back' ? 'back' : sf.kind} wall.`); }
+      }
+    }
     this.cursor.scale.set(s, s, s);
     this.hoverMirror(hit, s);
   }
@@ -475,20 +487,23 @@ export class ToolController {
     this.pushUndo();
     const onTop = piece || !PIECES[type].stamp;
     // The variant and yaw are chosen here so that the mirror copy can match them.
-    const variant = Math.floor(Math.random() * (W.decor.parts[type]?.length || 1)), rot = Math.random() * Math.PI * 2;
-    const p = W.decor.addPiece(type, hit.point.x, hit.point.z, { size, variant, rot, y: onTop ? hit.point.y - size * 0.08 : undefined });
+    // One seeded roll (variant, little scale differences, flip, tint, yaw) so no two rocks match;
+    // the mirror copy uses the same roll, drawn flipped. Cliffs snap to a wall or slope (face mode).
+    const look = W.decor.look(type, Math.floor(Math.random() * 2 ** 31)), face = !!PIECES[type].face && !piece;
+    const { variant, rot } = look;
+    const p = W.decor.addPiece(type, hit.point.x, hit.point.z, { size, variant, rot, scale: look.scale, flip: look.flip, tint: look.tint, face, y: onTop && !face ? hit.point.y - size * 0.08 : undefined });
     if (!p) { toast('Still loading models…', 'bad'); this.game.career?.refund('piece', type); return; }
-    if (this.mirrored(hit.point.x, 1)) this.mirrorPiece({ type, size, variant, rot, onTop: !!onTop, x: hit.point.x, z: hit.point.z });
+    if (this.mirrored(hit.point.x, 1)) this.mirrorPiece({ type, size, variant, rot, onTop: !!onTop, x: hit.point.x, z: hit.point.z, look });
     W.groundChanged();
     this.selectPiece(p);
     this.game.events.emit('placed', 'piece', type);
   }
 
   // The mirror image of a piece just placed (flipped model, reversed yaw); paid for like the first.
-  mirrorPiece({ type, size, variant, rot, onTop, x, z }) {
+  mirrorPiece({ type, size, variant, rot, onTop, x, z, look }) {
     const err = this.charge('piece', type);
     if (err) { toast(`Mirror copy skipped: ${err}`, 'bad'); return; }
-    const q = placeSpec(this.W, mirrorSpec({ type, x, z, size, variant, rot, stack: onTop, flip: false }));
+    const q = placeSpec(this.W, mirrorSpec({ type, x, z, size, variant, rot, stack: onTop, flip: look.flip, tint: look.tint, scale: look.scale, exact: true }));
     if (!q) { this.game.career?.refund('piece', type); return; }
     this.usedMirror();
   }
@@ -698,7 +713,8 @@ export class ToolController {
     const p = S.piece.value;
     if (!p) return;
     const D = this.W.decor;
-    D.clampPiece(p);
+    // Cliffs snap back to the nearest wall or slope while moved; everything else stays in the glass.
+    if (PIECES[p.type].face && S.pieceMode.value === 'translate') D.snapFace(p); else D.clampPiece(p);
     const now = performance.now();
     if (!final && now - (this._moveT ?? 0) < 120) return;
     this._moveT = now;
@@ -805,7 +821,7 @@ export class ToolController {
   }
 }
 
-export const LENSES = ['off', 'humidity', 'temperature', 'light', 'soil', 'flow'];
+export const LENSES = ['off', 'humidity', 'temperature', 'light', 'soil', 'flow', 'quality'];
 export const nextLens = (l) => LENSES[(LENSES.indexOf(l) + 1) % LENSES.length];
 
 function traceText(t, mode) {

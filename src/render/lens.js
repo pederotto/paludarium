@@ -16,7 +16,13 @@ export const LENS_INFO = {
   light: { name: 'Light', unit: '', lo: 0, hi: 1.1, stops: ['#0a0c18', '#5a6ab0', '#ffe28a'], blurb: 'The LED, less what leaves and floating plants shade.' },
   soil: { name: 'Soil moisture', unit: '%', lo: 0, hi: 100, stops: ['#8a6a3a', '#6a9a6a', '#2a6ad0'], blurb: 'Wetted by rain, mist, spray and nearby water; dried by drainage, heat and airflow.' },
   flow: { name: 'Water flow', unit: '', lo: 0, hi: 1, stops: ['#10202e', '#3a8ac0', '#e8f6ff'], blurb: 'Where water is moving over the ground.' },
+  quality: { name: 'Water quality', unit: '', lo: 'clean', hi: 'loaded', stops: ['#2a8ad0', '#e6d24a', '#e0402a'], blurb: 'Each pond and the main pool, coloured by its worst reading: ammonia, nitrite, nitrate or low oxygen. Dry ground stays clear.' },
 };
+
+// 0 clean … 1 loaded: the worst of ammonia, nitrite, nitrate and low oxygen.
+export function qualityScore(b) {
+  return Math.max(0, Math.min(1, Math.max(b.ammonia / 0.5, b.nitrite / 0.6, (7 - b.oxygen) / 3.5, (b.nitrate - 10) / 70)));
+}
 
 export class Lens {
   constructor(scene, world) {
@@ -31,6 +37,7 @@ export class Lens {
     this.tex.needsUpdate = true;
     this.stops = [uniform(new THREE.Color()), uniform(new THREE.Color()), uniform(new THREE.Color())];
     this.alpha = uniform(0.62);
+    this.mask = uniform(0);   // 1: only where the overlay has data (the water-quality lens)
     this.group = new THREE.Group();
     this.group.visible = false;
     scene.add(this.group);
@@ -40,7 +47,7 @@ export class Lens {
       const v = texture(this.tex, uvw).r;
       const col = mix(mix(this.stops[0], this.stops[1], smoothstep(0.0, 0.5, v)), this.stops[2], smoothstep(0.5, 1.0, v));
       m.colorNode = col;
-      m.opacityNode = this.alpha;
+      m.opacityNode = this.alpha.mul(mix(float(1), texture(this.tex, uvw).a, this.mask));
       m.positionNode = positionLocal.add(normalLocal.mul(wall ? 0.05 : 0.07));
       const mesh = new THREE.Mesh(geometry, m);
       mesh.renderOrder = 6; mesh.frustumCulled = false;
@@ -57,7 +64,8 @@ export class Lens {
     this.group.visible = name !== 'off';
     const info = LENS_INFO[name];
     if (info) info.stops.forEach((c, i) => this.stops[i].value.set(c));
-    this.wallMesh.visible = name !== 'flow';
+    this.wallMesh.visible = name !== 'flow' && name !== 'quality';
+    this.mask.value = name === 'quality' ? 1 : 0;
     this.t = 1e9;
   }
 
@@ -67,7 +75,7 @@ export class Lens {
     if (this.t < 0.4) return;
     this.t = 0;
     const W = this.world, C = W.climate, info = LENS_INFO[this.name];
-    const r = info.hi - info.lo;
+    const r = typeof info.hi === 'number' ? info.hi - info.lo : 1;
     let src = null, scale = 1;
     if (this.name === 'humidity') src = C.hum;
     else if (this.name === 'temperature') src = C.temp;
@@ -78,6 +86,22 @@ export class Lens {
       for (let i = 0; i < this.nx * this.nz; i++) {
         const v = Math.max(0, Math.min(1, (src[i] * scale - info.lo) / r));
         d[i * 4] = v * 255; d[i * 4 + 3] = 255;
+      }
+    } else if (this.name === 'quality') {
+      // Water quality: every body of water in its own colour (worst reading).
+      const H = W.water.hydro, B = W.water.bodies;
+      const val = new Float32Array(64);
+      val[1] = qualityScore(B.sump);
+      B.slots.forEach((b, i) => { if (b) val[15 + i] = qualityScore(b); });
+      d.fill(0);
+      for (let n = 0; n < H.N; n++) {
+        const g = H.grp[n];
+        if (g !== 1 && g < 15) continue;
+        if (g === 1 && !(H.res[n] && H.level > H.f.h[n] + 0.05)) continue;
+        const [x, z] = H.cellXZ(n);
+        const i = Math.max(0, Math.min(this.nx - 1, Math.floor((x + TANK.w / 2) / C.cs))), j = Math.max(0, Math.min(this.nz - 1, Math.floor((z + TANK.d / 2) / C.cs)));
+        const q = (j * this.nx + i) * 4;
+        d[q] = Math.max(d[q], val[g] * 255); d[q + 3] = 255;
       }
     } else {
       // Flow: speed of the shallow water on the substrate grid, resampled to the coarse grid.

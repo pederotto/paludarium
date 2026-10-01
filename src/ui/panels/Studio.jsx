@@ -7,7 +7,7 @@ import { Sheet } from './Modals.jsx';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { GEAR, GEAR_GROUPS } from '../../content/equipment.js';
-import { TANKS, TANK_ORDER } from '../../content/tanks.js';
+import { TANKS, TANK_ORDER, CUSTOM_LIMITS, setCustomTank, clampCustom, cellsFor } from '../../content/tanks.js';
 import { RANKS } from '../../content/levels.js';
 import { ACHIEVEMENTS } from '../../content/achievements.js';
 import { ANIMALS, unlocksAt } from '../../content/economy.js';
@@ -240,18 +240,43 @@ function Tanks() {
           );
         })}
       </div>
+      {c.sandbox ? <CustomSize onPick={() => { setPick('custom'); }} /> : null}
       {pick ? (
         <div class="tile" style={{ marginTop: 14 }}>
           <h4>New {TANKS[pick].name}: how do you want to start?</h4>
           <div class="cols">
             <button class="tile" style={{ cursor: 'pointer', textAlign: 'left' }} onClick={() => build(pick, null)}><h4>Empty tank</h4><p>Bare glass and substrate. Build everything yourself.</p></button>
-            {(presets ?? []).filter((p) => !p.tiers || p.tiers.includes(pick)).map((p) => (
+            {(presets ?? []).filter((p) => !p.tiers || (pick === 'custom' ? p.id !== 'jar' : p.tiers.includes(pick))).map((p) => (
               <button key={p.id} class="tile" style={{ cursor: 'pointer', textAlign: 'left' }} onClick={() => build(pick, p)}><h4>{p.name}</h4><p>{p.blurb}</p><div class="chips" style={{ marginBottom: 0 }}>{(p.tags ?? []).slice(0, 3).map((t) => <span key={t} class="tag">{t}</span>)}</div></button>
             ))}
           </div>
         </div>
       ) : null}
       <PortfolioList />
+    </div>
+  );
+}
+
+// Sandbox only: a tank of any size within safe limits (the grid resolution is chosen to keep it fast).
+function CustomSize({ onPick }) {
+  const L = CUSTOM_LIMITS;
+  const [v, setV] = useState(() => { const t = TANKS.custom; return t ? { w: t.w, d: t.d, h: t.h } : { w: 80, d: 40, h: 50 }; });
+  const s = clampCustom(v.w, v.d, v.h);
+  const row = (k, label) => (
+    <label style={{ display: 'grid', gridTemplateColumns: '70px 1fr 56px', gap: 8, alignItems: 'center', margin: '4px 0' }}>
+      <span>{label}</span>
+      <input type="range" min={L[k][0]} max={L[k][1]} step={1} value={v[k]} onInput={(e) => setV({ ...v, [k]: +e.currentTarget.value })} />
+      <span>{s[k]} cm</span>
+    </label>
+  );
+  return (
+    <div class="tile" style={{ marginTop: 14 }}>
+      <h4>Custom size <span class="tag">sandbox</span></h4>
+      <p>{s.w} × {s.d} × {s.h} cm · {Math.round(s.w * s.d * s.h / 1000)} L · grid {cellsFor(s.w, s.d, s.h)} cells per cm. Limits: {L.w[0]}–{L.w[1]} wide, {L.d[0]}–{L.d[1]} deep, {L.h[0]}–{L.h[1]} high, at most {L.maxLitres} L.</p>
+      {row('w', 'Width')}{row('d', 'Depth')}{row('h', 'Height')}
+      <div class="foot"><span />
+        <button class="btn sm primary" onClick={() => { setCustomTank(s.w, s.d, s.h); onPick(); }}>Build this size</button>
+      </div>
     </div>
   );
 }

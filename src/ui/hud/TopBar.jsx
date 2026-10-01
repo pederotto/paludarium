@@ -4,6 +4,7 @@ import { ViewMenu } from './Bottom.jsx';
 import { S, openModal } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { SPEEDS } from '../../sim/tank.js';
+import { DISPLAY, toggleFullscreen, toggleZen, fullscreenSupported } from '../fullscreen.js';
 
 const SPEED_LABEL = ['', '1×', '5×', '20×', '60×'];
 
@@ -47,6 +48,10 @@ export function TopBar() {
           </div>
         </div>
       )}
+      <div class="fsbtn glass" role="group" aria-label="Display">
+        <button class={DISPLAY.value.fs ? 'on' : ''} onClick={toggleFullscreen} title={fullscreenSupported() ? 'Full screen (Shift+F)' : 'Full screen: Add to Home Screen on this browser'} aria-label="Full screen"><Icon name="eye" size={16} /></button>
+        <button onClick={toggleZen} title="Zen: hide the interface (Shift+Z, Esc to return)" aria-label="Zen mode"><Icon name="sparkles" size={16} /></button>
+      </div>
       <Dock />
     </div>
   );
