@@ -41,7 +41,7 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     if (!o.isMesh) return;
     let g = o.geometry.clone();
     // Meshopt/quantised files store positions as normalised integers: make them real floats before scaling.
-    for (const k of ['position', 'normal', 'uv']) {
+    for (const k of ['position', 'normal', 'uv', 'color']) {
       const a = g.attributes[k];
       if (!a || a.array instanceof Float32Array) continue;
       const f = new Float32Array(a.count * a.itemSize);
@@ -50,7 +50,12 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     }
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(sc, new THREE.Matrix4().multiplyMatrices(rot, o.matrixWorld)));
     // Keep only what the shader uses; a missing uv becomes zeros so parts can merge.
-    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color'].includes(k)) g.deleteAttribute(k);
+    if (g.attributes.color && g.attributes.color.itemSize === 4) {   // RGBA: keep RGB
+      const c4 = g.attributes.color, c3 = new Float32Array(c4.count * 3);
+      for (let i = 0; i < c4.count; i++) { c3[i * 3] = c4.getX(i); c3[i * 3 + 1] = c4.getY(i); c3[i * 3 + 2] = c4.getZ(i); }
+      g.setAttribute('color', new THREE.BufferAttribute(c3, 3));
+    }
     if (!g.attributes.normal) g.computeVertexNormals();
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     const mat = Array.isArray(o.material) ? o.material[0] : o.material;
@@ -102,9 +107,10 @@ export async function loadCreatureGLB(id, meta) {
     if (lo !== hi) addRig(lo.geo, rigOpt);
     const m = hi.material;
     const tex = (t, srgb) => { if (!t) return null; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.flipY = t.flipY; return t; };
-    const textures = { map: tex(m?.map, true), normalMap: tex(m?.normalMap, false), roughnessMap: tex(m?.roughnessMap, false) };
-    if (!textures.map) throw new Error('model has no base colour texture');
-    return { lo: lo.geo, hi: hi.geo, textures, size: hi.geo.boundingBox.getSize(new THREE.Vector3()) };
+    const textures = { map: tex(m?.map, true), normalMap: tex(m?.normalMap, false), roughnessMap: meta.ignoreRoughMap ? null : tex(m?.roughnessMap, false) };
+    const painted = !!hi.geo.attributes.color;                       // painted with vertex colours instead of a texture
+    if (!textures.map && !painted) throw new Error('model has no base colour texture or vertex colours');
+    return { lo: lo.geo, hi: hi.geo, textures: painted && !textures.map ? null : textures, size: hi.geo.boundingBox.getSize(new THREE.Vector3()) };
   } catch (e) {
     console.warn('creature model failed', id, e.message);
     return null;

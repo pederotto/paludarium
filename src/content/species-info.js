@@ -56,6 +56,17 @@ export const ANIMAL_INFO = {
     care: ['Keep six or more, on soft sand.', 'They clean up leftovers, but they are not a cleaning crew: they need their own food.'],
     lesson: 'oxygen',
   },
+  loach: {
+    sci: 'Chromobotia macracanthus', family: 'Botiidae', status: 'Near Threatened', region: 'Rivers of Sumatra and Borneo, Indonesia',
+    habitat: 'Slow, shaded lowland rivers and flooded forest, with roots and fallen wood to hide in.',
+    facts: [
+      'The bold yellow-and-black stripes are the same in every clown loach, and they fade a little when it feels stressed.',
+      'It can make clicking sounds, and when it feels safe it sometimes lies on its side as if asleep, which worries new keepers.',
+      'Two sharp spines hide under each eye. They are used to defend against predators, and they can catch in a net.',
+    ],
+    care: ['Keep at least five: alone they hide and sulk.', 'Give them caves and wood, and keep the water warm (24 to 30 °C) and clean.'],
+    lesson: 'nitrogen-cycle',
+  },
   shrimp: {
     sci: 'Neocaridina davidi', family: 'Atyidae', status: 'Captive-bred red form of a common wild shrimp', region: 'Streams of Taiwan, south China and Vietnam',
     habitat: 'Clean, shallow streams with plants, moss and stones to graze.',
@@ -154,6 +165,17 @@ export const ANIMAL_INFO = {
     ],
     care: ['Keep the water under 24 °C: warm water holds less oxygen.', 'Give it moving, well-oxygenated water: a waterfall helps.'],
     lesson: 'oxygen',
+  },
+  firesal: {
+    sci: 'Salamandra salamandra', family: 'Salamandridae', status: 'Least Concern', region: 'Forests of central and southern Europe',
+    habitat: 'Cool, damp deciduous forest near small streams, hiding under logs and leaf litter by day.',
+    facts: [
+      'The bright yellow-orange on black is a warning: its skin and the glands behind its eyes make a toxin that tastes terrible to predators.',
+      'It is mostly a land animal and comes out on damp nights, especially after rain. Females return to a clear stream to give birth to live larvae.',
+      'No two are alike: the pattern of yellow blotches is as individual as a fingerprint, and scientists use it to recognise single animals.',
+    ],
+    care: ['Keep it cool: under 22 °C, and ideally 15 to 18 °C.', 'Give it damp leaf litter, hiding places and a shallow water dish. Never let the air dry out.'],
+    lesson: 'humidity',
   },
   axolotl: {
     sci: 'Ambystoma mexicanum', family: 'Ambystomatidae', status: 'Critically Endangered', region: 'Lake Xochimilco, Mexico City (the only wild population)',

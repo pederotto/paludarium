@@ -15,6 +15,7 @@ export const WORLDS = [
 export const KID_ANIMALS = [
   { id: 'neon', n: 'Neon fish', p: 'neon fish', where: 'water', c: '#4aa8e0' },
   { id: 'guppy', n: 'Guppy', p: 'guppies', where: 'water', c: '#f0a04a' },
+  { id: 'loach', n: 'Tiger fish', p: 'tiger fish', where: 'water', c: '#f0b81e' },
   { id: 'cory', n: 'Sandy fish', p: 'sandy fish', where: 'water', c: '#c9a26b' },
   { id: 'ember', n: 'Orange fish', p: 'orange fish', where: 'water', c: '#f07a4a' },
   { id: 'betta', n: 'Betta', p: 'bettas', where: 'water', c: '#e0508a' },
@@ -24,6 +25,7 @@ export const KID_ANIMALS = [
   { id: 'auratus', n: 'Green frog', p: 'green frogs', where: 'ground', c: '#4ab06a' },
   { id: 'toad', n: 'Belly toad', p: 'toads', where: 'ground', c: '#e8a23a' },
   { id: 'newt', n: 'Newt', p: 'newts', where: 'water', c: '#8a7a58' },
+  { id: 'firesal', n: 'Fire salamander', p: 'fire salamanders', where: 'ground', c: '#f49a0c' },
   { id: 'axolotl', n: 'Axolotl', p: 'axolotls', where: 'water', c: '#f0a0b8' },
   { id: 'gecko', n: 'Gecko', p: 'geckos', where: 'wall', c: '#c2a04a' },
   { id: 'crab', n: 'Crab', p: 'crabs', where: 'ground', c: '#b8503c' },

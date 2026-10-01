@@ -75,3 +75,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Creature models
+
+The clown loach, the sculpted frog and the salamander meshes (`art-src/raw/`) were supplied by the project owner (AI-generated, reference photos of a clown loach, yellow-banded poison frog, strawberry poison frog and fire salamander). `tools/bake-creature.mjs` paints the untextured meshes procedurally with vertex colours (`tools/paint/`); `tools/import-creatures.mjs` compresses the textured loach. Game assets total about 1.4 MB.

@@ -143,6 +143,12 @@ export const SPECIES = {
     body: sdfBody('cory'), anim: { amp: 0.25, wave: 1.4 },
     note: 'Bottom cleaner. Eats leftovers on the sand.',
   },
+  loach: {
+    name: 'Clown loach', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: true, size: 5.0, speed: 3.2,
+    temp: [24, 30], hungerHours: 150, lifeDays: 5000, eats: ['flake', 'detritus'], cap: 8, breed: 0,
+    body: sdfBody('cory'), anim: { amp: 0.25, wave: 1.4 },
+    note: 'A lively bottom fish that loves company. Needs warm, clean water and hiding places.',
+  },
   shrimp: {
     name: 'Cherry shrimp', group: 'Crustaceans', kind: 'crawlWater', size: 1.0, speed: 1.2,
     temp: [18, 28], hungerHours: 200, lifeDays: 365, eats: ['detritus', 'biofilm', 'flake'], cap: 80, breed: 0.04, adultDays: 20,
@@ -198,6 +204,12 @@ export const SPECIES = {
     eggs: { n: 6, days: 8, into: 'tadpole', where: 'water' },
     body: sdfBody('newt'), anim: { amp: 0.6, wave: 1.2, lift: 0.2, stride: 0.3 },
     note: 'Mostly aquatic, comes ashore at times. Prefers cool water (under 24 °C).',
+  },
+  firesal: {
+    name: 'Fire salamander', scale: 1, group: 'Amphibians', kind: 'newt', size: 2.4, speed: 1.6, landBias: 0.9,
+    temp: [8, 22], humidity: 70, hungerHours: 220, lifeDays: 7000, eats: ['springtail', 'fly', 'isopod'], cap: 6, breed: 0, adultDays: 40,
+    body: sdfBody('newt'), anim: { amp: 0.6, wave: 1.2, lift: 0.25, stride: 0.35 },
+    note: 'A forest salamander of cool, damp woods: bold black and yellow-orange warns that its skin is toxic. Lives on land, near shallow water.',
   },
   axolotl: {
     name: 'Axolotl', scale: 1, group: 'Amphibians', kind: 'axolotl', size: 2.6, speed: 1.4,
@@ -270,7 +282,7 @@ export const SPECIES = {
   },
 };
 
-export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog' };
+export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog' };
 export const one = (id) => ONE[id] ?? SPECIES[id].name.toLowerCase();
 
 export const FOOD_VALUE = { fly: 0.25, springtail: 0.07, isopod: 0.12, shrimp: 0.35, flake: 0.3, tadpole: 0.2 };
@@ -911,7 +923,8 @@ export class Animals {
     const inWater = W.water.surfaceAt(a.pos.x, a.pos.z) > T.heightAt(a.pos.x, a.pos.z) + 1.5;
     if (a.modeT <= 0) {
       a.modeT = 20 + Math.random() * 50;
-      a.mode = a.mode === 'land' ? 'water' : Math.random() < 0.35 ? 'land' : 'water';
+      const stay = a.mode === 'land' && Math.random() < (sp.landBias ?? 0);
+      a.mode = stay ? 'land' : a.mode === 'land' ? 'water' : Math.random() < (sp.landBias ?? 0.35) ? 'land' : 'water';
     }
     if (a.mode === 'land') {
       // Walk toward the nearest shore, then potter about on land.

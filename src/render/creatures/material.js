@@ -34,7 +34,7 @@ const is = (id, n) => abs(id.sub(n)).lessThan(0.5);
 //   grainAmt   0…1 multiplier on the fine pebbling and speckle (default 1); 0 skips the noise completely
 //   eyes       analytic eyes drawn in the fragment shader (see analyticEyes); replaces the M.EYE id for the species
 export const FINISH = {
-  fish: { rough: 0.3, coat: 0.5, coatRough: 0.16, grain: 10, bump: 0.03, tone: 0.05, flutter: 0.05, sheen: 0 },
+  fish: { rough: 0.5, coat: 0.12, coatRough: 0.4, grain: 10, bump: 0.03, tone: 0.05, flutter: 0.05, sheen: 0 },
   amphibian: { rough: 0.5, coat: 0.35, coatRough: 0.3, grain: 8, bump: 0.05, tone: 0.06, flutter: 0.03, sheen: 0 },
   reptile: { rough: 0.55, coat: 0.15, coatRough: 0.4, grain: 14, bump: 0.12, tone: 0.07, flutter: 0, sheen: 0 },
   invert: { rough: 0.4, coat: 0.45, coatRough: 0.22, grain: 12, bump: 0.05, tone: 0.05, flutter: 0, sheen: 0 },
