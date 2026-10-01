@@ -7,6 +7,7 @@ import { Builder, PRIM, rng, lerp, clamp } from '../render/geo.js';
 import { plantMaterial } from '../render/shaders.js';
 import { MAT, TANK } from './tank.js';
 import { plantFit } from './placement.js';
+import { waterCondition, emergentBoost } from './plantpond.js';
 import { TEX, modelParts } from '../render/assets.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -246,20 +247,30 @@ export const PLANTS = {
     name: 'Vallisneria', habitat: 'aquatic', light: 0.4, nutrients: 1, size: 18,
     note: 'Tall ribbon grass. Needs water at least 6 cm deep.',
     build() {
+      // Tapering ribbon grass: a clump of 20 leaves of very different length,
+      // each pointed at the tip and narrow at the base, gently twisted and
+      // arching outward, in several shades of green.
       const b = new Builder();
       const r = rng(13);
-      for (let k = 0; k < 11; k++) {
-        const a = r() * Math.PI * 2, rr = r() * 1.3;
+      const SEG = 9;
+      for (let k = 0; k < 20; k++) {
+        const a = r() * Math.PI * 2, rr = Math.sqrt(r()) * 1.7;
         const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-        const h = 12 + r() * 8;
-        const pts = [], w = [];
-        for (let i = 0; i <= 7; i++) {
-          const t = i / 7;
-          pts.push(V(x + Math.sin(t * 2 + k) * 0.8 * t, h * t, z + Math.cos(t * 1.7 + k) * 0.6 * t));
-          w.push(0.45 * (1 - t * 0.6));
+        const h = 6 + Math.pow(r(), 1.4) * 20;          // many short, a few long
+        const W = (0.5 + r() * 0.45) * (0.7 + h / 40);  // longer leaves are wider
+        const bend = (0.4 + r() * 1.1) * h * 0.06, bd = r() * Math.PI * 2;
+        const wob = r() * 6, tw = (r() - 0.5) * 2.2;
+        const pts = [], w = [], sides = [];
+        for (let i = 0; i <= SEG; i++) {
+          const t = i / SEG;
+          pts.push(V(x + Math.cos(bd) * bend * t * t + Math.sin(t * 2.4 + wob) * 0.5 * t, h * t * (1 - 0.12 * t * t), z + Math.sin(bd) * bend * t * t + Math.cos(t * 2 + wob) * 0.4 * t));
+          w.push(W * Math.min(1, 0.4 + t * 4) * Math.max(0.04, 1 - Math.pow(t, 1.8)));
+          sides.push(V(Math.cos(a + 1.5 + tw * t), 0, Math.sin(a + 1.5 + tw * t)));
         }
-        const s = V(Math.cos(a + 1.5), 0, Math.sin(a + 1.5));
-        b.ribbon(pts, w, s, { color: (t) => new THREE.Color(0x3d7f2c).lerp(new THREE.Color(0x86b94b), t) });
+        const dark = 0.75 + r() * 0.35, hue = r();
+        const c0 = new THREE.Color(0x2c6a24).multiplyScalar(dark).lerp(new THREE.Color(0x3d7a2a), hue * 0.5);
+        const c1 = new THREE.Color(0x6aa83a).multiplyScalar(0.85 + r() * 0.25);
+        b.ribbon(pts, w, sides, { color: (t) => c0.clone().lerp(c1, Math.min(1, t * 1.15)) });
       }
       return b.build();
     },
@@ -273,7 +284,7 @@ export const PLANTS = {
       const r = rng(17);
       for (let k = 0; k < 12; k++) {
         const a = (k / 12) * Math.PI * 2 + r() * 0.3;
-        blade(b, { dir: V(Math.cos(a) * 0.5, 1, Math.sin(a) * 0.5), len: 8 + r() * 4, width: 2.4, droop: 0.35, segs: 5, color: 0x2f7a2b, tip: 0x5fae3c, twist: 0.3 });
+        blade(b, { dir: V(Math.cos(a) * 0.5, 1, Math.sin(a) * 0.5), len: 7 + r() * 6, width: 2.0 + r() * 0.9, droop: 0.3 + r() * 0.15, segs: 6, color: new THREE.Color(0x24682a).multiplyScalar(0.85 + r() * 0.3), tip: 0x5da83a, twist: 0.3 });
       }
       return b.build();
     },
@@ -357,7 +368,8 @@ export class Plants {
     const im = new THREE.InstancedMesh(geo, mat, this.cap);
     im.count = 0;
     im.castShadow = true;
-    im.receiveShadow = true;
+    // Thin flat ribbons self-shadow into noise: the procedural (non-card) plants only cast.
+    im.receiveShadow = !!(PLANTS[key.split('#')[0]]?.map || PLANTS[key.split('#')[0]]?.model);
     im.frustumCulled = false;
     im.name = 'plant:' + key;
     im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 3).fill(1), 3);
@@ -534,27 +546,33 @@ export class Plants {
     }
   }
 
-  // Sim step: `env` gives light, humidity, nitrate. dtMin = game minutes.
+  // Sim step: `env` gives light and the air; each plant reads the water body it stands in (or the soil
+  // fertility under it). dtMin = game minutes.
   step(dtMin, env, world) {
     this.world = world;
     const out = { nitrateUse: 0, shade: 0, deaths: [], born: [] };
+    const bodies = world.water.bodies, humus = world.humus, days = dtMin / 1440;
     for (const p of [...this.list]) {
       const sp = PLANTS[p.id];
       p.age += dtMin;
       p.why = [];
-      let ok = 1;
+      let ok = 1, boost = 0;
       const hab = sp.habitat;
+      const size = p.grown * p.scale;
       if (hab === 'aquatic' || hab === 'floating') {
-        // Plants also feed on ammonia and fish waste in the substrate, so low
-        // nitrate slows them down before it starves them.
-        const n = clamp((env.nitrate + 3) / (sp.nutrients * 6), 0.55, 1);
-        ok = Math.min(ok, n * 1.2);
+        // Submerged and floating plants read the pond they stand in, not the tank mean: a planted shallow
+        // pond is lush while a loaded fish pond burns them. (They draw on it in waterbodies.chemistry.)
+        const B = bodies?.bodyFor(p.pos.x, p.pos.z) ?? null;
+        p.bodyName = B?.name ?? null;
+        const c = waterCondition(sp, B ?? env);
+        ok = Math.min(ok, c.ok); boost = c.boost;
+        for (const w of c.why) p.why.push(w);
         out.nitrateUse += p.grown * p.scale * (hab === 'floating' ? 1.6 : 1);
         if (hab === 'floating') out.shade += p.grown * p.scale * 40;
         if (world.water.surfaceAt(p.pos.x, p.pos.z) === -Infinity) ok = 0;
       } else {
         // Land plants read their own spot: the local air, the light that
-        // reaches them under the canopy, and how wet the soil is.
+        // reaches them under the canopy, how wet the soil is and how fertile.
         const [hmin] = sp.humidity;
         const C = world.climate;
         const hum = C.humidityAt(p.pos.x, p.pos.y, p.pos.z);
@@ -564,6 +582,21 @@ export class Plants {
           const soil = C.soilAt(p.pos.x, p.pos.z);
           if (soil < (sp.soilMin ?? 0.22)) { ok = Math.min(ok, 0.35 + soil * 2); p.why.push('soil too dry'); }
           if (env.soil > 0.9 && env.drainage < 0.3 && !sp.bog && soil > 0.9) { ok = Math.min(ok, 0.5); p.why.push('waterlogged roots (no drainage)'); }
+          if (humus) {
+            // Rich, humus-fed soil boosts growth and is slowly used up; bare soil only slows things a little.
+            const f = humus.fertilityAt(p.pos.x, p.pos.z);
+            p.fert = f; p.humusHere = humus.humusAt(p.pos.x, p.pos.z); p.litterHere = humus.litterAt(p.pos.x, p.pos.z);
+            boost += f * 0.7 - 0.08;
+            if (f < 0.06) p.why.push('poor soil (add leaf litter or wait for humus)');
+            humus.take(p.pos.x, p.pos.z, size * (hab === 'emergent' ? 0.5 : 1) * 0.02 * days);
+            // Leaf drop: a healthy plant sheds a little every day.
+            humus.drop(p.pos.x, p.pos.z, size * (sp.leafDrop ?? 0.012) * days * 8);
+          }
+        }
+        if (hab === 'emergent') {
+          // Roots reach into the nearest pond.
+          const B = bodies?.bodyFor(p.pos.x, p.pos.z, 6) ?? null;
+          if (B) boost += emergentBoost(B);
         }
         if (env.mold > 0.7) { ok = Math.min(ok, 0.7); p.why.push('mould'); }
       }
@@ -575,16 +608,22 @@ export class Plants {
       ok = Math.min(ok, lightOk);
       const rate = dtMin / (60 * 24 * 4); // full size in ~4 days
       if (ok > 0.6) {
-        p.grown = Math.min(1, p.grown + rate * ok);
+        p.grown = Math.min(1, p.grown + rate * ok * (1 + clamp(boost, -0.2, 0.9)));
         p.health = Math.min(1, p.health + rate * 4);
       } else if (ok < 0.5) {
         p.health -= rate * (1 - ok) * 3;
       } // In between: the plant stalls but survives.
-      if (p.health <= 0) { out.deaths.push(p); continue; }
+      if (p.health <= 0) {
+        // A dead plant becomes litter where it stood.
+        if (humus && p.surface !== 'wall' && hab !== 'aquatic' && hab !== 'floating') humus.drop(p.pos.x, p.pos.z, 0.5 + size * 1.5);
+        out.deaths.push(p);
+        continue;
+      }
       if (Math.random() < 0.02) this.writeInstance(p);
-      // Healthy, full-grown plants spread: runners, plantlets, spores.
+      // Healthy, full-grown plants spread: runners, plantlets, spores. Fertile ground favours them.
       const sprd = SPREAD[p.id];
-      if (sprd && p.grown > 0.9 && p.health > 0.8 && Math.random() < sprd[0] * dtMin / 1440) {
+      const fertK = p.fert != null ? 0.7 + p.fert * 0.8 : 1;
+      if (sprd && p.grown > 0.9 && p.health > 0.8 && Math.random() < sprd[0] * fertK * dtMin / 1440) {
         const child = this.offshoot(p, sprd, world);
         if (child) out.born.push(child);
       }

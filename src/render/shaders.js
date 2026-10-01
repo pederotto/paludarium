@@ -4,10 +4,10 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, vec3, float, positionWorld, time, mix, smoothstep, clamp, mx_noise_float, exp, max, min, attribute, sin, cos,
-  instanceIndex, positionLocal, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
+  instanceIndex, positionLocal, dot, vec2, saturate, instanceColor, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
 } from 'three/tsl';
 import { TEX } from './assets.js';
-import { U } from './uniforms.js';
+import { U, SOIL } from './uniforms.js';
 import { AIR } from './airflow.js';
 import { causticLight } from './waterfx.js';
 import { TANK } from '../sim/tank.js';
@@ -25,7 +25,7 @@ export { U };
 // The caustics play over everything below the surface. Returns
 // [color, emissive] for a base colour at world position pw; `surf` is the
 // height of the water surface above this point.
-export function wet(base, pw = positionWorld, surf = U.waterLevel, k = 1) {
+export function wet(base, pw = positionWorld, surf = U.waterLevel, k = 1, fogK = 1) {
   const depth = surf.sub(pw.y);
   const under = smoothstep(-0.2, 0.4, depth);
   const d = max(depth, 0);
@@ -45,7 +45,7 @@ export function wet(base, pw = positionWorld, surf = U.waterLevel, k = 1) {
   // Only the focused light above the average shows as lines; peaks can be
   // 20× the average, so they're compressed to keep the sand from glaring.
   const lines = clamp(c.sub(0.9), vec3(0), vec3(2.5)).mul(0.28);
-  const emissive = color.mul(lines).mul(U.daylight).mul(U.caustics).add(fog.mul(float(1).sub(T))).mul(under);
+  const emissive = color.mul(lines).mul(U.daylight).mul(U.caustics).add(fog.mul(float(1).sub(T)).mul(fogK)).mul(under);
   return [color, emissive];
 }
 
@@ -87,6 +87,20 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
   // The water over this point: the main pool, or (substrate) any pool or
   // stream, written per vertex by the water simulation.
   const surf = perVertexWater ? attribute('wsurf', 'float') : U.waterLevel;
+  if (perVertexWater) {
+    // The floor (not the background): humus darkens and enriches the soil, and leaf litter
+    // darkens it in patches (both written by sim/humus.js into one small texture).
+    const g = texture(SOIL.tex, vec2(pw.x.div(TANK.w).add(0.5), pw.z.div(TANK.d).add(0.5)));
+    const soilW = clamp(ws[0].add(ws[4].mul(0.35)), 0, 1);
+    const humusA = clamp(g.r.mul(1.15), 0, 1).mul(soilW);
+    const richer = base.mul(vec3(0.34, 0.27, 0.2)).add(vec3(0.02, 0.012, 0.006));
+    base = mix(base, richer, humusA.mul(0.88));
+    const dryLand = smoothstep(-0.3, 0.4, pw.y.sub(surf));
+    const nz1 = mx_noise_float(pw.mul(0.55)).mul(0.5).add(0.5), nz2 = mx_noise_float(pw.mul(2.6)).mul(0.5).add(0.5);
+    const patches = smoothstep(float(1).sub(g.g.mul(1.5)), float(1.16).sub(g.g.mul(1.5)), nz1.mul(0.65).add(nz2.mul(0.35)));
+    const litterCol = mix(vec3(0.30, 0.17, 0.07), vec3(0.17, 0.10, 0.05), nz2);
+    base = mix(base, litterCol, patches.mul(smoothstep(0.03, 0.2, g.g)).mul(0.62).mul(dryLand).mul(float(1).sub(ws[4].mul(0.6))));
+  }
   // A wet band just above the water line reads darker and glossier.
   const above = pw.y.sub(surf);
   const wetBand = smoothstep(1.8, 0.0, above).mul(smoothstep(-0.3, 0.1, above)).mul(0.4);
@@ -148,8 +162,15 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // Vertex-coloured or leaf-card material for instanced plants. A `sway`
 // vertex attribute (0 at the base, 1 at the tip) bends the plant; submerged
 // plants sway more.
+//
+// Look: matte leaves (no sheen), natural saturated greens, a gentle back-lit
+// glow where light shines through the leaf (faces turned away from the lamp),
+// and a gentler water absorption than the sand gets (U.plantWater), so a
+// submerged leaf stays green instead of washing out to teal-white. Every
+// emissive term is multiplied by the leaf's own colour (vertex x instance x
+// texture) so nothing glows white.
 export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null } = {}) {
-  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.75, side: THREE.DoubleSide, vertexColors: true });
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.96, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   let base = vec3(1);
   if (map) {
     const tx = texture(map, uv());
@@ -172,11 +193,20 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
     cos(t.mul(0.8).add(phase.mul(1.3)).add(pw.z.mul(0.07))).mul(a.mul(0.7)),
   );
   m.positionNode = positionLocal.add(off);
-  const [color, emissive] = wet(base);
+  // The leaf's own colour, as the diffuse term will see it (the material multiplies it in on its own).
+  const leaf = base.mul(attribute('color', 'vec3')).mul(instanceColor);
+  const [color, emissive] = wet(base, positionWorld, U.waterLevel, U.plantWater, U.plantWater.mul(0.5));
   m.colorNode = color;
-  // Thin leaves let light through; a little of it keeps shaded foliage from
-  // going black (a cheap stand-in for SeedThree's leaf translucency).
-  m.emissiveNode = emissive.add(color.mul(U.daylight.mul(0.16).add(0.02)));
+  // Caustic light and the water's own scatter in `emissive` were computed on a white base: the caustic part must
+  // carry the leaf colour, the scatter is cut down (the leaf is not a mirror of the water).
+  const lum = leaf.x.mul(0.3).add(leaf.y.mul(0.59)).add(leaf.z.mul(0.11));
+  const sat = mix(vec3(lum), leaf, 1.1);
+  const tinted = emissive.mul(sat);
+  // Back-light: the face we see is turned away from the lamp (n.up < 0) or edge-on to it.
+  const facing = dot(normalWorld, vec3(0, 1, 0));
+  const back = saturate(facing.mul(-0.7).add(0.35));
+  const glow = sat.mul(vec3(1.0, 1.12, 0.62)).mul(U.daylight.mul(0.2).add(0.02)).mul(back.mul(0.7).add(0.3));
+  m.emissiveNode = tinted.add(glow.mul(color));
   return m;
 }
 

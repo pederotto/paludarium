@@ -12,10 +12,23 @@ import {
   float, vec3, vec2, uv, time, mix, smoothstep, mx_noise_float, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
   attribute, fract, length, max, Fn, reflect,
 } from 'three/tsl';
-import { TANK } from '../sim/tank.js';
+import { TANK, MINUTES_PER_SECOND } from '../sim/tank.js';
 import { U } from './uniforms.js';
 import { waterSurfaceMaterial, SIM, FX } from './waterfx.js';
 import { Hydro, WET } from '../sim/hydro.js';
+import { Erosion, ERO } from '../sim/erosion.js';
+import { Support } from '../sim/support.js';
+import { PLANTS } from '../sim/plants.js';
+import { SedimentFX } from './sedimentfx.js';
+
+// Erosion setting (Settings > Simulation realism): 0 off, 0.5, 1 or 2 times the strength.
+const EROSION_KEY = 'paludarium.erosion';
+export function loadErosionSetting() {
+  try { const v = parseFloat(localStorage.getItem(EROSION_KEY)); if ([0, 0.5, 1, 2].includes(v)) return v; } catch { /* private window */ }
+  return 1;
+}
+export function saveErosionSetting(v) { try { localStorage.setItem(EROSION_KEY, String(v)); } catch { /* ignore */ } }
+const rootedPlant = (p) => p.surface === 'terrain' && !String(PLANTS[p.id]?.habitat ?? '').includes('floating');
 
 let ribbonId = 1;
 
@@ -26,6 +39,11 @@ export class Water {
     this.terrain = world.terrain;
     this.hydro = new Hydro(world);
     this.fx = null; // WaterFX, set by main.js
+    // Erosion and sediment (sim/erosion.js), the support model (sim/support.js) and the specks.
+    this.erosion = new Erosion(this.hydro, { strength: loadErosionSetting() });
+    this.support = new Support(world);
+    this.sedFx = new SedimentFX(scene, world);
+    this._tur = 0; this._rootT = 0; this._applyT = 0; this._pend = false; this._puffT = 0; this._lastSlump = -1e9;
 
     // Main pool: a fine grid moved by the ripples (one vertex per ripple cell).
     const g = new THREE.PlaneGeometry(TANK.w - 0.1, TANK.d - 0.1, SIM[0], SIM[1]);
@@ -166,6 +184,9 @@ export class Water {
     this.wdata = new THREE.BufferAttribute(new Float32Array(nv * 4), 4);
     this.wdata.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('wdata', this.wdata);
+    this.wtur = new THREE.BufferAttribute(new Float32Array(nv), 1);   // cloudiness of the water at each vertex (sediment)
+    this.wtur.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('wtur', this.wtur);
     g.attributes.position.setUsage(THREE.DynamicDrawUsage);
     this.flowGeo = g;
     this.flowMesh = new THREE.Mesh(g, makeFlowMaterial());
@@ -179,16 +200,18 @@ export class Water {
   updateFlowMesh() {
     const H = this.hydro, f = this.terrain.field;
     const pa = this.flowGeo.attributes.position, wd = this.wdata;
-    const h = f.h, d = H.d, res = H.res, L = H.level;
+    const h = f.h, d = H.d, res = H.res, L = H.level, sed = this.erosion.s, wt = this.wtur.array;
     for (let n = 0; n < H.N; n++) {
       const [x, z] = H.cellXZ(n);
       let y, show;
       if (res[n]) { y = L - 0.05; show = 0; } else if (d[n] > WET) { y = h[n] + d[n]; show = 1; } else { y = h[n] - 0.25; show = 0; }
       pa.setXYZ(n, x, y, z);
       wd.setXYZW(n, d[n], H.vx[n], H.vz[n], show);
+      wt[n] = show && sed[n] > 1e-6 ? 1 - Math.exp(-ERO.turbK * sed[n] / Math.max(0.3, d[n])) : 0;
     }
     pa.needsUpdate = true;
     wd.needsUpdate = true;
+    this.wtur.needsUpdate = true;
     this.flowGeo.computeBoundingSphere();
     // The substrate under pools and streams is shaded as wet and submerged.
     const ws = this.terrain.geo.attributes.wsurf;
@@ -370,7 +393,9 @@ export class Water {
   // --- Per frame ------------------------------------------------------------------
   animate(dt, speed = 1) {
     const H = this.hydro;
-    H.step(dt * Math.max(1, Math.min(3, speed)));
+    const hs = dt * Math.max(1, Math.min(3, speed));
+    H.step(hs);
+    this.erode(hs, dt * speed * MINUTES_PER_SECOND, dt);
     this.syncLevel();
     this.updateFlowMesh();
     this._t -= dt;
@@ -401,11 +426,63 @@ export class Water {
     this.drops.instanceMatrix.needsUpdate = true;
   }
 
+  // --- Erosion, sediment and what stands ---------------------------------------------
+  // hs: seconds of flow simulated this frame, gm: game minutes, dt: real seconds.
+  erode(hs, gm, dt) {
+    const W = this.world, E = this.erosion, eco = W.env;
+    this.sedFx.update(dt, E.enabled);
+    // Cloudy water: sediment adds to the algae and detritus turbidity (ecology.js sets that one each tick).
+    this._tur += ((E.enabled ? E.turb : 0) - this._tur) * Math.min(1, dt * 1.5);
+    if (eco && Number.isFinite(eco.algae)) U.turbidity.value = Math.min(1, Math.max(0, eco.algae * 0.9 + (eco.detritus ?? 0) / 60) + this._tur * 0.8);
+    if (!W.decor) return;
+    this._applyT -= dt;
+    if (E.enabled) {
+      this._rootT -= dt;
+      if (this._rootT <= 0) { this._rootT = 4; E.setRoots(W.plants?.list ?? [], rootedPlant); }
+      if (E.tick(hs, gm)) this._pend = true;
+      for (const ev of E.events.splice(0)) {
+        if (this._puffT <= 0) { this.sedFx.puff(ev.x, ev.y, ev.z, ev.v); this._puffT = 0.6; }
+        if (eco && eco.minute - this._lastSlump > 30) { this._lastSlump = eco.minute; W.log?.('A bank slumped.', 'info'); }
+      }
+      this._puffT -= dt;
+      if (this._pend && this._applyT <= 0) {
+        this._pend = false; this._applyT = 1;
+        W.terrain.compose(W.decor.stamps());
+        W.terrain.update();
+        this.hydro.rebuild(true);
+        this.syncLevel();
+        this._fxT = (this._fxT ?? 0) - 1;
+        if (this._fxT <= 0) { this._fxT = 3; W.fx?.updateTerrain?.(); this.reseatPlants(); this.updateMarkers(); }
+      }
+    }
+    this.support.update(dt);
+  }
+
+  // Plants follow the ground as it erodes.
+  reseatPlants() {
+    const W = this.world, T = W.terrain;
+    for (const p of W.plants?.list ?? []) {
+      if (p.surface !== 'terrain' || String(PLANTS[p.id]?.habitat ?? '').includes('floating')) continue;
+      const y = T.heightAt(p.pos.x, p.pos.z);
+      if (Math.abs(y - p.pos.y) < 0.03) continue;
+      p.pos.y = y;
+      p.normal.copy(T.normalAt(p.pos.x, p.pos.z));
+      W.plants.writeInstance(p);
+    }
+  }
+
+  setErosion(v) {
+    this.erosion.setStrength(v);
+    saveErosionSetting(v);
+    if (v <= 0) { const W = this.world; W.terrain.compose(W.decor.stamps()); W.terrain.update(); this.hydro.rebuild(true); this.syncLevel(); }
+  }
+
   serialize() {
     return { level: this.level, hydro: this.hydro.serialize() };
   }
 
   load(o) {
+    this.erosion.s.fill(0); this.erosion.cum.fill(0);
     if (o.hydro) this.hydro.deserialize(o.hydro);
     else {
       // Saves from before the water simulation: a level plus waterfall sources.
@@ -422,6 +499,7 @@ export class Water {
   }
 
   clear() {
+    this.erosion.s.fill(0); this.erosion.cum.fill(0);
     this.hydro.outlets = [];
     this.hydro.d.fill(0);
     this.hydro.flux.fill(0);
@@ -472,12 +550,13 @@ function makeFlowMaterial() {
   const fres = pow(float(1).sub(clamp(abs(dot(view, nrm)), 0, 1)), 5).mul(0.9).add(0.03);
   const deep = clamp(depth.div(6), 0, 1);
   const lit = U.daylight.mul(0.85).add(0.08);
-  const water = mix(U.tint.mul(0.18), U.tint.mul(0.06), deep).mul(lit);
+  const tur = attribute('wtur', 'float');
+  const water = mix(mix(U.tint.mul(0.18), U.tint.mul(0.06), deep).mul(lit), vec3(0.34, 0.24, 0.13).mul(lit), tur.mul(0.85));
   const rl = max(dot(reflect(view.negate(), nrm), FX.lightDir.negate()), 0);
   const glint = pow(rl, 500).mul(4).add(pow(rl, 40).mul(0.2)).mul(U.daylight);
   const room = vec3(0.025, 0.03, 0.034);
   m.colorNode = mix(mix(water, room, fres), vec3(0.8, 0.85, 0.88).mul(lit), foam).add(glint);
-  m.opacityNode = clamp(float(0.12).add(deep.mul(0.35)).add(foam.mul(0.75)).add(fres.mul(0.5)).add(glint), 0, 0.92).mul(smoothstep(0.3, 0.9, show));
+  m.opacityNode = clamp(float(0.12).add(deep.mul(0.35)).add(foam.mul(0.75)).add(fres.mul(0.5)).add(tur.mul(0.3)).add(glint), 0, 0.92).mul(smoothstep(0.3, 0.9, show));
   return m;
 }
 

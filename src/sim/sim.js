@@ -138,7 +138,7 @@ export class Sim {
     // --- Food on the floor rots --------------------------------------
     for (const f of W.animals.food) {
       f.gameAge = (f.gameAge ?? 0) + d;
-      if (!f.eaten && f.gameAge > 240) { f.eaten = true; E.detritus += 0.05; }
+      if (!f.eaten && f.gameAge > 240) { f.eaten = true; E.detritus += 0.05; if (f.pos) W.humus?.drop(f.pos.x, f.pos.z, 0.05, true); }
     }
 
     // --- Animals -----------------------------------------------------
@@ -193,6 +193,9 @@ export class Sim {
             // Refuge: moss and litter hide the last few of any prey species.
             const hidden = pid === 'flake' ? 0 : 6 + Math.round(W.mossFraction() * 20);
             if (prey.length <= hidden || Math.random() > (d / 420) * Math.min(1, (prey.length - hidden) / 10)) continue;
+            // The meal is due. The animal hunts a prey near it (animals.js: stalk, strike, swallow) and eats when it
+            // strikes; if it cannot by the deadline (always at high speed) it eats at once, as it always did.
+            if (W.animals.order(a, pid)) break;
             const p = prey[Math.floor(Math.random() * prey.length)];
             if (pid === 'flake') p.eaten = true; else W.animals.remove(p, `eaten by a ${one(a.sp)}`);
             a.hunger = Math.max(0, a.hunger - (FOOD_VALUE[pid] ?? 0.1));
@@ -267,6 +270,7 @@ export class Sim {
         // Only real losses count for goals and the vacation report: live-food species and old age are the normal cycle.
         if (cause !== 'old age' && a.sp !== 'fly' && a.sp !== 'springtail') { W.stats.deaths++; W.stats.lastDeathMinute = E.minute; }
         E.detritus += sp.size * (sp.kind === 'swim' || sp.kind === 'frog' || sp.kind === 'toad' ? 0.6 : 0.08);
+        W.humus?.drop(a.pos.x, a.pos.z, sp.size * 0.2, true);   // a dead animal on land becomes litter
         if (sp.cap < 60 || Math.random() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
         continue;
       }

@@ -821,7 +821,7 @@ export class ToolController {
   }
 }
 
-export const LENSES = ['off', 'humidity', 'temperature', 'light', 'soil', 'flow', 'quality'];
+export const LENSES = ['off', 'humidity', 'temperature', 'light', 'soil', 'fertility', 'flow', 'quality', 'stability', 'sediment'];
 export const nextLens = (l) => LENSES[(LENSES.indexOf(l) + 1) % LENSES.length];
 
 function traceText(t, mode) {

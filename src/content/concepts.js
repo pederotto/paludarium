@@ -69,6 +69,22 @@ export const CONCEPTS = {
     ],
     related: ['algae', 'microclimate'],
   },
+  humus: {
+    title: 'Litter, humus and fertility', icon: 'sprout',
+    blurb: 'How fallen leaves become rich soil.',
+    sections: [
+      { p: ['Plants shed leaves, animals die and food is left over. On the ground this becomes litter. Fungi, bacteria and the clean-up crew (isopods, springtails) rot it into humus: dark, crumbly, nutrient-rich soil that slowly feeds the plants, which then drop more leaves.'] },
+      { h: 'What speeds it up or slows it down', ul: [
+        'Warmth and damp: rot is quickest in warm, moist soil and nearly stops when it is cold or bone dry.',
+        'Air: waterlogged soil has no oxygen, so litter sits and sours.',
+        'A crew: isopods and springtails eat litter and leave frass, which is humus already.',
+        'Too much stale, wet litter grows mould; a fan or a crew keeps it in check.',
+      ] },
+      { fact: 'A handful of forest topsoil holds more living things than there are people on Earth.' },
+      { tryit: 'Switch the lens to Fertility and watch the ground under your ferns turn rich over a few weeks. Add isopods and compare.' },
+    ],
+    related: ['bioactive', 'mould', 'nitrogen-cycle'],
+  },
   bioactive: {
     title: 'The bioactive tank', icon: 'sprout',
     blurb: 'A cleaning crew that keeps the floor alive.',

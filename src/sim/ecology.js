@@ -19,7 +19,9 @@
 
 import * as THREE from 'three/webgpu';
 import { MAT, NMAT } from './tank.js';
-import { U } from '../render/uniforms.js';
+import { U, SOIL } from '../render/uniforms.js';
+import { Humus } from './humus.js';
+import { LitterView } from '../render/litter.js';
 import { clamp, lerp } from '../render/geo.js';
 
 const CLEAR = new THREE.Color(0.3, 0.62, 0.62);
@@ -43,6 +45,10 @@ export class Ecology {
     this.acc = 0;
     this.mossAcc = 0;
     this.stage = null;
+    // Litter, humus and fertility on the ground (humus.js); the world reaches it as world.humus.
+    this.humus = world.humus = new Humus(world);
+    this.humus.texture = SOIL.tex;
+    if (world.scene) this.humus.view = new LitterView(world.scene, world);
   }
 
   // Game minutes.
@@ -68,6 +74,10 @@ export class Ecology {
     E.rockMoss = clamp(E.rockMoss + days * ((E.humidity - 72) / 30) * 0.05, 0, 1);
     if (E.mold > 0.5) E.rockMoss = clamp(E.rockMoss - days * (E.mold - 0.5) * 0.04, 0, 1);
     E.tankDays += days;
+
+    // Litter rots into humus, humus into fertility.
+    this.humus.step(d);
+    this.humus.view?.update(this.humus);
 
     // Moss on the ground and the background, every game hour.
     this.mossAcc += d;
@@ -139,6 +149,7 @@ export class Ecology {
           const o = n * NMAT;
           good = m[o + MAT.soil] * 1 + m[o + MAT.stone] * 0.9 + m[o + MAT.rock] * 0.8 + m[o + MAT.moss] + m[o + MAT.gravel] * 0.35 + m[o + MAT.sand] * 0.15;
           if (H.d[n] > 0.02 || (i > 0 && H.d[n - 1] > 0.1) || (i < f.nx && H.d[n + 1] > 0.1)) good += 0.4;
+          good *= 1 + 0.6 * C.fert[C.idx(x, z)];   // moss prefers fertile ground
         }
         let wetBonus = 0;
         for (const p of spray) {

@@ -126,6 +126,7 @@ export function InfoBanner() {
         <div class="bn-sub">{info?.sci ? <i>{info.sci}</i> : sp.habitat.split('|').join(' / ')}{info?.role ? ` · ${info.role}` : ''}</div>
         <div class="bn-meters"><Meter label="Health" value={p.health} tone={good(p.health)} /><Meter label="Grown" value={p.grown} tone="#8fd6a4" /></div>
         {p.why?.length ? <div class="bn-line warn">Struggling: {p.why.join(', ')}</div> : <div class="bn-line ok">Thriving.</div>}
+        {p.bodyName ? <div class="bn-line">Water: {p.bodyName}</div> : p.fert != null ? <div class="bn-line">Soil: fertility {Math.round(p.fert * 100)}% · humus {Math.round((p.humusHere ?? 0) * 100)}% · litter {Math.round((p.litterHere ?? 0) * 100)}%</div> : null}
         <p class="bn-fact">{info?.facts?.[0] ? (info.facts[0].length > 170 ? info.facts[0].slice(0, 168).replace(/\s\S*$/, '') + '…' : info.facts[0]) : sp.note}</p>
         {acts('plant:' + p.id)}
       </>

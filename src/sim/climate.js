@@ -34,6 +34,10 @@ export class Climate {
     this.temp = new Float32Array(n).fill(23);
     this.light = new Float32Array(n).fill(1);
     this.soil = new Float32Array(n).fill(0.5);
+    // The ground's slow chemistry (sim/humus.js): leaf litter, humus, fertility. Saved with the tank.
+    this.litter = new Float32Array(n);
+    this.humus = new Float32Array(n);
+    this.fert = new Float32Array(n);
     // Feature maps (rebuilt by scan()).
     this.f = {
       water: new Float32Array(n), spray: new Float32Array(n), plants: new Float32Array(n),

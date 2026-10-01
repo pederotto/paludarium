@@ -156,6 +156,7 @@ function Inspector({ live }) {
       <Row label="Health" value={Math.round(p.health * 100) + '%'} level={p.health < 0.4 ? 'bad' : p.health < 0.7 ? 'warn' : 'good'} />
       <Row label="Grown" value={Math.round(p.grown * 100) + '%'} />
       {p.why?.length ? <Row label="Struggling" value={p.why.join(', ')} level="warn" /> : null}
+      {p.bodyName ? <Row label="Water" value={p.bodyName} /> : p.fert != null ? <><Row label="Fertility" value={Math.round(p.fert * 100) + '%'} /><Row label="Humus / litter" value={Math.round((p.humusHere ?? 0) * 100) + '% / ' + Math.round((p.litterHere ?? 0) * 100) + '%'} /></> : null}
       <p class="note">{sp.note}</p>
     </div>
   );

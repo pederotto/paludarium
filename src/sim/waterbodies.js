@@ -13,7 +13,7 @@
 export const NODE = { GROUND: 0, SUMP: 1, EXT: 2, OUT0: 3, OUTS: 12, BODY0: 15, BODIES: 48, TRANSIT: 63, MAX: 64 };
 
 const WET_STREAM = 0.12;   // cm of water that makes a stream cell
-const CHEM = ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'temp'];
+const CHEM = ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'temp', 'co2'];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -22,9 +22,10 @@ function makeBody(uid, kind, name) {
   return {
     uid, key: uid === 0 ? 'sump' : 'b' + uid, kind, name, slot: -1,
     n: 0, area: 0, vol: 0, depth: 0, maxDepth: 0, cx: 0, cz: 0, surfY: 0, bottom: 0,
-    ammonia: 0, nitrite: 0, nitrate: 0, oxygen: 7.5, temp: 23, algae: 0,
+    ammonia: 0, nitrite: 0, nitrate: 0, oxygen: 7.5, temp: 23, co2: 4, algae: 0,
     inLph: 0, outLph: 0, dStoreLph: 0, fill: 0, spill: null, spillVer: -1,
     fishLoad: 0, plantUse: 0, letter: null, pool: null,
+    sediment: 0, turbidity: 0, silt: 0,   // cm3 in suspension, cloudiness 0..1, cm3 settled so far (erosion.js)
   };
 }
 
@@ -192,6 +193,31 @@ export class WaterBodies {
     if (w <= 0) return;
     if (!fresh && c.overlap.size === 1) return;
     for (const k of Object.keys(acc)) b[k] = acc[k] / w;
+  }
+
+  // --- Sediment (erosion.js) -------------------------------------------------
+  // Suspended sediment and water volume per ledger node (cm3) and what settled this
+  // run: cloudiness per body, silt on its floor (which becomes detritus), a trace of nutrients.
+  setSediment(sed, vol, dep, K = 220) {
+    const E = this.world.env;
+    for (const b of this.list) {
+      const g = b === this.sump ? NODE.SUMP : b.slot >= 0 ? NODE.BODY0 + b.slot : -1;
+      if (g < 0) continue;
+      b.sediment = sed[g];
+      b.turbidity = vol[g] > 1 ? 1 - Math.exp(-K * sed[g] / vol[g]) : 0;
+      const settled = dep[g];
+      if (settled > 0) {
+        b.silt += settled;
+        if (E && Number.isFinite(E.detritus)) E.detritus += settled * 0.002;
+        if (b.vol > 0.05) b.nitrate += settled * 0.0004 / b.vol;
+      }
+    }
+  }
+
+  // Light that gets through the water at (x, z): 1 clear … 0.4 muddy (plants and algae use it).
+  lightFactorAt(x, z) {
+    const b = this.at(x, z);
+    return b ? 1 - 0.6 * b.turbidity : 1;
   }
 
   // Spill height and direction of every pond (cached until the ground changes).
@@ -387,10 +413,11 @@ export class WaterBodies {
       b.ammonia -= toNitrite; b.nitrite += toNitrite;
       const toNitrate = b.nitrite * clamp(E.cycle * 0.01 * media * d, 0, 0.9);
       b.nitrite -= toNitrate; b.nitrate += toNitrate * 2.7;
-      // Plants take up nitrate (and a little ammonia) in their own body.
-      const uptake = b.plantUse * 0.004 * d * (0.3 + light) / V;
-      b.nitrate = Math.max(0, b.nitrate - uptake);
-      b.ammonia = Math.max(0, b.ammonia - uptake * 0.05);
+      // Plants take up nitrate, ammonia and CO2 in their own body (what each plant reads and feels is in plants.js).
+      this.plantUptake(b, d, light, V);
+      // CO2: fish, rot and the dark breathe it out; air exchange and plants (by day) take it away.
+      const co2T = 3.5 + b.fishLoad * 0.9 / V + b.ammonia * 2 + (1 - clamp(light * 2, 0, 1)) * 1.5;
+      b.co2 = Math.max(0, lerp(b.co2 ?? 4, co2T, clamp(d * 0.004 * clamp(8 / Math.max(1, b.depth || 6), 0.5, 2), 0, 1)));
       // --- Oxygen: shallow water breathes quickly; falls, the filter (in the
       // sump), plants by day and a stream's churn add; fish and heat take away.
       const depth = Math.max(1, b.depth || 6);
@@ -407,7 +434,7 @@ export class WaterBodies {
       b.temp = lerp(b.temp, tT, clamp(d * 0.01 / (1 + V / 25), 0, 1));
       // --- Algae likes light, nutrients and shallows.
       const lampLight = C?.lightAt && b.n ? C.lightAt(b.cx, b.cz) / Math.max(0.2, E.lampPower) : 1;
-      b.rawAlgae = clamp(lampLight, 0.15, 1.3) * (0.3 + 0.7 * b.nitrate / nitRef) * clamp(8 / depth, 0.5, 2);
+      b.rawAlgae = clamp(lampLight, 0.15, 1.3) * (0.3 + 0.7 * b.nitrate / nitRef) * clamp(8 / depth, 0.5, 2) * (1 - 0.6 * b.turbidity);
       raw += b.rawAlgae * V; rawV += V;
     }
     // --- Mixing along the flows
@@ -418,6 +445,37 @@ export class WaterBodies {
     const kA = rawV ? raw / rawV : 1;
     for (const b of list) b.algae = clamp(E.algae * (kA ? b.rawAlgae / kA : 1), 0, 1);
     this.last = { ammonia: E.ammonia, nitrite: E.nitrite, nitrate: E.nitrate, oxygen: E.oxygen };
+  }
+
+  // The body a plant stands in, or (reach > 0, emergent plants) the nearest body its roots reach.
+  bodyFor(x, z, reach = 0) {
+    let b = this.at(x, z);
+    if (b || !reach) return b;
+    for (const f of [0.5, 1]) {
+      for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 4;
+        b = this.at(x + Math.cos(a) * reach * f, z + Math.sin(a) * reach * f);
+        if (b) return b;
+      }
+    }
+    return null;
+  }
+
+  // Plants (`b.plantUse` units of appetite) draw nitrate, ammonia and CO2 from body `b` over d minutes.
+  // The draw slows as the water runs short of nitrate (a clean pond is hardly touched).
+  plantUptake(b, d, light, V = Math.max(0.25, b.vol)) {
+    if (!(b.plantUse > 0)) return 0;
+    const day = 0.3 + light;
+    const n0 = b.nitrate, a0 = b.ammonia;
+    const sat = b.nitrate / (b.nitrate + 2.5);
+    const nUp = Math.min(b.nitrate, b.plantUse * 0.0022 * d * day * (0.25 + 0.75 * sat * 1.6) / V);
+    b.nitrate -= nUp;
+    // Ammonia is the preferred food: taken first, and fast.
+    const aUp = Math.min(b.ammonia, b.plantUse * 0.0016 * d * day / V * (b.ammonia / (b.ammonia + 0.15)));
+    b.ammonia -= aUp;
+    b.co2 = Math.max(0, (b.co2 ?? 4) - b.plantUse * 0.003 * d * clamp(light * 1.6, 0, 1) / V);
+    b.uptakeNow = (n0 - b.nitrate) + (a0 - b.ammonia);
+    return b.uptakeNow;
   }
 
   // Water moving between bodies carries its chemistry along (an upwind mix:
@@ -496,7 +554,7 @@ export class WaterBodies {
 
   serialize() {
     const r = (v) => +v.toFixed(3);
-    const pack = (b) => Object.fromEntries([...CHEM, 'algae'].map((k) => [k, r(b[k])]));
+    const pack = (b) => Object.fromEntries([...CHEM, 'algae'].map((k) => [k, r(b[k] ?? 0)]));
     return {
       sump: pack(this.sump),
       ponds: this.list.filter((b) => b.kind !== 'sump').map((b) => ({ x: +b.cx.toFixed(1), z: +b.cz.toFixed(1), ...pack(b) })),
