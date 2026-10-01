@@ -1003,6 +1003,7 @@ export function generateTerrarium(world, { preset, seed = 1, tier } = {}) {
   settleAndPrune(g);
   for (const id of g.gear) W.equipment.buy(id);
   W.climate.settle();
+  W.humus?.seed();   // a little leaf litter and humus under the plants
   W.updateMoss();
   W.decor.scatterMoss();
   W.terrain.update();

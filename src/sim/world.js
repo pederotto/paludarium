@@ -135,6 +135,7 @@ export class World {
     this.decor.clear();
     this.water.clear();
     this.env.reset();
+    this.humus?.reset();
     this.equipment.rules = [];
     this.logs.length = 0;
     this.undoStack.length = 0;
@@ -316,6 +317,8 @@ export class World {
     this.updateMoss();
     this.decor.scatterMoss();
     this.fx?.updateTerrain();
+    this.climate.settle();
+    this.humus?.seed();   // a little leaf litter and humus under the plants
     this.log('Welcome! This starter paludarium is planted and stocked. The pump lifts water to the top pool; follow it down the waterfall and the streams.');
   }
 
@@ -331,6 +334,7 @@ export class World {
       animals: this.animals.serialize(),
       env: this.env.serialize(),
       equipment: this.equipment.serialize(),
+      humus: this.humus?.serialize(),
       tank: { id: TANK.id },
     };
   }
@@ -359,6 +363,7 @@ export class World {
     this.water.bodies.afterLoad();   // ponds get their saved chemistry back
     this.equipment.load(o.equipment);
     this.climate.settle();
+    if (o.humus) this.humus?.load(o.humus); else this.humus?.seed();   // older saves start with a little litter
     this.fx?.updateTerrain();
     this.updateMoss();
     this.decor.scatterMoss();

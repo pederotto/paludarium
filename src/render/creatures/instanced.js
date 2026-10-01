@@ -2,14 +2,22 @@
 // two: a coarse one for the usual view and a fine one built in the background
 // for when the camera comes close). Per instance: position, rotation
 // (quaternion), scale, and anim = (phase, undulation amplitude, gait phase,
-// hop extension). The vertex shader bends the body along its spine, swings
+// hop extension + packed idle pulses: see `packAnim`). The vertex shader bends the body along its spine, swings
 // legs in a walking gait, unfolds a frog's back legs in a hop and flutters
 // membranes; the body definition's `rig` attribute says which vertex is what.
 
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, positionLocal, normalLocal, float, sin, cos, max, abs, select, cross, transformNormalToView } from 'three/tsl';
+import { Fn, attribute, positionLocal, normalLocal, float, sin, cos, max, min, abs, floor, select, cross, transformNormalToView } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
 import { creatureMaterial, qrot } from './material.js';
+
+// anim.w carries the hop extension (0..1) and, backward compatibly, three 4-bit idle pulses above it:
+// w = hop + 2 * (breath + 16 * (throat + 16 * eye)), each pulse 0..15. A plain hop value (< 2) decodes as
+// no pulses, so callers that only pass a hop are unchanged.
+export function packAnim(hop, breath = 0, throat = 0, eye = 0) {
+  const q = (v) => Math.max(0, Math.min(15, Math.round(v * 15)));
+  return Math.max(0, Math.min(1, hop)) + 2 * (q(breath) + 16 * (q(throat) + 16 * q(eye)));
+}
 
 export class CreatureMesh {
   constructor(scene, geometry, { cap = 64, wave = 2.2, legLift = 0.25, legStride = 0.35, finish = {}, material = null, textures = null } = {}) {
@@ -110,9 +118,22 @@ function buildPass(finish, wave, legLift, legStride, textures, pass) {
     const back = leg.greaterThan(2.5);
     p.y.addAssign(isLeg.select(lift, float(0)));
     p.z.addAssign(isLeg.select(swing, float(0)));
+    // anim.w = hop + packed idle pulses (see packAnim).
+    const n0 = floor(anim.w.mul(0.5));
+    const hopv = anim.w.sub(n0.mul(2));
+    const n1 = floor(n0.mul(1 / 16)), n2 = floor(n1.mul(1 / 16));
+    const breath = n0.sub(n1.mul(16)).div(15), throat = n1.sub(n2.mul(16)).div(15), eyeRet = n2.div(15);
     // Hop: back legs stretch out behind.
-    p.z.subAssign(isLeg.and(back).select(anim.w.mul(legT).mul(1.6), float(0)));
-    p.y.subAssign(isLeg.and(back).select(anim.w.mul(legT).mul(0.4), float(0)));
+    p.z.subAssign(isLeg.and(back).select(hopv.mul(legT).mul(1.6), float(0)));
+    p.y.subAssign(isLeg.and(back).select(hopv.mul(legT).mul(0.4), float(0)));
+    // Breathing: the flanks swell and sink; throat: the underside of the head bulges; eyes sink into the head.
+    const flank = sin(min(max(spine.sub(0.15).mul(2), float(0)), float(1)).mul(3.14159));
+    const k = breath.mul(0.045).mul(flank).mul(isLeg.select(float(0), float(1)));
+    p.x.addAssign(p.x.mul(k)); p.y.addAssign(p.y.mul(k));
+    const head = max(float(1).sub(spine.mul(3.3)), float(0));
+    const under = min(max(normalLocal.y.mul(-1.6), float(0)), float(1));
+    p.addAssign(normalLocal.mul(throat.mul(0.2).mul(head).mul(under).mul(isLeg.select(float(0), float(1)))));
+    p.y.subAssign(abs(matId.sub(1)).lessThan(0.5).select(eyeRet.mul(0.22), float(0)));
     // Membranes (fins, gills, tail fringes) ripple along the normal.
     const isFin = abs(matId.sub(2)).lessThan(0.5);
     p.addAssign(normalLocal.mul(sin(anim.x.mul(1.7).add(positionLocal.z.mul(4)).add(positionLocal.y.mul(3))).mul(flutter).mul(isFin.select(float(1), float(0)))));

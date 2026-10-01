@@ -16,5 +16,15 @@ export const U = {
   condense: uniform(0),         // 0 … 1, dew on the glass (dew point above the glass temperature)
   mold: uniform(0),             // 0 … 1, white mould on wood and stone in stale, wet air
   creatureWater: uniform(0.3), // 0 … 1: how much of the water's colour absorption animals get (1 = same as the sand)
+  plantWater: uniform(0.42),   // 0 … 1: how much of the water's colour absorption plants get (1 = same as the sand); tuned by eye
   rockMoss: uniform(1),         // 0 bare … 1 mossy: how far moss has grown over the hardscape
 };
+
+// The ground's chemistry for the soil shader (sim/humus.js writes it): R humus, G leaf litter, B fertility,
+// over the whole floor (u = x / width + 0.5, v = z / depth + 0.5).
+const SOIL_W = 64, SOIL_H = 32;
+const soilData = new Uint8Array(SOIL_W * SOIL_H * 4);
+export const SOIL = { tex: new THREE.DataTexture(soilData, SOIL_W, SOIL_H, THREE.RGBAFormat) };
+SOIL.tex.minFilter = SOIL.tex.magFilter = THREE.LinearFilter;
+SOIL.tex.wrapS = SOIL.tex.wrapT = THREE.ClampToEdgeWrapping;
+SOIL.tex.needsUpdate = true;

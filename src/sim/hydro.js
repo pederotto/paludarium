@@ -110,7 +110,8 @@ export class Hydro {
   // pushed into the nearest hollow (or the main pool), the main pool simply
   // rises when its floor does, and a pump whose intake got buried moves to
   // the deepest part of the pool.
-  rebuild() {
+  // `light`: the ground only shifted a little (erosion): keep the books open.
+  rebuild(light = false) {
     const h = this.f.h, hp = this.hPrev;
     const oldRes = this.res.slice(), oldLevel = this.level;
     this.groundVer++;
@@ -122,7 +123,7 @@ export class Hydro {
     this.solveLevel();
     this.updateMembership();
     hp.set(h);
-    this.closeWindow(true);
+    if (!light) this.closeWindow(true);
   }
 
   // Water standing outside the main pool on cells that rose: the ground takes

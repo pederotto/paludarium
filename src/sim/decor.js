@@ -373,6 +373,40 @@ export class Decor {
     if (own) piece.stamp = own;
   }
 
+  // How far the piece hangs over the ground under it (cm): its bottom minus the highest ground (or
+  // other piece) beneath its footprint. With drop > 0 it is also lowered by that much (at most the gap)
+  // and tilted a hair toward the slope of the new ground (a piece whose ground eroded settles).
+  reground(piece, drop = 0) {
+    const T = this.world.terrain, f = T.field;
+    const m = piece.mesh;
+    m.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(m);
+    const tmp = f.base.slice();
+    for (const o of this.pieces) {
+      const s = o.stamp;
+      if (o === piece || !s) continue;
+      for (let k = 0; k < s.idx.length; k++) if (s.top[k] > tmp[s.idx[k]]) tmp[s.idx[k]] = s.top[k];
+    }
+    const cx = m.position.x, cz = m.position.z;
+    const fr = Math.max(f.da, Math.min(box.max.x - box.min.x, box.max.z - box.min.z) * 0.35);
+    let gmax = -Infinity;
+    const at = (dx, dz) => f.sample(cx + dx * fr, cz + dz * fr, tmp);
+    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) gmax = Math.max(gmax, at(dx, dz));
+    const gap = box.min.y - gmax;
+    if (drop > 0 && gap > 0) {
+      m.position.y -= Math.min(drop, gap);
+      const sx = (at(1, 0) - at(-1, 0)) / (2 * fr), sz = (at(0, 1) - at(0, -1)) / (2 * fr);
+      const mag = Math.hypot(sx, sz);
+      if (mag > 0.02) {
+        const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(-sz, 0, sx).normalize(), Math.min(0.05, Math.atan(mag) * 0.12));
+        m.quaternion.premultiply(q);
+      }
+      m.updateMatrixWorld(true);
+      this.restamp(piece);
+    }
+    return gap;
+  }
+
   stamps() { return this.pieces.map((p) => p.stamp); }
 
   // The ground under the piece rises to its top surface.

@@ -17,6 +17,26 @@ function Sound() {
   );
 }
 
+// Simulation realism: erosion on or off and its strength (the water carries soil, banks slump).
+function Realism() {
+  const w = ctx.game?.world?.water;
+  const [v, setV] = useState(w?.erosion?.strength ?? 1);
+  if (!w?.erosion) return null;
+  const set = (x) => { w.setErosion(x); setV(x); };
+  return (
+    <>
+      <div class="h3" style={{ marginTop: 14 }}>Simulation realism</div>
+      <div class="row" style={{ gap: 8 }}>
+        <button class={'chip' + (v > 0 ? ' on' : '')} onClick={() => set(v > 0 ? 0 : 1)}>Erosion {v > 0 ? 'on' : 'off'}</button>
+        <div class="seg">
+          {[0.5, 1, 2].map((x) => <button key={x} class={v === x ? 'on' : ''} onClick={() => set(x)}>{x}×</button>)}
+        </div>
+      </div>
+      <p class="note">Moving water carries soil and sand off the ground and drops it where it slows, so streams cut, ponds silt up and deltas grow, and steep unsupported banks slump. Rocks set into the ground, plant roots and stone hold the soil. Strength sets how fast it happens.</p>
+    </>
+  );
+}
+
 export function Settings() {
   const g = ctx.game;
   const q = S.quality.value;
@@ -39,6 +59,7 @@ export function Settings() {
           <p class="note">Shift+F toggles full screen, Shift+Z toggles Zen and Esc brings the interface back.{fullscreenSupported() ? '' : ' This browser cannot go full screen: on an iPhone or iPad use Share, then Add to Home Screen, and open the game from there.'}</p>
           <div class="h3" style={{ marginTop: 14 }}>Sound</div>
           <Sound />
+          <Realism />
           <div class="kv" style={{ marginTop: 12 }}>
             <dt>Renderer</dt><dd>{S.backend.value}</dd>
             <dt>Frame rate</dt><dd>{S.fps.value} fps ({g.gfx.stats.frameMs} ms)</dd>

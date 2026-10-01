@@ -9,6 +9,7 @@
 import * as THREE from 'three/webgpu';
 import { texture, float, vec2, vec3, vec4, mix, smoothstep, positionWorld, positionLocal, normalLocal, uniform } from 'three/tsl';
 import { TANK } from '../sim/tank.js';
+import { stressMap } from '../sim/support.js';
 
 export const LENS_INFO = {
   humidity: { name: 'Humidity', unit: '%', lo: 45, hi: 100, stops: ['#8a6a32', '#4aa08a', '#2a6ee0'], blurb: 'Waterfalls, pools, moss and plants raise it; a fan and the lamp lower it.' },
@@ -16,7 +17,10 @@ export const LENS_INFO = {
   light: { name: 'Light', unit: '', lo: 0, hi: 1.1, stops: ['#0a0c18', '#5a6ab0', '#ffe28a'], blurb: 'The LED, less what leaves and floating plants shade.' },
   soil: { name: 'Soil moisture', unit: '%', lo: 0, hi: 100, stops: ['#8a6a3a', '#6a9a6a', '#2a6ad0'], blurb: 'Wetted by rain, mist, spray and nearby water; dried by drainage, heat and airflow.' },
   flow: { name: 'Water flow', unit: '', lo: 0, hi: 1, stops: ['#10202e', '#3a8ac0', '#e8f6ff'], blurb: 'Where water is moving over the ground.' },
+  fertility: { name: 'Fertility', unit: '%', lo: 0, hi: 100, stops: ['#3a2c1e', '#7c9a3a', '#f2e45a'], blurb: 'Humus from rotted leaf litter feeds plants and moss. Warm, damp ground rots litter fastest; isopods and springtails speed it up; plants slowly use it.' },
   quality: { name: 'Water quality', unit: '', lo: 'clean', hi: 'loaded', stops: ['#2a8ad0', '#e6d24a', '#e0402a'], blurb: 'Each pond and the main pool, coloured by its worst reading: ammonia, nitrite, nitrate or low oxygen. Dry ground stays clear.' },
+  stability: { name: 'Stability', unit: '', lo: 'stable', hi: 'will slump', stops: ['#3aa05a', '#e6b83a', '#e0402a'], blurb: 'Green holds, amber is marginal, red will slump or erode. Loose soil keeps a slope only up to its angle of repose; rocks set into the ground, stone walls and plant roots hold it steeper, and fast water wears the bed.' },
+  sediment: { name: 'Sediment', unit: '', lo: 'clear', hi: 'muddy', stops: ['#2a6ad0', '#c9a05a', '#6b3e1c'], blurb: 'Soil carried by the water: cloudy downstream of an eroding bank, settling as silt in still ponds and as sand fans where a stream slows.' },
 };
 
 // 0 clean … 1 loaded: the worst of ammonia, nitrite, nitrate and low oxygen.
@@ -64,8 +68,8 @@ export class Lens {
     this.group.visible = name !== 'off';
     const info = LENS_INFO[name];
     if (info) info.stops.forEach((c, i) => this.stops[i].value.set(c));
-    this.wallMesh.visible = name !== 'flow' && name !== 'quality';
-    this.mask.value = name === 'quality' ? 1 : 0;
+    this.wallMesh.visible = name !== 'flow' && name !== 'quality' && name !== 'fertility' && name !== 'stability' && name !== 'sediment';
+    this.mask.value = name === 'quality' || name === 'sediment' ? 1 : 0;
     this.t = 1e9;
   }
 
@@ -81,11 +85,37 @@ export class Lens {
     else if (this.name === 'temperature') src = C.temp;
     else if (this.name === 'light') src = C.light;
     else if (this.name === 'soil') { src = C.soil; scale = 100; }
+    else if (this.name === 'fertility') { src = C.fert; scale = 100; }
     const d = this.data;
     if (src) {
       for (let i = 0; i < this.nx * this.nz; i++) {
         const v = Math.max(0, Math.min(1, (src[i] * scale - info.lo) / r));
         d[i * 4] = v * 255; d[i * 4 + 3] = 255;
+      }
+    } else if (this.name === 'stability') {
+      // The steepest face of each cell against what its ground can hold, and the flow working on the bed.
+      const Ew = W.water.erosion, tf = W.terrain.field;
+      if (!this.stab || this.stab.length !== tf.cols * tf.rows) this.stab = new Float32Array(tf.cols * tf.rows);
+      stressMap(tf, Ew.ret, this.stab, Ew.grand);
+      d.fill(0);
+      for (let n = 0; n < this.stab.length; n++) {
+        const v = Math.min(1, Math.max(this.stab[n], Ew.risk[n] * 0.9) / 1.5);
+        const [x, z] = W.water.hydro.cellXZ(n);
+        const i = Math.max(0, Math.min(this.nx - 1, Math.floor((x + TANK.w / 2) / C.cs))), j = Math.max(0, Math.min(this.nz - 1, Math.floor((z + TANK.d / 2) / C.cs)));
+        const q = (j * this.nx + i) * 4;
+        d[q] = Math.max(d[q], v * 255); d[q + 3] = 255;
+      }
+    } else if (this.name === 'sediment') {
+      const H = W.water.hydro, Ew = W.water.erosion, sump = W.water.bodies.sump.turbidity;
+      d.fill(0);
+      for (let n = 0; n < H.N; n++) {
+        const pool = H.res[n] && H.level > H.f.h[n] + 0.05;
+        if (!pool && H.d[n] < 0.05) continue;
+        const v = Math.max(Ew.turbAt(n), pool ? sump : 0);
+        const [x, z] = H.cellXZ(n);
+        const i = Math.max(0, Math.min(this.nx - 1, Math.floor((x + TANK.w / 2) / C.cs))), j = Math.max(0, Math.min(this.nz - 1, Math.floor((z + TANK.d / 2) / C.cs)));
+        const q = (j * this.nx + i) * 4;
+        d[q] = Math.max(d[q], v * 255); d[q + 3] = 255;
       }
     } else if (this.name === 'quality') {
       // Water quality: every body of water in its own colour (worst reading).
