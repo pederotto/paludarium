@@ -68,7 +68,7 @@ if (q.get('src') === 'glb') {
   } else console.warn('no GLB for', id);
 }
 async function setLod(name) {
-  if (name === 'hi' && !hiReady) { lod.refine(); hiReady = true; }
+  if (name === 'hi' && !hiReady) { lod.refine(true); hiReady = true; }
   lod.near2 = name === 'hi' ? 1e12 : 0;
 }
 const ground = new THREE.Mesh(new THREE.CircleGeometry(30, 48), new THREE.MeshStandardNodeMaterial({ color: 0x2a2a26, roughness: 0.95 }));

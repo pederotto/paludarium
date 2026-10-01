@@ -9,6 +9,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, attribute, positionLocal, normalLocal, float, sin, cos, max, min, abs, floor, select, cross, transformNormalToView } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
+import { requestBody } from './meshpool.js';
 import { creatureMaterial, qrot } from './material.js';
 
 // anim.w carries the hop extension (0..1) and, backward compatibly, three 4-bit idle pulses above it:
@@ -145,46 +146,91 @@ function buildPass(finish, wave, legLift, legStride, textures, pass) {
 
 // A species with a coarse mesh now and a fine one on demand. Instances closer
 // to the camera than `near` cm use the fine mesh once it exists.
+//
+// Meshing runs in workers (meshpool.js): `lo` stays null until the coarse mesh arrives (put() draws nothing meanwhile,
+// `ready` resolves when it has), and refine() returns at once and swaps the fine mesh in when it arrives. Callers that
+// need the meshes right now (tools, portraits) read `.lo`, which meshes synchronously if it must, and call refine(true).
 const LO = new WeakMap(), HI = new WeakMap();   // geometry caches, shared by every tank
+const LOP = new WeakMap(), HIP = new WeakMap(); // in-flight requests, so two tanks asking for one body share one job
+
+function geometryOf(def, detail) {
+  const cache = detail === 'hi' ? HI : LO, jobs = detail === 'hi' ? HIP : LOP;
+  if (cache.has(def)) return Promise.resolve(cache.get(def));
+  if (!jobs.has(def)) jobs.set(def, requestBody(def, detail).then((g) => { if (!cache.has(def)) cache.set(def, g); return cache.get(def); }));
+  return jobs.get(def);
+}
 
 export class CreatureLOD {
   constructor(scene, source, opts) {
     this.scene = scene;
     this.opts = opts;
     this.def = source.isBufferGeometry ? null : source;
-    let loGeo = source;
-    if (this.def) { if (!LO.has(this.def)) LO.set(this.def, bodyGeometry(this.def, 'lo')); loGeo = LO.get(this.def); }
-    this.lo = new CreatureMesh(scene, loGeo, opts);
+    this._lo = null;
     this.hi = null;
-    if (opts.hiGeometry) this.hi = new CreatureMesh(scene, opts.hiGeometry, { ...opts, material: this.lo.material });
-    else if (this.def && HI.has(this.def)) this.hi = new CreatureMesh(scene, HI.get(this.def), { ...opts, material: this.lo.material });
+    this.refining = false;
+    this.removed = false;
+    this.pendingHi = null;
     this.near = opts.near ?? 55;
     this.near2 = this.near * this.near;
     this.cap = opts.cap;
+    if (!this.def) { this.setLo(source); this.ready = Promise.resolve(this); }
+    else if (LO.has(this.def)) { this.setLo(LO.get(this.def)); this.ready = Promise.resolve(this); }
+    else this.ready = geometryOf(this.def, 'lo').then((g) => { this.setLo(g); return this; });
   }
 
-  get canRefine() { return !!this.def && !this.hi; }
+  // The coarse mesh. Forces it to be built right here if it has not arrived (legacy callers); the game never does.
+  get lo() {
+    if (!this._lo && this.def && !this.removed) this.setLo(LO.get(this.def) ?? (LO.set(this.def, bodyGeometry(this.def, 'lo')), LO.get(this.def)));
+    return this._lo;
+  }
 
-  // Builds the fine mesh (takes tens of milliseconds to a second). Sharing the
-  // material keeps the two meshes shading identically.
-  refine() {
+  setLo(geo) {
+    if (this._lo || this.removed) return;
+    const opts = this.opts;
+    this._lo = new CreatureMesh(this.scene, geo, opts);
+    if (opts.hiGeometry) this.hi = new CreatureMesh(this.scene, opts.hiGeometry, { ...opts, material: this._lo.material });
+    else if (this.def && HI.has(this.def)) this.hi = new CreatureMesh(this.scene, HI.get(this.def), { ...opts, material: this._lo.material });
+    else if (this.pendingHi) this.setHi(this.pendingHi);
+    this.pendingHi = null;
+  }
+
+  setHi(geo) {
+    if (this.removed || this.hi) return;
+    if (!this._lo) { this.pendingHi = geo; return; }
+    this.hi = new CreatureMesh(this.scene, geo, { ...this.opts, material: this._lo.material });
+  }
+
+  get canRefine() { return !!this.def && !this.hi && !this.refining && !this.removed; }
+
+  // Asks for the fine mesh and returns at once; it appears when a worker has built it. Sharing the material keeps the
+  // two meshes shading identically. `sync` builds it here and now (tools and portraits that shoot immediately).
+  refine(sync = false) {
     if (!this.canRefine) return false;
-    if (!HI.has(this.def)) HI.set(this.def, bodyGeometry(this.def, 'hi'));
-    const geo = HI.get(this.def);
-    this.hi = new CreatureMesh(this.scene, geo, { ...this.opts, material: this.lo.material });
+    if (sync) {
+      if (!HI.has(this.def)) HI.set(this.def, bodyGeometry(this.def, 'hi'));
+      void this.lo;
+      this.setHi(HI.get(this.def));
+      return true;
+    }
+    this.refining = true;
+    geometryOf(this.def, 'hi').then((g) => { this.refining = false; this.setHi(g); });
     return true;
   }
 
-  begin() { this.lo.begin(); this.hi?.begin(); }
+  begin() { this._lo?.begin(); this.hi?.begin(); }
   // `d2` is the squared distance from the camera to the animal.
   put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9) {
+    const lo = this._lo;
+    if (!lo) return;
     if (d2 < this.near2) {
       if (this.hi) { this.hi.put(pos, quat, scale, a0, a1, a2, a3); return; }
       this.wants = true;
     }
-    this.lo.put(pos, quat, scale, a0, a1, a2, a3);
+    lo.put(pos, quat, scale, a0, a1, a2, a3);
   }
-  end() { this.lo.end(); this.hi?.end(); }
-  get mesh() { return this.lo.mesh; }
-  dispose() { this.lo.dispose(); this.hi?.dispose(); }
+  end() { this._lo?.end(); this.hi?.end(); }
+  get mesh() { return this._lo?.mesh; }
+  // Takes the meshes out of the scene without freeing the (shared) geometry; anything still in flight is dropped.
+  remove() { this.removed = true; this._lo?.mesh.removeFromParent(); this.hi?.mesh.removeFromParent(); }
+  dispose() { this.removed = true; this._lo?.dispose(); this.hi?.dispose(); }
 }

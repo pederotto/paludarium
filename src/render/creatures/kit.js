@@ -19,7 +19,6 @@
 // The mesher only asks the SDF for values, so anything expressible as a
 // distance works: capsules, ellipsoids, smooth unions, twists, noise.
 
-import * as THREE from 'three/webgpu';
 
 // Material ids: how the shader treats a vertex.
 export const M = {
@@ -109,6 +108,9 @@ export function cells(x, y, z, scale) {
 }
 
 // --- Colour -----------------------------------------------------------------------
-export const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
+// sRGB hex (number) to linear [r, g, b]: three's Color.setHex + SRGBToLinear, written out so this file (and every body
+// that imports it) loads in a worker without pulling in three.js. Bit-identical to THREE.Color (checked by tools/meshcheck.mjs).
+const srgbToLinear = (c) => (c < 0.04045 ? c * 0.0773993808 : Math.pow(c * 0.9478672986 + 0.0521327014, 2.4));
+export const C = (h) => [srgbToLinear(((h >> 16) & 255) / 255), srgbToLinear(((h >> 8) & 255) / 255), srgbToLinear((h & 255) / 255)];
 export const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 export const mul3 = (a, k) => [a[0] * k, a[1] * k, a[2] * k];

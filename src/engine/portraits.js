@@ -75,7 +75,7 @@ export class Portraits {
   async animal(id) {
     if (!SPECIES[id]) return null;
     const lod = createSpeciesMesh(this.scene, id, { cap: 2 });
-    lod.refine();
+    lod.refine(true);
     lod.near2 = 1e12;
     lod.begin();
     lod.put(new THREE.Vector3(0, 300, 0), new THREE.Quaternion(), SPECIES[id].scale ?? 1, 0, 0, 0, 0, 0);

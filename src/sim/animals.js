@@ -393,7 +393,7 @@ export class Animals {
       });
       const old = this.meshes[id];
       this.meshes[id] = lod;
-      old.lo.mesh.removeFromParent(); old.hi?.mesh.removeFromParent();
+      old.remove();
     }
   }
 
