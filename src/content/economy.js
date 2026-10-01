@@ -51,6 +51,7 @@ export const ANIMALS = {
   guppy: { name: 'Guppy', price: 2, rank: 2, batch: 3, resale: 0.4, source: 'captive', adult: 8, group: 'Fish' },
   shrimp: { name: 'Cherry shrimp', price: 3, rank: 2, batch: 5, resale: 0.4, source: 'captive', adult: 20, group: 'Crustaceans' },
   snail: { name: 'Trumpet snail', price: 2, rank: 2, source: 'captive', sellable: false, adult: 14, group: 'Molluscs' },
+  loach: { name: 'Clown loach', price: 22, rank: 5, batch: 2, resale: 0.4, source: 'shop', adult: 30, group: 'Fish' },
   cory: { name: 'Corydoras', price: 6, rank: 3, batch: 3, resale: 0.4, source: 'shop', adult: 10, group: 'Fish' },
   ember: { name: 'Ember tetra', price: 4, rank: 3, batch: 8, resale: 0.4, source: 'shop', adult: 10, group: 'Fish' },
   betta: { name: 'Betta', price: 10, rank: 3, resale: 0.4, source: 'captive', adult: 40, group: 'Fish' },
@@ -64,6 +65,7 @@ export const ANIMALS = {
   gecko: { name: 'Mourning gecko', price: 25, rank: 5, resale: 0.45, source: 'captive', adult: 25, group: 'Reptiles' },
   crab: { name: 'Vampire crab', price: 15, rank: 5, resale: 0.4, source: 'wild', adult: 10, group: 'Crustaceans' },
   toad: { name: 'Fire-bellied toad', price: 20, rank: 6, resale: 0.4, source: 'captive', adult: 30, group: 'Amphibians', frog: true },
+  firesal: { name: 'Fire salamander', price: 60, rank: 8, resale: 0.45, source: 'wild', adult: 40, group: 'Amphibians' },
   newt: { name: 'Paddle-tail newt', price: 35, rank: 7, resale: 0.45, source: 'wild', adult: 30, group: 'Amphibians' },
   axolotl: { name: 'Axolotl', price: 60, rank: 8, resale: 0.5, source: 'captive', adult: 30, group: 'Amphibians' },
   // Young stock: raised, never bought.
