@@ -30,8 +30,12 @@ export default async (page, shot, name) => {
     }
     if (!spot) return { error: 'no spot' };
     const V3 = game.camera.position.constructor;
+    // The side-on camera must see the strike: clear every plant within 24 cm of the spot (this shot only, the tank is
+    // thrown away afterwards), so no leaf stands between the lens and the hunter.
+    let cleared = 0;
+    for (const p of [...w.plants.list]) if (Math.hypot(p.pos.x - spot.x, p.pos.z - spot.z) < 24) { w.plants.remove(p); cleared++; }
     const h = A.add(hunter, new V3(spot.x, spot.g, spot.z));
-    return { spot, ok: !!h };
+    return { spot, ok: !!h, cleared };
   }, { hunter, preyId });
   console.log('setup', JSON.stringify(setup));
   if (setup.error) return;
@@ -51,11 +55,11 @@ export default async (page, shot, name) => {
     // Keep prey still: crawlers get their timers frozen.
     p.timer = 1e6; p.state = preyId === 'fly' ? 'rest' : 'rest';
     window.__cam = () => {
-      const g = window.game, { h, p } = window.__t, d = +(window.__dist ?? 11);
+      const g = window.game, { h, p } = window.__t, d = +(window.__dist ?? 13);
       const mx = (h.pos.x + p.pos.x) / 2, my = (h.pos.y + p.pos.y) / 2, mz = (h.pos.z + p.pos.z) / 2;
       let dx = p.pos.x - h.pos.x, dz = p.pos.z - h.pos.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
       const s = dz > 0 ? -1 : 1;
-      g.controls.setLookAt(mx + dz * s * d, my + d * 0.4, mz - dx * s * d, mx, my + 0.8, mz, false);
+      g.controls.setLookAt(mx + dz * s * d, my + d * 0.18 + 0.6, mz - dx * s * d, mx, my + 0.8, mz, false);
     };
     h.fs = 'sit'; h.fsT = 0.2;
     window.__ok = A.order(h, preyId);
@@ -73,8 +77,10 @@ export default async (page, shot, name) => {
     });
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const key = info.ph;
-    const take = (key !== last && key !== 'sit') || (['walk'].includes(key) && step % 14 === 0) || ((key === 'out' || key === 'back') && step % 2 === 0);
-    if (take && n < 22) { await shot(`eat-${hunter}-${String(n++).padStart(2, '0')}-${key}`); }
+    const strike = ['aim', 'out', 'back', 'gulp'].includes(key);
+    const take = (key !== last && key !== 'sit') || (key === 'walk' && step % 14 === 0 && n < 4) || ((key === 'out' || key === 'back') && step % 2 === 0);
+    // The walk takes few frames so the strike (aim, out, back, gulp) always gets its share of the budget.
+    if (take && (strike ? n < 40 : n < 8)) { await shot(`eat-${hunter}-${String(n++).padStart(2, '0')}-${key}`); }
     last = key;
     if (!info.prey && !info.order && key !== 'gulp') strikeDone = true;
     if (step % 100 === 0) console.log(JSON.stringify(info));

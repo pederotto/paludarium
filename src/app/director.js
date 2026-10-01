@@ -16,6 +16,8 @@ import { ctx } from './ctx.js';
 import { Saves, Meta } from './saves.js';
 import { TANKS } from '../content/tanks.js';
 import { loadGenerator } from './lazy-gen.js';
+import { setMode } from './modes-runtime.js';
+import { MODES } from './modes.js';
 
 const SLOT = 'slot1';
 
@@ -209,7 +211,7 @@ export class Director {
     if (!g.world || !this.career) return;
     const data = {
       v: 4, tank: g.tankId, world: g.world.serialize(), career: this.career.serialize(), commissions: this.commissions.serialize(),
-      tutorial: this.tutorial.serialize(), events: this.events.serialize(), biotope: this.biotope, speed: g.speed,
+      tutorial: this.tutorial.serialize(), events: this.events.serialize(), biotope: this.biotope, speed: g.speed, mode: S.mode.value,
     };
     await Saves.put(SLOT, data);
     Meta.set({ name: `${this.career.sandbox ? 'Sandbox' : this.career.levelInfo().rank} · ${TANKS[data.tank]?.name ?? 'tank'}`, day: g.world.env.day + 1, mode: this.career.mode, at: Date.now() });
@@ -222,6 +224,7 @@ export class Director {
     if (!data) return false;
     const career = Career.load(data.career);
     this.attach(career);
+    setMode(MODES[data.mode] ? data.mode : 'naturalist', { quiet: true });   // the mode travels with the save
     await this.game.loadTank(data.tank ?? 'standard', { save: data.world });
     this.syncGear();
     this.commissions.load(data.commissions);

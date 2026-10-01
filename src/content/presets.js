@@ -14,7 +14,7 @@ export const PRESETS = {
   suriname: {
     id: 'suriname', name: 'Suriname forest island', biotope: 'suriname',
     blurb: 'A mossy island of roots and stump with bromeliads on the wall, a shallow pool, blue dart frogs and a springtail crew.',
-    tiers: ['cube', 'nano', 'tall', 'standard', 'long', 'wide', 'grand', 'show'], tags: ['dart frogs', 'bromeliads', 'bioactive', 'humid'],
+    tiers: ['nano', 'tall', 'standard', 'long', 'wide', 'grand', 'show'], tags: ['dart frogs', 'bromeliads', 'bioactive', 'humid'],
     adjectives: ['Blue Frog', 'Bromeliad', 'Dripping', 'Sunlit', 'Quiet', 'Green', 'Old-growth'],
     noun: 'Island',
   },
@@ -28,7 +28,7 @@ export const PRESETS = {
   stream: {
     id: 'stream', name: 'Mountain stream', biotope: 'korea',
     blurb: 'A cool mountain stream that steps through two or three pools between ferns and mossy stones, with fire-bellied toads.',
-    tiers: ['cube', 'nano', 'tall', 'standard', 'wide', 'grand', 'show'], tags: ['stream', 'cool water', 'ferns', 'toads'],
+    tiers: ['nano', 'tall', 'standard', 'wide', 'grand'], tags: ['stream', 'cool water', 'ferns', 'toads'],
     adjectives: ['Mossy', 'Bubbling', 'Shaded', 'Winding', 'Clear', 'Fern', 'Upland'],
     noun: 'Stream',
   },

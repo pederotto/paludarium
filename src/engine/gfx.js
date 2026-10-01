@@ -18,6 +18,7 @@ import {
   pass, mrt, output, normalView, packNormalToRGB, unpackRGBToNormal, sample, screenUV, float, vec3, vec4, mix, smoothstep, uniform,
   dot, renderOutput,
 } from 'three/tsl';
+import { FOLIAGE, setFoliageMRT } from '../render/shaders.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { smaa } from 'three/addons/tsl/display/SMAANode.js';
@@ -109,6 +110,12 @@ export class Gfx {
     const useAO = q.ao && !this.params.has('noao');
     const bloomOn = q.bloom && !this.params.has('nobloom');
     this.pipeline?.dispose?.();
+    // Foliage skips the AO darkening (see FOLIAGE in render/shaders.js); that needs the MRT, so only while there is one.
+    const withMRT = useAO || this.photo;
+    if (FOLIAGE.mrt !== withMRT) {
+      FOLIAGE.mrt = withMRT;
+      scene.traverse((o) => { if (o.material?.userData?.foliage) setFoliageMRT(o.material, withMRT); });
+    }
     const post = this.pipeline = new THREE.RenderPipeline(this.renderer);
 
     const scenePass = pass(scene, camera, { samples: useAO || this.photo ? 0 : q.aa === 'msaa' ? 4 : 0 });
@@ -125,7 +132,7 @@ export class Gfx {
         aoPass.radius.value = 3.5;
         aoPass.thickness.value = 2.5;
         aoPass.distanceExponent.value = 1.5;
-        color = col.mul(mix(float(1), aoPass.getTextureNode().r, 0.85));
+        color = col.mul(mix(float(1), aoPass.getTextureNode().r, nrm.a.mul(0.85)));   // alpha 0 = foliage: no AO
       }
     }
     if (this.photo) color = dof(color, scenePass.getViewZNode(), GRADE.focus, GRADE.focalLength, GRADE.bokeh);

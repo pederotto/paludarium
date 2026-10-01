@@ -13,6 +13,8 @@ import { SPECIES, FOOD_VALUE, one } from './animals.js';
 import { Ecology } from './ecology.js';
 import { Env } from './env.js';
 import { Climate } from './climate.js';
+import { FlyLife } from './flylife.js';
+import { FruitView } from '../render/fruit.js';
 import { U } from '../render/uniforms.js';
 import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../render/geo.js';
@@ -29,6 +31,9 @@ export class Sim {
     this.acc = 0;
     this.stats = {};
     this.eco = new Ecology(world);
+    // Fruit fly life cycle: egg, maggot, pupa, adult (flylife.js); its state is saved with the humus.
+    this.flies = world.flies = new FlyLife(world, (x, y, z) => new THREE.Vector3(x, y, z));
+    if (world.scene) this.flies.view = new FruitView(world.scene);
     this.climate = world.climate;
   }
 
@@ -131,6 +136,9 @@ export class Sim {
           const p = W.randomSpot((x, y, z, s) => s === -Infinity);
           if (p && W.animals.add('fly', p.setY(p.y + 3))) n++;
         }
+        // The culture's spent fruit goes in the tank too: a little to lay eggs on and feed the maggots.
+        const q = W.randomSpot((x, y, z, s) => s === -Infinity && y > W.water.level + 1);
+        if (q && W.flies) W.flies.addFruit(q.x, q.z, 0.9);
         if (n) W.log(`${n} fruit flies hatched from the culture.`);
       }
     }
@@ -141,7 +149,8 @@ export class Sim {
       if (!f.eaten && f.gameAge > 240) { f.eaten = true; E.detritus += 0.05; if (f.pos) W.humus?.drop(f.pos.x, f.pos.z, 0.05, true); }
     }
 
-    // --- Animals -----------------------------------------------------
+    // --- Fruit flies and their maggots, then the animals ------------------
+    this.flies.step(d);
     this.animals(d, light);
   }
 
@@ -153,7 +162,7 @@ export class Sim {
     const food = clamp(E.detritus / 8, 0, 1) * 0.7 + clamp((E.soil - 0.8) * 5, 0, 1) * 0.6;
     const crew = (W.animals.count('isopod') + W.animals.count('springtail') * 0.25) / 40;
     const rate = stale * food * 0.9 - crew * 0.6 - E.fan * 0.25 - 0.04;
-    E.mold = clamp(E.mold + (rate * d) / 1440 * 1.2, 0, 1);
+    E.mold = clamp(E.mold + (rate * d) / 1440 * 1.2 * (rate > 0 ? W.realism?.mould ?? 1 : 1), 0, 1);
     U.mold.value = E.mold;
     U.condense.value = E.condense;
   }
@@ -243,7 +252,7 @@ export class Sim {
       if (sp.kind === 'crab' && W.water.surfaceArea() < 100) { stress += 0.5; why.push('no water'); }
       if (a.hunger > 0.75) { stress += (a.hunger - 0.75) * 4; why.push('hungry'); }
       a.why = why;
-      if (stress > 0.05) a.health -= stress * d / (60 * 10);
+      if (stress > 0.05) a.health -= stress * d / (60 * 10) * (W.realism?.harm ?? 1);
       else a.health = Math.min(1, a.health + d / (60 * 24));
       // Death.
       // Life cycle: clutches hatch, tadpoles metamorphose.
@@ -264,13 +273,19 @@ export class Sim {
         continue;
       }
       const life = sp.lifeDays * 1440;
+      // Explorer mode (modes.js): each animal is pulled back from the brink once, with a warning in the journal.
+      if (a.health <= 0 && a.age <= life && W.realism?.mercy && !a._mercy && a.sp !== 'fly' && a.sp !== 'springtail') {
+        a._mercy = 1; a.health = 0.2;
+        W.log(`A ${one(a.sp)} was close to death (${why[0] ?? 'poor health'}) and has just recovered. Fix that soon.`, 'warn');
+      }
       if (a.health <= 0 || a.age > life) {
         const cause = a.health <= 0 ? (why[0] ?? 'poor health') : 'old age';
         W.animals.remove(a, cause);
         // Only real losses count for goals and the vacation report: live-food species and old age are the normal cycle.
-        if (cause !== 'old age' && a.sp !== 'fly' && a.sp !== 'springtail') { W.stats.deaths++; W.stats.lastDeathMinute = E.minute; }
+        if (cause !== 'old age' && a.sp !== 'fly' && a.sp !== 'springtail' && a.sp !== 'flylarva' && a.sp !== 'flypupa') { W.stats.deaths++; W.stats.lastDeathMinute = E.minute; }
         E.detritus += sp.size * (sp.kind === 'swim' || sp.kind === 'frog' || sp.kind === 'toad' ? 0.6 : 0.08);
         W.humus?.drop(a.pos.x, a.pos.z, sp.size * 0.2, true);   // a dead animal on land becomes litter
+        if (a.sp === 'flylarva' || a.sp === 'flypupa') continue;   // the normal toll of a boom and bust
         if (sp.cap < 60 || Math.random() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
         continue;
       }

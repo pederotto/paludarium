@@ -182,7 +182,7 @@ export class Support {
       let s = p._sup;
       // First sight, or the player moved it: this is its resting state.
       if (!s || Math.abs(s.y - y) > 0.02 || s.x !== p.mesh.position.x || s.z !== p.mesh.position.z) s = p._sup = { x: p.mesh.position.x, z: p.mesh.position.z, y, gap0: gap };
-      if (gap - s.gap0 > (p.unsupported ? 0.25 : 1.0)) {
+      if (gap - s.gap0 > (p.unsupported ? 0.25 : 1.0) * (W.realism?.support === 'gentle' ? 1.8 : 1)) {
         p.unsupported = true;
         hanging++;
         D.reground(p, Math.min(0.5, gap - s.gap0 - 0.1));

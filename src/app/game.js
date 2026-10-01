@@ -10,13 +10,15 @@ import { Stage } from '../engine/stage.js';
 import { CameraRig } from '../engine/camera.js';
 import { Emitter } from '../engine/emitter.js';
 import { configureTank, TANK, SPEEDS, MINUTES_PER_SECOND } from '../sim/tank.js';
-import { TANKS } from '../content/tanks.js';
+import { TANKS, setCustomTank } from '../content/tanks.js';
 import { World } from '../sim/world.js';
 import { WaterFX, FX } from '../render/waterfx.js';
 import { Mist } from '../render/mist.js';
 import { U } from '../render/uniforms.js';
 import { Lens } from '../render/lens.js';
 import { updateAirflow } from '../render/airflow.js';
+import { Plumbing } from '../render/plumbing.js';
+import { S } from '../ui/store.js';
 
 export class Game {
   constructor(host, params = new URLSearchParams(location.search)) {
@@ -57,6 +59,7 @@ export class Game {
     const [w, h] = this.gfx.resize();
     this.rig.size = { w, h };
     this.rig.resize(w / h);
+    this.stage?.fitScreen(w / h);
     this.events.emit('resize', w, h);
   }
 
@@ -64,10 +67,14 @@ export class Game {
   // (only the standard tank has one) or a saved world object to load.
   async loadTank(id, { layout = 'empty', save = null } = {}) {
     this.unloadTank();
+    // A saved custom tank brings its own size along (app/saves.js), whatever size was built last.
+    const sz = save?.tank;
+    if (id === 'custom' && sz?.w && sz.d && sz.h) setCustomTank(sz.w, sz.d, sz.h, { remember: false });
     const spec = TANKS[id] ?? TANKS.standard;
     configureTank(spec);
     this.tankId = spec.id;
     this.stage = new Stage(this.scene);
+    this.stage.fitScreen(this.camera.aspect);
     this.worldRoot = new THREE.Group();
     this.worldRoot.name = 'world';
     this.scene.add(this.worldRoot);
@@ -79,6 +86,9 @@ export class Game {
     world.water.fx = this.fx;
     this.mist = new Mist(this.worldRoot, world);
     world.mist = this.mist;
+    // The pump circuit made visible (render/plumbing.js); hidden in photo mode and Kids mode.
+    world.plumbing = new Plumbing(this.worldRoot, world);
+    world.plumbing.hidden = () => this.gfx.photo || S.kids.value;
     world.stage = this.stage;
     world.animals.camera = this.camera;
     this.lens = new Lens(this.worldRoot, world);
@@ -146,6 +156,7 @@ export class Game {
       W.water.animate(dt, speed);
       this.mist.update(dt);
       updateAirflow(W, speed, dt);   // plant sway follows the real air and water movement
+      W.plumbing?.update(dt);
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
       this.lens?.update(dt);

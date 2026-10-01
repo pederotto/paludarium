@@ -1,5 +1,6 @@
 import { Icon } from '../icons.jsx';
-import { S, toast, hint, openModal, morphChoice } from '../store.js';
+import { S, toast, hint, openModal, morphChoice, hudRules, saveSmart } from '../store.js';
+import { plantFit } from '../../tools/smart.js';
 import { ctx } from '../../app/ctx.js';
 import { TOOLS, WATER_TOOLS, SCULPT_OPS, MIRROR_WATER } from '../../tools/defs.js';
 import { KITS, kitById, kitPrice, kitRank } from '../../content/kits.js';
@@ -69,7 +70,7 @@ function UndoRow({ mirror }) {
   return (
     <div class="chips">
       {mirror ? <MirrorToggle /> : null}
-      <button class="chip" onClick={() => ctx.tools.undo()} title="Ctrl+Z" disabled={!S.undoDepth.value}><Icon name="undo" size={13} /> Undo</button>
+      <button class="chip" onClick={() => ctx.tools.undoAny()} title="Ctrl+Z" disabled={!S.undoDepth.value}><Icon name="undo" size={13} /> Undo</button>
     </div>
   );
 }
@@ -195,9 +196,10 @@ function Water() {
   void live;
   return (
     <>
-      <div class="chips">{WATER_TOOLS.map(([id, name, tip]) => <button key={id} class={'chip' + (sub.water === id ? ' on' : '')} onClick={() => ctx.tools.setSub('water', id, tip)}>{name}</button>)}</div>
+      <div class="chips">{WATER_TOOLS.filter((t) => hudRules().waterTools.includes(t[0])).map(([id, name, tip]) => <button key={id} class={'chip' + (sub.water === id ? ' on' : '')} onClick={() => ctx.tools.setSub('water', id, tip)}>{name}</button>)}</div>
       <p class="note" style={{ marginTop: 0 }}>{cur[2]}</p>
       {['channel', 'bank', 'basin'].includes(sub.water) ? <Brush depth /> : null}
+      {hudRules().toolOptions === 'full' ? (<>
       <div class="grp">Reservoir</div>
       <Slider label="Main level" value={W.water.level} min={0} max={TANK.h - 10} step={0.5} onInput={(v) => { W.setWaterLevel(v); S.live.value = { ...S.live.value }; }} fmt={(v) => v.toFixed(1)} />
       <Slider label="Pump flow" value={H.pump.rate} min={20} max={600} step={10} onInput={(v) => { H.pump.rate = v; S.live.value = { ...S.live.value }; }} fmt={(v) => v + ' L/h'} />
@@ -215,6 +217,7 @@ function Water() {
           ))}
         </>
       ) : null}
+      </>) : null}
       <UndoRow mirror={MIRROR_WATER.includes(sub.water)} />
     </>
   );
@@ -333,17 +336,95 @@ function Gear() {
   );
 }
 
+// Naturalist: the optional one-tap placement, switched on and off here.
+function SmartToggle() {
+  const on = S.smart.value;
+  return (
+    <div class="chips">
+      <button class={'chip' + (on ? ' on' : '')} aria-pressed={on} title="One tap places, orients and spaces things for you, then offers Another and Group" onClick={() => { const v = !on; S.smart.value = v; saveSmart(v); ctx.tools.setButtons(); }}>Smart place {on ? 'on' : 'off'}</button>
+    </div>
+  );
+}
+
+// Explorer: the three placing tools as one short list of big buttons (one tap places: see tools/smart.js).
+function ExplorerPicks({ id }) {
+  const sub = S.sub.value, live = S.live.value, T = ctx.tools, piece = S.piece.value, mode = S.pieceMode.value;
+  const dot = (f) => (f ? <i class="ex-light" style={{ background: FIT_COLOR[f.level] }} title={f.why} /> : null);
+  if (id === 'rock') {
+    const kit = kitById(sub.kit);
+    return (
+      <div class="ex-body">
+        <div class="pick-grid">
+          {Object.entries(PIECES).map(([k, p]) => {
+            const info = ctx.career?.info('piece', k);
+            return <button key={k} class={'pick' + (sub.rock === k && !sub.kit ? ' on' : '') + (info?.locked ? ' lock' : '')} onClick={() => T.setSub('rock', k)}><b>{p.name}</b><small><Price kind="piece" id={k} /></small></button>;
+          })}
+          {KITS.map((k) => {
+            const info = kitInfo(k);
+            return <button key={k.id} class={'pick' + (sub.kit === k.id ? ' on' : '') + (info?.locked ? ' lock' : '')} title={k.blurb} onClick={() => T.setKit(sub.kit === k.id ? null : k.id)}><b>{k.name}</b><small>kit <KitPrice kit={k} /></small></button>;
+          })}
+        </div>
+        {piece ? (
+          <div class="chips">
+            {[['translate', 'Move'], ['rotate', 'Turn'], ['scale', 'Size']].map(([m, l]) => <button key={m} class={'chip' + (mode === m ? ' on' : '')} onClick={() => T.setPieceMode(m)}>{l}</button>)}
+            <button class="chip" onClick={() => T.deletePiece()}>Delete</button>
+            <button class="chip" onClick={() => T.selectPiece(null)}>Done</button>
+          </div>
+        ) : <p class="ex-note">{kit ? kit.blurb : 'Tap the tank. Rocks are placed, turned and spaced for you.'}</p>}
+      </div>
+    );
+  }
+  if (id === 'plant') {
+    const list = Object.entries(PLANTS).filter(([, p]) => !p.hidden);
+    const f = plantFit(sub.plant, live);
+    return (
+      <div class="ex-body">
+        <div class="pick-grid">
+          {list.map(([k, p]) => {
+            const info = ctx.career?.info('plant', k);
+            return <button key={k} class={'pick' + (sub.plant === k ? ' on' : '') + (info?.locked ? ' lock' : '')} onClick={() => T.setSub('plant', k, p.note)}><b>{p.name}</b><small>{dot(plantFit(k, live))}<Price kind="plant" id={k} /></small></button>;
+          })}
+        </div>
+        <div class="chips"><button class="chip" onClick={() => openModal('codex', 'plant:' + sub.plant)}><Icon name="book" size={13} /> About</button></div>
+        <p class="ex-note">Tap to plant, hold and drag to scatter. {f ? <b style={{ color: FIT_COLOR[f.level] }}>{PLANTS[sub.plant]?.name}: {f.why}.</b> : null}</p>
+      </div>
+    );
+  }
+  const groups = Object.entries(SPECIES).filter(([, s]) => s.kind !== 'egg' && !s.young);
+  const s = SPECIES[sub.animal], fs = fit(s, live);
+  return (
+    <div class="ex-body">
+      <div class="pick-grid">
+        {groups.map(([k, sp]) => {
+          const info = ctx.career?.info('animal', k);
+          return <button key={k} class={'pick' + (sub.animal === k ? ' on' : '') + (info?.locked ? ' lock' : '')} onClick={() => T.setSub('animal', k, sp.note)}><b>{sp.name}</b><small>{dot(fit(sp, live))}<Price kind="animal" id={k} /></small></button>;
+        })}
+      </div>
+      <div class="chips"><button class="chip" onClick={() => openModal('codex', 'animal:' + sub.animal)}><Icon name="book" size={13} /> About</button></div>
+      <p class="ex-note">{s.note} {fs ? <b style={{ color: FIT_COLOR[fs.level] }}>Right now: {fs.why}.</b> : null}</p>
+    </div>
+  );
+}
+
 const BODY = { sculpt: Sculpt, paint: Paint, rock: Rock, water: Water, plant: Plants, animal: Animals, gear: Gear };
+const SMART_TOOLS = ['rock', 'plant', 'animal'];
 
 export function ToolOptions() {
   const id = S.tool.value;
   const B = BODY[id];
   if (!B || !S.left.value || (S.compact.value && S.right.value)) return null;
   const t = TOOLS.find((x) => x.id === id);
+  const hud = hudRules();
+  const simple = hud.toolOptions === 'simple' && SMART_TOOLS.includes(id);
   return (
-    <div class="opts glass strong">
-      <h4>{t.name}<button class="btn ghost icon sm" title="Hide (H)" onClick={() => { S.left.value = false; }}><Icon name="chevronL" size={14} /></button></h4>
-      <B />
+    <div class={'opts glass strong' + (simple ? ' simple' : '')}>
+      <h4>{hud.toolNames?.[id] ?? t.name}<button class="btn ghost icon sm" title="Hide (H)" onClick={() => { S.left.value = false; }}><Icon name="chevronL" size={14} /></button></h4>
+      {simple ? <ExplorerPicks id={id} /> : (
+        <>
+          {hud.toolOptions === 'full' && SMART_TOOLS.includes(id) ? <SmartToggle /> : null}
+          <B />
+        </>
+      )}
     </div>
   );
 }

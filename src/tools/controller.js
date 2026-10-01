@@ -17,6 +17,8 @@ import { morphName } from '../content/morphs.js';
 import { TANK } from '../sim/tank.js';
 import { kitById, kitCounts, kitReach } from '../content/kits.js';
 import { buildKit, kitReady, kitScale, kitSeed, mirrorSpec, placeSpec } from '../sim/kits.js';
+import { SmartPlacer } from './smart.js';
+import { EXPLORER_HINTS } from '../app/modes.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const BRUSH_TOOLS = ['sculpt', 'paint'];
@@ -67,6 +69,7 @@ export class ToolController {
 
     this.bindPointer();
     this.bindKeys();
+    this.smart = new SmartPlacer(this);     // one-tap placement for Explorer (tools/smart.js)
     this.setTool('view');
     game.frameHooks.push((dt) => this.frame(dt));
     game.events.on('tank', () => this.onTank());
@@ -92,6 +95,7 @@ export class ToolController {
 
   onTank() {
     this.selectPiece(null);
+    this.smart?.reset();
     S.selection.value = null;
     S.undoDepth.value = 0;
     this.setTool(this.tool);
@@ -101,12 +105,14 @@ export class ToolController {
   setTool(id) {
     if (!TOOLS.find((t) => t.id === id)) id = 'view';
     S.tool.value = id;
+    this.smart?.cancel();
+    if (this.smart) { this.smart.last = null; S.smartBar.value = null; }
     this.setButtons();
     if (id !== 'rock') this.selectPiece(null);
     if (id !== 'rock' && S.sub.value.kit) S.sub.value = { ...S.sub.value, kit: null };
     const W = this.W;
     if (id !== 'water') W?.water.hideTrace();
-    hint(TOOLS.find((t) => t.id === id).hint);
+    hint(this.smart?.on && EXPLORER_HINTS[id] ? EXPLORER_HINTS[id] : TOOLS.find((t) => t.id === id).hint);
     this.cursor.visible = false;
     if (W) {
       W.water.outletMeshes.forEach((m) => { m.visible = id === 'water' || id === 'erase'; });
@@ -141,14 +147,18 @@ export class ToolController {
     c.mouseButtons.middle = A.TRUCK;
     c.mouseButtons.wheel = A.DOLLY;
     c.touches.one = editing ? A.NONE : A.TOUCH_ROTATE;
-    c.touches.two = A.TOUCH_DOLLY_TRUCK;
-    c.touches.three = A.TOUCH_ROTATE;
+    // Smart placement: one finger places, two fingers pinch and orbit, three pan.
+    const smart = editing && this.smart?.on;
+    c.touches.two = smart ? A.TOUCH_DOLLY_ROTATE : A.TOUCH_DOLLY_TRUCK;
+    c.touches.three = smart ? A.TOUCH_TRUCK : A.TOUCH_ROTATE;
   }
 
   pushUndo() {
     this.W.pushUndo();
     S.undoDepth.value = this.W.undoStack.length;
   }
+  // Undo from the keyboard or a button: the smart bar's own steps first (plants, animals, groups), else the world's.
+  undoAny() { return this.smart?.stack.length && this.smart.on ? this.smart.undo() : this.undo(); }
   undo() {
     if (this.W.undo()) { this.selectPiece(null); toast('Undone.'); S.undoDepth.value = this.W.undoStack.length; return true; }
     toast('Nothing to undo.');
@@ -197,6 +207,7 @@ export class ToolController {
       if (e.button !== 0 || !this.W) return;
       if (this.tc.dragging || this.tc.axis) return;
       this.setMouse(e);
+      if (this.smart.on) return;      // smart placement listens for taps itself (tools/smart.js)
       if (this.tool === 'view' || this.tool === 'inspect') {
         // A tap (not a drag) selects whatever is under the pointer; on water it also ripples.
         this._tap = { x: e.clientX, y: e.clientY, t: performance.now() };
@@ -305,6 +316,7 @@ export class ToolController {
   hover() {
     const W = this.W;
     if (!W) return;
+    if (this.smart.hover()) return;
     const kit = this.tool === 'rock' ? kitById(this.sub.kit) : null;
     const brushTools = BRUSH_TOOLS.includes(this.tool) || (this.tool === 'water' && ['channel', 'bank', 'basin'].includes(this.sub.water)) || !!kit;
     if (this.tool === 'water' && ['outlet', 'fill'].includes(this.sub.water) && !this.down) {
@@ -771,7 +783,7 @@ export class ToolController {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) || S.modal.value) return;
       const k = e.key.toLowerCase();
       if (k === 'shift') { this.keys.add('shift'); this.setButtons(); return; }
-      if ((e.ctrlKey || e.metaKey) && k === 'z') { this.undo(); e.preventDefault(); return; }
+      if ((e.ctrlKey || e.metaKey) && k === 'z') { this.undoAny(); e.preventDefault(); return; }
       if ((e.ctrlKey || e.metaKey) && k === 'd') { this.duplicatePiece(); e.preventDefault(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const piece = S.piece.value;

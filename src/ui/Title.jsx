@@ -4,7 +4,10 @@ import { S, openModal } from './store.js';
 import { ctx } from '../app/ctx.js';
 import { TANKS, TANK_ORDER } from '../content/tanks.js';
 import { loadPresets } from '../app/lazy-gen.js';
-import { KidsButton, KidsWorlds } from './kids/KidsWorlds.jsx';
+import { KidsWorlds } from './kids/KidsWorlds.jsx';
+import { MODES } from '../app/modes.js';
+import { setMode } from '../app/modes-runtime.js';
+import './explorer.css';
 
 export function Title() {
   const [view, setView] = useState('menu');
@@ -20,6 +23,23 @@ export function Title() {
   );
 }
 
+// The three-card choice of how to play: Kids opens the Kids' corner, Explorer and Naturalist set the mode of the next tank (remembered).
+function ModeCards({ go }) {
+  const cur = S.mode.value;
+  return (
+    <div class="modecards" role="radiogroup" aria-label="How do you want to play?">
+      {['kids', 'explorer', 'naturalist'].map((id) => {
+        const m = MODES[id];
+        return (
+          <button key={id} class={'modecard' + (id === cur ? ' on' : '')} {...(id === 'kids' ? { 'aria-label': "Kids' corner" } : { role: 'radio', 'aria-checked': id === cur })} onClick={() => (id === 'kids' ? go('kids') : setMode(id, { quiet: true }))}>
+            <b>{m.name}</b><i>{m.tag}</i><span>{m.blurb}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Menu({ go }) {
   const meta = ctx.meta;
   const start = ctx.start;
@@ -27,8 +47,8 @@ function Menu({ go }) {
     <div class="box">
       <h1 class="serif">Paludarium</h1>
       <p class="tag-line">Build living worlds of moss, stone and water. Learn how real terrariums and paludariums work by keeping one alive.</p>
+      <ModeCards go={go} />
       <div class="menu">
-        <KidsButton onClick={() => go('kids')} />
         {meta ? <button class="btn primary" onClick={() => start.continue()}><Icon name="play" size={16} />Continue · {meta.name}<span style={{ opacity: 0.7, fontWeight: 500, marginLeft: 'auto' }}>day {meta.day}</span></button> : null}
         <button class={'btn' + (meta ? '' : ' primary')} onClick={() => start.career()}><Icon name="sprout" size={16} />New career<span style={{ opacity: 0.6, fontWeight: 500, marginLeft: 'auto' }}>learn as you build</span></button>
         <button class="btn" onClick={() => go('gen')}><Icon name="wand" size={16} />Start from a generated terrarium<span style={{ opacity: 0.6, fontWeight: 500, marginLeft: 'auto' }}>sandbox</span></button>

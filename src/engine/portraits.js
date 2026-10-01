@@ -8,6 +8,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { SPECIES, createSpeciesMesh } from '../sim/animals.js';
 import { PLANTS, Plants } from '../sim/plants.js';
 import { U } from '../render/uniforms.js';
+import { setFoliageMRT } from '../render/shaders.js';
 
 const SIZE = 320;
 const VIEW = new THREE.Vector3(0.62, 0.34, 0.8).normalize();
@@ -63,6 +64,8 @@ export class Portraits {
 
   async shot() {
     U.waterLevel.value = -1000;
+    // This renderer has no MRT, so foliage materials (built while the main view had one) must not write to it.
+    this.scene.traverse((o) => { if (o.material?.userData?.foliage && o.material.mrtNode) setFoliageMRT(o.material, false); });
     this.renderer.render(this.scene, this.cam);
     await new Promise((r) => requestAnimationFrame(r));
     this.renderer.render(this.scene, this.cam);
@@ -93,6 +96,7 @@ export class Portraits {
     if (!p) return null;
     const box = new THREE.Box3(new THREE.Vector3(-8, 300, -8), new THREE.Vector3(8, 316, 8));
     const m = this.plants.meshes[this.plants.key(p)];
+    // This renderer has no MRT, so foliage materials (which may have been built while the main view had one) must not write to it.
     m.geometry.computeBoundingBox();
     const bb = m.geometry.boundingBox.clone();
     const s = p.scale * (0.3 + 0.7 * p.grown) * (sp.modelSize ?? 1);

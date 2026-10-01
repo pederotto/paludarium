@@ -248,4 +248,87 @@ function fly() {
   };
 }
 
-export const SMALL = { snail, springtail, fly };
+// ---------------------------------------------------------------------------------
+// Fruit fly maggot (the larva, ~0.3 cm): a cream, tapered, legless body of eleven soft
+// segments, blunt at the tail and narrowing to the head, with a pair of dark mouth hooks
+// and two dark breathing spots at the tail. The spine wave makes it wriggle.
+// ---------------------------------------------------------------------------------
+function flylarva() {
+  const Y0 = 0.05, ZC = 0.0, H = 0.15, RMAX = 0.046, NSEG = 11;
+  const profile = (z) => {
+    const t = clamp01((z - ZC + H) / (2 * H));                   // 0 at the tail, 1 at the head
+    const tt = (z - ZC) / H;
+    const env = Math.pow(Math.max(1 - tt * tt, 0), 0.3);        // blunt, rounded ends
+    const taper = mix(1.0, 0.36, smoothstep(0.35, 1.0, t));      // narrows toward the head
+    const seg = 0.5 + 0.5 * Math.cos(TAU * t * NSEG);             // 1 at the middle of a segment, 0 in the groove
+    return RMAX * env * taper * (0.93 + 0.07 * seg);
+  };
+  const bodyD = (x, y, z) => {
+    const rho = Math.hypot(x, (y - Y0) * 1.08);
+    let d = (rho - profile(z)) * 0.85;
+    d = smax(d, Math.abs(z - ZC) - H, 0.012);
+    return smax(d, -y + 0.004, 0.02);                              // a flattish belly that rests on the ground
+  };
+  const hookD = (x, y, z) => {
+    let d = 1e9;
+    for (const s of [-1, 1]) d = Math.min(d, cap([x, y, z], [s * 0.006, Y0 - 0.004, 0.138], [s * 0.008, Y0 - 0.012, 0.157], 0.0048, 0.0028)[0]);
+    return d;
+  };
+  const spiracleD = (x, y, z) => Math.min(Math.hypot(x - 0.013, (y - Y0 - 0.02) * 1.4, z + 0.143), Math.hypot(x + 0.013, (y - Y0 - 0.02) * 1.4, z + 0.143)) - 0.0055;
+  const CREAM = C(0xf2e8c8), GUT = C(0xd9c690), DARK = C(0x2a1f18);
+  return {
+    sdf: (x, y, z) => smin(smin(bodyD(x, y, z), hookD(x, y, z), 0.006), spiracleD(x, y, z), 0.004),
+    lo: [-0.08, -0.02, -0.19], hi: [0.08, 0.11, 0.2], cell: 0.006, hiScale: 0.5,
+    color: (x, y, z) => {
+      if (hookD(x, y, z) < bodyD(x, y, z) - 0.001) return DARK;
+      if (spiracleD(x, y, z) < bodyD(x, y, z) - 0.001) return C(0x6b4a2a);
+      const t = clamp01((z + H) / (2 * H));
+      const groove = 0.5 + 0.5 * Math.cos(TAU * t * NSEG);
+      let c = lerp3(CREAM, GUT, smoothstep(0.1, 0.17, y) * 0.55 * smoothstep(0.05, 0.3, t) * (1 - smoothstep(0.7, 0.95, t)));   // gut shows through the back
+      c = mul3(c, 0.88 + 0.12 * groove);
+      return lerp3(c, C(0xb69e6c), smoothstep(0.82, 0.98, t) * 0.55);                                             // the head is a little darker
+    },
+    mat: () => M.SKIN,
+    rig: (x, y, z) => [clamp01((H - z) / (2 * H)), 0, 0],
+    finish: { rough: 0.5, coat: 0.45, coatRough: 0.25, grain: 0.5, bump: 0.003, tone: 0.01 },
+  };
+}
+
+// ---------------------------------------------------------------------------------
+// Fruit fly pupa (the puparium, ~0.25 cm): the hardened last larval skin, an amber-brown
+// barrel with the old segment ridges and two tiny horns at the front. Stuck still to a wall or a leaf.
+// ---------------------------------------------------------------------------------
+function flypupa() {
+  const Y0 = 0.048, H = 0.12, RM = 0.052, NSEG = 9;
+  const bodyD = (x, y, z) => {
+    const t = clamp01((z + H) / (2 * H)), tt = z / H;
+    const env = Math.pow(Math.max(1 - tt * tt, 0), 0.22);
+    const ridge = 0.5 + 0.5 * Math.cos(TAU * t * NSEG);
+    const r = RM * env * (0.94 + 0.06 * ridge) * mix(1.0, 0.86, t);
+    const rho = Math.hypot(x, (y - Y0) * 1.05);
+    return smax(smax((rho - r) * 0.85, Math.abs(z) - H, 0.012), -y + 0.004, 0.02);
+  };
+  const hornD = (x, y, z) => {
+    let d = 1e9;
+    for (const s of [-1, 1]) d = Math.min(d, cap([x, y, z], [s * 0.013, Y0 + 0.03, H - 0.016], [s * 0.017, Y0 + 0.042, H - 0.002], 0.0055, 0.0035)[0]);
+    return d;
+  };
+  const AMBER = C(0xa2692a), DEEP = C(0x6a3a17), PALE = C(0xc9923f);
+  return {
+    sdf: (x, y, z) => smin(bodyD(x, y, z), hornD(x, y, z), 0.006),
+    lo: [-0.09, -0.02, -0.15], hi: [0.09, 0.12, 0.17], cell: 0.006, hiScale: 0.5,
+    color: (x, y, z) => {
+      if (hornD(x, y, z) < bodyD(x, y, z) - 0.001) return PALE;
+      const t = clamp01((z + H) / (2 * H));
+      const ridge = 0.5 + 0.5 * Math.cos(TAU * t * NSEG);
+      let c = lerp3(DEEP, AMBER, 0.45 + 0.4 * ridge);
+      c = lerp3(c, PALE, smoothstep(0.1, 0.2, y - Y0) * 0.35 + smoothstep(0.88, 1.0, t) * 0.3);
+      return mul3(c, 0.92 + 0.16 * vnoise(x * 55, y * 55, z * 55));
+    },
+    mat: () => M.CHITIN,
+    rig: () => [0, 0, 0],
+    finish: { rough: 0.55, coat: 0.3, coatRough: 0.3, grain: 0.7, bump: 0.004, tone: 0.01 },
+  };
+}
+
+export const SMALL = { snail, springtail, fly, flylarva, flypupa };

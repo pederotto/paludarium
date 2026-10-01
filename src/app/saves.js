@@ -1,6 +1,8 @@
 // Save slots in IndexedDB (localStorage is too small for several tanks).
 // Worlds are gzip-compressed when the browser supports it.
 
+import { TANK } from '../sim/tank.js';
+
 const DB = 'paludarium', STORE = 'kv';
 
 function open() {
@@ -33,8 +35,16 @@ async function unpack(v) {
   return JSON.parse(await new Response(stream).text());
 }
 
+// A saved tank carries its own dimensions (the tank that is loaded right now, which is the one being saved), so a custom-size
+// tank reopens at its own size and not at the last size built. Game.loadTank reads them back from `world.tank`.
+export function stampTankSize(obj, tank) {
+  const t = obj?.world?.tank;
+  if (t && tank && t.id === tank.id) obj.world.tank = { ...t, w: tank.w, d: tank.d, h: tank.h };
+  return obj;
+}
+
 export const Saves = {
-  async put(key, obj) { const data = await pack(obj); await tx('readwrite', (s) => s.put(data, key)); },
+  async put(key, obj) { const data = await pack(stampTankSize(obj, TANK)); await tx('readwrite', (s) => s.put(data, key)); },
   async get(key) {
     const v = await tx('readonly', (s) => s.get(key));
     return v ? unpack(v) : null;

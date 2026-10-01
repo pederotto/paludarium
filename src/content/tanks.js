@@ -66,16 +66,17 @@ export function clampCustom(w, d, h) {
   return o;
 }
 
-// Registers (or updates) the 'custom' tank so game.loadTank('custom') builds it. The size is remembered
-// across reloads so a saved custom tank opens at the size it was built.
-export function setCustomTank(w, d, h) {
+// Registers (or updates) the 'custom' tank so game.loadTank('custom') builds it. The size you last chose is
+// remembered across reloads for the size sliders; a SAVED tank carries its own size (app/saves.js stamps it,
+// Game.loadTank restores it with remember:false), so reopening it never takes the slider's last size.
+export function setCustomTank(w, d, h, { remember = true } = {}) {
   const s = clampCustom(w, d, h);
   const litres = Math.round(s.w * s.d * s.h / 1000);
   TANKS.custom = {
     id: 'custom', name: `Custom ${s.w}×${s.d}×${s.h}`, ...s, closed: false, cellsPerCm: cellsFor(s.w, s.d, s.h), level: 1, price: 0, custom: true,
     blurb: `A ${litres}-litre tank at the size you chose (sandbox only).`,
   };
-  try { localStorage.setItem('paludarium.custom', JSON.stringify(s)); } catch { /* private mode */ }
+  if (remember) try { localStorage.setItem('paludarium.custom', JSON.stringify(s)); } catch { /* private mode */ }
   return TANKS.custom;
 }
 

@@ -71,8 +71,13 @@ export const KID_TERRAIN = [
 
 export const kidAnimal = (id) => KID_ANIMALS.find((a) => a.id === id);
 export const kidPlant = (id) => KID_PLANTS.find((a) => a.id === id);
-export const animalName = (id, fallback = 'friend') => kidAnimal(id)?.n ?? fallback;
-export const animalPlural = (id, fallback = 'friends') => kidAnimal(id)?.p ?? fallback;
+// Tiny helpers that are not pets (never in the tray): the fruit fly's young.
+export const KID_BUGS = {
+  flylarva: { n: 'Wiggly grub', p: 'wiggly grubs', say: 'A grub is a baby fly. It eats soggy leaves and turns them into soil!' },
+  flypupa: { n: 'Sleepy cocoon', p: 'sleepy cocoons', say: 'A cocoon is where a grub rests. Soon a fly will pop out!' },
+};
+export const animalName = (id, fallback = 'friend') => kidAnimal(id)?.n ?? KID_BUGS[id]?.n ?? fallback;
+export const animalPlural = (id, fallback = 'friends') => kidAnimal(id)?.p ?? KID_BUGS[id]?.p ?? fallback;
 
 // Stickers: earned by doing things. Colours pair up into a round badge.
 export const STICKERS = [
