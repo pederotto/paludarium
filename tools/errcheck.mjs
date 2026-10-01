@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({ channel: 'chrome', headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const p = await b.newPage();
+const errs = [];
+p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 400)); });
+p.on('pageerror', (e) => errs.push('PAGEERR ' + String(e.message).slice(0, 400)));
+await p.goto('http://localhost:5173/');
+await p.waitForTimeout(6000);
+console.log(errs.slice(0, 6).join('\n') || 'no errors');
+await b.close();

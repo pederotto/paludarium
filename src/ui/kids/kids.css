@@ -1,0 +1,216 @@
+/* Kids' corner: chunky, bright, touch-first, on top of the dark-glass theme.
+   Everything is prefixed k- / kw- / kcard so it never touches the grown-up HUD. */
+
+:root {
+  --kid: #ffd166;
+  --kid-2: #ff8fab;
+  --kid-3: #7bdff2;
+  --kid-ok: #7fe08a;
+  --kid-bad: #ff7a66;
+}
+.kids-on .toasts { display: none !important; }
+
+/* ---- Title screen button ---------------------------------------------------------------- */
+.title .menu .btn.kid-btn {
+  min-height: 68px; padding: 12px 18px; font-size: 21px; font-weight: 750; letter-spacing: -0.01em; gap: 12px;
+  background: linear-gradient(135deg, #ffd166, #ff9fb8); color: #2a1c05; border: 0;
+  box-shadow: 0 6px 24px rgba(255, 170, 120, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.12);
+  border-radius: 22px;
+}
+.title .menu .btn.kid-btn:hover { background: linear-gradient(135deg, #ffdd8a, #ffb3c8); }
+.title .menu .btn.kid-btn small { font-size: 15px; font-weight: 600; opacity: 0.75; margin-left: auto; }
+
+/* ---- Choose your world -------------------------------------------------------------------- */
+.kw {
+  position: absolute; inset: 0; z-index: 3; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: calc(14px + var(--st)) 16px calc(24px + var(--sb));
+  background: radial-gradient(1200px 700px at 50% 0%, rgba(40, 70, 55, 0.92), rgba(5, 9, 7, 0.96));
+}
+.kw-head { width: min(960px, 100%); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.kw-head h1 { margin: 0; font: 650 clamp(30px, 5vw, 46px) var(--serif); font-variation-settings: 'opsz' 96; flex: 1; text-align: center; color: #fff; }
+.kw-grid { width: min(960px, 100%); display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.kw-card {
+  position: relative; border: 0; cursor: pointer; border-radius: 28px; padding: 14px 12px 16px; min-height: 176px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; color: #fff;
+  background: linear-gradient(155deg, var(--c1), var(--c2)); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35), inset 0 -5px 0 rgba(0, 0, 0, 0.14);
+  transition: transform 0.12s;
+}
+.kw-card:active { transform: scale(0.96); }
+.kw-card .orb { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, 0.22); box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.28); }
+.kw-card b { font: 700 24px/1.1 var(--ui); text-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); }
+.kw-card span { font-size: 16px; line-height: 1.25; opacity: 0.94; }
+.kw-back, .kw-keep { min-height: 56px; border-radius: 18px; padding: 0 18px; font-size: 18px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; border: 0; cursor: pointer; }
+.kw-back { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.kw-keep { background: linear-gradient(135deg, var(--kid), var(--kid-2)); color: #2a1c05; }
+
+/* ---- HUD containers (only their children take touches: the tank stays tappable) ---------------------------------- */
+#ui > .kids-top, #ui > .kids-bottom { position: absolute; left: 0; right: 0; pointer-events: none; z-index: 6; display: flex; flex-direction: column; align-items: center; }
+#ui > .kids-top { top: 0; padding: calc(8px + var(--st)) 8px 0; gap: 8px; }
+#ui > .kids-bottom { bottom: 0; padding: 0 4px calc(6px + var(--sb)); gap: 8px; }
+.kids-top > *, .kids-bottom > * { pointer-events: auto; }
+.k-ico { width: 56px; height: 56px; border-radius: 18px; border: 0; cursor: pointer; display: grid; place-items: center; color: #fff; background: rgba(255, 255, 255, 0.1); flex: none; }
+.k-ico:active { transform: scale(0.94); }
+.k-ico.on { background: rgba(255, 209, 102, 0.3); color: var(--kid); }
+
+/* Top bar */
+.k-bar { width: min(760px, 100%); display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; grid-template-areas: 'home name hearts sun snd'; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 26px; }
+.k-bar .k-home { grid-area: home; } .k-bar .k-sun { grid-area: sun; } .k-bar .k-snd { grid-area: snd; }
+.k-name { grid-area: name; font: 650 22px/1.1 var(--serif); font-variation-settings: 'opsz' 48; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+.k-hearts { grid-area: hearts; display: flex; align-items: center; gap: 3px; padding: 0 4px; }
+.k-heart { position: relative; display: inline-block; flex: none; }
+.k-heart > svg { position: absolute; left: 0; top: 0; }
+.k-heart .fill { position: absolute; left: 0; top: 0; height: 100%; overflow: hidden; transition: width 0.6s; }
+.k-heart .fill svg { display: block; }
+.k-hearts.low .k-heart .fill { animation: kBeat 1s ease-in-out infinite; }
+@keyframes kBeat { 50% { opacity: 0.55; } }
+
+/* Guide (Mira's look, friendlier) */
+.k-guide { width: min(560px, 100%); display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px; border-radius: 26px; border-color: rgba(235, 185, 108, 0.45); position: relative; }
+.k-guide .avatar { width: 48px; height: 48px; border-radius: 50%; flex: none; background: radial-gradient(circle at 35% 30%, #ffe2a8, #d98a30); display: grid; place-items: center; color: #2a1c05; font: 700 24px var(--serif); box-shadow: 0 0 0 3px rgba(255, 209, 102, 0.25); }
+.k-guide p { margin: 0; flex: 1; font-size: 18px; line-height: 1.25; font-weight: 600; color: #fff6dc; min-width: 0; }
+.k-guide .go { flex: none; min-height: 48px; padding: 0 16px; border-radius: 16px; border: 0; cursor: pointer; font-size: 17px; font-weight: 750; color: #2a1c05; background: var(--kid); }
+.k-guide.cheer { border-color: var(--kid-2); }
+
+/* Bottom: tray */
+.k-tray { width: min(580px, 100%); display: flex; padding: 6px 2px 6px; border-radius: 32px; }
+.k-tab { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 2px 0; background: none; border: 0; cursor: pointer; color: #fff; font-size: 16px; font-weight: 700; letter-spacing: -0.015em; }
+.k-tab .dot { width: min(60px, 100%); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(155deg, var(--c1), var(--c2)); box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.16), 0 3px 8px rgba(0, 0, 0, 0.35); transition: transform 0.12s; }
+.k-tab:active .dot { transform: scale(0.92); }
+.k-tab.on .dot { box-shadow: 0 0 0 4px var(--kid), inset 0 -4px 0 rgba(0, 0, 0, 0.16); }
+.k-tab.on { color: var(--kid); }
+
+/* Sheets */
+.k-sheet { width: min(860px, 100%); border-radius: 28px; padding: 8px 10px 10px; animation: kSlide 0.25s ease both; }
+@keyframes kSlide { from { transform: translateY(34px); opacity: 0; } to { transform: none; opacity: 1; } }
+.k-sh-head { display: flex; align-items: center; gap: 8px; padding: 0 2px 4px 8px; min-height: 52px; }
+.k-sh-head h3 { margin: 0; flex: 1; font: 650 24px var(--serif); font-variation-settings: 'opsz' 48; color: #fff; }
+.k-chips { display: flex; gap: 6px; flex: 1; min-width: 0; }
+.k-chip { flex: 1 1 0; min-height: 48px; border-radius: 16px; border: 0; cursor: pointer; font-size: 16px; font-weight: 700; color: #fff; background: rgba(255, 255, 255, 0.09); padding: 0 6px; }
+.k-chip.on { background: var(--kid); color: #2a1c05; }
+.k-pill { min-height: 48px; padding: 0 12px; border-radius: 16px; border: 0; cursor: pointer; font-size: 16px; font-weight: 700; color: #fff; background: rgba(255, 255, 255, 0.09); display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.k-pill.on { background: var(--kid-3); color: #06303a; }
+.k-row { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 6px; scroll-snap-type: x proximity; touch-action: pan-x; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.k-row::-webkit-scrollbar { display: none; }
+.k-card { flex: none; width: 108px; scroll-snap-align: start; border-radius: 22px; padding: 8px 6px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.07); border: 3px solid transparent; font-size: 16px; font-weight: 650; color: #fff; text-align: center; line-height: 1.15; cursor: pointer; }
+.k-card:active { transform: scale(0.96); }
+.k-card.on { border-color: var(--kid); background: rgba(255, 209, 102, 0.16); }
+.k-card .nm { min-height: 37px; display: grid; place-items: center; }
+.k-pic { width: 84px; height: 84px; border-radius: 16px; display: grid; place-items: center; color: #fff; background: linear-gradient(160deg, var(--c1), var(--c2)); box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.14); }
+.k-big { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 4px 2px; }
+.k-act { min-height: 104px; border: 0; border-radius: 24px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; font-size: 18px; font-weight: 750; background: linear-gradient(160deg, var(--c1), var(--c2)); box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.15); padding: 6px 2px; }
+.k-act:active { transform: scale(0.95); }
+.k-act.on { box-shadow: 0 0 0 4px var(--kid), inset 0 -5px 0 rgba(0, 0, 0, 0.15); }
+.k-act small { font-size: 16px; font-weight: 600; opacity: 0.9; }
+.k-switch { margin: 8px 2px 0; min-height: 60px; width: calc(100% - 4px); border: 0; border-radius: 20px; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 0 16px; font-size: 18px; font-weight: 700; color: #fff; background: rgba(255, 255, 255, 0.09); text-align: left; }
+.k-switch .knob { margin-left: auto; width: 62px; height: 34px; border-radius: 17px; background: rgba(255, 255, 255, 0.2); position: relative; transition: background 0.2s; flex: none; }
+.k-switch .knob::after { content: ''; position: absolute; top: 4px; left: 4px; width: 26px; height: 26px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+.k-switch.on .knob { background: var(--kid-ok); }
+.k-switch.on .knob::after { transform: translateX(28px); }
+.k-more { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 4px 2px; }
+.k-more .k-act { min-height: 96px; }
+.k-act.hold { position: relative; overflow: hidden; }
+.k-act.hold i { position: absolute; left: 0; bottom: 0; height: 8px; background: var(--kid); width: 0; }
+.k-act.hold.go i { width: 100%; transition: width 1.2s linear; }
+
+/* Stickers */
+.k-stickers { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px 8px; max-height: min(44vh, 330px); overflow-y: auto; padding: 4px 2px 6px; }
+.k-st { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; font-size: 16px; line-height: 1.1; font-weight: 650; color: #fff; }
+.k-st .badge { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: radial-gradient(circle at 30% 25%, var(--c1), var(--c2)); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 4px 10px rgba(0, 0, 0, 0.4); }
+.k-st.off .badge { background: rgba(255, 255, 255, 0.08); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.3); }
+.k-st.off { color: var(--dim); }
+.k-st small { font-size: 16px; font-weight: 500; }
+
+/* Place bar */
+.k-place { width: min(580px, 100%); display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 32px; animation: kSlide 0.2s ease both; border-color: rgba(255, 209, 102, 0.5); }
+.k-place .mid { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.k-place .mid b { display: block; font-size: 22px; line-height: 1.1; color: var(--kid); font-weight: 750; }
+.k-place .mid span { display: block; font-size: 16px; color: #dfe9e2; }
+.k-round { width: 64px; height: 64px; border-radius: 50%; border: 0; cursor: pointer; flex: none; display: grid; place-items: center; color: #fff; position: relative; box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18); }
+.k-round.stop { background: linear-gradient(155deg, #ff8f7a, #e0503c); }
+.k-round.undo { background: linear-gradient(155deg, #ffd166, #e09a2a); color: #2a1c05; }
+.k-round[disabled] { opacity: 0.4; }
+.k-round:active { transform: scale(0.92); }
+.k-round em { position: absolute; top: -4px; right: -4px; min-width: 24px; height: 24px; border-radius: 12px; background: #fff; color: #2a1c05; font: 700 16px/24px var(--ui); text-align: center; font-style: normal; }
+.k-tap { animation: kPulse 1.4s ease-in-out infinite; display: inline-block; }
+@keyframes kPulse { 50% { transform: scale(1.06); } }
+
+/* Kid card */
+.kcard { width: min(580px, 100%); border-radius: 28px; padding: 10px 12px 12px; animation: kSlide 0.25s ease both; border-color: rgba(123, 223, 242, 0.4); }
+.kcard .hd { display: flex; gap: 12px; align-items: center; }
+.kcard .hd .who { flex: 1; min-width: 0; }
+.kcard h4 { margin: 0; font: 650 26px/1.05 var(--serif); font-variation-settings: 'opsz' 72; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kcard .sub { font-size: 16px; color: #c9d8ce; margin: 2px 0 4px; }
+.kcard .mood { display: flex; align-items: center; gap: 8px; }
+.kcard .face { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #2a1c05; flex: none; }
+.kcard .face.happy { background: var(--kid-ok); } .kcard .face.ok { background: var(--kid); } .kcard .face.sad { background: var(--kid-bad); }
+.kcard .likes { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 8px; font-size: 16px; color: #fff; }
+.kcard .likes .say { font-weight: 650; flex: 1 1 100%; }
+.kcard .likes .hint { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px 4px 7px; border-radius: 14px; background: rgba(255, 255, 255, 0.1); font-size: 16px; }
+.kcard .fact { margin: 8px 0 0; font-size: 16px; line-height: 1.3; color: #e8f0ea; }
+.kcard .fact b { color: var(--kid); }
+.kcard .acts { display: flex; gap: 8px; margin-top: 10px; }
+.kcard .acts .k-btn2 { flex: 1 1 0; min-height: 56px; border-radius: 18px; border: 0; cursor: pointer; font-size: 17px; font-weight: 750; color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 6px; background: rgba(255, 255, 255, 0.12); }
+.kcard .acts .k-btn2.feed { background: linear-gradient(155deg, #f2b25a, #d98a2a); color: #2a1c05; }
+.kcard .acts .k-btn2.on { background: var(--kid-3); color: #06303a; }
+.kcard .name-row { display: flex; gap: 8px; margin-top: 10px; }
+.kcard .name-row input { flex: 1; min-width: 0; min-height: 56px; border-radius: 18px; border: 3px solid var(--kid-3); background: rgba(0, 0, 0, 0.35); color: #fff; font: 650 20px var(--ui); padding: 0 14px; outline: none; }
+.kcard .name-row button { min-height: 56px; min-width: 76px; border-radius: 18px; border: 0; cursor: pointer; font-size: 18px; font-weight: 750; background: var(--kid); color: #2a1c05; }
+.kcard .close { width: 48px; height: 48px; border-radius: 16px; border: 0; background: rgba(255, 255, 255, 0.1); color: #fff; display: grid; place-items: center; cursor: pointer; align-self: flex-start; flex: none; }
+.kcard .fam { display: contents; }
+
+/* Toasts, banners, stickers popping, confetti */
+.k-toasts { position: absolute; left: 50%; top: 190px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; z-index: 9; }
+.k-toast { padding: 10px 20px; border-radius: 22px; font-size: 20px; font-weight: 750; color: #fff; background: rgba(12, 17, 15, 0.9); border: 2px solid var(--line-2); animation: kPop 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) both; white-space: nowrap; }
+.k-toast.good { border-color: var(--kid-ok); } .k-toast.bad { border-color: var(--kid-bad); }
+@keyframes kPop { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+.k-banner { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); z-index: 10; pointer-events: none; padding: 16px 28px; border-radius: 30px; font: 700 clamp(28px, 6vw, 42px) var(--serif); color: #2a1c05; background: linear-gradient(135deg, #ffe08a, #ffb3c8); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); animation: kPop 0.4s cubic-bezier(0.2, 1.5, 0.4, 1) both, kFade 0.5s 3.6s forwards; text-align: center; max-width: 92vw; }
+@keyframes kFade { to { opacity: 0; transform: translateX(-50%) translateY(-14px); } }
+.k-pop { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); z-index: 10; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 8px; animation: kFade 0.5s 2.8s forwards; }
+.k-pop .badge { width: 120px; height: 120px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: radial-gradient(circle at 30% 25%, var(--c1), var(--c2)); box-shadow: 0 0 0 6px #fff, 0 12px 36px rgba(0, 0, 0, 0.55); animation: kSticker 0.7s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.k-pop b { font: 700 26px var(--serif); color: #fff; background: rgba(12, 17, 15, 0.85); padding: 6px 18px; border-radius: 20px; }
+.k-pop small { font-size: 18px; font-weight: 700; color: var(--kid); text-shadow: 0 2px 6px #000; }
+@keyframes kSticker { from { transform: scale(0.1) rotate(-40deg); opacity: 0; } 60% { transform: scale(1.2) rotate(8deg); } to { transform: scale(1) rotate(-4deg); opacity: 1; } }
+.k-confetti { position: absolute; left: 50%; top: 36%; width: 0; height: 0; z-index: 11; pointer-events: none; }
+.k-confetti i { position: absolute; left: 0; top: 0; width: 12px; height: 18px; border-radius: 3px; background: var(--c); opacity: 0; animation: kConf 1.5s cubic-bezier(0.1, 0.7, 0.3, 1) forwards; animation-delay: var(--d); }
+@keyframes kConf { 0% { transform: translate(0, 0) rotate(0); opacity: 1; } 70% { opacity: 1; } 100% { transform: translate(var(--x), var(--y)) rotate(var(--r)); opacity: 0; } }
+
+/* Time-lapse and photo */
+.k-lapse { width: min(560px, 100%); border-radius: 30px; padding: 14px 16px 16px; text-align: center; animation: kSlide 0.25s ease both; }
+.k-lapse h3 { margin: 0 0 8px; font: 650 26px var(--serif); color: #fff; }
+.k-lapse .bar { height: 18px; border-radius: 9px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.k-lapse .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--kid-3), var(--kid)); border-radius: 9px; transition: width 0.3s; }
+.k-lapse ul { list-style: none; margin: 4px 0 10px; padding: 0; font-size: 20px; font-weight: 650; color: #fff; }
+.k-lapse li { padding: 3px 0; }
+.k-lapse .go { margin-top: 12px; min-height: 56px; padding: 0 26px; border: 0; border-radius: 20px; font-size: 19px; font-weight: 750; cursor: pointer; background: var(--kid); color: #2a1c05; }
+.k-shutter { position: absolute; left: 50%; bottom: calc(22px + var(--sb)); transform: translateX(-50%); width: 88px; height: 88px; border-radius: 50%; border: 6px solid #fff; background: rgba(255, 255, 255, 0.25); cursor: pointer; z-index: 7; display: grid; place-items: center; color: #fff; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
+.k-shutter:active { transform: translateX(-50%) scale(0.93); }
+.k-photo-x { position: absolute; right: 14px; top: calc(14px + var(--st)); z-index: 7; width: 64px; height: 64px; border-radius: 50%; border: 0; cursor: pointer; background: linear-gradient(155deg, #ff8f7a, #e0503c); color: #fff; display: grid; place-items: center; }
+.k-photo-hint { position: absolute; left: 50%; top: calc(22px + var(--st)); transform: translateX(-50%); z-index: 7; padding: 8px 18px; border-radius: 20px; font-size: 18px; font-weight: 700; color: #fff; background: rgba(12, 17, 15, 0.7); pointer-events: none; white-space: nowrap; }
+
+/* ---- Small screens ---------------------------------------------------------------------------------- */
+@media (max-width: 700px) {
+  .kw-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .kw-card { min-height: 168px; }
+  .kw-card .orb { width: 72px; height: 72px; }
+  .kw-card b { font-size: 21px; }
+  .kw-head h1 { flex: 1 1 100%; order: 2; }
+  .k-bar { grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: 'home name sun snd' 'hearts hearts hearts hearts'; row-gap: 2px; }
+  .k-hearts { justify-content: center; padding-bottom: 2px; }
+  .k-name { font-size: 21px; }
+  .k-guide p { font-size: 17px; }
+  .k-card { width: 100px; }
+  .k-toasts { top: 222px; }
+  .k-more { grid-template-columns: repeat(2, 1fr); }
+  .k-big { gap: 6px; }
+  .k-act { font-size: 17px; }
+  .k-st .badge { width: 64px; height: 64px; }
+}
+
+/* A wide screen (16:9): the kid card sits beside the tank, not over it. */
+@media (min-width: 701px) and (min-aspect-ratio: 6/5) {
+  .kcard { position: fixed; right: 12px; top: 148px; width: 340px; }
+  .k-toasts { top: 160px; }
+  .k-sheet { width: min(760px, 100%); }
+  .k-card { width: 116px; }
+}
