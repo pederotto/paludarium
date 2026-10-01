@@ -1,83 +1,95 @@
-import { useState } from 'preact/hooks';
+// Top left: one pill with the tank name, the day and time, and the speed control folded into it.
+// Tap it to open 1x / 5x / 20x / 60x / pause inline; it folds away again after a few seconds (Space still pauses).
+import { useState, useEffect, useRef } from 'preact/hooks';
+import './hud2.css';
 import { Icon } from '../icons.jsx';
-import { ViewMenu } from './Bottom.jsx';
-import { S, openModal, hudRules } from '../store.js';
+import { StatusChip } from './StatusChip.jsx';
+import { S, openModal, toast } from '../store.js';
+import { DISPLAY, toggleFullscreen, toggleZen } from '../fullscreen.js';
 import { ctx } from '../../app/ctx.js';
 import { SPEEDS } from '../../sim/tank.js';
-import { DISPLAY, toggleFullscreen, toggleZen, fullscreenSupported } from '../fullscreen.js';
 
 const SPEED_LABEL = ['', '1×', '5×', '20×', '60×'];
 
-export function TopBar() {
-  const live = S.live.value;
-  const career = S.career.value;
-  const g = ctx.game;
-  if (!live) return null;
-  const light = live.clock.light;
+const closeMenu = () => { if (S.hub.value === 'menu') S.hub.value = null; };
+
+// The pill's Menu: leave to the title screen (saving first), save, settings, display.
+function MenuPop() {
+  const run = (fn) => async () => { closeMenu(); await fn(); };
+  const busy = async (text, fn) => {
+    S.busy.value = { text };
+    await new Promise((r) => setTimeout(r, 30));
+    try { await fn(); } catch (e) { console.error(e); toast('That did not work: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; }
+  };
+  const item = (icon, label, desc, onClick, on) => (
+    <button class={'hi' + (on ? ' on' : '')} role="menuitem" title={label} data-testid={'menu-' + label} onClick={onClick}>
+      <Icon name={icon} size={18} /><span class="hi-t"><b>{label}</b><small>{desc}</small></span>
+    </button>
+  );
   return (
-    <div class="top">
-      <div class="brand glass" onClick={() => openModal('studio')} title="Studio">
-        <div class="mark"><Icon name="drop" size={18} stroke={2} /></div>
-        <div>
-          <b>Paludarium</b>
-          <small>{S.tankTitle.value ?? live.tank.name} · {live.tank.litres} L</small>
-        </div>
-      </div>
-      <div class="clock glass">
-        <Icon name={light > 0.3 ? 'sun' : 'moon'} size={16} style={{ color: light > 0.3 ? 'var(--amber)' : 'var(--violet)' }} />
-        <span class="day">Day {live.clock.day}</span>
-        <span class="sub">{live.clock.time}</span>
-      </div>
-      <div class="speed glass" role="group" aria-label="Simulation speed">
-        {SPEEDS.map((s, i) => (
-          <button key={i} class={S.speed.value === i ? 'on' : ''} title={i === 0 ? 'Pause (Space)' : `${s}× speed`} onClick={() => { g.setSpeed(i); S.speed.value = i; }}>
-            {i === 0 ? <Icon name="pause" size={14} /> : SPEED_LABEL[i]}
-          </button>
-        ))}
-      </div>
-      <button class="vchip glass" onClick={() => { S.right.value = !S.right.value; }} title="Tank vitals">
-        <Icon name="thermo" size={15} style={{ color: 'var(--moss)' }} /><span class="vday">D{live.clock.day}</span>{live.env.temp.toFixed(0)}° <Icon name="drop" size={14} style={{ color: 'var(--water)' }} />{Math.round(live.env.humidity)}%
-      </button>
-      <div class="spacer" />
-      {career && career.mode === 'career' && (
-        <div class="wallet glass">
-          <div class="funds" title="Funds"><Icon name="coin" size={16} /><span class="num">{Math.round(career.funds).toLocaleString()}</span></div>
-          <div class="rank" onClick={() => openModal('studio', 'career')} title={`${career.rank} · ${career.rep} rep`}>
-            <div class="ring" style={{ '--p': Math.round(career.levelProgress * 100) }}><span>{career.level}</span></div>
-            <div><b>{career.rank}</b><small>{career.nextIn > 0 ? `${career.nextIn} to next` : 'Max rank'}</small></div>
-          </div>
-        </div>
-      )}
-      <div class="fsbtn glass" role="group" aria-label="Display">
-        <button class={DISPLAY.value.fs ? 'on' : ''} onClick={toggleFullscreen} title={fullscreenSupported() ? 'Full screen (Shift+F)' : 'Full screen: Add to Home Screen on this browser'} aria-label="Full screen"><Icon name="eye" size={16} /></button>
-        <button onClick={toggleZen} title="Zen: hide the interface (Shift+Z, Esc to return)" aria-label="Zen mode"><Icon name="sparkles" size={16} /></button>
-      </div>
-      <Dock />
+    <div class="menupop glass strong" role="menu" aria-label="Menu" data-testid="menupop">
+      {item('home', 'Home', 'Save and go back to the title screen', run(() => busy('Saving…', () => ctx.director.goHome())))}
+      {item('check', 'Save now', 'Keep this game safe in your browser', run(async () => { await ctx.director.save(); toast('Game saved.', 'good'); }))}
+      {item('settings', 'Settings', 'Graphics, sound and realism', run(() => openModal('settings')))}
+      {item('eye', 'Full screen', 'Give the tank the whole screen', run(toggleFullscreen), DISPLAY.value.fs)}
+      {item('sparkles', 'Zen mode', 'Hide the interface (Esc to return)', run(toggleZen))}
     </div>
   );
 }
 
-function Dock() {
-  const [more, setMore] = useState(false);
-  const m = S.modal.value;
-  const career = S.career.value;
-  const btn = (id, icon, label, dot) => (
-    <button class={m === id ? 'on' : ''} onClick={() => openModal(id)} title={label}>
-      <Icon name={icon} size={17} /><span>{label}</span>{dot ? <i class="dot" /> : null}
-    </button>
-  );
+export function TopBar() {
+  const live = S.live.value;
+  const [open, setOpen] = useState(false);
+  const timer = useRef(0);
+  const touch = () => { clearTimeout(timer.current); timer.current = setTimeout(() => setOpen(false), 3500); };
+  useEffect(() => { if (open) touch(); return () => clearTimeout(timer.current); }, [open]);
+  // Esc opens the menu when nothing else wants it: no modal, selection, tool, hub or zen. State is read in the
+  // capture phase, before the other Escape handlers (close a modal, put a tool away, leave zen) have run.
+  useEffect(() => {
+    let free = false;
+    const pre = (e) => {
+      free = e.key === 'Escape' && !S.modal.value && !S.selection.value && S.tool.value === 'view' && !S.sub.value.kit && !S.piece.value
+        && !S.hub.value && !S.coach.value?.event && !document.body.classList.contains('zen') && !S.photo.value && !S.timelapse.value;
+      if (e.key === 'Escape' && S.hub.value) { S.hub.value = null; }
+    };
+    const post = (e) => { if (e.key === 'Escape' && free) { free = false; S.right.value = false; S.hub.value = 'menu'; } };
+    addEventListener('keydown', pre, true);
+    addEventListener('keydown', post);
+    return () => { removeEventListener('keydown', pre, true); removeEventListener('keydown', post); };
+  }, []);
+  if (!live) return null;
+  const g = ctx.game;
+  const menu = S.hub.value === 'menu';
+  const light = live.clock.light;
+  const sp = S.speed.value;
+  const set = (i) => { g.setSpeed(i); S.speed.value = i; touch(); };
   return (
-    <div class="dock glass">
-      {btn('care', 'heart', 'Care')}
-      {hudRules().lab ? btn('lab', 'flask', 'Lab') : null}
-      {btn('codex', 'book', 'Field guide')}
-      {btn('studio', 'briefcase', 'Studio', career?.attention)}
-      {S.compact.value ? (
-        <>
-          <button class={more ? 'on' : ''} onClick={() => setMore(!more)} title="Views, lens, photo, time-lapse"><Icon name="camera" size={17} /><span>View</span></button>
-          {more ? <ViewMenu onClose={() => setMore(false)} /> : null}
-        </>
-      ) : null}
+    <div class={'topbar' + (menu ? ' menuopen' : '') + (S.career.value?.mode === 'career' ? ' career' : '')}>
+      <div class="pillwrap">
+      <div class={'pill glass' + (open ? ' open' : '')} data-testid="top-pill">
+        <button class="pill-menu" onClick={() => { S.right.value = false; S.hub.value = menu ? null : 'menu'; }} aria-expanded={menu} aria-haspopup="menu" title="Menu: home, save, settings" data-testid="menu-button">
+          <Icon name="menu" size={16} /><span class="pm-label">Menu</span>
+        </button>
+        <i class="vsep" />
+        <button class="pill-main" onClick={() => setOpen(!open)} aria-expanded={open} title="Day, time and speed: tap to change speed (Space pauses)">
+          <Icon name={light > 0.3 ? 'sun' : 'moon'} size={16} style={{ color: light > 0.3 ? 'var(--amber)' : 'var(--violet)' }} />
+          <span class="pill-name">{S.tankTitle.value ?? live.tank.name}</span>
+          <span class="pill-time num"><b>Day {live.clock.day}</b><span class="pt-clock"> {live.clock.time}</span></span>
+          <span class={'pill-speed' + (sp === 0 ? ' paused' : '')}>{sp === 0 ? <Icon name="pause" size={13} /> : SPEED_LABEL[sp]}</span>
+        </button>
+        {open ? (
+          <div class="seg" role="group" aria-label="Simulation speed">
+            {SPEEDS.map((s, i) => (
+              <button key={i} class={sp === i ? 'on' : ''} title={i === 0 ? 'Pause (Space)' : `${s}× speed`} aria-label={i === 0 ? 'Pause' : `${s}× speed`} onClick={() => set(i)}>
+                {i === 0 ? <Icon name="pause" size={13} /> : SPEED_LABEL[i]}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      {menu ? <MenuPop /> : null}
+      </div>
+      <StatusChip />
     </div>
   );
 }

@@ -4,7 +4,7 @@
 .smartbar { position: absolute; left: 50%; transform: translateX(-50%); top: calc(66px + var(--st)); z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: calc(100vw - 12px); pointer-events: none; }
 .smartbar > * { pointer-events: auto; }
 .smartbar .sb-row { display: flex; gap: 6px; padding: 6px; align-items: center; flex-wrap: wrap; justify-content: center; border-radius: 16px; }
-.smartbar button { min-height: 48px; min-width: 52px; padding: 6px 12px; border-radius: 12px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, 0.08); color: var(--text); font: 600 13px var(--ui); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; touch-action: manipulation; }
+.smartbar button { min-height: 48px; min-width: 52px; padding: 6px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); color: var(--text); font: 600 13px var(--ui); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; touch-action: manipulation; }
 .smartbar button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.15); }
 .smartbar button:disabled { opacity: 0.4; cursor: default; }
 .smartbar button.primary { background: var(--moss); border-color: var(--moss); color: #0b1a10; }
@@ -14,9 +14,7 @@
 .smartbar .sb-seg button.on { background: var(--moss); border-color: var(--moss); color: #0b1a10; }
 
 .mode-explorer .opts .chip { min-height: 44px; padding: 8px 14px; font-size: 13px; }
-.mode-explorer .opts .pick { min-height: 52px; justify-content: center; padding: 8px 10px; }
 .mode-explorer .opts .pick b { font-size: 13.5px; }
-.mode-explorer .tool { min-height: 48px; }
 .mode-explorer .opts input[type='range'] { height: 32px; }
 .mode-explorer .opts .row { min-height: 40px; }
 .mode-explorer .opts.simple .pick-grid { grid-template-columns: repeat(2, 1fr); }
@@ -32,11 +30,12 @@
   .smartbar .sb-row { flex-wrap: nowrap; }
   .smartbar .sb-seg button { min-width: 44px; }
   .mode-explorer .toasts { top: calc(176px + var(--st)); }
-  .mode-explorer .opts.simple { bottom: calc(68px + var(--sb)); max-height: 118px; overflow-x: auto; overflow-y: hidden; padding: 8px; display: flex; align-items: stretch; gap: 8px; }
-  .mode-explorer .opts.simple h4 { display: none; }
-  .mode-explorer .opts.simple .ex-body { display: flex; gap: 8px; align-items: stretch; }
+  /* The Add group's picks become one horizontal tray of picture cards inside the bottom sheet. */
+  .mode-explorer .opts.simple { max-height: none; }
+  .mode-explorer .opts.simple .oc-body { overflow-x: auto; overflow-y: hidden; padding: 0 12px 12px; }
+  .mode-explorer .opts.simple .ex-body { display: flex; gap: 8px; align-items: stretch; width: max-content; }
   .mode-explorer .opts.simple .pick-grid { display: flex; flex-wrap: nowrap; margin: 0; gap: 8px; }
-  .mode-explorer .opts.simple .pick { flex: none; min-width: 96px; height: 62px; }
+  .mode-explorer .opts.simple .pick { flex: none; width: 96px; min-height: 84px; }
   .mode-explorer .opts.simple .chips { flex-wrap: nowrap; margin: 0; align-items: center; }
   .mode-explorer .opts.simple .chip { flex: none; white-space: nowrap; }
   .mode-explorer .opts.simple .note, .mode-explorer .opts.simple .ex-note, .mode-explorer .opts.simple .grp { display: none; }

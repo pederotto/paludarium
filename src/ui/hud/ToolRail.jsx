@@ -1,23 +1,33 @@
+// The left rail: five grouped tools (Look, Shape, Add, Equipment, Remove), icon and label always visible.
+// The groups own the underlying tool ids (tools/defs.js GROUPS); keys 1-9,0 still jump to a specific tool.
+
+import { useEffect } from 'preact/hooks';
 import { Icon } from '../icons.jsx';
 import { S, hudRules } from '../store.js';
 import { ctx } from '../../app/ctx.js';
-import { TOOLS } from '../../tools/defs.js';
+import { GROUPS, groupOf } from '../../tools/defs.js';
+import { R, lastOf, bindAutoCollapse } from './railState.js';
+import './rail2.css';
 
 export function ToolRail() {
-  const cur = S.tool.value;
-  const items = [];
-  let lastGroup = 0;
-  const hud = hudRules();
-  for (const t of TOOLS) {
-    if (hud.hideTools?.includes(t.id)) continue;
-    if (t.group !== lastGroup) { items.push(<div class="sep" key={'s' + t.group} />); lastGroup = t.group; }
-    items.push(
-      <button key={t.id} class={'tool' + (cur === t.id ? ' on' : '')} title={`${t.name} (${t.key})`} onClick={() => ctx.tools.setTool(cur === t.id && t.id !== 'view' ? 'view' : t.id)}>
-        <Icon name={t.icon} size={21} />
-        <span class="lb">{hud.toolNames?.[t.id] ?? t.name}</span>
-        <kbd>{t.key}</kbd>
-      </button>,
+  const cur = S.tool.value, hud = hudRules(), active = groupOf(cur);
+  useEffect(() => bindAutoCollapse(ctx.tools?.controls), []);
+  const items = GROUPS.filter((g) => !g.tools.every((t) => hud.hideTools?.includes(t))).map((g) => {
+    const on = active.id === g.id;
+    return (
+      <button key={g.id} data-group={g.id} class={'tool' + (on ? ' on' : '')} aria-pressed={on} title={g.tip}
+        onClick={() => {
+          const T = ctx.tools; if (!T) return;
+          if (g.id === 'look') { T.setTool('view'); return; }
+          if (on) { if (S.left.value && !R.collapsed.value) T.setTool('view'); else { S.left.value = true; R.collapsed.value = false; } return; }
+          S.left.value = true;
+          const t = lastOf(g);
+          T.setTool(hud.hideTools?.includes(t) ? g.tools.find((x) => !hud.hideTools?.includes(x)) : t);
+        }}>
+        <Icon name={g.icon} size={22} />
+        <span class="lb">{g.name}</span>
+      </button>
     );
-  }
-  return <div class="rail glass" role="toolbar" aria-label="Tools">{items}</div>;
+  });
+  return <div class="rail" role="toolbar" aria-label="Tools">{items}</div>;
 }

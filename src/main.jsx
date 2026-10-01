@@ -4,7 +4,7 @@ import '@fontsource-variable/fraunces';
 import './ui/theme.css';
 import { render } from 'preact';
 import { App } from './ui/App.jsx';
-import { S, closeModal, toast } from './ui/store.js';
+import { S, closeModal, toast, drawerPref } from './ui/store.js';
 import { ctx } from './app/ctx.js';
 import { Game } from './app/game.js';
 import { ToolController } from './tools/controller.js';
@@ -38,8 +38,8 @@ S.quality.value = game.gfx.quality;
 ctx.meta = Meta.get();
 const mq = matchMedia('(max-width: 860px), (max-aspect-ratio: 1/1)');
 S.compact.value = mq.matches;
-S.right.value = !mq.matches;
-mq.addEventListener('change', (e) => { S.compact.value = e.matches; S.right.value = !e.matches; });
+S.right.value = !mq.matches && drawerPref();
+mq.addEventListener('change', (e) => { S.compact.value = e.matches; S.right.value = !e.matches && drawerPref(); });
 
 // The title screen shows the starter tank slowly turning behind the menu.
 await game.loadTank('standard', { layout: 'starter' });

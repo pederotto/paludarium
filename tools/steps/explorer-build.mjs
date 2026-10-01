@@ -36,7 +36,17 @@ export default async (page, shot, name) => {
     return { wet: wet[Math.floor(wet.length / 2)], c: best, near, n: land.length };
   });
   console.log('spots', JSON.stringify({ wet: spots.wet, c: spots.c, n: spots.n, near: spots.near.length }), JSON.stringify(T));
-  const tool = (n) => ui(page.locator('.rail .tool', { hasText: n }));
+  // The grouped rail: one tap on the group, one on its tab when the tab is not already showing (both count as taps).
+  const TOOLID = { Rocks: 'rock', Hardscape: 'rock', Plants: 'plant', Animals: 'animal', Kits: 'kits' };
+  const GROUPOF = { rock: 'add', plant: 'add', animal: 'add', kits: 'add' };
+  const tool = async (n) => {
+    const id = TOOLID[n];
+    let cur = await page.evaluate(() => window.__tools.tool);
+    if (!['rock', 'plant', 'animal'].includes(cur)) { await ui(page.locator(`.rail .tool[data-group="${GROUPOF[id]}"]`)); cur = await page.evaluate(() => window.__tools.tool); }
+    if (await page.locator('.opts.oc-chip').count()) await ui(page.locator('.opts.oc-chip'));
+    if (id !== 'kits' && cur !== id) await ui(page.locator(`.opts [data-tool="${id}"]`));
+    if (id === 'kits') await ui(page.locator('.opts [data-tool="kits"]'));
+  };
   const pick = (n) => ui(page.locator('.opts .pick', { hasText: n }).first());
   const sx = (T.w / 2) * 0.55;
 
@@ -57,6 +67,7 @@ export default async (page, shot, name) => {
   console.log(name, mode, 'rocks', taps, JSON.stringify(await probe()));
   await shot('e1-rocks');
   // --- A kit
+  if (mode !== 'explorer') await tool('Kits');
   await pick('Stepping stones');
   await tap(sx, 3);
   console.log(name, mode, 'kit', taps, JSON.stringify(await probe()));

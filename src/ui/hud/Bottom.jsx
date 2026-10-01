@@ -1,86 +1,59 @@
-import { useState } from 'preact/hooks';
+// The bottom of the screen: the dock, and above it a small stack of quiet chips (hint toast, lens legend,
+// active commission). The old camera bar, hint bar and commission box live in the dock hubs and these chips now.
+import './hud2.css';
 import { Icon } from '../icons.jsx';
-import { startTimelapse } from '../../app/timelapse.js';
 import { S, openModal } from '../store.js';
-import { ctx } from '../../app/ctx.js';
-import { LENSES } from '../../tools/controller.js';
+import { Dock } from './Dock.jsx';
+import { HintToast } from './Toasts.jsx';
 import { lensLegend, qualityMetric, QUALITY_METRICS } from '../../render/lens.js';
 
-// Everything the wide screen's camera bar does, as a list for phones (where that bar is hidden).
-export function ViewMenu({ onClose }) {
-  const g = ctx.game;
+function LensLegend() {
   const lens = S.lens.value;
-  const go = (fn) => () => { onClose(); fn(); };
+  const li = lensLegend(lens, qualityMetric.value);
+  if (!li) return null;
   return (
-    <div class="viewmenu glass strong">
-      <div class="vm-views">
-        {['front', 'top', 'left', 'right', 'close'].map((v) => <button key={v} onClick={go(() => g.rig.view(v))}>{v[0].toUpperCase() + v.slice(1)}</button>)}
+    <div class="legend2 glass" title={li.blurb}>
+      <div class="lg-row">
+        <b>{li.name}</b>
+        <span class="lg-lo num">{li.lo}{li.unit}</span>
+        <div class="ramp" style={{ background: `linear-gradient(90deg, ${li.stops.join(', ')})` }} />
+        <span class="lg-hi num">{li.hi}{li.unit}</span>
+        <button class="chip" onClick={() => { S.lens.value = 'off'; }} title="Turn the lens off" aria-label="Lens off"><Icon name="x" size={11} /></button>
       </div>
-      <button onClick={() => { S.lens.value = LENSES[(LENSES.indexOf(lens) + 1) % LENSES.length]; }}><Icon name="lens" size={16} />Lens: {lens === 'off' ? 'off' : lens}</button>
-      <button onClick={go(() => openModal('curator'))}><Icon name="trophy" size={16} />Score this tank</button>
-      <button onClick={go(() => { S.photo.value = true; })}><Icon name="camera" size={16} />Photo mode</button>
-      <div class="vm-lapse"><Icon name="clock" size={16} /><span>Time-lapse</span>{[7, 30, 90].map((d) => <button key={d} onClick={go(() => startTimelapse(d))}>{d}d</button>)}</div>
+      {lens === 'quality' ? (
+        <div class="lg-metrics">
+          {Object.entries(QUALITY_METRICS).map(([k, m]) => (
+            <button key={k} class={'chip' + (qualityMetric.value === k ? ' on' : '')} onClick={() => { qualityMetric.value = k; }}>{m.label}</button>
+          ))}
+        </div>
+      ) : null}
+      <small class="lg-blurb">{li.blurb}</small>
     </div>
   );
 }
 
+function CommissionChip() {
+  const active = S.career.value?.active?.[0];
+  if (!active) return null;
+  const done = active.goals.filter((g) => g.done).length;
+  return (
+    <button class="cchip glass" onClick={() => openModal('studio', 'commissions')} title={`${active.title}: open commissions`} data-testid="commission-chip">
+      <Icon name="clipboard" size={14} />
+      <span>Commission: <b class="num">{done}/{active.goals.length}</b> goals</span>
+      <Icon name="chevronR" size={12} />
+    </button>
+  );
+}
+
 export function Bottom() {
-  const g = ctx.game;
-  const [lapseMenu, setLapseMenu] = useState(false);
-  const lens = S.lens.value;
-  const career = S.career.value;
-  const active = career?.active?.[0];
-  const li = lensLegend(lens, qualityMetric.value);
   return (
     <>
-    {li ? (
-      <div class="legend glass">
-        <b>{li.name}</b>
-        {lens === 'quality' ? (
-          <div class="lens-metrics" style={{ flex: '1 1 100%', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-            {Object.entries(QUALITY_METRICS).map(([k, m]) => (
-              <button key={k} class={'chip' + (qualityMetric.value === k ? ' on' : '')} onClick={() => { qualityMetric.value = k; }}>{m.label}</button>
-            ))}
-          </div>
-        ) : null}
-        <div class="ramp" style={{ background: `linear-gradient(90deg, ${li.stops.join(', ')})` }} />
-        <span>{li.lo}{li.unit}</span><span style={{ marginLeft: 'auto' }}>{li.hi}{li.unit}</span>
-        <small>{li.blurb}</small>
+      <div class="hud-stack">
+        <HintToast />
+        <LensLegend />
+        <CommissionChip />
       </div>
-    ) : null}
-    <div class="bottom">
-      <div class="hintbar glass">{S.hint.value}</div>
-      {active && (
-        <div class="objs glass" onClick={() => openModal('studio', 'commissions')} title="Open commissions">
-          <h5><Icon name="clipboard" size={14} />{active.title}</h5>
-          {active.goals.slice(0, 4).map((goal) => (
-            <div key={goal.id} class={'goal' + (goal.done ? ' done' : '')}>
-              <span class="box">{goal.done ? <Icon name="check" size={11} stroke={3} /> : null}</span>
-              <span>{goal.text}</span>
-              {goal.progressText && !goal.done ? <span class="pg">{goal.progressText}</span> : null}
-            </div>
-          ))}
-        </div>
-      )}
-      <div class="camera glass">
-        {['front', 'top', 'left', 'right', 'close'].map((v) => (
-          <button key={v} onClick={() => g.rig.view(v)} title={`${v} view`}>{v[0].toUpperCase() + v.slice(1)}</button>
-        ))}
-        <button onClick={() => { S.lens.value = LENSES[(LENSES.indexOf(lens) + 1) % LENSES.length]; }} title="Lens overlay (L)" class={lens !== 'off' ? 'on' : ''} style={lens !== 'off' ? { color: 'var(--moss)' } : null}>
-          <Icon name="lens" size={15} />{lens === 'off' ? 'Lens' : lens}
-        </button>
-        <button onClick={() => openModal('curator')} title="The Curator: score this tank"><Icon name="trophy" size={15} />Score</button>
-        <span class="lapse-wrap">
-          <button onClick={() => setLapseMenu(!lapseMenu)} title="Time-lapse: watch the tank change over days"><Icon name="clock" size={15} /></button>
-          {lapseMenu ? (
-            <div class="lapse-menu glass strong">
-              {[7, 30, 90].map((d) => <button key={d} onClick={() => { setLapseMenu(false); startTimelapse(d); }}>{d} days</button>)}
-            </div>
-          ) : null}
-        </span>
-        <button onClick={() => { S.photo.value = true; }} title="Photo mode"><Icon name="camera" size={15} /></button>
-      </div>
-    </div>
+      <Dock />
     </>
   );
 }

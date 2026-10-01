@@ -19,7 +19,7 @@ export const S = {
   modal: signal(null),            // null | 'codex' | 'studio' | 'lab' | 'care' | 'settings' | 'curator' | 'photo' | ...
   modalArg: signal(null),         // e.g. a codex entry id
   left: signal(true),             // tool options panel open
-  right: signal(true),            // vitals panel open
+  right: signal(false),           // status drawer open (remembered between visits on wide screens, see drawerPref)
   live: signal(null),             // snapshot of the tank and career, ~4 Hz
   hint: signal(''),
   toasts: signal([]),
@@ -47,6 +47,8 @@ export const S = {
   geneParents: signal([]),        // ids of the two animals shown in the Lab's Genetics tab
   mode: signal(lastMode()),       // the adult mode of this tank: 'explorer' | 'naturalist' (Kids is S.kids); see app/modes.js
   smart: signal(read(SMART_KEY, '0') === '1'),   // Naturalist: the optional 'Smart place' toggle
+  hub: signal(null),              // the dock hub whose menu is open: 'tank' | 'build' | 'learn' | 'camera' | null
+  hintPulse: signal(0),           // bump to re-show the hint toast
   smartBar: signal(null),         // the floating mini bar after a smart placement: { kind, id, n, adjust } or null
 };
 
@@ -72,6 +74,9 @@ export function openModal(name, arg = null) {
   if (name === 'flow' && !S.kids.value && rules(S.mode.value).hud.flowPanel === false) { toast('Explorer keeps the pump and water level balanced for you. Switch to Naturalist in Settings to tune the flow.'); return; }
   S.modal.value = name; S.modalArg.value = arg;
 }
+const DRAWER_KEY = 'paludarium.drawer';
+export const drawerPref = () => read(DRAWER_KEY, '0') === '1';
+export function saveDrawerPref(v) { try { localStorage.setItem(DRAWER_KEY, v ? '1' : '0'); } catch { /* private window */ } }
 export function saveModeChoice(m) { try { if (m !== 'kids') localStorage.setItem(MODE_KEY, m); } catch { /* private window */ } }
 export function saveSmart(v) { try { localStorage.setItem(SMART_KEY, v ? '1' : '0'); } catch { /* private window */ } }
 // The mode in force: Kids' corner, else the adult mode of this tank.

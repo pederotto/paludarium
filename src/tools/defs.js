@@ -13,6 +13,17 @@ export const TOOLS = [
   { id: 'erase', group: 3, icon: 'eraser', name: 'Remove', key: '0', hint: 'Click a plant, animal, rock or outlet to remove it, or a pool to drain it.' },
 ];
 
+// The rail shows five groups; each owns some of the tool ids above (the ids, keys 1-9,0 and the controller are unchanged).
+// `tabs` are the sub-tool tabs of the options card (the Add group's Kits tab is the Hardscape tool with a kit armed).
+export const GROUPS = [
+  { id: 'look', name: 'Look', icon: 'eye', tools: ['view', 'inspect'], tip: 'Look around and inspect', tabs: [] },
+  { id: 'shape', name: 'Shape', icon: 'mountain', tools: ['sculpt', 'paint', 'water'], tip: 'Sculpt, paint and water', tabs: [['sculpt', 'Sculpt'], ['paint', 'Paint'], ['water', 'Water']] },
+  { id: 'add', name: 'Add', icon: 'plus', tools: ['rock', 'plant', 'animal'], tip: 'Rocks, plants, animals and kits', tabs: [['rock', 'Rocks'], ['plant', 'Plants'], ['animal', 'Animals'], ['kits', 'Kits']] },
+  { id: 'gear', name: 'Equipment', icon: 'cog', tools: ['gear'], tip: 'Fogger, lamp and settings', tabs: [] },
+  { id: 'erase', name: 'Remove', icon: 'eraser', tools: ['erase'], tip: 'Take things out', tabs: [] },
+];
+export const groupOf = (toolId) => GROUPS.find((g) => g.tools.includes(toolId)) ?? GROUPS[0];
+
 export const WATER_TOOLS = [
   ['channel', 'Channel', 'Drag a path: a stream bed is dug along it, always running downhill from where you started.'],
   ['basin', 'Pool', 'Click to dig a round pool with a raised lip. Brush size is its radius, strength its depth.'],

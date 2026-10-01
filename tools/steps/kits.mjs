@@ -1,7 +1,9 @@
+import { openDockItem } from './_hud.mjs';
 // Symmetry and kits: Mirror on, a sculpt stroke, a piece and a kit (each mirrored), one undo per kit,
 // then every kit on its own, the Studio Kits tab and the Hardscape kit list.
 //   node tools/shot.mjs --only=desktop --steps=tools/steps/kits.mjs --wait=2500
 //   node tools/shot.mjs --only=phone   --steps=tools/steps/kits.mjs --wait=2500
+import { pickTool } from './_tools.mjs';
 export default async (page, shot, name) => {
   const log = (...a) => console.log(name, ...a);
   let fails = 0;
@@ -30,11 +32,8 @@ export default async (page, shot, name) => {
     }
     return null;
   }, [clear, avoid, x0, x1]);
-  const tool = async (label) => {
-    await page.locator('.tool', { hasText: label }).click();
-    await page.waitForTimeout(500);
-    if (!(await page.locator('.opts').count())) { await page.locator('.vchip').click(); await page.waitForTimeout(500); }
-  };
+  const TOOLID = { Sculpt: 'sculpt', Hardscape: 'rock', Plants: 'plant', Water: 'water', Animals: 'animal' };
+  const tool = async (label) => { await pickTool(page, TOOLID[label]); await page.waitForTimeout(300); };
   const counts = () => ev(() => ({ pieces: game.world.decor.pieces.length, outlets: game.world.water.hydro.outlets.length, undo: game.world.undoStack.length }));
   const click = async (x, z) => {
     await ev(() => game.rig.view('front'));           // a view where the tank is clear of the panels
@@ -75,6 +74,7 @@ export default async (page, shot, name) => {
 
   // --- Mirror + a kit; one undo step per kit -----------------------------------------------------------------
   await page.keyboard.press('Escape');            // deselect the piece
+  await pickTool(page, 'kits');
   await page.locator('.opts .pick', { hasText: 'Waterfall cliff' }).click();
   await page.waitForTimeout(400);
   check('kit armed: the note shows', (await page.locator('.opts .kit-armed').count()) === 1);
@@ -112,6 +112,7 @@ export default async (page, shot, name) => {
   await ev(() => { game.world.empty(); game.world.water.setLevel(0); game.world.groundChanged(); });
   check('Mirror is off after pressing M again', (await page.locator('.opts .chip.mirror.on').count()) === 0);
   for (const [id, label, n] of [['waterfall', 'Waterfall cliff', 4], ['arch', 'Root arch', 5], ['steps', 'Stepping stones', 7], ['spires', 'Spire cluster', 5], ['island', 'Mossy island', 4]]) {
+    await pickTool(page, 'kits');
     await page.locator('.opts .pick', { hasText: label }).click();
     await page.waitForTimeout(300);
     const s = [id === 'steps' ? 0 : 4, 0];
@@ -132,6 +133,7 @@ export default async (page, shot, name) => {
 
   // A kit with Mirror on, in the clean tank: the arch and its mirror image, seen from the front.
   await page.keyboard.press('m');
+  await pickTool(page, 'kits');
   await page.locator('.opts .pick', { hasText: 'Root arch' }).click();
   await page.waitForTimeout(300);
   const m0 = await counts();
@@ -179,7 +181,7 @@ export default async (page, shot, name) => {
   check('one undo removes both outlets', (await counts()).outlets === o0.outlets);
 
   // --- Studio > Kits ---------------------------------------------------------------------------------------------
-  await page.evaluate(() => { document.querySelector('.dock button[title="Studio"]')?.click(); });
+  await openDockItem(page, 'Studio');
   await page.waitForTimeout(1200);
   await page.locator('.sheet-tabs button', { hasText: 'Kits' }).click();
   await page.waitForTimeout(600);
