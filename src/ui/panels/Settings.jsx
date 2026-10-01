@@ -3,6 +3,7 @@ import { S, closeModal } from '../store.js';
 import { Sheet } from './Modals.jsx';
 import { ctx } from '../../app/ctx.js';
 import { QUALITY } from '../../engine/gfx.js';
+import { DISPLAY, toggleFullscreen, toggleZen, fullscreenSupported, isStandalone } from '../fullscreen.js';
 
 function Sound() {
   const a = ctx.audio;
@@ -30,6 +31,12 @@ export function Settings() {
             ))}
           </div>
           <p class="note">Ultra renders at up to 2× pixel density with full ambient occlusion and SMAA. The game lowers its resolution by itself if the frame rate drops. Balanced uses 4× MSAA without ambient occlusion; Low is for old machines and phones.</p>
+          <div class="h3" style={{ marginTop: 14 }}>Display</div>
+          <div class="row" style={{ gap: 8 }}>
+            <button class={'chip' + (DISPLAY.value.fs ? ' on' : '')} onClick={() => { closeModal(); toggleFullscreen(); }}>{DISPLAY.value.fs && !isStandalone() ? 'Leave full screen' : 'Full screen'}</button>
+            <button class="chip" onClick={() => { closeModal(); toggleZen(); }}>Zen (hide interface)</button>
+          </div>
+          <p class="note">Shift+F toggles full screen, Shift+Z toggles Zen and Esc brings the interface back.{fullscreenSupported() ? '' : ' This browser cannot go full screen: on an iPhone or iPad use Share, then Add to Home Screen, and open the game from there.'}</p>
           <div class="h3" style={{ marginTop: 14 }}>Sound</div>
           <Sound />
           <div class="kv" style={{ marginTop: 12 }}>

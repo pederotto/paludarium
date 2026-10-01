@@ -71,6 +71,7 @@ export class Water {
   }
 
   get level() { return this.hydro.level; }
+  get bodies() { return this.hydro.bodies; }   // the water-body graph (per-pond chemistry)
   get outlets() { return this.hydro.outlets; }
   get pools() { return this.hydro.pools; }
   get ponds() { return this.hydro.pools; }   // older name
@@ -248,7 +249,7 @@ export class Water {
   }
 
   outletRibbon(o) {
-    const q = this.hydro.pump.rate * 1000 / 3600 / Math.max(1, this.hydro.outlets.length);
+    const q = Math.max(1, o.q ?? this.hydro.pump.rate * 1000 / 3600 / Math.max(1, this.hydro.outlets.length));
     return this.makeRibbon(o.pts, new THREE.Vector3(1, 0, 0), 2.2, q, new THREE.Vector3(0, 0, 0.5));
   }
 
@@ -429,6 +430,7 @@ export class Water {
     this.hydro.setLevel(0);
     this.hydro.d.fill(0);
     this.hydro.targetTotal = 0;
+    this.hydro.resetLedger();
     for (const r of this.ribbons.values()) this.dropRibbon(r);
     this.ribbons.clear();
     this.updateMarkers();

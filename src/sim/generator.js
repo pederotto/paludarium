@@ -144,7 +144,10 @@ class Gen {
   // --- Hardscape --------------------------------------------------------------
   piece(type, x, z, o = {}) {
     const D = this.W.decor;
-    const opt = { rot: this.r() * 6.283, ...o };
+    // A seed per piece: variant (when not given), non-uniform scale, flip and tint all differ.
+    const opt = { rot: this.r() * 6.283, seed: this.int(1, 2 ** 30), ...o };
+    // A third of the boulders a layout asks for by number are swapped for a procedural shape.
+    if (type === 'boulder' && opt.variant !== undefined && D.parts.boulder?.length > 13 && this.chance(0.3)) opt.variant = 13 + this.int(0, D.parts.boulder.length - 14);
     let p = D.addPiece(type, x, z, opt);
     // Nothing may reach the lid: shrink a piece that would.
     for (let k = 0; k < 3 && p; k++) {
@@ -161,7 +164,7 @@ class Gen {
 
   // Dresses steep ground with boulders half sunk into the face, so a heightfield reads as stacked rock.
   // test(x, y, z) picks where; sizes graded from small to large.
-  dress(n, test, { size = [8, 20], variants = [6, 7, 8, 10, 11, 12], accent = [2, 3, 5], slope = 0.86, lift = -0.12, tries = 500, gap = 0.55 } = {}) {
+  dress(n, test, { size = [8, 20], variants = this.W.decor.pool('boulder'), accent = [2, 3, 5], slope = 0.86, lift = -0.12, tries = 500, gap = 0.55 } = {}) {
     const T = this.T, placed = [];
     let made = 0;
     for (let k = 0; k < tries && made < n; k++) {
@@ -982,7 +985,9 @@ function settleAndPrune(g) {
 // Returns a report: { preset, seed, tier, name, biotope, litres, falls, pools, plants, animals, pieces, warnings, ... }.
 export function generateTerrarium(world, { preset, seed = 1, tier } = {}) {
   tier = tier ?? TANK.id;
-  if (!PRESETS[preset] || !PRESETS[preset].tiers.includes(tier)) {
+  // A custom-size tank (sandbox) suits every preset except the sealed jar.
+  const suits = tier === 'custom' ? PRESETS[preset]?.id !== 'jar' : PRESETS[preset]?.tiers.includes(tier);
+  if (!PRESETS[preset] || !suits) {
     const fallback = defaultPreset(tier);
     if (preset) console.warn(`Preset "${preset}" does not suit the ${tier} tank; building "${fallback}" instead.`);
     preset = fallback;

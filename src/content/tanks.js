@@ -18,6 +18,68 @@ export const TANKS = {
     id: 'grand', name: 'Grand display', w: 130, d: 60, h: 80, closed: false, cellsPerCm: 1.1, level: 9, price: 5200,
     blurb: 'A 620-litre showpiece for exhibitions: cascades, a deep lagoon and a tall canopy.',
   },
+  cube: {
+    id: 'cube', name: 'Cube 30', w: 30, d: 30, h: 30, closed: false, cellsPerCm: 2.0, level: 2, price: 120,
+    blurb: 'A 27-litre open cube for a desk: one rock, a pool the size of a saucer and a few plants. Small tanks swing fast, so keep an eye on them.',
+  },
+  tall: {
+    id: 'tall', name: 'Tall rainforest', w: 60, d: 45, h: 90, closed: false, cellsPerCm: 1.4, level: 5, price: 1100,
+    blurb: 'A 243-litre upright for a vertical rainforest: a tall wall, climbing plants and geckos, with a small pool at the bottom.',
+  },
+  long: {
+    id: 'long', name: 'Long riparium', w: 150, d: 40, h: 50, closed: false, cellsPerCm: 1.0, level: 7, price: 2600,
+    blurb: 'A 300-litre stream bank: long, shallow and low, made for a winding river with plants growing out of the water.',
+  },
+  wide: {
+    id: 'wide', name: 'Wide corner', w: 120, d: 60, h: 60, closed: false, cellsPerCm: 1.15, level: 8, price: 3600,
+    blurb: 'A 432-litre wide display with a deep front, room for an island, a lagoon and a waterfall in the corner.',
+  },
+  show: {
+    id: 'show', name: 'Show tank', w: 180, d: 70, h: 90, closed: false, cellsPerCm: 0.85, level: 11, price: 9800,
+    blurb: 'A 1,130-litre exhibition tank: a full river valley under a tall canopy. The coarsest grid, so it still runs smoothly.',
+  },
 };
 
-export const TANK_ORDER = ['jar', 'nano', 'standard', 'grand'];
+export const TANK_ORDER = ['jar', 'cube', 'nano', 'tall', 'standard', 'long', 'wide', 'grand', 'show'];
+
+// --- Custom size (sandbox) ---------------------------------------------------------------------------------
+// Safe limits for the sliders, in centimetres, and the largest volume the grid can take.
+export const CUSTOM_LIMITS = { w: [25, 200], d: [20, 80], h: [25, 100], maxLitres: 1200 };
+
+// Grid resolution that keeps the cell counts near those of the preset tanks (about 7,000 ground cells and at most
+// about 12,000 wall cells), and never finer than 2 cells per cm or coarser than 0.8.
+export function cellsFor(w, d, h) {
+  const ground = Math.sqrt(7500 / (w * d)), wall = Math.sqrt(12000 / (w * h));
+  return Math.round(Math.max(0.8, Math.min(2, ground, wall)) * 100) / 100;
+}
+
+export function clampCustom(w, d, h) {
+  const L = CUSTOM_LIMITS;
+  const c = (v, [lo, hi]) => Math.round(Math.max(lo, Math.min(hi, +v || lo)));
+  let o = { w: c(w, L.w), d: c(d, L.d), h: c(h, L.h) };
+  // Too big: shave a centimetre at a time off whichever side is furthest above its minimum.
+  for (let n = 0; n < 400 && (o.w * o.d * o.h) / 1000 > L.maxLitres; n++) {
+    const r = { w: o.w / L.w[0], d: o.d / L.d[0], h: o.h / L.h[0] };
+    const k = Object.keys(r).sort((a, b) => r[b] - r[a])[0];
+    o[k] -= 1;
+  }
+  return o;
+}
+
+// Registers (or updates) the 'custom' tank so game.loadTank('custom') builds it. The size is remembered
+// across reloads so a saved custom tank opens at the size it was built.
+export function setCustomTank(w, d, h) {
+  const s = clampCustom(w, d, h);
+  const litres = Math.round(s.w * s.d * s.h / 1000);
+  TANKS.custom = {
+    id: 'custom', name: `Custom ${s.w}×${s.d}×${s.h}`, ...s, closed: false, cellsPerCm: cellsFor(s.w, s.d, s.h), level: 1, price: 0, custom: true,
+    blurb: `A ${litres}-litre tank at the size you chose (sandbox only).`,
+  };
+  try { localStorage.setItem('paludarium.custom', JSON.stringify(s)); } catch { /* private mode */ }
+  return TANKS.custom;
+}
+
+try {
+  const saved = JSON.parse(localStorage.getItem('paludarium.custom') ?? 'null');
+  if (saved) setCustomTank(saved.w, saved.d, saved.h);
+} catch { /* no saved size */ }

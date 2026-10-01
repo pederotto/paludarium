@@ -3,14 +3,18 @@
 export default async (page, shot, name) => {
   if (name !== 'desktop') return;
   await page.waitForFunction(() => window.game, null, { timeout: 60000 });
+  if (process.env.SWEEP_TIERS) await page.evaluate((v) => { window.__sweepOnly = v.split(','); }, process.env.SWEEP_TIERS);
   const res = await page.evaluate(async () => {
     const { PRESETS, PRESET_ORDER } = await import('/src/content/presets.js');
+    const { TANK_ORDER } = await import('/src/content/tanks.js');
     const gen = await import('/src/sim/generator.js');
     const { runVacation } = await import('/src/game/vacation.js');
     const out = [];
     for (const id of PRESET_ORDER) {
-      for (const tier of PRESETS[id].tiers) {
+      // Every tank size in the catalogue the preset claims to suit (add ?tiers=all to also try the unsupported ones).
+      for (const tier of TANK_ORDER.filter((t) => PRESETS[id].tiers.includes(t))) {
         for (const seed of tier === 'standard' || tier === 'jar' ? [1, 4242] : [1]) {
+          if (window.__sweepOnly && !window.__sweepOnly.includes(tier)) continue;
           const t0 = performance.now();
           try {
             const w = await window.game.loadTank(tier, { layout: 'empty' });

@@ -28,7 +28,7 @@
 
 import { entry, bulkFactor } from './economy.js';
 
-const BIG = [6, 7, 8, 10, 11, 12];        // the rounder boulder variants
+const BIG = [6, 7, 8, 10, 11, 12, 13, 14, 15, 16];   // the rounder boulder variants (13+ are procedural)
 
 // A curved row of stones from big to small: each is placed one step further
 // along a gently bending line, with a small gap between neighbours.

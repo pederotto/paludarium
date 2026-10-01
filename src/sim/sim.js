@@ -94,40 +94,16 @@ export class Sim {
     W.equipment.evaluate();
 
     // --- Water chemistry ---------------------------------------------
-    const litres = Math.max(1, W.water.volumeLitres());
-    let waste = 0;
-    for (const a of W.animals.all) {
-      const sp = SPECIES[a.sp];
-      if (sp.kind === 'swim') waste += sp.size * 0.00035;
-      else if (sp.kind === 'crawlWater') waste += 0.00006;
-      else if (sp.kind === 'toad' || sp.kind === 'crab') waste += 0.0002;
-    }
+    // Kept per body of water (the main pool, each pond and stream) in
+    // sim/waterbodies.js: fish waste and plant uptake in the body they are in,
+    // mixing along the pump's flows. env holds the volume-weighted mean.
     // Uneaten food and detritus in water rot into ammonia.
     const rotting = E.detritus * 0.0004 * (0.5 + waterFrac);
-    // Scaled so ~18 small fish in 20 L make ~0.5 ppm/day in an uncycled tank.
-    E.ammonia += ((waste + rotting) * d * 0.25) / litres;
     E.detritus = Math.max(0, E.detritus - rotting * d * 0.4);
-    const media = 0.6 + E.mediaBio * 0.9;
-    const toNitrite = E.ammonia * clamp(E.cycle * 0.012 * media * d, 0, 0.9);
-    E.ammonia -= toNitrite;
-    E.nitrite += toNitrite;
-    const toNitrate = E.nitrite * clamp(E.cycle * 0.01 * media * d, 0, 0.9);
-    E.nitrite -= toNitrate;
-    E.nitrate += toNitrate * 2.7;
+    W.water.bodies.chemistry(d, { SPECIES, PLANTS, light, rotting, waterFrac });
     // Bacteria colonise a new tank over two to three weeks when they have
     // ammonia to eat, and hardly at all without it.
     E.cycle = clamp(E.cycle + d / (1440 * 16) * (E.ammonia > 0.02 || E.nitrite > 0.02 ? 1 : 0.1), 0, 1);
-    // Plants take up nitrate (and a little ammonia).
-    const pl = this.plantOut ?? { nitrateUse: 0, shade: 0 };
-    const uptake = pl.nitrateUse * 0.004 * d * (0.3 + light) / litres;
-    E.nitrate = Math.max(0, E.nitrate - uptake);
-    E.ammonia = Math.max(0, E.ammonia - uptake * 0.05);
-    // Oxygen: surface exchange, waterfalls and the filter add it; plants
-    // add it by day and use it by night; animals breathe it.
-    let fishLoad = 0;
-    for (const a of W.animals.all) if (SPECIES[a.sp].kind === 'swim' || SPECIES[a.sp].kind === 'crawlWater') fishLoad += SPECIES[a.sp].size;
-    const oTarget = 5.2 + falls * 0.9 + (E.filter ? 1.6 : 0) + E.fan * 0.4 + E.rain * 0.5 + (light - 0.4) * pl.nitrateUse * 0.02 - fishLoad * 0.8 / litres - Math.max(0, E.temp - 24) * 0.12;
-    E.oxygen = clamp(lerp(E.oxygen, oTarget, clamp(d * 0.01, 0, 1)), 0.5, 10);
     // Biofilm grows with light and nutrients; grazers eat it.
     E.biofilm = clamp(E.biofilm + d * 0.0004 * light * clamp(E.nitrate / 10, 0.2, 1.5), 0, 1);
 
@@ -243,15 +219,18 @@ export class Sim {
         a.lh = lerp(a.lh ?? E.humidity, C.humidityAt(a.pos.x, a.pos.y, a.pos.z), 0.25);
         T = a.lt; RH = a.lh;
       }
+      // Fish feel the water of the pond they are in (see sim/waterbodies.js).
+      const Q = aquatic ? W.water.bodies.at(a.pos.x, a.pos.z) ?? E : E;
+      if (aquatic) T = Q.temp ?? E.temp;
       a.T = T; a.RH = RH;
       if (T < tmin) { stress += (tmin - T) / 4; why.push('too cold'); }
       if (T > tmax) { stress += (T - tmax) / 3; why.push('too hot'); }
       if (aquatic) {
         if (a.stranded) { stress += 6; why.push('out of water'); }
-        if (E.ammonia > 0.25) { stress += (E.ammonia - 0.25) * 3; why.push('ammonia'); }
-        if (E.nitrite > 0.3) { stress += (E.nitrite - 0.3) * 2.5; why.push('nitrite'); }
-        if (E.nitrate > 60) { stress += (E.nitrate - 60) / 40; why.push('nitrate'); }
-        if (E.oxygen < 4.5) { stress += (4.5 - E.oxygen) * 0.8; why.push('low oxygen'); }
+        if (Q.ammonia > 0.25) { stress += (Q.ammonia - 0.25) * 3; why.push('ammonia'); }
+        if (Q.nitrite > 0.3) { stress += (Q.nitrite - 0.3) * 2.5; why.push('nitrite'); }
+        if (Q.nitrate > 60) { stress += (Q.nitrate - 60) / 40; why.push('nitrate'); }
+        if (Q.oxygen < 4.5) { stress += (4.5 - Q.oxygen) * 0.8; why.push('low oxygen'); }
         if (sp.kind === 'crawlWater' && W.water.surfaceAt(a.pos.x, a.pos.z) < a.pos.y) { stress += 4; why.push('out of water'); }
       } else if (sp.humidity) {
         if (RH < sp.humidity) { stress += (sp.humidity - RH) / 12; why.push('air too dry'); }

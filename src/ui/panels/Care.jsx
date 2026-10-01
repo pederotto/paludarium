@@ -99,6 +99,7 @@ export function CarePanel() {
       ) : tab === 'water' ? (
         <>
           <div class="chips"><button class="btn sm" onClick={() => { toast(Care.waterChange(ctx.game)); refresh(); }}><Icon name="flask" size={14} /> Change 40% of the water</button><button class="btn sm" onClick={() => { toast(Care.scrubAlgae(ctx.game)); refresh(); }}>Scrub algae</button></div>
+          <div class="chips"><button class="btn sm primary" onClick={() => openModal('flow')}><Icon name="drop" size={14} /> Flow balance: pump, valves and ponds</button></div>
           <Toggle label="Filter running" on={E.filter} set={(v) => { E.filter = v; }} />
           <Slider label="Filter media" value={E.mediaBio} min={0.2} max={eq.has('filterCanister') ? 1 : 0.6} step={0.05} set={(v) => { E.mediaBio = v; }} fmt={(v) => Math.round(v * 100) + '%'} />
           <p class="note">A filter is mostly a home for nitrifying bacteria: more media, more capacity. A canister filter allows more.</p>

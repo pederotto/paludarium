@@ -1,0 +1,23 @@
+/* Full screen, Zen mode and phone viewport fixes. */
+html, body { height: 100%; height: 100dvh; overscroll-behavior: none; }
+body { position: fixed; inset: 0; width: 100%; }
+#view, #ui { height: 100dvh; width: 100%; }
+#view { position: fixed; inset: 0; }
+#view canvas { width: 100% !important; height: 100% !important; }
+/* Standalone / fullscreen display modes keep content out of the notch and the home bar through the --s* insets. */
+@media (display-mode: fullscreen), (display-mode: standalone) { html { background: #060908; } }
+
+/* Zen: every control disappears; one small corner button brings them back. */
+body.zen #ui { display: none; }
+.zen-exit {
+  display: none; position: fixed; z-index: 50;
+  top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px));
+  width: 38px; height: 38px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 14, 12, 0.55); color: #e8f0ea; font: 600 18px/1 system-ui, sans-serif; cursor: pointer;
+  opacity: 0.35; transition: opacity 0.25s; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+body.zen .zen-exit { display: grid; place-items: center; }
+.zen-exit:hover, .zen-exit:focus-visible { opacity: 1; }
+.top .fsbtn { display: flex; gap: 2px; padding: 3px; border-radius: 12px; }
+.top .fsbtn button { background: transparent; border: 0; padding: 6px 8px; border-radius: 9px; cursor: pointer; display: grid; place-items: center; }
+.top .fsbtn button:hover, .top .fsbtn button.on { background: rgba(255, 255, 255, 0.1); }

@@ -149,6 +149,7 @@ export function InfoBanner() {
       <>
         <div class="bn-head"><b class="serif">Pool</b><span class="tag water">water</span></div>
         <div class="bn-line"><b>{p.litres.toFixed(2)} L</b> over <b>{Math.round(p.area)} cm²</b>, level {p.level.toFixed(1)} cm</div>
+        {p.body ? <div class="bn-line"><b>{p.body.name}</b>: NH₃ <b>{p.body.ammonia.toFixed(2)}</b> · NO₃ <b>{Math.round(p.body.nitrate)}</b> ppm · O₂ <b>{p.body.oxygen.toFixed(1)}</b> mg/L · <b>{p.body.temp.toFixed(1)} °C</b>, in {Math.round(p.body.inLph)} / out {Math.round(p.body.outLph)} L/h{p.body.spill?.dir ? `, spills ${p.body.spill.dir}` : ''}</div> : null}
         <p class="bn-fact">Pools fill from streams and falls and spill over their lowest lip. Amphibians lay eggs in the shallows; frogs cannot swim well.</p>
         <div class="bn-acts"><button class="btn sm primary" onClick={() => T.zoomTo(sel)}><Icon name="search" size={14} />Zoom in</button></div>
       </>
