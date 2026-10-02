@@ -63,7 +63,7 @@ Deploying: the workflow in `.github/workflows/pages.yml` builds and publishes to
 
 ## How it is built
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the architecture. In short: `src/engine` (renderer, camera, stage), `src/sim` (world, climate, animals, plants, hydrology, generator), `src/render` (terrain, water, lens, creatures), `src/game` (career, market, commissions, curator, events), `src/content` (all the words and numbers), `src/ui` (HUD and panels), `src/app` (the director that ties it together).
+See [docs/DESIGN.md](docs/DESIGN.md) for the architecture, the frame budget and the performance notes. In short: `src/util` (math helpers), `src/content` (all the words and numbers), `src/sim` (world, climate, animals, plants, hydrology, erosion, generator), `src/game` (career, market, commissions, curator, events), `src/render` (terrain, water, lens, creatures), `src/engine` (renderer, camera, stage), `src/editor` (the in-game tools), `src/ui` (HUD and panels), `src/app` (the director that ties it together). `tests/architecture.test.mjs` keeps the layering honest.
 
 ## What is next
 

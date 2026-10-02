@@ -19,3 +19,10 @@
   `public/assets/creatures/manifest.json`: `npm run import-creatures` writes it.
 - Back up with `npm run backup` after any batch of assets (see `tools/backup.sh`).
 - `dist/` and `test-output/` are build output and are git-ignored.
+
+## Structure and speed
+- `docs/DESIGN.md` has the layering rules and the performance notes; read them before touching rendering, loading or anything that runs every frame. `tests/architecture.test.mjs` fails on a new layer violation or an import cycle (`src/util` ▸ `content` ▸ `sim` ▸ `game` ▸ `render` ▸ `engine`, then `editor`/`ui`/`app` on top).
+- Measure, do not guess: `npm run build && npx vite preview --port 4173`, then `node tools/perf.mjs` (load, frame rate, long tasks; `--profile=1` for a CPU profile, `--cpu=4 --dpr=2` for a mid-range device). Compare builds interleaved and more than once: the first seconds in headless Chrome are noisy.
+- Nothing slow inside a frame. Slow processes that need no real time are generators run by `sim/jobs.js` under a per-frame budget (erosion is the model). A material must not evaluate expensive noise per fragment: bake it into a texture or branch on a uniform (the glass dew once cost half a retina frame).
+- Starting a game from the title reuses the title tank (`Game.restartTank`); anything that makes a tank keep state outside `World.clearAll`/`World.restart` has to reset it there. `tools/steps/restart.mjs` checks it.
+- Anything that resizes the canvas or rebuilds the pipeline must happen before the frame is drawn, never after (a blank frame is presented otherwise: `tools/steps/blank-frames.mjs`). `engine/governor.js` owns render scale, preset and frame cap; do not add other adaptive logic next to it.
