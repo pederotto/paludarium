@@ -28,6 +28,8 @@ jobs:
       - run: npm ci
       - run: npm run test:unit
       - run: npm run build
+      - name: Stamp the build
+        run: echo "{\"commit\":\"${GITHUB_SHA::7}\",\"built\":\"$(date -u +%FT%TZ)\"}" > dist/version.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
