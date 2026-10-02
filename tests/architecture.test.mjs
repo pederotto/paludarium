@@ -21,9 +21,10 @@ const MAY = {
   engine: ['util', 'content', 'sim', 'render'],
   editor: ['util', 'content', 'sim', 'render', 'engine', 'game', 'app', 'ui'],
   bench: ['util', 'content', 'sim', 'render', 'engine'],
+  diag: [],   // the metrics recorder knows nothing of the game: it is handed window.game at run time (src/diag/adapter.js)
   ui: ['util', 'content', 'sim', 'render', 'engine', 'game', 'editor', 'app'],
   app: ['util', 'content', 'sim', 'render', 'engine', 'game', 'editor', 'ui'],
-  main: ['util', 'content', 'sim', 'render', 'engine', 'game', 'editor', 'ui', 'app'],
+  main: ['util', 'content', 'sim', 'render', 'engine', 'game', 'editor', 'ui', 'app', 'diag'],
 };
 
 // Debt: sim entities own their scene objects (meshes, materials, views), and two content/game modules read the species and

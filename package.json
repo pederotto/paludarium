@@ -12,7 +12,10 @@
     "import-creatures": "node tools/import-creatures.mjs",
     "import-assets": "node tools/import-seedthree.cjs",
     "backup": "sh tools/backup.sh",
-    "drop-pull": "node tools/drop-pull.mjs"
+    "drop-pull": "node tools/drop-pull.mjs",
+    "metrics:serve": "node tools/metrics-serve.mjs",
+    "metrics:run": "node tools/metrics-run.mjs",
+    "metrics:report": "node tools/metrics-report.mjs"
   },
   "license": "MIT",
   "private": true,

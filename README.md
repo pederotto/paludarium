@@ -58,6 +58,9 @@ Other scripts:
 | `npm run bench -- <ids>` | Contact sheet of one or more creatures from the real game shading: `--lod=hi`, `--water=1`, `--views=front,side,top,three,closeup`, `--src=glb`. Output in `test-output/bench/`. |
 | `npm run import-creatures` | Turns `art-src/creatures/<id>.glb` models into optimised game assets (see [docs/ASSET_BRIEF.md](docs/ASSET_BRIEF.md)). |
 | `node tools/errcheck.mjs` | Loads the game headless and reports console and page errors. |
+| `npm run metrics:serve` | Serves `dist/` with the metrics recorder in every page: open the printed address on another computer and the numbers (frames, GPU latency, load phases, flashes, device) arrive in `metrics/`. `-- --https` gives the WebGPU path. See [docs/METRICS.md](docs/METRICS.md). |
+| `npm run metrics:run -- --label=x` | The same recorder in headless Chrome: a one-minute hands-off test and its report (`--lan`, `--cpu=4 --dpr=2`, `--outDir=…`, `--url=… --inject`, `--screencast`). |
+| `npm run metrics:report` | Reads recordings: the newest, `--list`, `--compare a b`, `--snaps`. |
 
 Deploying: the workflow in `.github/workflows/pages.yml` builds and publishes to GitHub Pages. In the repository settings, set Pages ▸ Source to **GitHub Actions** once.
 
