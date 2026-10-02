@@ -20,9 +20,10 @@
 
 import * as THREE from 'three/webgpu';
 import {
-  Fn, attribute, positionLocal, normalLocal, vec2, vec3, float, bool, sin, sqrt, mix, select, abs, max, mx_noise_float, normalize, dot, transformNormalToView,
+  Fn, attribute, positionLocal, normalLocal, vec2, vec3, float, bool, sin, sqrt, mix, select, abs, max, normalize, dot, transformNormalToView,
   cross, time, cameraPosition, positionWorld, pow, smoothstep, texture, uv, length,
 } from 'three/tsl';
+import { noise3 } from '../noise3.js';
 import { wet } from '../shaders.js';
 import { U } from '../uniforms.js';
 
@@ -70,7 +71,7 @@ function analyticEyes(eyes) {
     } else q = sqrt(x.mul(x).add(y.mul(y)));
     const pup = float(1).sub(smoothstep(0.86, 1.08, q));
     const dir = vec2(u, v).div(max(length(vec2(u, v)), 1e-4));                       // fine radial streaks in the iris
-    const streak = mx_noise_float(vec3(dir.x.mul(6), dir.y.mul(6), t.mul(2.5).add(e.seed ?? 3))).mul(0.22).add(1);
+    const streak = noise3(vec3(dir.x.mul(6), dir.y.mul(6), t.mul(2.5).add(e.seed ?? 3))).mul(0.22).add(1);
     const rim = vec3(...(e.rim ?? [0.006, 0.006, 0.008]));
     const limb = e.limb ? vec3(...e.limb) : rim;                                     // colour of the limbal ring at the edge of the cap
     let iris = mix(vec3(...e.inner), vec3(...e.outer), smoothstep(0.3, 0.9, t)).mul(streak);
@@ -112,17 +113,17 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   let n = normalize(nrm), n0 = float(0);
   if (ga > 0) {
     const e = 0.02;
-    n0 = mx_noise_float(P.mul(g));
-    const gx = mx_noise_float(P.add(vec3(e, 0, 0)).mul(g)).sub(n0);
-    const gy = mx_noise_float(P.add(vec3(0, e, 0)).mul(g)).sub(n0);
-    const gz = mx_noise_float(P.add(vec3(0, 0, e)).mul(g)).sub(n0);
+    n0 = noise3(P.mul(g));
+    const gx = noise3(P.add(vec3(e, 0, 0)).mul(g)).sub(n0);
+    const gy = noise3(P.add(vec3(0, e, 0)).mul(g)).sub(n0);
+    const gz = noise3(P.add(vec3(0, 0, e)).mul(g)).sub(n0);
     const grad = vec3(gx, gy, gz).div(e);
     const bumpAmt = select(eye, float(0), select(fin, float(f.bump * 0.3), select(chitin, float(f.bump * 0.5), float(f.bump)))).mul(ga).mul(eyeOff);
     n = normalize(nrm.sub(grad.sub(nrm.mul(dot(grad, nrm))).mul(bumpAmt.mul(0.018))));
   }
 
   // Fine colour variation, stronger on skin than on eyes.
-  const vary = n0.mul(0.5 * ga).add(mx_noise_float(P.mul(g.mul(0.23)).add(11)).mul(0.5));
+  const vary = n0.mul(0.5 * ga).add(noise3(P.mul(g.mul(0.23)).add(11)).mul(0.5));
   const tone = float(1).add(vary.mul(select(eye, float(0), float(f.tone ?? 0.06))).mul(eyeOff));
   let color = base.mul(tone);
   // Iridescent film: shift hue with the viewing angle (a cosine palette on n·v).

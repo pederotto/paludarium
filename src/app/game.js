@@ -152,6 +152,14 @@ export class Game {
     if (this.scene && this.camera) this.gfx.build(this.scene, this.camera);
   }
 
+  // Resolves once everything on screen has its shaders (engine/compiler.js). Loading screens wait for this, so the tank
+  // appears whole; meanwhile the page keeps running and shaders build faster than during play.
+  async settle(timeout = 60000) {
+    const c = this.gfx.compiler;
+    c.budget = 40;
+    try { return await c.settled(timeout); } finally { c.budget = 8; }
+  }
+
   // The simulated speed multiplier right now (0 while paused).
   get rate() { return this.frozen ? 0 : this.lapse || SPEEDS[this.speed]; }
   setSpeed(i) { this.speed = Math.max(0, Math.min(SPEEDS.length - 1, i)); this.events.emit('speed', this.speed); }
@@ -203,6 +211,7 @@ export class Game {
     if (this._wasLapse && !lapse) this.gfx.governor?.warm(120);
     this._wasLapse = lapse;
     this.gfx.measuring = !lapse;
+    this.gfx.compiler.beginFrame();
     this.gfx.frame(dt);
     this.gfx.render();
     this._tickT += dt;

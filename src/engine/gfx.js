@@ -26,12 +26,13 @@ import { sharpen } from 'three/addons/tsl/display/SharpenNode.js';
 import { denoise } from 'three/addons/tsl/display/DenoiseNode.js';
 import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
 import { Governor, PRESETS, autoCeiling } from './governor.js';
+import { ShaderCompiler } from './compiler.js';
 
 export const QUALITY = {
-  ultra:    { label: 'Ultra',    dpr: 2,    ao: true,  aoScale: 0.75, aoSamples: 16, aa: 'smaa', sharpen: 0.55, bloom: true,  shadow: 4096, aniso: 16 },
-  high:     { label: 'High',     dpr: 1.5,  ao: true,  aoScale: 0.5,  aoSamples: 10, aa: 'smaa', sharpen: 0.7,  bloom: true,  shadow: 2048, aniso: 8 },
-  balanced: { label: 'Balanced', dpr: 1.25, ao: false, aoScale: 0.5,  aoSamples: 8,  aa: 'msaa', sharpen: 0,    bloom: true,  shadow: 2048, aniso: 4 },
-  low:      { label: 'Low',      dpr: 1,    ao: false, aoScale: 0.5,  aoSamples: 8,  aa: 'none', sharpen: 0,    bloom: false, shadow: 1024, aniso: 2 },
+  ultra:    { label: 'Ultra',    dpr: 2,    ao: true,  aoScale: 0.75, aoSamples: 16, aa: 'smaa', sharpen: 0.55, bloom: true, bloomScale: 0.5,  shadow: 4096, aniso: 16 },
+  high:     { label: 'High',     dpr: 1.5,  ao: true,  aoScale: 0.5,  aoSamples: 10, aa: 'smaa', sharpen: 0.7,  bloom: true, bloomScale: 0.5,  shadow: 2048, aniso: 8 },
+  balanced: { label: 'Balanced', dpr: 1.25, ao: false, aoScale: 0.5,  aoSamples: 8,  aa: 'msaa', sharpen: 0,    bloom: true, bloomScale: 0.25,  shadow: 2048, aniso: 4 },
+  low:      { label: 'Low',      dpr: 1,    ao: false, aoScale: 0.5,  aoSamples: 8,  aa: 'none', sharpen: 0,    bloom: false, bloomScale: 0.25, shadow: 1024, aniso: 2 },
 };
 
 // The look of the picture: everything here is live-adjustable uniforms.
@@ -69,7 +70,7 @@ function gpuName(r) {
   return '';
 }
 // Integrated, mobile and software renderers: they start on the Low preset (the governor raises it if the machine proves fast).
-const WEAK_GPU = /adreno|mali|powervr|videocore|swiftshader|llvmpipe|software|basic render|intel.*(hd |uhd|graphics 6|gen\d)/i;
+const WEAK_GPU = /adreno|qualcomm|mali|powervr|videocore|swiftshader|llvmpipe|software|basic render|intel.*(hd |uhd|graphics 6|gen\d)/i;
 
 export class Gfx {
   constructor(host, params = new URLSearchParams()) {
@@ -104,6 +105,9 @@ export class Gfx {
     r.shadowMap.type = THREE.PCFShadowMap;
     this.host.appendChild(r.domElement);
     await r.init();
+    // Shaders build in the background and under a per-frame budget (engine/compiler.js); ?synccompile turns it off.
+    this.compiler = new ShaderCompiler(r);
+    if (p.has('synccompile')) Object.assign(this.compiler.enabled, { async: false, budget: false, keep: false });
     this.backend = r.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL 2';
     this.maxAniso = r.getMaxAnisotropy?.() ?? 4;
     this.gpu = gpuName(r);
@@ -112,6 +116,9 @@ export class Gfx {
     const forced = p.has('lowres') || (q && QUALITY[q]);
     if (q && QUALITY[q]) this.quality = q;
     else if (this.backend !== 'WebGPU' && !p.has('lowres')) this.quality = WEAK_GPU.test(this.gpu) ? 'low' : 'balanced';
+    // WebGPU starts on High, except on an integrated or mobile GPU: Balanced (no ambient occlusion), from where the governor
+    // raises it to High if the machine proves fast. Starting high and stepping down cost a few slow seconds on such machines.
+    else if (!p.has('lowres') && WEAK_GPU.test(this.gpu)) this.quality = 'balanced';
     const capMax = this.maxFps;
     this.qCeil = autoCeiling(this.backend, this.quality);     // how high Auto may take the preset by itself (see governor.js)
     const saved = forced ? null : loadProfile();
@@ -191,16 +198,20 @@ export class Gfx {
     const bloomOn = q.bloom && !this.params.has('nobloom');
     this.pipeline?.dispose?.();
     // Foliage skips the AO darkening (see FOLIAGE in render/shaders.js); that needs the MRT, so only while there is one.
-    const withMRT = useAO || this.photo;
+    // Photo mode does not change the scene pass (its MRT or, on WebGL 2, its samples): depth of field needs only depth, and
+    // a different scene pass recompiles every shader in the scene (35 s on an M1 on WebGL 2, tools/journey.mjs). WebGPU
+    // cannot sample a multisampled depth texture, so there a multisampled pass still drops its samples for photo mode.
+    const withMRT = useAO;
     if (FOLIAGE.mrt !== withMRT) {
       FOLIAGE.mrt = withMRT;
       scene.traverse((o) => { if (o.material?.userData?.foliage) setFoliageMRT(o.material, withMRT); });
     }
     const post = this.pipeline = new THREE.RenderPipeline(this.renderer);
 
-    const scenePass = this.scenePass = pass(scene, camera, { samples: useAO || this.photo ? 0 : q.aa === 'msaa' ? 4 : 0 });
+    const msaa = q.aa === 'msaa' && !useAO && !(this.photo && this.backend === 'WebGPU');
+    const scenePass = this.scenePass = pass(scene, camera, { samples: msaa ? 4 : 0 });
     let color = scenePass;
-    if (useAO || this.photo) {
+    if (useAO) {
       scenePass.setMRT(mrt({ output, normal: packNormalToRGB(normalView) }));
       const col = scenePass.getTextureNode('output');
       color = col;
@@ -218,7 +229,13 @@ export class Gfx {
       }
     }
     if (this.photo) color = dof(color, scenePass.getViewZNode(), GRADE.focus, GRADE.focalLength, GRADE.bokeh);
-    if (bloomOn) color = color.add(bloom(color, GRADE.bloomStrength, 0.4, 0.9));
+    if (bloomOn) {
+      // A glow is soft: below High it is worked out at a quarter of the resolution (a quarter of the cost: the bloom chain is
+      // most of the post-processing on a weak GPU).
+      const b = bloom(color, GRADE.bloomStrength, 0.4, 0.9);
+      b.setResolutionScale(q.bloomScale ?? 0.5);
+      color = color.add(b);
+    }
 
     // Grade: exposure, then saturation and contrast around mid grey.
     color = vec4(color.rgb.mul(GRADE.exposure), 1);
@@ -278,7 +295,9 @@ export class Gfx {
       const due = this._frameNo % this.shadowEvery === 0;
       for (const sh of this._shadowLights) { sh.autoUpdate = false; if (due) sh.needsUpdate = true; }
     }
-    this.pipeline.render();
+    const c = this.compiler;
+    c.inFrame = true;
+    try { this.pipeline.render(); } finally { c.inFrame = false; }
   }
 
   // Call once per frame, before it is drawn, with the time since the previous drawn frame in seconds.

@@ -9,9 +9,10 @@
 
 import * as THREE from 'three/webgpu';
 import {
-  float, vec3, vec2, uv, time, mix, smoothstep, mx_noise_float, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
+  float, vec3, vec2, uv, time, mix, smoothstep, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
   attribute, fract, length, max, Fn, reflect,
 } from 'three/tsl';
+import { noise3 } from './noise3.js';
 import { TANK, MINUTES_PER_SECOND } from '../sim/tank.js';
 import { U } from './uniforms.js';
 import { waterSurfaceMaterial, SIM, FX } from './waterfx.js';
@@ -120,6 +121,10 @@ export class Water {
     this.hydro.setLevel(y);
     this.syncLevel();
   }
+
+  // Something other than the water moved the ground a little (a crab digging, sim/burrow.js): it reaches the mesh and the water
+  // by the same commit as erosion's changes, when a few millimetres have added up (see _commitDue), even with erosion off.
+  groundDisturbed() { this._pend = true; }
 
   groundChanged() {
     this._pend = false; this._commitT = 0;   // sculpting applies whatever erosion had moved too
@@ -465,6 +470,10 @@ export class Water {
         if (eco && eco.minute - this._lastSlump > 30) { this._lastSlump = eco.minute; W.log?.('A bank slumped.', 'info'); }
       }
       this._puffT -= dt;
+    } else if (this._pend) {
+      this._commitT += dt;
+      if (!this.jobs.busy && this._commitDue(dt)) this.jobs.add(this._commit());
+      this.jobs.pump(budget);
     }
     this.support.update(dt);
   }
@@ -586,7 +595,7 @@ function makeFlowMaterial() {
   const pattern = Fn(([ph]) => {
     const p = pw.xz.sub(vel.mul(ph.mul(cycle)));
     const a = dot(p, dir), b = dot(p, vec2(dir.y.negate(), dir.x));
-    return mx_noise_float(vec3(a.mul(0.9).div(stretch), b.mul(1.3), 0.5)).add(mx_noise_float(vec3(a.mul(2.3).div(stretch), b.mul(3.1), 3.1)).mul(0.5));
+    return noise3(vec3(a.mul(0.9).div(stretch), b.mul(1.3), 0.5)).add(noise3(vec3(a.mul(2.3).div(stretch), b.mul(3.1), 3.1)).mul(0.5));
   });
   const n = mix(pattern(ph0), pattern(ph1), blend);
   // Normal from the pattern (plus a gentle ripple).
@@ -614,9 +623,9 @@ function makeFallMaterial() {
   const m = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, roughness: 0.05 });
   const u = uv();
   const str = attribute('fstr', 'float');
-  const streak = mx_noise_float(vec3(u.x.mul(14.0), u.y.mul(0.35).sub(time.mul(6.0)), 0.5))
-    .add(mx_noise_float(vec3(u.x.mul(31.0), u.y.mul(0.8).sub(time.mul(9.0)), 2.5)).mul(0.6));
-  const fine = mx_noise_float(vec3(u.x.mul(60.0), u.y.mul(3.0).sub(time.mul(16.0)), 7.0));
+  const streak = noise3(vec3(u.x.mul(14.0), u.y.mul(0.35).sub(time.mul(6.0)), 0.5))
+    .add(noise3(vec3(u.x.mul(31.0), u.y.mul(0.8).sub(time.mul(9.0)), 2.5)).mul(0.6));
+  const fine = noise3(vec3(u.x.mul(60.0), u.y.mul(3.0).sub(time.mul(16.0)), 7.0));
   const edge = smoothstep(0.0, 0.3, u.x).mul(smoothstep(1.0, 0.7, u.x));
   const core = smoothstep(0.15, 0.5, u.x).mul(smoothstep(0.85, 0.5, u.x));
   const white = smoothstep(-0.1, 0.8, streak.add(fine.mul(0.3)));
@@ -631,7 +640,7 @@ function makeSplashMaterial() {
   const u = uv().sub(0.5);
   const r = u.length().mul(2);
   const ring = sin(r.mul(18).sub(time.mul(7))).mul(0.5).add(0.5);
-  const n = mx_noise_float(vec3(u.x.mul(9), u.y.mul(9), time.mul(2)));
+  const n = noise3(vec3(u.x.mul(9), u.y.mul(9), time.mul(2)));
   m.colorNode = vec3(0.95, 0.98, 1);
   m.opacityNode = smoothstep(1.0, 0.2, r).mul(ring.mul(0.35).add(n.mul(0.35)).add(0.15));
   return m;

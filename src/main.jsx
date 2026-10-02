@@ -63,7 +63,7 @@ async function busy(text, fn) {
   mark('start');
   S.busy.value = { text };
   await new Promise((r) => setTimeout(r, 30));
-  try { await fn(); } catch (e) { console.error(e); toast('Could not start: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; mark('started'); }
+  try { await fn(); await game.settle(); } catch (e) { console.error(e); toast('Could not start: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; mark('started'); }
 }
 
 ctx.start = {
@@ -102,8 +102,9 @@ render(<App />, document.getElementById('ui'));
 ctx.relayout = bindLayout(game);
 Kids.install(game);
 Modes.install(game);
-window.__S = S; window.__setMode = Modes.setMode;   // debug handles for tools/steps
+window.__S = S; window.__ctx = ctx; window.__setMode = Modes.setMode;   // debug handles for tools/steps and tools/journey.mjs
 mark('ui');
 game.start();
+await game.settle();
 loading.classList.add('gone');
 mark('veil');

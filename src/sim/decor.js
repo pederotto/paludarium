@@ -19,11 +19,11 @@
 // makes re-stamping fast enough to follow a piece while you drag it.
 
 import * as THREE from 'three/webgpu';
-import { float, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWorld, smoothstep, normalWorld, mix, mx_noise_float } from 'three/tsl';
+import { float, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWorld, smoothstep, normalWorld, mix } from 'three/tsl';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { TEX, modelParts } from '../render/assets.js';
-import { plantMaterial, hardscapeMaterial, mouldMix, wet, triplanar, blendWeights } from '../render/shaders.js';
+import { plantMaterial, hardscapeMaterial, mouldMix, wet, triplanar, blendWeights, noise3 } from '../render/shaders.js';
 import { U } from '../render/uniforms.js';
 import { MAT, NMAT, TANK } from './tank.js';
 import { rng, clamp } from '../util/math.js';
@@ -122,12 +122,12 @@ function spireMaterial(tint = null) {
   const stone = mix(
     triplanar(TEX.lichen, s, pw, bf).mul(vec3(0.85, 0.85, 0.88)),
     triplanar(TEX.cliff, 1 / 30, pw, bf).dot(vec3(0.3, 0.5, 0.2)).mul(vec3(0.5, 0.5, 0.52)),
-    smoothstep(-0.3, 0.3, mx_noise_float(pw.mul(0.06))),
+    smoothstep(-0.3, 0.3, noise3(pw.mul(0.06))),
   );
   const nd = triplanar(TEX.lichenNormal, s, pw, bf).mul(2).sub(vec3(1, 1, 2));
   m.normalNode = normalize(normalView.add(cameraViewMatrix.mul(vec4(nd, 0)).xyz.mul(0.8)));
   const up = normalWorld.y;
-  const n = mx_noise_float(pw.mul(0.3)).mul(0.4).add(mx_noise_float(pw.mul(1.1)).mul(0.2));
+  const n = noise3(pw.mul(0.3)).mul(0.4).add(noise3(pw.mul(1.1)).mul(0.2));
   const aboveWater = smoothstep(0.0, 1.5, pw.y.sub(U.waterLevel));
   const cover = smoothstep(0.45, 0.8, up.add(n).sub(float(1).sub(U.rockMoss).mul(0.9))).mul(aboveWater);
   const mossCol = triplanar(TEX.ground[4], 1 / 8, pw, bf).mul(vec3(0.55, 0.8, 0.42));

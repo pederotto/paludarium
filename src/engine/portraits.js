@@ -1,7 +1,9 @@
-// Species portraits for the Field Guide, rendered from the game's own models by
-// a small second renderer with a transparent canvas, cached as PNG data URLs.
-// One portrait is drawn at a time, in the background, so opening the guide
-// never stalls a frame.
+// Species portraits for the Add menu, the Field Guide and Kids mode.
+//
+// They are baked ahead of time into public/assets/portraits/ (tools/bake-portraits.mjs), so the game shows a file. Only a
+// species or plant without a file is rendered here, live, from the game's own models by a small second renderer with a
+// transparent canvas (cached as a PNG data URL, one at a time): that costs a renderer, every plant model and the species'
+// body and shaders, about a minute and freezes of seconds the first time the animal menu opened, so keep the files current.
 
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -13,8 +15,15 @@ import { setFoliageMRT } from '../render/shaders.js';
 const SIZE = 320;
 const VIEW = new THREE.Vector3(0.62, 0.34, 0.8).normalize();
 
+const DIR = (import.meta.env?.BASE_URL ?? './') + 'assets/portraits/';
+let baked = null;   // Promise<Set of '<kind>-<id>'>
+function bakedSet() {
+  return (baked ??= fetch(DIR + 'index.json').then((r) => (r.ok ? r.json() : [])).then((a) => new Set(a)).catch(() => new Set()));
+}
+
 export class Portraits {
-  constructor() {
+  constructor({ live = false } = {}) {
+    this.live = live;              // true: always render (the baking tool)
     this.cache = new Map();
     this.queue = Promise.resolve();
     this.ready = null;
@@ -44,6 +53,15 @@ export class Portraits {
   get(kind, id) {
     const key = kind + ':' + id;
     if (this.cache.has(key)) return this.cache.get(key);
+    if (!this.live) {
+      const p = bakedSet().then((set) => (set.has(kind + '-' + id) ? DIR + kind + '-' + id + '.webp' : this.render(kind, id, key)));
+      this.cache.set(key, p);
+      return p;
+    }
+    return this.render(kind, id, key);
+  }
+
+  render(kind, id, key) {
     const p = this.queue.then(async () => {
       this.ready ??= this.init();
       await this.ready;

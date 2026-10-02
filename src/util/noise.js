@@ -71,6 +71,36 @@ export function* perlinPlane(out, size, cells, seed = 1, rowsPerBatch = 32) {
   }
 }
 
+// Improved Perlin gradient noise in 3D, periodic with `cells` lattice cells in each direction, sampled on a `size`^3 grid
+// (x fastest). It is the noise MaterialX's mx_noise_float evaluates per fragment (same gradient set, quintic fade, the
+// same 0.982 scale, so the same range and spread), with its own hash: render/noise3.js samples this volume instead of
+// evaluating the noise in the shader. A generator like the others: it yields after each z slice.
+export function* perlinVolume(out, size, cells, seed = 1) {
+  const n3 = cells * cells * cells, hs = new Uint8Array(n3);
+  for (let k = 0; k < cells; k++) for (let j = 0; j < cells; j++) for (let i = 0; i < cells; i++) hs[(k * cells + j) * cells + i] = (hash3i(i, j, k, seed) * 4294967296) & 15;
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+  // MaterialX's gradient: the 12 cube edges plus 4 repeats, picked by the low four bits of the hash.
+  const grad = (h, x, y, z) => { const u = h < 8 ? x : y, v = h < 4 ? y : h === 12 || h === 14 ? x : z; return ((h & 1) ? -u : u) + ((h & 2) ? -v : v); };
+  const step = cells / size;
+  for (let z = 0; z < size; z++) {
+    const w = z * step, k0 = Math.floor(w), fz = w - k0, k1 = (k0 + 1) % cells, sw = fade(fz);
+    for (let y = 0; y < size; y++) {
+      const v = y * step, j0 = Math.floor(v), fy = v - j0, j1 = (j0 + 1) % cells, sv = fade(fy);
+      for (let x = 0; x < size; x++) {
+        const u = x * step, i0 = Math.floor(u), fx = u - i0, i1 = (i0 + 1) % cells, su = fade(fx);
+        const h = (i, j, k) => hs[(k * cells + j) * cells + i];
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const x00 = lerp(grad(h(i0, j0, k0), fx, fy, fz), grad(h(i1, j0, k0), fx - 1, fy, fz), su);
+        const x10 = lerp(grad(h(i0, j1, k0), fx, fy - 1, fz), grad(h(i1, j1, k0), fx - 1, fy - 1, fz), su);
+        const x01 = lerp(grad(h(i0, j0, k1), fx, fy, fz - 1), grad(h(i1, j0, k1), fx - 1, fy, fz - 1), su);
+        const x11 = lerp(grad(h(i0, j1, k1), fx, fy - 1, fz - 1), grad(h(i1, j1, k1), fx - 1, fy - 1, fz - 1), su);
+        out[(z * size + y) * size + x] = 0.982 * lerp(lerp(x00, x10, sv), lerp(x01, x11, sv), sw);
+      }
+    }
+    yield;
+  }
+}
+
 // float -> IEEE half float bits (for textures: WebGPU can filter 16-bit floats everywhere).
 const f32 = new Float32Array(1), u32 = new Uint32Array(f32.buffer);
 export function toHalf(v) {

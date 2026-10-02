@@ -19,7 +19,7 @@ function MenuPop() {
   const busy = async (text, fn) => {
     S.busy.value = { text };
     await new Promise((r) => setTimeout(r, 30));
-    try { await fn(); } catch (e) { console.error(e); toast('That did not work: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; }
+    try { await fn(); await ctx.game?.settle(); } catch (e) { console.error(e); toast('That did not work: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; }
   };
   const item = (icon, label, desc, onClick, on) => (
     <button class={'hi' + (on ? ' on' : '')} role="menuitem" title={label} data-testid={'menu-' + label} onClick={onClick}>
