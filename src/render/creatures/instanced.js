@@ -18,11 +18,16 @@
 //   pose      0 … 1 in anim.w. For frogs and salamanders: swimming (the forelegs sweep back along the flanks and the
 //             hind legs splay and close as they extend: with hop driven by a kick cycle this is the breaststroke;
 //             for a newt hop = 1 trails the hind legs along the tail). For a crab (legAxis 'x'): the claws wave.
+//   rig2      (finish.rig2 = { neck, s0, s1, neckY, len }) a second per-instance vec4, iAnim2 = (head yaw, head pitch, body bend,
+//             tail swing), for animals that steer the head apart from the body: a salamander sweeping its snout, a gecko looking
+//             up the wall, the C-curve of a turn or a warning arch, a tail that waves. Yaw and pitch (radians, + = toward +x /
+//             nose up) rotate the part of the body ahead of the neck (`neck`: spine fraction of the pivot; the weight is 1 at
+//             `s0` and 0 at `s1`; `neckY` the pivot height; `len` the model length, cm); bend and tail are fractions of `len`.
 //   legAxis   'x' for a sideways walker (crab): the gait swings feet along the body's x axis, in the direction given
 //             by the sign of anim.y (the body wave is not used).
 
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, positionLocal, normalLocal, float, sin, cos, max, min, abs, floor, fract, select, sign, cross, transformNormalToView } from 'three/tsl';
+import { Fn, attribute, positionLocal, normalLocal, float, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
 import { packAnim } from '../../util/gait.js';
 import { requestBody } from './meshpool.js';
@@ -40,10 +45,12 @@ export class CreatureMesh {
     this.iPos = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);   // xyz position, w scale
     this.iRot = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);
     this.iAnim = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);
-    for (const a of [this.iPos, this.iRot, this.iAnim]) a.setUsage(THREE.DynamicDrawUsage);
+    this.iAnim2 = finish.rig2 ? new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4) : null;   // only the species that steer the head (finish.rig2)
+    for (const a of [this.iPos, this.iRot, this.iAnim, this.iAnim2]) a?.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('iPos', this.iPos);
     g.setAttribute('iRot', this.iRot);
     g.setAttribute('iAnim', this.iAnim);
+    if (this.iAnim2) g.setAttribute('iAnim2', this.iAnim2);
     g.instanceCount = 0;
     this.geometry = g;
 
@@ -71,17 +78,19 @@ export class CreatureMesh {
 
   begin() { this.n = 0; }
 
-  put(pos, quat, scale, a0 = 0, a1 = 0, a2 = 0, a3 = 0) {
+  put(pos, quat, scale, a0 = 0, a1 = 0, a2 = 0, a3 = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0) {
     if (this.n >= this.cap) return;
     const i = this.n++;
     this.iPos.setXYZW(i, pos.x, pos.y, pos.z, scale);
     this.iRot.setXYZW(i, quat.x, quat.y, quat.z, quat.w);
     this.iAnim.setXYZW(i, a0, a1, a2, a3);
+    this.iAnim2?.setXYZW(i, b0, b1, b2, b3);
   }
 
   end() {
     this.geometry.instanceCount = this.n;
-    for (const a of [this.iPos, this.iRot, this.iAnim]) {
+    for (const a of [this.iPos, this.iRot, this.iAnim, this.iAnim2]) {
+      if (!a) continue;
       a.clearUpdateRanges();
       a.addUpdateRange(0, this.n * a.itemSize);
       a.needsUpdate = true;
@@ -137,10 +146,32 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
   const iPos = attribute('iPos', 'vec4');
   const flutter = float(finish.flutter ?? 0.04);
   const waveHead = finish.waveHead ?? 0;
+  const rig2 = finish.rig2 ?? null;
   const side = legAxis === 'x';
   m.positionNode = Fn(() => {
     const spine = rig.x, leg = rig.y, legT = rig.z;
     const p = positionLocal.toVar();
+    // Head and body steering (finish.rig2): the head turns about the neck on its own, the body curves into a C, the tail swings.
+    if (rig2) {
+      const a2 = attribute('iAnim2', 'vec4');
+      const { neck, s0, s1, neckY, len } = rig2;
+      const noLeg = leg.lessThan(0.5).select(float(1), float(0));
+      const hw = float(1).sub(smoothstep(s0, s1, spine)).mul(noLeg);
+      const dz = float(neck).sub(spine).mul(len);                    // how far ahead of the neck pivot (cm)
+      const dy = p.y.sub(neckY);
+      const cy = cos(a2.x.mul(hw)), sy = sin(a2.x.mul(hw));
+      const cp = cos(a2.y.mul(hw)), spn = sin(a2.y.mul(hw));
+      // yaw about the vertical through the neck, then pitch about the horizontal through it
+      const x0 = p.x.toVar(), dyv = dy.toVar(), dzv = dz.toVar();     // (nodes are lazy: pin the inputs before p is assigned)
+      const x1 = x0.mul(cy).add(dzv.mul(sy)).toVar(), dz1 = dzv.mul(cy).sub(x0.mul(sy)).toVar();
+      const dy2 = dyv.mul(cp).add(dz1.mul(spn)).toVar(), dz2 = dz1.mul(cp).sub(dyv.mul(spn)).toVar();
+      p.x.assign(x1); p.y.assign(dy2.add(neckY)); p.z.addAssign(dz2.sub(dzv));
+      // C-curve about the shoulders (head and tail swing to the same side), tail swing beyond the middle
+      const c0 = spine.sub(0.4);
+      p.x.addAssign(a2.z.mul(len).mul(c0.mul(c0)));
+      const tt = max(spine.sub(0.5).mul(2), float(0));
+      p.x.addAssign(a2.w.mul(len).mul(tt.mul(tt)));
+    }
     // Per-instance state, unpacked from anim.w (see packAnim).
     const n0 = floor(anim.w.mul(0.5));
     const hopv = anim.w.sub(n0.mul(2));
@@ -282,14 +313,15 @@ export class CreatureLOD {
 
   begin() { this._lo?.begin(); this.hi?.begin(); }
   // `d2` is the squared distance from the camera to the animal.
-  put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9) {
+  // b0 … b3: the second channel (finish.rig2: head yaw, head pitch, body bend, tail swing).
+  put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9, b0 = 0, b1 = 0, b2 = 0, b3 = 0) {
     const lo = this._lo;
     if (!lo) return;
     if (d2 < this.near2) {
-      if (this.hi) { this.hi.put(pos, quat, scale, a0, a1, a2, a3); return; }
+      if (this.hi) { this.hi.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3); return; }
       this.wants = true;
     }
-    lo.put(pos, quat, scale, a0, a1, a2, a3);
+    lo.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3);
   }
   end() { this._lo?.end(); this.hi?.end(); }
   get mesh() { return this._lo?.mesh; }

@@ -2,6 +2,8 @@
 //
 //   node tools/animals-seq.mjs --scenario=swim|walk|crab|salamander --species=dartfrog,toad [--url=http://localhost:4173/]
 //        [--out=test-output/seq] [--tag=after] [--frames=8] [--dt=0.2] [--warm=2] [--size=420] [--view=side|three|top]
+//        [--night=1|0|sense]   the game clock: 23:00 with the lamp off, or noon; `sense`: noon in the picture, night to the animals (a salamander or gecko is only out at night)
+//        [--force=walk|hop|turn|tap|call|go]   (go: a salamander, newt, axolotl or gecko ends its pause and sets off)
 //        [--force=walk|hop|turn|tap|call]   a frog or toad on land is made to do that right after the warm-up (a walk or hop of
 //        about 4 cm ahead, a half turn on the spot, toe tapping at a fly in front of it, a calling bout), so a short sequence shows it
 //
@@ -24,6 +26,8 @@ const frames = +arg('frames', 8), dt = +arg('dt', 0.2), warm = +arg('warm', 2), 
 const view = arg('view', 'three');
 const cols = +arg('cols', 4);
 const force = arg('force', '');
+const cool = arg('cool', '');         // a temperature (°C) the air is held at, e.g. 15 for a fire salamander (the starter tank is about 24)
+const night = arg('night', '');       // 1: the lamp is off and it is 23:00 (salamanders and geckos are out); 0: noon
 fs.mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
@@ -44,11 +48,14 @@ await page.addStyleTag({ content: '#ui{display:none!important}' });
 
 for (const id of species) {
   // Set the scene: one animal, in the right place, world paused.
-  const setup = await page.evaluate(({ id, scenario }) => {
+  const setup = await page.evaluate(({ id, scenario, night, cool }) => {
     const g = window.game, W = g.world, A = W.animals;
     g.setSpeed(0);
     for (const arr of Object.values(A.by)) for (const a of [...arr]) A.remove(a, 'removed');
     A.food = [];
+    if (night === 'sense') { W.env.bright = () => 0; }       // the animals feel night while the picture stays lit
+    if (cool !== '') { W.climate.tempAt = () => +cool; W.env.temp = +cool; }
+    if (night !== '') { const E = W.env; E.minute = Math.floor(E.minute / 1440) * 1440 + (night === '1' ? 23 * 60 : 12 * 60); }
     const T = W.terrain;
     const V = (x, y, z) => { const v = A.scene ? null : null; return { x, y, z }; };
     // Find a spot: deepest water at least 6 cm from the nearest dry cell (swim), or dry open ground within 14 cm of water (walk).
@@ -82,7 +89,7 @@ for (const id of species) {
     if (!best) return { error: 'no spot' };
     const ctor = A.food.constructor && (A.pos0 ?? null);
     return { best, level: W.water.level };
-  }, { id, scenario });
+  }, { id, scenario, night, cool });
   if (setup.error) { console.log(id, setup.error); continue; }
   const placed = await page.evaluate(({ id, scenario, best }) => {
     const g = window.game, W = g.world, A = W.animals;
@@ -119,7 +126,7 @@ for (const id of species) {
   }, secs);
   const probe = () => page.evaluate(() => {
     const a = window.__a, f = (v) => +(+v).toFixed(2);
-    return { t: f(window.game.world.animals.t), pos: a.pos.toArray().map(f), yaw: f(a.yaw), swimming: !!a.swimming, speed: f(a.speedNow ?? 0), state: a.state ?? a.fs ?? '', fs: a.fs, mode: a.mode, kick: f(a.kick ?? 0), hop: !!a.hop, shore: !!a.shore, gait: f(a.gait ?? 0), why: (a.why ?? []).join('|'), hp: f(a.health) };
+    return { t: f(window.game.world.animals.t), pos: a.pos.toArray().map(f), yaw: f(a.yaw), swimming: !!a.swimming, speed: f(a.speedNow ?? 0), state: a.state ?? a.fs ?? '', fs: a.fs, mode: a.hm?.mode ?? a.mode, act: a.hit ? f(a.hit.act) : undefined, T: a.T && f(a.T), RH: a.RH && f(a.RH), hunger: f(a.hunger), dbg: a.hm && JSON.stringify({ g: a.hit?.goal && [f(a.hit.goal.x), f(a.hit.goal.z)], sp: a.hit && f(a.hit.speed), ml: f(a.hm.moveLeft), pl: f(a.hm.pauseLeft), calm: a.hit?.calm, ok: window.game.world.animals.okFor('land', a.pos.x, a.pos.z), side: [0,1,2,3].map((k)=>window.game.world.animals.okFor('land', a.pos.x + Math.sin(k*1.57)*1.5, a.pos.z + Math.cos(k*1.57)*1.5)), mg: a.hm.goal && [f(a.hm.goal.x), f(a.hm.goal.z)] }), kick: f(a.kick ?? 0), hop: !!a.hop, shore: !!a.shore, gait: f(a.gait ?? 0), why: (a.why ?? []).join('|'), hp: f(a.health) };
   });
 
   await advance(warm);
@@ -131,9 +138,11 @@ for (const id of species) {
     else if (force === 'hop') { const to = ahead(4); to.y = window.game.world.terrain.heightAt(to.x, to.z); A.startHop(a, to, 1.4); }
     else if (force === 'turn') { a.faceTo = a.yaw + Math.PI; a.afterTurn = 'sit'; a.fs = 'turn'; }
     else if (force === 'tap') { a.fs = 'sit'; a.fsT = 99; a.tapT = 99; }
+    else if (force === 'go' && a.hm) { a.hm.pauseLeft = 0; a.hm.moveLeft = 0; a.hm.goal = null; a.hm.mode = 'forage'; a.hm.modeT = 0; }       // a salamander or gecko sets off now
     else if (force === 'call') { a.fs = 'sit'; a.fsT = 99; a.male = true; a.v ??= null; if (a.v) a.v.callNext = 0; }
     void sp;
   }, { force });
+  if (arg('trace', '')) console.log(await page.evaluate(() => { const A = window.game.world.animals, a = window.__a, out = []; for (let i = 0; i < 25; i++) { A.move(0.04); out.push(`${a.pos.x.toFixed(2)},${a.pos.z.toFixed(2)} yaw ${a.yaw.toFixed(2)} hsp ${(a.hsp ?? 0).toFixed(2)} sp ${a.hit?.speed} g ${a.hit?.goal ? a.hit.goal.x.toFixed(1) + ',' + a.hit.goal.z.toFixed(1) : '-'} still ${(a.stillT ?? 0).toFixed(1)}`); } return out.join('\n'); }));
   const shots = [], tel = [];
   for (let i = 0; i < frames; i++) {
     await cam(dist);
@@ -154,7 +163,7 @@ for (const id of species) {
   await sharp({ create: { width: cols * size, height: rows * size, channels: 3, background: '#050607' } }).composite([...comps, ...labels]).png().toFile(file);
   fs.writeFileSync(file.replace('.png', '.json'), JSON.stringify(tel, null, 1));
   console.log(id, '->', file);
-  console.log(tel.map((t) => `${t.t}s ${t.swimming ? 'SWIM' : (t.fs ?? t.state)} v=${t.speed} pos=${t.pos.join(',')} kick=${t.kick} hop=${t.hop} shore=${t.shore} why=${t.why}`).join('\n'));
+  console.log(tel.map((t) => `${t.dbg ?? ''} ${t.t}s ${t.swimming ? 'SWIM' : (t.fs ?? t.state)} ${t.mode ?? ''} act=${t.act} T=${t.T} RH=${t.RH} v=${t.speed} pos=${t.pos.join(',')} kick=${t.kick} hop=${t.hop} shore=${t.shore} why=${t.why}`).join('\n'));
 }
 if (errors.length) console.log('console errors:\n' + [...new Set(errors)].slice(0, 6).join('\n'));
 await browser.close();

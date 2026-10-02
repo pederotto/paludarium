@@ -141,6 +141,7 @@ function Inspector({ live }) {
       <div class="card glass">
         <div class="stage-line"><b>{sp.name}</b><button class="btn ghost icon sm" onClick={() => openModal('codex', 'animal:' + a.sp)} title="Field guide"><Icon name="book" size={14} /></button></div>
         <div class="note" style={{ marginTop: 0 }}>{sp.group} · {(a.age / 1440).toFixed(1)} days old</div>
+        {a.doing ? <Row label="Doing" value={a.doing} /> : null}
         <Row label="Health" value={Math.round(a.health * 100) + '%'} level={a.health < 0.4 ? 'bad' : a.health < 0.7 ? 'warn' : 'good'} />
         <Row label="Hunger" value={Math.round(a.hunger * 100) + '%'} level={a.hunger > 0.75 ? 'bad' : a.hunger > 0.5 ? 'warn' : ''} />
         {a.T != null ? <Row label="Where it sits" value={`${a.T.toFixed(1)} °C${a.RH != null && sp.humidity ? `, ${Math.round(a.RH)}% RH` : ''}`} /> : null}

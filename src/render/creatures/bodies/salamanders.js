@@ -323,9 +323,9 @@ function axolotlShape(st) {
 
   // Gills: three stalks per side, each a bottle-brush of filaments.
   const GILLS = [
-    { base: [0.80, 0.36, 2.2], dir: [0.42, 0.78, -0.46], len: 1.5, curl: [0.05, 0.14, -0.2] },
-    { base: [0.90, 0.06, 2.15], dir: [0.86, 0.34, -0.38], len: 1.7, curl: [0.1, 0.16, -0.25] },
-    { base: [0.90, -0.24, 2.05], dir: [0.88, -0.05, -0.47], len: 1.35, curl: [0.1, 0.1, -0.25] },
+    { base: [0.80, 0.34, 2.2], dir: [0.55, 0.52, -0.66], len: 1.75, curl: [0.12, -0.12, -0.28] },
+    { base: [0.90, 0.06, 2.15], dir: [0.86, 0.18, -0.5], len: 1.95, curl: [0.14, -0.14, -0.3] },
+    { base: [0.90, -0.24, 2.05], dir: [0.84, -0.12, -0.55], len: 1.5, curl: [0.12, -0.12, -0.3] },
   ];
   const gills = [];
   for (const side of [-1, 1]) {
@@ -341,8 +341,8 @@ function axolotlShape(st) {
       rods.chain([B, Mid, T], rr);
       // frame for the filament fan
       const P0 = norm3(cross3(D, [0, 1, 0.01])), Q0 = cross3(D, P0);
-      const n = fine ? 15 : 7;
-      const fr0 = fine ? 0.047 : 0.08, fr1 = fine ? 0.026 : 0.05;
+      const n = fine ? 26 : 10;
+      const fr0 = fine ? 0.04 : 0.075, fr1 = fine ? 0.02 : 0.045;
       for (let i = 0; i < n; i++) {
         const s = 0.12 + (0.86 * i) / (n - 1);
         // point on the (quadratic) rachis
@@ -350,8 +350,8 @@ function axolotlShape(st) {
         const phi = i * 2.4 + gi * 1.3 + (side < 0 ? 0.7 : 0);
         const th = 0.9 + 0.25 * (hash1(i + gi * 7) - 0.5);
         const dir = norm3(add3(add3(D, [0, 0, 0], 0), add3(P0.map((v) => v * Math.cos(phi)), Q0, Math.sin(phi)), Math.tan(th) * 0.95));
-        const len = (fine ? 0.62 : 0.55) * (1 - 0.5 * s) * (0.85 + 0.3 * hash1(i * 3 + gi));
-        const swept = [dir[0], dir[1] - 0.05, dir[2] - 0.15];
+        const len = (fine ? 0.78 : 0.66) * (1 - 0.45 * s) * (0.8 + 0.4 * hash1(i * 3 + gi));
+        const swept = [dir[0], dir[1] - 0.22, dir[2] - 0.3];
         const dd = norm3(swept);
         rods.add(q, add3(q, dd, len), fr0, fr1);
       }
@@ -681,64 +681,85 @@ function newtBody() {
 // ==================================================================================================
 
 function geckoShape(st) {
+  // Snout at +z = 3.9, tail tip at -5.6 (9.5 cm). A flat body wider than it is tall, a distinct triangular head on a pinched
+  // neck, the tail starting thick at the vent and tapering to a fine tip.
   const loft = new Loft([
-    [-5.5, 0.40, 0.08, 0.08, 0.08],
-    [-4.7, 0.42, 0.11, 0.12, 0.11],
-    [-3.8, 0.45, 0.17, 0.18, 0.16],
-    [-2.9, 0.48, 0.25, 0.26, 0.23],
-    [-2.2, 0.52, 0.36, 0.32, 0.28],
-    [-1.5, 0.56, 0.50, 0.38, 0.33],
-    [-0.5, 0.58, 0.58, 0.42, 0.36],
-    [0.5, 0.58, 0.58, 0.42, 0.36],
-    [1.2, 0.58, 0.52, 0.38, 0.33],
-    [1.7, 0.57, 0.40, 0.33, 0.28],
-    [2.1, 0.55, 0.44, 0.31, 0.25],
-    [2.6, 0.53, 0.47, 0.29, 0.22],
-    [3.1, 0.50, 0.36, 0.23, 0.17],
-    [3.6, 0.48, 0.20, 0.15, 0.11],
-  ], { front: 0.6, back: 0.3 });
+    [-5.6, 0.30, 0.05, 0.05, 0.05],
+    [-4.9, 0.32, 0.09, 0.09, 0.08],
+    [-4.0, 0.34, 0.15, 0.14, 0.12],
+    [-3.0, 0.36, 0.23, 0.19, 0.16],
+    [-2.1, 0.38, 0.33, 0.24, 0.19],
+    [-1.4, 0.40, 0.44, 0.28, 0.22],
+    [-0.8, 0.42, 0.54, 0.30, 0.25],
+    [-0.1, 0.43, 0.59, 0.31, 0.26],
+    [0.7, 0.43, 0.59, 0.31, 0.26],
+    [1.25, 0.43, 0.51, 0.30, 0.25],
+    [1.75, 0.43, 0.41, 0.27, 0.22],
+    [2.15, 0.43, 0.46, 0.28, 0.21],
+    [2.6, 0.42, 0.47, 0.27, 0.19],
+    [3.05, 0.40, 0.37, 0.22, 0.16],
+    [3.5, 0.385, 0.25, 0.155, 0.115],
+    [3.9, 0.37, 0.12, 0.10, 0.08],
+  ], { front: 0.55, back: 0.3 });
 
   const legs = [];
   for (const side of [-1, 1]) {
     for (const back of [false, true]) {
-      const pts = back ? [[0.36, 0.46, -1.35], [1.15, 0.46, -0.85], [1.5, 0.12, -1.45]] : [[0.36, 0.46, 1.3], [1.05, 0.44, 0.98], [1.35, 0.12, 1.55]];
-      const rads = back ? [0.19, 0.12, 0.09] : [0.16, 0.11, 0.085];
+      const pts = back ? [[0.42, 0.42, -0.75], [1.22, 0.4, -0.42], [1.62, 0.12, -1.02]] : [[0.4, 0.42, 1.2], [1.12, 0.4, 0.92], [1.5, 0.12, 1.5]];
+      const rads = back ? [0.23, 0.145, 0.1] : [0.2, 0.13, 0.095];
       const rods = new Rods();
       rods.chain(flipX(pts, side), rads, 0, 0.5);
       const w = pts[2];
-      const angles = back ? [-25, 0, 25, 48, 70] : [-30, -3, 24, 50, 76];
-      const lens = back ? [0.55, 0.72, 0.85, 0.9, 0.72] : [0.5, 0.65, 0.72, 0.7, 0.55];
-      const tr = st.hi ? [0.05, 0.04] : [0.065, 0.055], pt = st.hi ? 0.032 : 0.048;
+      const angles = back ? [-18, 5, 27, 50, 74] : [-26, 0, 25, 50, 75];
+      const lens = back ? [0.5, 0.66, 0.76, 0.8, 0.64] : [0.44, 0.58, 0.64, 0.62, 0.5];
+      const tr = st.hi ? [0.055, 0.045] : [0.07, 0.06], pt = st.hi ? 0.034 : 0.05;
       const pads = [];
       for (let i = 0; i < angles.length; i++) {
         const an = (angles[i] * Math.PI) / 180, dx = Math.sin(an) * side, dz = Math.cos(an), L = lens[i];
         const b = [(w[0] + 0.02) * side, 0.07, w[2] + 0.08];
         const tip = [b[0] + dx * L, 0.07, b[2] + dz * L];
         rods.chain([b, [b[0] + dx * L * 0.5, 0.07, b[2] + dz * L * 0.5], tip], [tr[0], (tr[0] + tr[1]) / 2, tr[1]], 0.5, 1);
-        // the expanded pad covers the outer half of the toe
-        const hl = L * 0.27 + 0.04;
-        pads.push([b[0] + dx * (L - hl + 0.02), pt, b[2] + dz * (L - hl + 0.02), dx, dz, hl, pt, 0.115, 0.92]);
+        // the expanded adhesive pad covers the outer half of the toe, and a small claw pokes out past it
+        const hl = L * 0.3 + 0.04;
+        pads.push([b[0] + dx * (L - hl + 0.02), pt, b[2] + dz * (L - hl + 0.02), dx, dz, hl, pt, 0.14, 0.92]);
+        if (i === 1 || i === 2 || i === 3) rods.add([tip[0], 0.06, tip[2]], [tip[0] + dx * 0.16, 0.05, tip[2] + dz * 0.16], 0.035, 0.012, 0.95, 1);
       }
       legs.push(new Limb(back ? (side < 0 ? 3 : 4) : side < 0 ? 1 : 2, rods, pads));
     }
   }
-  // Big bulging eyes, looking up, out and a little forward; a lid rim (socket) around each.
+  // Big bulging eyes, looking up, out and a little forward, each under a raised brow.
   const eyes = [-1, 1].map((s) => {
-    const e = makeEye(loft, 0.34 * s, 0, 2.55, 0.25, 0.28);
+    const e = makeEye(loft, 0.355 * s, 0, 2.62, 0.265, 0.3);
     e.axis = norm3([e.axis[0], e.axis[1] * 0.8, e.axis[2] + 0.5]);
     e.sock = [e.c[0] - e.axis[0] * 0.08, e.c[1] - e.axis[1] * 0.08, e.c[2] - e.axis[2] * 0.08];
     return e;
   });
-  const mouth = new Table([[1.9, 0.47], [2.4, 0.44], [3.0, 0.42], [3.7, 0.42]], 0.02);
+  // The canthal ridge: a low crest from the nostril to the brow over each eye; the nostrils at the tip of the snout.
+  const ridges = new Rods();
+  for (const s of [-1, 1]) {
+    const e = eyes[s < 0 ? 0 : 1];
+    const top = (x, z) => loft.top(Math.abs(x), z);
+    ridges.chain([[0.09 * s, top(0.09, 3.75) - 0.01, 3.75], [0.17 * s, top(0.17, 3.2) + 0.0, 3.2], [e.c[0] * 0.92, e.c[1] + e.r * 0.78, e.c[2] + 0.18], [e.c[0] * 0.98, e.c[1] + e.r * 0.74, e.c[2] - 0.2]], [0.045, 0.06, 0.1, 0.085]);
+  }
+  ridges.done();
+  const nostrils = [-1, 1].map((s) => [0.085 * s, loft.top(0.085, 3.76) - 0.005, 3.76, 0.05]);
+  const mouth = new Table([[1.9, 0.47], [2.4, 0.44], [3.0, 0.42], [3.7, 0.4]], 0.02);
   const parts = [];
   for (const l of legs) parts.push({ near: (x, y, z) => l.near(x, y, z), d: (x, y, z) => l.d(x, y, z), k: 0.14 });
+  parts.push({ near: (x, y, z) => ridges.near(x, y, z), d: (x, y, z) => ridges.d(x, y, z), k: 0.07 });
+  for (const n of nostrils) parts.push({ near: sphereNear(n, n[3]), d: (x, y, z) => Math.hypot(x - n[0], y - n[1], z - n[2]) - n[3], k: 0.04 });
   for (const e of eyes) {
-    parts.push({ near: sphereNear(e.sock, e.r + 0.05), d: (x, y, z) => Math.hypot(x - e.sock[0], y - e.sock[1], z - e.sock[2]) - (e.r + 0.03), k: 0.06 });
+    parts.push({ near: sphereNear(e.sock, e.r + 0.05), d: (x, y, z) => Math.hypot(x - e.sock[0], y - e.sock[1], z - e.sock[2]) - (e.r + 0.035), k: 0.07 });
     parts.push({ near: sphereNear(e.c, e.r), d: (x, y, z) => Math.hypot(x - e.c[0], y - e.c[1], z - e.c[2]) - e.r, k: 0.03 });
   }
-  const core = (x, y, z) => loft.d(x, y, z);
+  // Fine granular skin: a faint relief of tiny scales on the geometry itself (at the fine level only).
+  const core = (x, y, z) => {
+    let d = loft.d(x, y, z);
+    if (st.hi && d < 0.1) d += (vnoise(x * 11, y * 11, z * 11) - 0.5) * 0.028;
+    return d;
+  };
   const sdf = (x, y, z) => unite(core(x, y, z), x, y, z, parts);
-  return { loft, legs, eyes, mouthY: (z) => mouth.v(0, z), sdf, core };
+  return { loft, legs, eyes, mouthY: (z) => mouth.v(0, z), sdf, core, ridges };
 }
 
 function geckoBody() {
@@ -746,10 +767,10 @@ function geckoBody() {
   const S = geckoShape(st);
   const { loft, legs, eyes, mouthY, sdf } = S;
   const cs = {
-    tan: C(0xb39a74), belly: C(0xe6dcc4), bar: C(0x5f4a33), dark: C(0x3a2c1e), pad: C(0xd9c3a3), line: C(0xa48b68),
-    gold: C(0xd4a83c), amber: C(0x9c6f22), rim: C(0x4a3a24), black: C(0x060504), limb: C(0xa08663),
+    tan: C(0x9a8260), grey: C(0x7f7566), belly: C(0xe4d6b8), bar: C(0x3b2b1b), dark: C(0x211710), pad: C(0xd8b79c), line: C(0x8f7650),
+    cream: C(0xd9c7a2), gold: C(0xd4a83c), amber: C(0x9c6f22), rim: C(0x4a3a24), black: C(0x060504), limb: C(0x8e7656), lip: C(0xcdbb98),
   };
-  const zS = 3.6, zT = -5.5, sc = [0, 0, 0, 0];
+  const zS = 3.9, zT = -5.6, sc = [0, 0, 0, 0];
   let last = null, lx = NaN, ly = NaN, lz = NaN;
   const analyze = (x, y, z) => {
     if (x === lx && y === ly && z === lz) return last;
@@ -767,6 +788,29 @@ function geckoBody() {
     if (L) { a.kind = 'limb'; a.leg = L.id; a.legT = L.t; a.pad = L.pad; }
     return (last = a);
   };
+  // The pattern. A mourning gecko is a pale brown to grey animal with a dark stripe from the nostril through the eye along each
+  // side of the back, irregular dark blotches down the middle, small cream flecks, and a banded tail.
+  const pattern = (x, y, z, lat, dorsal) => {
+    const ground = lerp3(cs.tan, cs.grey, 0.45 * vnoise(x * 1.3, y * 1.3, z * 1.3) + 0.2 * vnoise(x * 4, y * 4, z * 4));
+    let col = ground;
+    const broken = 0.55 + 0.6 * vnoise(x * 2.2 + 3, y * 2.2, z * 2.2);
+    // dorsolateral stripes
+    const stripe = sm(0.17, 0.05, Math.abs(Math.abs(lat) - 0.6)) * sm(-4.4, -2.6, z) * broken;
+    col = lerp3(col, cs.bar, stripe * dorsal * 0.95);
+    // middle blotches: irregular patches, strongest over the shoulders and hips
+    const blot = sm(0.44, 0.28, cells(x, y, z, 1.25) + (vnoise(x * 3, y * 3, z * 3) - 0.5) * 0.35) * sm(0.5, 0.15, Math.abs(lat)) * sm(-3.8, -2.0, z);
+    col = lerp3(col, cs.bar, blot * dorsal * 0.8);
+    // pale flecks
+    col = lerp3(col, cs.cream, sm(0.15, 0.08, cells(x + 7, y, z, 3.0)) * dorsal * 0.8);
+    // the tail: alternating light and dark bands, thinning toward the tip
+    if (z < -1.0) {
+      const f = (z * 1.55) - Math.floor(z * 1.55);
+      const band = sm(0.08, 0.3, f) * sm(0.7, 0.5, f);
+      col = lerp3(col, cs.bar, (0.2 + 0.45 * band) * (0.6 + 0.4 * dorsal));
+      col = lerp3(col, cs.cream, sm(0.78, 0.9, f) * 0.35);
+    }
+    return col;
+  };
   const color = (x, y, z) => {
     const a = analyze(x, y, z);
     if (a.kind === 'eye') {
@@ -783,40 +827,39 @@ function geckoBody() {
       if (a.pad) {
         const p = a.pad, s = ((x - p[0]) * p[3] + (z - p[2]) * p[4]) / p[5];
         const under = sm(p[1] + 0.01, p[1] - 0.015, y);
-        const lam = 0.5 + 0.5 * Math.cos(TAU * s * 3.2);
-        return lerp3(lerp3(cs.pad, cs.limb, 0.25), cs.line, lam * (0.25 + 0.5 * under) * sm(1.0, 0.75, Math.abs(s)));
+        const lam = 0.5 + 0.5 * Math.cos(TAU * s * 3.6);
+        return lerp3(lerp3(cs.pad, cs.limb, 0.2), cs.line, lam * (0.3 + 0.5 * under) * sm(1.0, 0.75, Math.abs(s)));
       }
+      // the leg: the body's ground colour with dark bars across it, and a pale foot
       const bars = 0.5 + 0.5 * Math.cos(TAU * (z * 2.2 + x * 1.3));
-      return lerp3(cs.limb, cs.bar, sm(0.6, 0.9, bars) * 0.55);
+      const g = lerp3(cs.limb, cs.grey, 0.3 * vnoise(x * 3, y * 3, z * 3));
+      return lerp3(lerp3(g, cs.bar, sm(0.62, 0.92, bars) * 0.5), cs.pad, sm(0.3, 0.1, y) * 0.55);
     }
     loft.sect(z, sc);
     const yy = y - sc[0], v = yy / (yy >= 0 ? sc[2] : sc[3]);
-    let col = lerp3(cs.belly, cs.tan, sm(-0.62, -0.1, v));
-    const dorsal = sm(-0.35, 0.25, v);
-    // chevrons pointing forward, broken up a little by noise; head and tail get the same idea
-    const ph = (z + 1.15 * Math.abs(x)) / 0.62, f = ph - Math.floor(ph);
-    const amp = 0.55 + 0.5 * vnoise(x * 3, y * 3, z * 3);
-    const bar = sm(0.17, 0.09, Math.abs(f - 0.5)) * amp * sm(3.0, 2.3, z);
-    col = lerp3(col, cs.bar, bar * dorsal * 0.85);
-    // a dark stripe from the nostril through the eye
-    if (z > 1.8) {
-      const e = y - (loft.t.v(0, z) + 0.06);
-      col = lerp3(col, cs.dark, sm(0.1, 0.03, Math.abs(e)) * sm(1.8, 2.3, z) * sm(0.2, 0.5, Math.abs(x) / Math.max(0.1, loft.t.v(1, z))) * 0.7);
+    const lat = x / Math.max(0.05, sc[1]);
+    const dorsal = sm(-0.4, 0.25, v);
+    let col = lerp3(cs.belly, pattern(x, y, z, lat, dorsal), sm(-0.7, -0.15, v));
+    // the head: a darker W-shaped mark behind the eyes, a stripe from the nostril through the eye, pale lips with dark flecks
+    if (z > 1.7) {
+      const e = y - (loft.t.v(0, z) + 0.08);
+      col = lerp3(col, cs.dark, sm(0.1, 0.03, Math.abs(e)) * sm(1.8, 2.3, z) * sm(0.15, 0.45, Math.abs(x) / Math.max(0.1, loft.t.v(1, z))) * 0.75);
       const m = y - mouthY(z);
-      col = lerp3(col, cs.line, Math.exp(-(m * m) / 0.0025) * 0.9);
-      for (const s of [-1, 1]) {
-        const dn = Math.hypot(x - s * 0.09, y - (loft.top(0.09, 3.35) - 0.02), z - 3.35);
-        col = lerp3(col, cs.dark, sm(0.07, 0.025, dn) * 0.9);
-      }
+      col = lerp3(col, cs.lip, sm(0.16, 0.04, Math.abs(m + 0.05)) * sm(1.8, 2.4, z) * 0.7);
+      col = lerp3(col, cs.line, Math.exp(-(m * m) / 0.0022) * 0.9);
+      const w = Math.abs(Math.abs(x) - 0.22 - 0.5 * Math.max(0, 2.0 - z));
+      col = lerp3(col, cs.bar, sm(0.07, 0.02, Math.abs(w + 0.3 * (z - 1.95))) * sm(1.6, 1.8, z) * sm(2.3, 2.05, z) * dorsal * 0.6);
     }
-    col = mul3(col, 0.94 + 0.12 * vnoise(x * 6, y * 6, z * 6));
+    // the throat and belly: pale, finely flecked
+    col = lerp3(col, mul3(cs.line, 0.9), sm(0.2, 0.1, cells(x, y, z, 5)) * sm(-0.2, -0.8, v) * 0.35);
+    col = mul3(col, 0.93 + 0.14 * vnoise(x * 9, y * 9, z * 9));
     return col;
   };
   const mat = (x, y, z) => (analyze(x, y, z).kind === 'eye' ? M.GLOSS : M.KERATIN);
   const rig = (x, y, z) => { const a = analyze(x, y, z); return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT]; };
   // Golden iris with a vertical lens-shaped slit pupil (drawn analytically, so it reads at the coarse mesh too).
-  const def = { sdf, lo: [-2.9, -0.25, -5.8], hi: [2.9, 1.3, 3.9], color, mat, rig, finish: {
-    rough: 0.7, coat: 0.05, coatRough: 0.5, grain: 0.6, bump: 0.004, tone: 0.02,
+  const def = { sdf, lo: [-3.0, -0.25, -5.9], hi: [3.0, 1.3, 4.2], color, mat, rig, finish: {
+    rough: 0.68, coat: 0.08, coatRough: 0.5, grain: 14, bump: 0.35, tone: 0.025,
     eyes: [eyeSpec(eyes[1], { pupil: [0.3, 0.8], shape: 'slit', inner: C(0xe6b83a), outer: C(0xa8741f), rim: C(0x050403), limb: C(0x4a3418), cap: 0.9, seed: 2 })],
   } };
   return lodDef(def, 0.07, 0.5, st);
