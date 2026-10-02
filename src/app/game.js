@@ -107,6 +107,7 @@ export class Game {
     this.stage.setLid(world.env.lid);
     // Opt-in (?precompile): builds the shaders before the first frame instead of inside it. Measured no faster, see gfx.compile.
     if (this.gfx.params.has('precompile')) await this.gfx.compile();
+    this.gfx.governor?.warm(240);   // the first frames of a tank compile its shaders
     this.showcase = showcase;
     this.events.emit('tank', world, spec);
     return world;
@@ -120,6 +121,7 @@ export class Game {
     const world = this.world;
     this.events.emit('unload', world);
     world.restart(layout === 'starter' && spec.id === 'standard' ? 'starter' : 'empty', save);
+    this.gfx.governor?.warm(120);
     this.showcase = false;
     this.stage.setLid(world.env.lid);
     this.events.emit('tank', world, spec);
@@ -154,10 +156,16 @@ export class Game {
   get rate() { return this.frozen ? 0 : this.lapse || SPEEDS[this.speed]; }
   setSpeed(i) { this.speed = Math.max(0, Math.min(SPEEDS.length - 1, i)); this.events.emit('speed', this.speed); }
 
+  // The frame loop, at most gfx.maxFps frames a second however fast the display refreshes (a 120 Hz screen would otherwise
+  // get twice the GPU work for a picture that gains nothing, and a GPU kept busy all the time starves the rest of the
+  // desktop). `due` is when the next frame is wanted; frames that come early are skipped.
   start() {
-    let last = performance.now();
+    let last = performance.now(), due = last;
     this.renderer.setAnimationLoop(() => {
       const now = performance.now();
+      if (now < due - 1.5) return;
+      const step = 1000 / this.gfx.maxFps;
+      due = Math.max(due + step, now - step * 0.5);
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       this.frame(dt);
@@ -189,8 +197,14 @@ export class Game {
       this.stage.setDaylight(light, E.lampWarmth, E.moonlight);
     }
     this.rig.update(dt);
-    this.gfx.render();
+    // The governor looks at the frames before this one is drawn, so a change of resolution is drawn in the same frame and the
+    // canvas is never presented blank. A time-lapse makes frames slow for reasons that are not the GPU: not measured.
+    const lapse = !!this.lapse;
+    if (this._wasLapse && !lapse) this.gfx.governor?.warm(120);
+    this._wasLapse = lapse;
+    this.gfx.measuring = !lapse;
     this.gfx.frame(dt);
+    this.gfx.render();
     this._tickT += dt;
     if (this._tickT > 0.25) {
       const step = this._tickT;

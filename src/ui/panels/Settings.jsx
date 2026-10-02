@@ -63,7 +63,7 @@ function Realism() {
 
 export function Settings() {
   const g = ctx.game;
-  const q = S.quality.value;
+  const q = S.quality.value, auto = S.gfxAuto.value, cap = S.fpsCap.value;
   return (
     <Sheet title="Settings" icon="settings">
       <div class="two">
@@ -71,11 +71,17 @@ export function Settings() {
           <ModePicker />
           <div class="h3" style={{ marginTop: 14 }}>Graphics quality</div>
           <div class="seg">
+            <button class={auto ? 'on' : ''} onClick={() => { g.gfx.setAuto(true); S.gfxAuto.value = true; S.quality.value = g.gfx.quality; }}>Auto</button>
             {Object.entries(QUALITY).map(([id, v]) => (
-              <button key={id} class={q === id ? 'on' : ''} onClick={() => { g.gfx.setQuality(id, g.scene, g.camera); S.quality.value = id; ctx.saveSettings?.(); }}>{v.label}</button>
+              <button key={id} class={!auto && q === id ? 'on' : ''} onClick={() => { g.gfx.setQuality(id, g.scene, g.camera); S.quality.value = id; S.gfxAuto.value = false; }}>{v.label}</button>
             ))}
           </div>
-          <p class="note">Ultra renders at up to 2× pixel density with full ambient occlusion and SMAA. The game lowers its resolution by itself if the frame rate drops. Balanced uses 4× MSAA without ambient occlusion; Low is for old machines and phones.</p>
+          <p class="note">Auto chooses the preset and the resolution for this computer and lowers them by itself if the frame rate drops (now {QUALITY[q].label}). Ultra renders at up to 2× pixel density with full ambient occlusion and SMAA. Balanced uses 4× MSAA without ambient occlusion; Low is for old machines and phones.</p>
+          <div class="h3" style={{ marginTop: 14 }}>Frame rate limit</div>
+          <div class="seg">
+            {[[30, '30'], [60, '60'], [240, 'None']].map(([n, label]) => <button key={n} class={cap === n ? 'on' : ''} onClick={() => { g.gfx.setCap(n); S.fpsCap.value = n; }}>{label}</button>)}
+          </div>
+          <p class="note">A limit leaves the graphics card some rest, so a weak computer stays usable and runs cooler. 60 suits most screens; try 30 on an old or very hot machine.</p>
           <div class="h3" style={{ marginTop: 14 }}>Display</div>
           <div class="row" style={{ gap: 8 }}>
             <button class={'chip' + (DISPLAY.value.fs ? ' on' : '')} onClick={() => { closeModal(); toggleFullscreen(); }}>{DISPLAY.value.fs && !isStandalone() ? 'Leave full screen' : 'Full screen'}</button>
@@ -89,6 +95,7 @@ export function Settings() {
             <dt>Renderer</dt><dd>{S.backend.value}</dd>
             <dt>Frame rate</dt><dd>{S.fps.value} fps ({g.gfx.stats.frameMs} ms)</dd>
             <dt>Pixel ratio</dt><dd>{g.renderer.getPixelRatio().toFixed(2)}</dd>
+            <dt>Frame limit</dt><dd>{cap >= 240 ? 'none' : cap + ' fps'}</dd>
           </div>
         </div>
         <div>

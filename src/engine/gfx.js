@@ -25,6 +25,7 @@ import { smaa } from 'three/addons/tsl/display/SMAANode.js';
 import { sharpen } from 'three/addons/tsl/display/SharpenNode.js';
 import { denoise } from 'three/addons/tsl/display/DenoiseNode.js';
 import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
+import { Governor, PRESETS } from './governor.js';
 
 export const QUALITY = {
   ultra:    { label: 'Ultra',    dpr: 2,    ao: true,  aoScale: 0.75, aoSamples: 16, aa: 'smaa', sharpen: 0.55, bloom: true,  shadow: 4096, aniso: 16 },
@@ -46,6 +47,30 @@ export const GRADE = {
   bokeh: uniform(2.2),
 };
 
+// What the governor settled on for this device last time, so the next visit does not have to find it out again.
+const PROFILE_KEY = 'paludarium.gfx';
+function loadProfile() {
+  try {
+    const o = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? 'null');
+    if (o && o.v === 1 && QUALITY[o.quality] && o.scale >= 0.5 && o.scale <= 1 && [30, 60, 120, 240].includes(o.cap)) return o;
+  } catch { /* private mode */ }
+  return null;
+}
+function saveProfile(o) { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(o)); } catch { /* private mode */ } }
+
+// The graphics adapter's own name, as far as the browser says (WebGL's debug info, or the WebGPU adapter).
+function gpuName(r) {
+  try {
+    const gl = r.backend?.gl;
+    if (gl) { const x = gl.getExtension('WEBGL_debug_renderer_info'); if (x) return String(gl.getParameter(x.UNMASKED_RENDERER_WEBGL)); }
+    const i = r.backend?.adapter?.info ?? r.backend?.device?.adapterInfo;
+    if (i) return [i.vendor, i.architecture, i.description].filter(Boolean).join(' ');
+  } catch { /* not available */ }
+  return '';
+}
+// Integrated, mobile and software renderers: they start on the Low preset (the governor raises it if the machine proves fast).
+const WEAK_GPU = /adreno|mali|powervr|videocore|swiftshader|llvmpipe|software|basic render|intel.*(hd |uhd|graphics 6|gen\d)/i;
+
 export class Gfx {
   constructor(host, params = new URLSearchParams()) {
     this.host = host;
@@ -55,7 +80,13 @@ export class Gfx {
     this.photo = false;
     this.pipeline = null;
     this.stats = { fps: 0, frameMs: 0, gpuMs: null, calls: 0, triangles: 0 };
-    this._acc = 0; this._n = 0; this._slow = 0; this._fast = 0;
+    this._acc = 0; this._n = 0;
+    this.maxFps = +params.get('fps') > 0 ? Math.min(240, +params.get('fps')) : 60;   // frames a second at most: a GPU kept busy all the time starves the rest of the desktop
+    this.auto = true;            // the governor may change the preset (Auto in Settings); a preset picked by hand turns it off
+    this.measuring = true;       // false while something else makes frames slow (a time-lapse)
+    this.governor = null;
+    this.onChange = null;        // (level) => void: the governor moved the render scale, preset or frame cap
+    this._stable = 0; this._saved = false;
     this.shadowEvery = Math.max(1, +params.get('shadowevery') || 2);   // redraw the shadow map every Nth frame (1 = every frame)
     this._shadowLights = []; this._frameNo = 0;
   }
@@ -75,12 +106,49 @@ export class Gfx {
     await r.init();
     this.backend = r.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL 2';
     this.maxAniso = r.getMaxAnisotropy?.() ?? 4;
+    this.gpu = gpuName(r);
     if (p.has('lowres')) this.quality = 'low';
     const q = p.get('quality');
+    const forced = p.has('lowres') || (q && QUALITY[q]);
     if (q && QUALITY[q]) this.quality = q;
-    else if (this.backend !== 'WebGPU' && !p.has('lowres')) this.quality = 'balanced';
+    else if (this.backend !== 'WebGPU' && !p.has('lowres')) this.quality = WEAK_GPU.test(this.gpu) ? 'low' : 'balanced';
+    const capMax = this.maxFps;
+    const saved = forced ? null : loadProfile();
+    if (saved) { this.quality = saved.quality; this.adapt = saved.scale; this.auto = saved.auto !== false; if (!p.get('fps') && saved.cap) this.maxFps = Math.min(capMax, saved.cap); }
+    if (forced) this.auto = false;
+    this.governor = new Governor({ cap: this.maxFps, capMax, scale: this.adapt, q: Math.max(0, PRESETS.indexOf(this.quality)), autoQuality: this.auto, warm: 300 });
     this.resize();
     return this;
+  }
+
+  // The governor asks for a different level: resolution, preset and frame cap. Called at the start of a frame, before it is
+  // drawn, so a resize never presents a blank canvas.
+  apply(ch) {
+    this.adapt = ch.scale; this.maxFps = ch.cap;
+    const to = PRESETS[ch.q];
+    if (this.auto && to && to !== this.quality) { this.quality = to; this.resize(); if (this.scene) this.build(this.scene, this.camera); }
+    else this.resize();
+    this._stable = 0; this._saved = false;
+    this.onChange?.({ quality: this.quality, scale: this.adapt, cap: this.maxFps, reason: ch.reason });
+  }
+
+  profile() { return { v: 1, quality: this.quality, scale: +this.adapt.toFixed(2), cap: this.maxFps, auto: this.auto }; }
+
+  // Auto in Settings: the governor chooses the preset too, from where we are now.
+  setAuto(on) {
+    // Auto chooses between Low, Balanced and High; Ultra is only ever picked by hand, so leaving it means High.
+    if (on && !PRESETS.includes(this.quality) && this.scene) { this.quality = 'high'; this.resize(); this.build(this.scene, this.camera); }
+    this.auto = on;
+    if (this.governor) { this.governor.autoQuality = on; this.governor.set({ q: Math.max(0, PRESETS.indexOf(this.quality)), scale: this.adapt }); }
+    this._saved = false; this._stable = 0;
+  }
+
+  // The frame-rate limit (Settings): 0 means no limit.
+  setCap(n) {
+    this.maxFps = n || 240;
+    if (this.governor) { this.governor.capMax = this.maxFps; this.governor.set({ cap: this.maxFps }); }
+    this._saved = false; this._stable = 0;
+    saveProfile(this.profile());
   }
 
   get q() { return QUALITY[this.quality]; }
@@ -94,15 +162,21 @@ export class Gfx {
     this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.setSize(w, h);
     this.aspect = w / h;
+    this.governor?.warm(60);          // the first frames at a new size build render targets: not a measure of the GPU
     return [w, h];
   }
 
+  // A preset picked by hand: Auto stops choosing the preset (the resolution and the frame cap still adapt).
   setQuality(name, scene, camera) {
     if (!QUALITY[name]) return;
     this.quality = name;
     this.adapt = 1;
+    this.auto = false;
+    if (this.governor) { this.governor.autoQuality = false; this.governor.set({ q: Math.max(0, PRESETS.indexOf(name)), scale: 1 }); }
     this.resize();
     if (scene) this.build(scene, camera);
+    this._saved = false; this._stable = 0;
+    saveProfile(this.profile());
   }
 
   // (Re)builds the post-processing graph for the current quality. Cheap, so
@@ -156,6 +230,7 @@ export class Gfx {
     post.outputColorTransform = false;
     post.outputNode = out;
     this.applyLightQuality();
+    this.governor?.warm(120);       // a new pipeline compiles its shaders in the first frames
     return post;
   }
 
@@ -203,8 +278,13 @@ export class Gfx {
     this.pipeline.render();
   }
 
-  // Call once per frame with the frame time in seconds.
+  // Call once per frame, before it is drawn, with the time since the previous drawn frame in seconds.
   frame(dt) {
+    if (this.governor && this.measuring && !this.params.has('fixedres')) {
+      const ch = this.governor.frame(dt);
+      if (ch) this.apply(ch);
+      else if ((this._stable += dt) > 25 && !this._saved) { this._saved = true; saveProfile(this.profile()); }   // settled: remember it
+    }
     this._acc += dt; this._n++;
     if (this._acc < 1.5) return;
     const fps = this._n / this._acc;
@@ -216,10 +296,5 @@ export class Gfx {
     if (this.params.has('perf') && this.renderer.resolveTimestampsAsync) {
       this.renderer.resolveTimestampsAsync('render').then((t) => { if (typeof t === 'number') this.stats.gpuMs = +t.toFixed(2); }).catch(() => {});
     }
-    // Adaptive resolution: hold about 45 fps by trading pixels.
-    if (this.params.has('fixedres')) return;
-    if (fps < 42) { if (++this._slow >= 2 && this.adapt > 0.6) { this.adapt = Math.max(0.6, this.adapt - 0.15); this.resize(); this._slow = 0; } this._fast = 0; }
-    else if (fps > 58 && this.adapt < 1) { if (++this._fast >= 4) { this.adapt = Math.min(1, this.adapt + 0.1); this.resize(); this._fast = 0; } this._slow = 0; }
-    else { this._slow = 0; this._fast = 0; }
   }
 }

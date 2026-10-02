@@ -35,6 +35,8 @@ try {
 }
 S.backend.value = game.gfx.backend;
 S.quality.value = game.gfx.quality;
+S.gfxAuto.value = game.gfx.auto; S.fpsCap.value = game.gfx.maxFps;
+game.gfx.onChange = (c) => { S.quality.value = c.quality; S.fpsCap.value = c.cap; };
 ctx.meta = Meta.get();
 const mq = matchMedia('(max-width: 860px), (max-aspect-ratio: 1/1)');
 S.compact.value = mq.matches;
