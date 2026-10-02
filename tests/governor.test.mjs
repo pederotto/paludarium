@@ -2,7 +2,7 @@
 // level that leaves the GPU some idle time.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Governor, PRESETS } from '../src/engine/governor.js';
+import { Governor, PRESETS, autoCeiling } from '../src/engine/governor.js';
 
 // Drives a governor with frames of a given length for a given number of seconds of (fake) time. Returns the changes it made.
 function run(gov, clock, ms, seconds, { jitter = 0, stallEvery = 0, stallMs = 0 } = {}) {
@@ -93,4 +93,23 @@ test('a level set by hand is taken as it is, with a fresh warm-up', () => {
   gov.set({ q: 1, scale: 1 });
   assert.deepEqual(gov.level, { q: 1, scale: 1, cap: 60 });
   assert.deepEqual(run(gov, clock, 50, 2), [], 'the first moments after a set are not measured');
+});
+
+test('the ceiling Auto may reach: any preset on WebGPU, the one it started on on WebGL 2', () => {
+  assert.equal(autoCeiling('WebGPU', 'high'), 2);
+  assert.equal(autoCeiling('WebGPU', 'low'), 2);
+  assert.equal(autoCeiling('WebGL 2', 'low'), 0);
+  assert.equal(autoCeiling('WebGL 2', 'balanced'), 1);
+  assert.equal(autoCeiling('WebGL 2', 'ultra'), 0, 'a preset Auto does not know starts at the bottom');
+});
+
+test('with a ceiling the preset is never raised by Auto, however fast the frames, while the resolution still recovers and it can still step down', () => {
+  const { gov, clock } = make({ q: 1, qMax: 1, scale: 0.7 });
+  const ch = run(gov, clock, 12, 300);                       // very fast frames for five minutes
+  assert.ok(ch.length >= 1, 'the resolution comes back');
+  for (const c of ch) assert.equal(c.q, 1, JSON.stringify(c));
+  assert.equal(gov.level.scale, 1);
+  assert.equal(gov.level.q, 1, 'balanced stays balanced');
+  const down = run(gov, clock, 40, 120);                     // then the machine struggles: it may still go down
+  assert.ok(down.some((c) => c.q === 0), JSON.stringify(down));
 });

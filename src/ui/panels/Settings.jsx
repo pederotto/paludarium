@@ -76,7 +76,7 @@ export function Settings() {
               <button key={id} class={!auto && q === id ? 'on' : ''} onClick={() => { g.gfx.setQuality(id, g.scene, g.camera); S.quality.value = id; S.gfxAuto.value = false; }}>{v.label}</button>
             ))}
           </div>
-          <p class="note">Auto chooses the preset and the resolution for this computer and lowers them by itself if the frame rate drops (now {QUALITY[q].label}). Ultra renders at up to 2× pixel density with full ambient occlusion and SMAA. Balanced uses 4× MSAA without ambient occlusion; Low is for old machines and phones.</p>
+          <p class="note">Auto chooses the preset and the resolution for this computer and lowers them by itself if the frame rate drops (now {QUALITY[q].label}). Ultra renders at up to 2× pixel density with full ambient occlusion and SMAA. Balanced uses 4× MSAA without ambient occlusion; Low is for old machines and phones.{S.backend.value !== 'WebGPU' ? ' This browser is on the WebGL 2 path: Auto never goes above the preset it started on, because High and Ultra recompile every shader and can freeze the page for many seconds. Pick them by hand only on a fast computer.' : ''}</p>
           <div class="h3" style={{ marginTop: 14 }}>Frame rate limit</div>
           <div class="seg">
             {[[30, '30'], [60, '60'], [240, 'None']].map(([n, label]) => <button key={n} class={cap === n ? 'on' : ''} onClick={() => { g.gfx.setCap(n); S.fpsCap.value = n; }}>{label}</button>)}

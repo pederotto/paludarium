@@ -25,7 +25,7 @@ import { smaa } from 'three/addons/tsl/display/SMAANode.js';
 import { sharpen } from 'three/addons/tsl/display/SharpenNode.js';
 import { denoise } from 'three/addons/tsl/display/DenoiseNode.js';
 import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
-import { Governor, PRESETS } from './governor.js';
+import { Governor, PRESETS, autoCeiling } from './governor.js';
 
 export const QUALITY = {
   ultra:    { label: 'Ultra',    dpr: 2,    ao: true,  aoScale: 0.75, aoSamples: 16, aa: 'smaa', sharpen: 0.55, bloom: true,  shadow: 4096, aniso: 16 },
@@ -113,10 +113,12 @@ export class Gfx {
     if (q && QUALITY[q]) this.quality = q;
     else if (this.backend !== 'WebGPU' && !p.has('lowres')) this.quality = WEAK_GPU.test(this.gpu) ? 'low' : 'balanced';
     const capMax = this.maxFps;
+    this.qCeil = autoCeiling(this.backend, this.quality);     // how high Auto may take the preset by itself (see governor.js)
     const saved = forced ? null : loadProfile();
     if (saved) { this.quality = saved.quality; this.adapt = saved.scale; this.auto = saved.auto !== false; if (!p.get('fps') && saved.cap) this.maxFps = Math.min(capMax, saved.cap); }
     if (forced) this.auto = false;
-    this.governor = new Governor({ cap: this.maxFps, capMax, scale: this.adapt, q: Math.max(0, PRESETS.indexOf(this.quality)), autoQuality: this.auto, warm: 300 });
+    if (this.auto && PRESETS.indexOf(this.quality) > this.qCeil) this.quality = PRESETS[this.qCeil];   // a profile saved on a faster path
+    this.governor = new Governor({ cap: this.maxFps, capMax, scale: this.adapt, q: Math.max(0, PRESETS.indexOf(this.quality)), qMax: this.qCeil, autoQuality: this.auto, warm: 300 });
     this.resize();
     return this;
   }
@@ -136,8 +138,9 @@ export class Gfx {
 
   // Auto in Settings: the governor chooses the preset too, from where we are now.
   setAuto(on) {
-    // Auto chooses between Low, Balanced and High; Ultra is only ever picked by hand, so leaving it means High.
-    if (on && !PRESETS.includes(this.quality) && this.scene) { this.quality = 'high'; this.resize(); this.build(this.scene, this.camera); }
+    // Auto chooses between Low, Balanced and High, up to the ceiling of this graphics path; Ultra is only ever picked by hand.
+    const at = PRESETS.indexOf(this.quality), to = at < 0 ? this.qCeil : Math.min(at, this.qCeil);
+    if (on && to !== at && this.scene) { this.quality = PRESETS[to]; this.resize(); this.build(this.scene, this.camera); }
     this.auto = on;
     if (this.governor) { this.governor.autoQuality = on; this.governor.set({ q: Math.max(0, PRESETS.indexOf(this.quality)), scale: this.adapt }); }
     this._saved = false; this._stable = 0;

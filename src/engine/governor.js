@@ -10,6 +10,12 @@
 //    frame-rate cap: the cheapest preset at 30 frames a second.
 
 export const PRESETS = ['low', 'balanced', 'high'];   // what Auto may choose between (Ultra is only ever picked by hand)
+
+// The highest preset Auto may move up to by itself, as an index into PRESETS. On WebGPU, any. On WebGL 2, the one the device
+// started on: a heavier preset adds ambient occlusion's extra render target, which makes three.js recompile every scene shader
+// in the one frame after the switch, and on WebGL 2 that is a frozen page for tens of seconds (20.7 s on an M1, found with the
+// metrics recorder; a slow Direct3D compile on a Snapdragon laptop is worse). Lowering the preset is always allowed.
+export function autoCeiling(backend, start) { return backend === 'WebGPU' ? PRESETS.length - 1 : Math.max(0, PRESETS.indexOf(start)); }
 const COST = [1, 1.7, 2.6];                           // relative cost of a preset, per pixel
 
 export class Governor {
