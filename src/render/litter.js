@@ -6,7 +6,7 @@
 import * as THREE from 'three/webgpu';
 import { plantMaterial } from './shaders.js';
 import { TANK } from '../sim/tank.js';
-import { rng } from './geo.js';
+import { rng } from '../util/math.js';
 
 const CAP = 420;   // leaf cards on the ground at most (one draw call)
 

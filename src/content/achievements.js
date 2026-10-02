@@ -42,5 +42,3 @@ export const ACHIEVEMENTS = [
   { id: 'surprise', name: 'Surprise!', text: 'A mutation gives you a baby with a colour its parents could not make.', icon: 'star', funds: 50, rep: 30, test: (s, c) => (c?.genetics?.mutations ?? 0) >= 1 },
   { id: 'wall-garden', name: 'Living wall', text: 'Grow twelve plants on the background.', icon: 'leaf', funds: 50, rep: 30, test: (s, c) => (c?.wall?.plants ?? 0) >= 12 },
 ];
-
-export const GRADES = { D: 1, C: 2, B: 3, A: 4, S: 5 };

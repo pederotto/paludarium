@@ -5,7 +5,7 @@ import { Icon } from '../icons.jsx';
 import { S, openModal, hudRules } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { startTimelapse } from '../../app/timelapse.js';
-import { LENSES } from '../../tools/controller.js';
+import { LENSES } from '../../editor/controller.js';
 
 export const HUBS = [
   { id: 'tank', label: 'Tank', icon: 'heart' },

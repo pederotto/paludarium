@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
 import { Hydro } from '../src/sim/hydro.js';
 import { Erosion } from '../src/sim/erosion.js';
+import { Jobs } from '../src/sim/jobs.js';
 import { slumpPass, retainMap, stressMap, limit } from '../src/sim/support.js';
 import { MAT, NMAT } from '../src/sim/tank.js';
 
@@ -156,4 +157,54 @@ test('a slope shallower than repose is stable (no slump)', () => {
   const ret = new Float32Array(f.h.length);
   const dz = new Float32Array(f.h.length);
   assert.equal(slumpPass(f, ret, 0.35, dz), 0);
+});
+
+// --- Erosion as a background job: the same physics, taken a few pieces at a time -------------------------------------
+
+test('a run taken in pieces ends exactly where the whole run does', () => {
+  const A = makeWorld(), B = makeWorld();
+  run(A.H, A.E, 60); run(B.H, B.E, 60);          // identical, deterministic histories
+  const whole = A.E.run(0.2, 3);
+  const g = B.E.steps(0.2, 3);
+  let pieces = 0, last;
+  for (;;) { const r = g.next(); if (r.done) { last = r.value; break; } pieces++; }
+  assert.equal(last, whole);
+  assert.ok(pieces >= 12, `${pieces} pieces: scan, capacity, a sweep each, the pool, the paint, the slumping`);
+  for (let n = 0; n < A.f.base.length; n++) {
+    assert.equal(B.f.base[n], A.f.base[n], `bed ${n}`);
+    assert.equal(B.E.s[n], A.E.s[n], `suspended ${n}`);
+  }
+});
+
+test('erosion as a background job (windows taken, a piece or two per frame, rare commits) conserves soil and water', () => {
+  const { H, E } = makeWorld();
+  run(H, E, 60);
+  const v0 = E.volume(), w0 = H.total(), e0 = E.stats.eroded, r0 = E.stats.runs;
+  const jobs = new Jobs();
+  let pending = false, commits = 0;
+  const dt = 1 / 60;
+  for (let k = 0; k < 60 * 150; k++) {          // 150 s of 60 fps frames, 40 virtual seconds of flow per second
+    H.step(dt); E.acc.dt += dt; E.acc.gm += dt * 40;
+    if (!jobs.busy) {
+      const w = E.take();
+      if (w) jobs.add((function* () { if (yield* E.steps(w.dt, w.T)) pending = true; })());
+    }
+    jobs.pump(0.5);
+    if (pending && !jobs.busy && k % 240 === 0) { pending = false; H.rebuild(true); E.markCommitted(); commits++; }
+  }
+  assert.ok(E.stats.runs - r0 > 20, `${E.stats.runs - r0} runs finished`);
+  assert.ok(E.stats.eroded - e0 > 0.2, `soil was eroded (${(E.stats.eroded - e0).toFixed(2)} cm3)`);
+  assert.ok(commits >= 3, `${commits} commits`);
+  assert.ok(Math.abs(E.volume() - v0) < 1e-4 * v0, `soil volume drift ${(E.volume() - v0).toFixed(3)} cm3 of ${v0.toFixed(0)}`);
+  assert.ok(Math.abs(H.total() - w0) < 0.01 * w0, `water ${H.total().toFixed(0)} vs ${w0.toFixed(0)} cm3`);
+});
+
+test('drift() is the largest change since the last commit', () => {
+  const { E, f } = makeWorld();
+  E.markCommitted();
+  assert.equal(E.drift(), 0);
+  f.base[100] += 0.3; f.base[200] -= 0.1;
+  assert.ok(Math.abs(E.drift() - 0.3) < 1e-6);
+  E.markCommitted();
+  assert.equal(E.drift(), 0);
 });

@@ -1,19 +1,11 @@
-// Kids' corner on the title screen: a big friendly button, and the
-// "Choose your world" screen of six picture cards.
+// Kids' corner on the title screen: the "Choose your world" screen of six
+// picture cards.
 
 import './kids.css';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { K, tierForScreen } from '../../app/kids.js';
 import { WORLDS } from '../../content/kids.js';
-
-export function KidsButton({ onClick }) {
-  return (
-    <button class="btn kid-btn" onClick={onClick}>
-      <Icon name="sparkles" size={30} stroke={2} />Kids' corner<small>ages 5 to 10</small>
-    </button>
-  );
-}
 
 export function KidsWorlds({ back }) {
   const meta = K.meta.value;

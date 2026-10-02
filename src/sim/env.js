@@ -2,7 +2,7 @@
 // humidity, water chemistry, and what the equipment is doing. Local
 // variation around these averages lives in climate.js.
 
-import { clamp } from '../render/geo.js';
+import { clamp } from '../util/math.js';
 import { TANK } from './tank.js';
 
 export class Env {

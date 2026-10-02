@@ -31,9 +31,11 @@ export class Game {
     this.world = null;
     this.stage = null;
     this.tankId = null;
+    this.showcase = false;         // the tank on screen is the title screen's, which nobody has touched
     this.frameHooks = [];          // (dt) callbacks run each frame after the simulation
     this.tickHooks = [];           // (dt) callbacks at ~4 Hz
     this._tickT = 0;
+    this.slack = 1.2;              // ms of a frame that background work (erosion) may use
   }
 
   async boot() {
@@ -64,8 +66,11 @@ export class Game {
   }
 
   // Builds a tank of the given kind and fills it. `layout`: 'empty', 'starter'
-  // (only the standard tank has one) or a saved world object to load.
-  async loadTank(id, { layout = 'empty', save = null } = {}) {
+  // (only the standard tank has one); `save`: a saved world object to load instead. `showcase`: it is the title
+  // screen's tank (see restartTank).
+  async loadTank(id, { layout = 'empty', save = null, showcase = false } = {}) {
+    const same = TANKS[id] ?? TANKS.standard;
+    if (this.world && this.showcase && this.tankId === same.id && same.id !== 'custom') return this.restartTank(same, layout, save);
     this.unloadTank();
     // A saved custom tank brings its own size along (app/saves.js), whatever size was built last.
     const sz = save?.tank;
@@ -100,6 +105,25 @@ export class Game {
     this.rig.fit();
     this.gfx.build(this.scene, this.camera);
     this.stage.setLid(world.env.lid);
+    // Opt-in (?precompile): builds the shaders before the first frame instead of inside it. Measured no faster, see gfx.compile.
+    if (this.gfx.params.has('precompile')) await this.gfx.compile();
+    this.gfx.governor?.warm(240);   // the first frames of a tank compile its shaders
+    this.showcase = showcase;
+    this.events.emit('tank', world, spec);
+    return world;
+  }
+
+  // The title screen's tank is built behind the menu; when the player starts a game with the same kind of tank, it is
+  // reset and reused instead of thrown away and rebuilt. Building a world is mostly building shaders (a second and a half
+  // on a fast machine, several times that on a slow one), and all of them are still compiled; a reset takes a tenth of a
+  // second. Nobody has touched the showcase tank, so it holds nothing a new world would not.
+  restartTank(spec, layout, save) {
+    const world = this.world;
+    this.events.emit('unload', world);
+    world.restart(layout === 'starter' && spec.id === 'standard' ? 'starter' : 'empty', save);
+    this.gfx.governor?.warm(120);
+    this.showcase = false;
+    this.stage.setLid(world.env.lid);
     this.events.emit('tank', world, spec);
     return world;
   }
@@ -128,14 +152,28 @@ export class Game {
     if (this.scene && this.camera) this.gfx.build(this.scene, this.camera);
   }
 
+  // Resolves once everything on screen has its shaders (engine/compiler.js). Loading screens wait for this, so the tank
+  // appears whole; meanwhile the page keeps running and shaders build faster than during play.
+  async settle(timeout = 60000) {
+    const c = this.gfx.compiler;
+    c.budget = 40;
+    try { return await c.settled(timeout); } finally { c.budget = 8; }
+  }
+
   // The simulated speed multiplier right now (0 while paused).
   get rate() { return this.frozen ? 0 : this.lapse || SPEEDS[this.speed]; }
   setSpeed(i) { this.speed = Math.max(0, Math.min(SPEEDS.length - 1, i)); this.events.emit('speed', this.speed); }
 
+  // The frame loop, at most gfx.maxFps frames a second however fast the display refreshes (a 120 Hz screen would otherwise
+  // get twice the GPU work for a picture that gains nothing, and a GPU kept busy all the time starves the rest of the
+  // desktop). `due` is when the next frame is wanted; frames that come early are skipped.
   start() {
-    let last = performance.now();
+    let last = performance.now(), due = last;
     this.renderer.setAnimationLoop(() => {
       const now = performance.now();
+      if (now < due - 1.5) return;
+      const step = 1000 / this.gfx.maxFps;
+      due = Math.max(due + step, now - step * 0.5);
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       this.frame(dt);
@@ -144,6 +182,8 @@ export class Game {
 
   frame(dt) {
     const W = this.world;
+    // Background work gets a slice of a frame that has room, and next to nothing after a slow one.
+    this.slack = dt > 0.024 ? 0.3 : 1.2;
     if (W) {
       const speed = this.rate;
       if (this.lapse) {
@@ -153,21 +193,27 @@ export class Game {
         W.sim.step(dt * speed * MINUTES_PER_SECOND);
         W.animals.move(dt * Math.min(speed, 4));
       }
-      W.water.animate(dt, speed);
+      W.water.animate(dt, speed, this.slack);
       this.mist.update(dt);
       updateAirflow(W, speed, dt);   // plant sway follows the real air and water movement
       W.plumbing?.update(dt);
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
       this.lens?.update(dt);
-      this.lens?.update(dt);
       const E = W.env, light = Math.max(E.bright(), this.lapse ? 0.34 : 0);   // a time-lapse keeps nights readable
       U.daylight.value = Math.min(1, light);
       this.stage.setDaylight(light, E.lampWarmth, E.moonlight);
     }
     this.rig.update(dt);
-    this.gfx.render();
+    // The governor looks at the frames before this one is drawn, so a change of resolution is drawn in the same frame and the
+    // canvas is never presented blank. A time-lapse makes frames slow for reasons that are not the GPU: not measured.
+    const lapse = !!this.lapse;
+    if (this._wasLapse && !lapse) this.gfx.governor?.warm(120);
+    this._wasLapse = lapse;
+    this.gfx.measuring = !lapse;
+    this.gfx.compiler.beginFrame();
     this.gfx.frame(dt);
+    this.gfx.render();
     this._tickT += dt;
     if (this._tickT > 0.25) {
       const step = this._tickT;

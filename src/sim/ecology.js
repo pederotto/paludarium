@@ -22,7 +22,7 @@ import { MAT, NMAT } from './tank.js';
 import { U, SOIL } from '../render/uniforms.js';
 import { Humus } from './humus.js';
 import { LitterView } from '../render/litter.js';
-import { clamp, lerp } from '../render/geo.js';
+import { clamp, lerp } from '../util/math.js';
 
 const CLEAR = new THREE.Color(0.3, 0.62, 0.62);
 const GREEN = new THREE.Color(0.32, 0.55, 0.2);

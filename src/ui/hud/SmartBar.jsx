@@ -4,7 +4,7 @@ import { S, modeId } from '../store.js';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { isSmart } from '../../app/modes.js';
-import { SMART_TOOLS } from '../../tools/smart.js';
+import { SMART_TOOLS } from '../../editor/smart.js';
 import '../explorer.css';
 
 const BUILD = ['sculpt', 'paint', 'water'];

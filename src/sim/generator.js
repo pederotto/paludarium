@@ -17,11 +17,10 @@ import * as THREE from 'three/webgpu';
 import { TANK, MAT, NMAT } from './tank.js';
 import { PLANTS } from './plants.js';
 import { SPECIES } from './animals.js';
-import { rng, smooth, clamp, lerp, hash3 } from '../render/geo.js';
+import { rng, smooth, clamp, lerp, hash3 } from '../util/math.js';
 import { PRESETS, PRESET_ORDER, presetsForTier, defaultPreset, describePreset } from '../content/presets.js';
 
 export { PRESETS, PRESET_ORDER, presetsForTier, defaultPreset, describePreset };
-export const _internals = { get Gen() { return Gen; }, get BUILDERS() { return BUILDERS; } };
 
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V3(0, 1, 0);

@@ -3,7 +3,7 @@
 
 import { useState } from 'preact/hooks';
 import { S, toast, openModal } from '../store.js';
-import { Sheet } from './Modals.jsx';
+import { Sheet } from './Sheet.jsx';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { Care } from '../../app/actions.js';

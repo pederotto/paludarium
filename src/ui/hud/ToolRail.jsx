@@ -5,7 +5,7 @@ import { useEffect } from 'preact/hooks';
 import { Icon } from '../icons.jsx';
 import { S, hudRules } from '../store.js';
 import { ctx } from '../../app/ctx.js';
-import { GROUPS, groupOf } from '../../tools/defs.js';
+import { GROUPS, groupOf } from '../../editor/defs.js';
 import { R, lastOf, bindAutoCollapse } from './railState.js';
 import './rail2.css';
 

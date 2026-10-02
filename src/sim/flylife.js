@@ -18,7 +18,7 @@
 // Plain arithmetic on the Climate fields and the animals' lists, so it runs under Node for the tests: `world` needs
 // climate, env, animals (by, add, remove, count), terrain.heightAt/normalAt, wall.zAt/field.gradient, water.surfaceAt.
 
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+import { clamp } from '../util/math.js';
 
 export const FLY = {
   egg: 1, larva: 4.5, pupa: 4.3,      // development days at 25 C

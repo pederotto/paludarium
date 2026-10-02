@@ -2,7 +2,7 @@
 
 import { useState } from 'preact/hooks';
 import { S, openModal } from '../store.js';
-import { Sheet } from './Modals.jsx';
+import { Sheet } from './Sheet.jsx';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { score } from '../../game/curator.js';

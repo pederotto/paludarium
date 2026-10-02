@@ -4,7 +4,7 @@
 // Reads world.water.hydro.ledger and world.water.bodies; opened from Care > Water.
 
 import { S, toast } from '../store.js';
-import { Sheet } from './Modals.jsx';
+import { Sheet } from './Sheet.jsx';
 import { ctx } from '../../app/ctx.js';
 import '../flow.css';
 

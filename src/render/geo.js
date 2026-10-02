@@ -3,6 +3,7 @@
 // downloaded and a whole species shares one geometry.
 
 import * as THREE from 'three/webgpu';
+import { hash3 } from '../util/math.js';
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -103,29 +104,6 @@ export class Builder {
     return g;
   }
 }
-
-export function hash3(x, y, z) {
-  const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
-  return s - Math.floor(s);
-}
-
-// Deterministic PRNG so generated scenes and plants are repeatable.
-export function rng(seed = 1) {
-  let s = seed >>> 0 || 1;
-  return () => {
-    s ^= s << 13; s >>>= 0;
-    s ^= s >>> 17;
-    s ^= s << 5; s >>>= 0;
-    return s / 4294967296;
-  };
-}
-
-export const lerp = (a, b, t) => a + (b - a) * t;
-export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-export const smooth = (a, b, v) => {
-  const t = clamp((v - a) / (b - a), 0, 1);
-  return t * t * (3 - 2 * t);
-};
 
 // Shared low-poly primitives.
 export const PRIM = {

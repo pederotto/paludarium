@@ -6,8 +6,9 @@ import { render } from 'preact';
 import { App } from './ui/App.jsx';
 import { S, closeModal, toast, drawerPref } from './ui/store.js';
 import { ctx } from './app/ctx.js';
+import { mark } from './util/trace.js';
 import { Game } from './app/game.js';
-import { ToolController } from './tools/controller.js';
+import { ToolController } from './editor/controller.js';
 import { snapshot } from './app/snapshot.js';
 import { Meta } from './app/saves.js';
 import { Director } from './app/director.js';
@@ -19,6 +20,10 @@ import * as Kids from './app/kids.js';
 import * as Modes from './app/modes-runtime.js';
 
 const q = new URLSearchParams(location.search);
+mark('main');
+// The metrics recorder (src/diag) is its own chunk, fetched only when the address has ?metrics; the preview server may have
+// injected it already (tools/metrics-collector.mjs), in which case it is running.
+if (q.has('metrics') && !window.__metrics) import('./diag/index.js').then((m) => m.start({ params: q })).catch(() => {});
 window.__errs = [];
 for (const k of ['error', 'warn']) { const o = console[k]; console[k] = (...a) => { window.__errs.push(k + ': ' + a.map(String).join(' ').slice(0, 400)); o.apply(console, a); }; }
 window.addEventListener('error', (e) => window.__errs.push('uncaught: ' + e.message));
@@ -28,13 +33,17 @@ const game = new Game(document.getElementById('view'), q);
 window.game = game;
 ctx.game = game;
 try {
+  mark('boot-start');
   await game.boot();
+  mark('boot-end');
 } catch (e) {
   loading.innerHTML = `<div style="max-width:520px;padding:20px">Couldn't start: ${e?.message ?? e}.<br><br>Paludarium needs a browser with WebGPU or WebGL 2 (recent Chrome, Edge, Safari or Firefox).</div>`;
   throw e;
 }
 S.backend.value = game.gfx.backend;
 S.quality.value = game.gfx.quality;
+S.gfxAuto.value = game.gfx.auto; S.fpsCap.value = game.gfx.maxFps;
+game.gfx.onChange = (c) => { S.quality.value = c.quality; S.fpsCap.value = c.cap; };
 ctx.meta = Meta.get();
 const mq = matchMedia('(max-width: 860px), (max-aspect-ratio: 1/1)');
 S.compact.value = mq.matches;
@@ -42,16 +51,19 @@ S.right.value = !mq.matches && drawerPref();
 mq.addEventListener('change', (e) => { S.compact.value = e.matches; S.right.value = !e.matches && drawerPref(); });
 
 // The title screen shows the starter tank slowly turning behind the menu.
-await game.loadTank('standard', { layout: 'starter' });
+mark('showcase-start');
+await game.loadTank('standard', { layout: 'starter', showcase: true });
+mark('showcase-end');
 ctx.tools = window.__tools = new ToolController(game);
 const director = ctx.director = window.__director = new Director(game);
 game.rig.startOrbit(0.04);
 game.rig.view('hero', false);
 
 async function busy(text, fn) {
+  mark('start');
   S.busy.value = { text };
   await new Promise((r) => setTimeout(r, 30));
-  try { await fn(); } catch (e) { console.error(e); toast('Could not start: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; }
+  try { await fn(); await game.settle(); } catch (e) { console.error(e); toast('Could not start: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; mark('started'); }
 }
 
 ctx.start = {
@@ -90,6 +102,9 @@ render(<App />, document.getElementById('ui'));
 ctx.relayout = bindLayout(game);
 Kids.install(game);
 Modes.install(game);
-window.__S = S; window.__setMode = Modes.setMode;   // debug handles for tools/steps
+window.__S = S; window.__ctx = ctx; window.__setMode = Modes.setMode;   // debug handles for tools/steps and tools/journey.mjs
+mark('ui');
 game.start();
+await game.settle();
 loading.classList.add('gone');
+mark('veil');

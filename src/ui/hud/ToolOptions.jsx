@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { Icon } from '../icons.jsx';
 import { S, toast, hint, openModal, morphChoice, hudRules, saveSmart } from '../store.js';
-import { plantFit } from '../../tools/smart.js';
+import { plantFit } from '../../editor/smart.js';
 import { R } from './railState.js';
 import { Portrait } from '../panels/Portrait.jsx';
 import { ctx } from '../../app/ctx.js';
-import { groupOf, WATER_TOOLS, SCULPT_OPS, MIRROR_WATER } from '../../tools/defs.js';
+import { groupOf, WATER_TOOLS, SCULPT_OPS, MIRROR_WATER } from '../../editor/defs.js';
 import { KITS, kitById, kitPrice, kitRank } from '../../content/kits.js';
 import '../builder.css';
 import { MATERIALS, TANK } from '../../sim/tank.js';

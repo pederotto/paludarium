@@ -3,7 +3,7 @@
 
 import { signal, effect } from '@preact/signals';
 import { S } from '../store.js';
-import { groupOf } from '../../tools/defs.js';
+import { groupOf } from '../../editor/defs.js';
 
 export const R = {
   collapsed: signal(false),     // the options card is shrunk to a chip

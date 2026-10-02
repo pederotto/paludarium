@@ -19,7 +19,7 @@
 
 import { TANK, MAT, NMAT } from './tank.js';
 import { PLANTS } from './plants.js';
-import { clamp, lerp } from '../render/geo.js';
+import { clamp, lerp } from '../util/math.js';
 
 const CELL = 3;
 

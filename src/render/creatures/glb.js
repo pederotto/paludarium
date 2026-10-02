@@ -10,6 +10,9 @@
 // a standing/sitting animal that stick out sideways from the body, split into
 // front/back at the middle and left/right by the sign of x. Meshes may name their
 // materials "eye" or "fin"/"gill" to get the eye and membrane shading.
+//
+// A model baked with its rig (tools/bake-creature.mjs jobs with `rig`, e.g. the vampire crab: claws, eight legs) carries
+// it as a `_RIG` attribute: spine, leg / 8, legT, material id / 8, quantised to 0 … 1. It is used as it is.
 
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -41,7 +44,7 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     if (!o.isMesh) return;
     let g = o.geometry.clone();
     // Meshopt/quantised files store positions as normalised integers: make them real floats before scaling.
-    for (const k of ['position', 'normal', 'uv', 'color']) {
+    for (const k of ['position', 'normal', 'uv', 'color', '_rig']) {
       const a = g.attributes[k];
       if (!a || a.array instanceof Float32Array) continue;
       const f = new Float32Array(a.count * a.itemSize);
@@ -50,7 +53,7 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     }
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(sc, new THREE.Matrix4().multiplyMatrices(rot, o.matrixWorld)));
     // Keep only what the shader uses; a missing uv becomes zeros so parts can merge.
-    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color'].includes(k)) g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', '_rig'].includes(k)) g.deleteAttribute(k);
     if (g.attributes.color && g.attributes.color.itemSize === 4) {   // RGBA: keep RGB
       const c4 = g.attributes.color, c3 = new Float32Array(c4.count * 3);
       for (let i = 0; i < c4.count; i++) { c3[i * 3] = c4.getX(i); c3[i * 3 + 1] = c4.getY(i); c3[i * 3 + 2] = c4.getZ(i); }
@@ -72,8 +75,21 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
   return { geo, material: body };
 }
 
+// The baked rig (see the header): leg and material ids back to whole numbers.
+function bakedRig(geo) {
+  const b = geo.attributes._rig, n = b.count, rig = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    rig[i * 4] = b.getX(i); rig[i * 4 + 1] = Math.round(b.getY(i) * 8); rig[i * 4 + 2] = b.getZ(i); rig[i * 4 + 3] = Math.round(b.getW(i) * 8);
+  }
+  geo.setAttribute('rig', new THREE.BufferAttribute(rig, 4));
+  geo.deleteAttribute('_rig');
+  geo.deleteAttribute('matId');
+  return geo;
+}
+
 // Derive the animation rig from the shape (see the header).
 export function addRig(geo, { legs = false, xFrac = 0.32, yFrac = 0.62 } = {}) {
+  if (geo.attributes._rig) return bakedRig(geo);
   const p = geo.attributes.position, n = p.count;
   const bb = geo.boundingBox;
   const zmin = bb.min.z, zmax = bb.max.z, zmid = (zmin + zmax) / 2;

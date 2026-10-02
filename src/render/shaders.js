@@ -3,17 +3,18 @@
 
 import * as THREE from 'three/webgpu';
 import {
-  Fn, vec3, float, positionWorld, time, mix, smoothstep, clamp, mx_noise_float, exp, max, min, attribute, sin, cos,
+  Fn, vec3, float, positionWorld, time, mix, smoothstep, clamp, exp, max, min, attribute, sin, cos,
   instanceIndex, positionLocal, dot, vec2, saturate, instanceColor, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
   mrt, packNormalToRGB,
 } from 'three/tsl';
+import { noise3 } from './noise3.js';
 import { TEX } from './assets.js';
 import { U, SOIL } from './uniforms.js';
 import { AIR } from './airflow.js';
 import { causticLight } from './waterfx.js';
 import { TANK } from '../sim/tank.js';
 
-export { U };
+export { U, noise3 };
 
 // Foliage and ambient occlusion: GTAO on thin, overlapping blades is noisy (a dark speckle across dense clumps),
 // so plant materials write 0 into the alpha of the scene pass's normal target, and gfx.js skips the AO darkening
@@ -106,7 +107,7 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
     const richer = base.mul(vec3(0.34, 0.27, 0.2)).add(vec3(0.02, 0.012, 0.006));
     base = mix(base, richer, humusA.mul(0.88));
     const dryLand = smoothstep(-0.3, 0.4, pw.y.sub(surf));
-    const nz1 = mx_noise_float(pw.mul(0.55)).mul(0.5).add(0.5), nz2 = mx_noise_float(pw.mul(2.6)).mul(0.5).add(0.5);
+    const nz1 = noise3(pw.mul(0.55)).mul(0.5).add(0.5), nz2 = noise3(pw.mul(2.6)).mul(0.5).add(0.5);
     const patches = smoothstep(float(1).sub(g.g.mul(1.5)), float(1.16).sub(g.g.mul(1.5)), nz1.mul(0.65).add(nz2.mul(0.35)));
     const litterCol = mix(vec3(0.30, 0.17, 0.07), vec3(0.17, 0.10, 0.05), nz2);
     base = mix(base, litterCol, patches.mul(smoothstep(0.03, 0.2, g.g)).mul(0.62).mul(dryLand).mul(float(1).sub(ws[4].mul(0.6))));
@@ -115,7 +116,7 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
   const above = pw.y.sub(surf);
   const wetBand = smoothstep(1.8, 0.0, above).mul(smoothstep(-0.3, 0.1, above)).mul(0.4);
   // Algae film on everything under water (green), or brown diatoms in a new tank.
-  const film = smoothstep(0.2, -0.5, above).mul(U.algaeFilm).mul(mx_noise_float(pw.mul(0.4)).mul(0.4).add(0.6));
+  const film = smoothstep(0.2, -0.5, above).mul(U.algaeFilm).mul(noise3(pw.mul(0.4)).mul(0.4).add(0.6));
   base = mix(base, U.algaeColor, clamp(film, 0, 0.75));
   const [color, emissive] = wet(base.mul(float(1).sub(wetBand)), pw, surf);
   m.colorNode = color;
@@ -128,13 +129,13 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
 // where a coarse noise passes a threshold that falls as U.mold rises, with a
 // fine fuzz inside them. Only above the waterline.
 export function mouldMix(base, pw) {
-  const coarse = mx_noise_float(pw.mul(1.7)).mul(0.5).add(0.5);
-  const mid = mx_noise_float(pw.mul(6.3)).mul(0.5).add(0.5);
+  const coarse = noise3(pw.mul(1.7)).mul(0.5).add(0.5);
+  const mid = noise3(pw.mul(6.3)).mul(0.5).add(0.5);
   const n = coarse.mul(0.78).add(mid.mul(0.22));
   const edge = float(1.02).sub(U.mold.mul(0.62));
   const dry = smoothstep(0.0, 1.0, pw.y.sub(U.waterLevel));
   const patch = smoothstep(edge, edge.add(0.2), n).mul(smoothstep(0.02, 0.12, U.mold)).mul(dry);
-  const fuzz = mx_noise_float(pw.mul(24)).mul(0.5).add(0.5);
+  const fuzz = noise3(pw.mul(24)).mul(0.5).add(0.5);
   return mix(base, mix(vec3(0.68, 0.7, 0.64), vec3(0.88, 0.89, 0.84), fuzz), patch.mul(0.72));
 }
 
@@ -154,13 +155,13 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
   if (src.roughnessMap) m.roughnessMap = src.roughnessMap;
   if (moss > 0) {
     const up = normalWorld.y;
-    const n = mx_noise_float(pw.mul(0.25)).mul(0.5).add(mx_noise_float(pw.mul(0.9)).mul(0.25));
+    const n = noise3(pw.mul(0.25)).mul(0.5).add(noise3(pw.mul(0.9)).mul(0.25));
     const aboveWater = smoothstep(0.0, 1.5, pw.y.sub(U.waterLevel));
     const cover = smoothstep(0.75 - moss * 0.6, 0.95 - moss * 0.5, up.add(n).sub(float(1).sub(U.rockMoss).mul(0.9))).mul(aboveWater);
     const mossCol = triplanar(TEX.ground[4], mossScale, pw, blendWeights()).mul(vec3(0.55, 0.8, 0.42));
     base = mix(base, mossCol, cover);
   }
-  const film = smoothstep(0.2, -0.5, pw.y.sub(U.waterLevel)).mul(U.algaeFilm).mul(mx_noise_float(pw.mul(0.5)).mul(0.4).add(0.6));
+  const film = smoothstep(0.2, -0.5, pw.y.sub(U.waterLevel)).mul(U.algaeFilm).mul(noise3(pw.mul(0.5)).mul(0.4).add(0.6));
   base = mix(base, U.algaeColor, clamp(film, 0, 0.7));
   base = mouldMix(base, pw);
   const [color, emissive] = wet(base, pw);
@@ -211,7 +212,7 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
   // the deeper it stands in the water.
   const pl = positionLocal;
   const vein = sin(pl.x.mul(9).add(pl.z.mul(6.5)).add(pl.y.mul(0.45))).mul(0.5).add(sin(pl.x.mul(23).sub(pl.z.mul(17))).mul(0.5));
-  const patch = mx_noise_float(positionWorld.mul(0.55)).mul(0.5);
+  const patch = noise3(positionWorld.mul(0.55)).mul(0.5);
   const under = smoothstep(-0.5, 2.5, U.waterLevel.sub(positionWorld.y));
   const tone = mix(vec3(1.0), vec3(0.62, 0.74, 0.72), under).mul(vein.mul(0.035).add(patch.mul(0.12)).add(1));
   const leafTint = vec3(0.9, 0.8, 0.86).mul(tone);

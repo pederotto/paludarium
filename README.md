@@ -58,12 +58,15 @@ Other scripts:
 | `npm run bench -- <ids>` | Contact sheet of one or more creatures from the real game shading: `--lod=hi`, `--water=1`, `--views=front,side,top,three,closeup`, `--src=glb`. Output in `test-output/bench/`. |
 | `npm run import-creatures` | Turns `art-src/creatures/<id>.glb` models into optimised game assets (see [docs/ASSET_BRIEF.md](docs/ASSET_BRIEF.md)). |
 | `node tools/errcheck.mjs` | Loads the game headless and reports console and page errors. |
+| `npm run metrics:serve` | Serves `dist/` with the metrics recorder in every page: open the printed address on another computer and the numbers (frames, GPU latency, load phases, flashes, device) arrive in `metrics/`. `-- --https` gives the WebGPU path. See [docs/METRICS.md](docs/METRICS.md). |
+| `npm run metrics:run -- --label=x` | The same recorder in headless Chrome: a one-minute hands-off test and its report (`--lan`, `--cpu=4 --dpr=2`, `--outDir=…`, `--url=… --inject`, `--screencast`). |
+| `npm run metrics:report` | Reads recordings: the newest, `--list`, `--compare a b`, `--snaps`. |
 
-Deploying: `docs/pages-workflow.yml` is a ready GitHub Pages workflow (build with Vite, publish `dist`). Copy it to `.github/workflows/pages.yml` (that push needs a token with the `workflow` scope, or use the GitHub web editor) and set Pages ▸ Source to **GitHub Actions** once.
+Deploying: the workflow in `.github/workflows/pages.yml` builds and publishes to GitHub Pages. In the repository settings, set Pages ▸ Source to **GitHub Actions** once.
 
 ## How it is built
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the architecture. In short: `src/engine` (renderer, camera, stage), `src/sim` (world, climate, animals, plants, hydrology, generator), `src/render` (terrain, water, lens, creatures), `src/game` (career, market, commissions, curator, events), `src/content` (all the words and numbers), `src/ui` (HUD and panels), `src/app` (the director that ties it together).
+See [docs/DESIGN.md](docs/DESIGN.md) for the architecture, the frame budget and the performance notes. In short: `src/util` (math helpers), `src/content` (all the words and numbers), `src/sim` (world, climate, animals, plants, hydrology, erosion, generator), `src/game` (career, market, commissions, curator, events), `src/render` (terrain, water, lens, creatures), `src/engine` (renderer, camera, stage), `src/editor` (the in-game tools), `src/ui` (HUD and panels), `src/app` (the director that ties it together). `tests/architecture.test.mjs` keeps the layering honest.
 
 ## What is next
 
@@ -72,3 +75,7 @@ The plan for water physics, erosion, structure, humus and decay, game modes, mor
 ## Credits
 
 See [CREDITS.md](CREDITS.md). Rocks, roots and ferns are CC0 photoscans from Poly Haven; textures and the rock generator come from SeedThree; the ripple, caustics and meshing ideas from CAUSTIC//VOLUME. MIT licensed.
+
+## Adding art
+
+Drop raw assets (models, textures, images, audio) in `art-src/drop/` and ask Claude to optimise them; the originals are kept in `art-src/raw/` and the game's files land in `public/assets/`. **Rule: keep every file under 50 MB.** GitHub refuses files over 100 MB, so anything larger needs Git LFS set up first. `npm run backup` makes a local backup of the history and the art.

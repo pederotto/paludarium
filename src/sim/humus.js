@@ -16,8 +16,8 @@
 // climate, env, animals.count(id), terrain.heightAt and plants.list.
 
 import { TANK } from './tank.js';
+import { clamp } from '../util/math.js';
 
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export const HUMUS = {
   rot: 0.28,          // litter lost per day at 22 C, damp, with air

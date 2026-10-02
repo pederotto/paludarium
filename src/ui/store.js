@@ -36,6 +36,8 @@ export const S = {
   timelapse: signal(null),        // null | { days, from, day } while a time-lapse runs
   tankTitle: signal(null),        // name of a generated terrarium, shown under the brand
   quality: signal('high'),
+  gfxAuto: signal(true),          // the graphics governor may choose the preset (Settings ▸ Auto)
+  fpsCap: signal(60),             // frame-rate limit, frames a second (240 = none)
   backend: signal(''),
   fps: signal(0),
   career: signal(null),           // career snapshot (funds, rank, commissions…)

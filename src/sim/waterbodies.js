@@ -10,12 +10,12 @@
 // Pure data and arithmetic: nothing here touches the scene, so the tests run
 // it under Node. Species and plant tables are handed in by sim.js.
 
+import { clamp, lerp } from '../util/math.js';
+
 export const NODE = { GROUND: 0, SUMP: 1, EXT: 2, OUT0: 3, OUTS: 12, BODY0: 15, BODIES: 48, TRANSIT: 63, MAX: 64 };
 
 const WET_STREAM = 0.12;   // cm of water that makes a stream cell
 const CHEM = ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'temp', 'co2'];
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const lerp = (a, b, t) => a + (b - a) * t;
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function makeBody(uid, kind, name) {
