@@ -134,3 +134,8 @@ Put files in `art-src/creatures/` (create the folder) with the filenames above, 
 - [ ] Size right (longest side vs table), origin on the ground/centre
 - [ ] No baked shadows, no floor, no extra parts
 - [ ] Opens in a glTF viewer (e.g. gltf-viewer.donmccurdy.com) with textures showing
+
+## Pose models (a frog that swims)
+
+An animal can have a second body for one thing it does. Put the untextured scan in `art-src/raw/`, add a job to `tools/bake-frogpose.mjs` (the scan's scale, the species whose colours paint it) and run `node tools/bake-frogpose.mjs`: it levels the trunk, tells trunk from limbs, paints the vertex colours with the species' own painter (`tools/paint/<species>.mjs`), writes `<id>.swim.glb` and `<id>.swim.lo.glb` and the manifest entry `<id>.swim` (`pose: 'swim'`, eyes in cm). The game draws that body while the animal does the thing (`Animals.draw`); it has no rig of its own, so give it the pose the animal holds mid-action (the stroke's glide, legs out), about 30k and 10k triangles, head towards +z, origin in the middle of the trunk with the belly on y = 0.
+
