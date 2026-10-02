@@ -17,6 +17,7 @@
 - Size rule: no file over 50 MB in git (GitHub refuses 100 MB). Larger files need Git LFS set up first.
 - `public/assets/` is what the game serves; `art-src/` is what we keep. Do not hand-edit
   `public/assets/creatures/manifest.json`: `npm run import-creatures` writes it.
+- Hardscape and plant models in `public/assets/models/` are meshopt-compressed with WebP textures: after importing one run `node tools/compress-models.mjs public/assets/models/<name>.glb` (keeps vertex data float32, which sim/decor.js reads). Creature models load only when their species first appears (`Animals.loadModel`).
 - Species and plant pictures (Add menu, Field Guide, Kids) are files in `public/assets/portraits/`: after adding or changing a creature or plant model run `node tools/bake-portraits.mjs [--only=<id>]`. A missing picture is rendered live in the player's browser, which is slow (a second renderer, every model: about a minute, freezes of seconds).
 - Back up with `npm run backup` after any batch of assets (see `tools/backup.sh`).
 - `dist/` and `test-output/` are build output and are git-ignored.
@@ -29,3 +30,7 @@
 - Starting a game from the title reuses the title tank (`Game.restartTank`); anything that makes a tank keep state outside `World.clearAll`/`World.restart` has to reset it there. `tools/steps/restart.mjs` checks it.
 - Anything that resizes the canvas or rebuilds the pipeline must happen before the frame is drawn, never after (a blank frame is presented otherwise: `tools/steps/blank-frames.mjs`). `engine/governor.js` owns render scale, preset and frame cap; do not add other adaptive logic next to it.
 - Record on the real screen, not only on the Mac: `npm run metrics:serve` (add `-- --https` for the WebGPU path) and open the printed address on the other computer, or `npm run metrics:run -- --label=<x>` for a headless run with the same recorder; read recordings with `npm run metrics:report` (`docs/METRICS.md`). Before and after any change to rendering, plants, animals or loading, record the same scenario and compare (`-- --compare <before> <after>`); keep the numbers in the Baselines table of that file. `src/diag` must not import game code (it is handed `window.game`); it costs nothing unless the address has `?metrics`.
+
+## Git and publishing
+- "Push" means the live site too: GitHub Pages (https://pederotto.github.io/paludarium/) deploys `main` on every push (`.github/workflows/pages.yml`, which runs the unit tests and the build). Work happens on `arch/optimize`; after `npm run test:unit` passes, push the branch and then `git push origin arch/optimize:main`, which only succeeds as a fast-forward. Check the Actions run finishes.
+- History is never rewritten on shared branches: no rebase, squash or "rebase and merge" of anything already pushed, no force push to `main`. Rewritten copies of the same commits (the old `restructure` branch went into PR #1 with new hashes) made git see every file as edited on both sides; joining them took a merge (fb897f2, 2026-10-02). If `git push origin arch/optimize:main` is refused as non-fast-forward, merge `origin/main` into `arch/optimize` first, never the other way round with a rewrite.

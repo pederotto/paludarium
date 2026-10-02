@@ -7,8 +7,8 @@
 // the 9.5 s were spent waiting in getProgramParameter for the link. On Windows (ANGLE turns every shader into Direct3D)
 // it is several times worse. This module changes three things on the renderer:
 //
-//  1. Links in the background. The driver can compile while the page goes on (KHR_parallel_shader_compile on WebGL 2,
-//     createRenderPipelineAsync on WebGPU); three uses that only inside compileAsync(). Here every scene pipeline takes
+//  1. Links in the background on WebGL 2. The driver can compile while the page goes on (KHR_parallel_shader_compile);
+//     three uses that only inside compileAsync(). (WebGPU's createRenderPipelineAsync measured slower: off, see below.) Here every scene pipeline takes
 //     that path. three already skips drawing an object whose pipeline is not ready (Pipelines.isReady), so a new object
 //     appears a few frames later instead of the page stopping. Full-screen passes (QuadMesh: the post-processing chain)
 //     stay synchronous: drawing a frame without them would present a blank canvas. So does everything drawn outside the
@@ -45,7 +45,11 @@ export class ShaderCompiler {
   _install() {
     const r = this.renderer, b = r.backend, self = this;
     const isWebGL = !!b?.isWebGLBackend;
-    const canAsync = isWebGL ? !!b.parallel : !!b?.isWebGPUBackend;
+    // WebGL 2 only. On WebGPU (Chrome on Metal, the live site) createRenderPipelineAsync was far slower than the plain call:
+    // the 20 to 30 pipelines of a new tank took 7 to 10 s in the background, some never finished, and a loading screen
+    // waiting for them looked stuck (10 to 50 s on GitHub Pages); with the plain call they were done in about 2 s. The
+    // node-build budget still keeps a WebGPU frame from stalling. ?asyncpipelines turns the WebGPU path back on.
+    const canAsync = isWebGL ? !!b.parallel : !!b?.isWebGPUBackend && new URLSearchParams(location.search).has('asyncpipelines');
     // 1. Background links.
     const create = b.createRenderPipeline;
     b.createRenderPipeline = function (renderObject, promises) {
@@ -99,9 +103,13 @@ export class ShaderCompiler {
   get idle() { return this.pending === 0 && this.lastDeferred === 0; }
 
   // Resolves once every visible object has its shaders (two idle frames in a row), or after `timeout` ms.
-  settled(timeout = 60000) {
+  // A few pipelines can take seconds each to finish in the background (on the live site, WebGPU, the last 2 to 4 of a new
+  // tank took 10 to 50 s, so a loading screen waiting for all of them looked stuck). So once every object has its shader
+  // code and at most `stragglers` pipelines are still linking, it waits `grace` ms more and lets them appear when ready.
+  settled(timeout = 3000, { stragglers = 4, grace = 500 } = {}) {
     return new Promise((resolve) => {
-      const w = { resolve, n: 0, until: performance.now() + timeout };
+      const t = performance.now();
+      const w = { resolve, n: 0, until: t + timeout, nearSince: 0, stragglers, grace };
       this._waiters.push(w);
     });
   }
@@ -111,7 +119,9 @@ export class ShaderCompiler {
     const now = performance.now();
     this._waiters = this._waiters.filter((w) => {
       w.n = this.idle ? w.n + 1 : 0;   // counted once a frame
-      if (w.n >= 3 || now > w.until) { w.resolve(this.idle); return false; }
+      const near = this.lastDeferred === 0 && this.pending <= w.stragglers;
+      w.nearSince = near ? w.nearSince || now : 0;
+      if (w.n >= 3 || (w.nearSince && now - w.nearSince > w.grace) || now > w.until) { w.resolve(this.idle); return false; }
       return true;
     });
   }
