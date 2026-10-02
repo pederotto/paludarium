@@ -5,10 +5,19 @@
 // Steps per job: weld, turn the head to +z, stand it on y = 0, scale to its real length, simplify to a detailed and
 // a coarse level of detail, smooth the normals, paint every vertex with tools/paint/<paint>.mjs, and write
 // <id>.glb and <id>.lo.glb (meshopt-compressed) plus the manifest entry the game reads.
+//
+// A job with `rig` (tools/rig/<rig>.mjs) bakes the animation rig into the file instead of leaving the game to guess it from
+// the shape (render/creatures/glb.js addRig): a `_RIG` vertex attribute (spine, leg / 8, legT, material id / 8, all 0 … 1 so
+// meshopt can quantise it) plus ambient occlusion in the colours. `shellWidthCm` scales by the rig's shell width instead
+// of the nose-to-tail length (a crab's length is set by its legs).
+// A job with `texture: <size>` is unwrapped (xatlas, tools/rig/texture.mjs) and painted per texel by the paint module's
+// `texel` function into a WebP colour texture: the detail is as fine as the texture instead of the mesh. The coarse level
+// keeps the same UVs and carries no image of its own (the game draws both levels with the detailed file's material).
 import fs from 'node:fs';
 import path from 'node:path';
 import { Document, NodeIO } from '@gltf-transform/core';
-import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { ALL_EXTENSIONS, EXTTextureWebP } from '@gltf-transform/extensions';
+import sharp from 'sharp';
 import { weld, quantize, meshopt } from '@gltf-transform/functions';
 import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 
@@ -18,7 +27,13 @@ const JOBS = {
   leucomelas: { src: 'frog_mesh', rotY: -90, lengthCm: 4.5, tris: [30000, 10000], paint: "leucomelas", legs: true },
   strawberry: { src: 'frog_mesh', rotY: -90, lengthCm: 2.3, tris: [30000, 7000], paint: 'strawberry', legs: true },
   firesal: { src: 'salamander_mesh', rotY: 90, lengthCm: 18, headZ: 6.2, tris: [32000, 8000], paint: 'firesal', legs: true },
+  // Vampire crab: carapace 2.1 cm wide (the procedural body's size, so the sim's spacing is unchanged), legs about 6 cm across.
+  // matId 0 (skin) not 4 (chitin): the chitin id has a fixed clear coat that ignores finish and looked like plastic on the scan.
+  crab: { src: 'crab_mesh', rotY: 0, shellWidthCm: 2.1, tris: [10000, 3200], paint: 'crab', rig: 'crab', legs: true, matId: 0 },
+  // `texture: 1024` bakes a UV texture instead (tools/rig/texture.mjs); OFF until a bug is found: in the game some triangles
+  // sample a neighbouring UV island (tan patches), although the same file maps correctly when sampled in Node.
 };
+const M_CHITIN = 4;   // render/creatures/kit.js M.CHITIN: the default material id of a baked rig (job.matId overrides)
 // Eyes (cm, in the baked frame) and finish per job live in tools/paint/eyes.mjs so they can be tuned without touching code.
 const { EYES } = await import('./paint/eyes.mjs');
 
@@ -49,8 +64,9 @@ function simplified(pos, idx, targetTris) {
   return { pos: np, idx: out, from };
 }
 
-async function build(id, job, paint, level, geo, fullNormals) {
+async function build(id, job, paint, level, geo, fullNormals, rig = null) {
   const { pos, idx, from } = geo;
+  const src = (i) => (from ? from[i] : i);
   const n = pos.length / 3;
   // Smooth normals come from the full-resolution mesh, so a coarse level of detail still shades like the original.
   let nor;
@@ -64,9 +80,15 @@ async function build(id, job, paint, level, geo, fullNormals) {
     const h = (pos[i*3+1] - y0) / (y1 - y0);
     const s = Math.abs(pos[i*3]) / hw;
     const isLeg = job.legs && s > xFrac && h < yFrac;
-    const leg = isLeg ? (pos[i*3+2] > zmid ? 1 : 3) + (pos[i*3] > 0 ? 1 : 0) : 0;
-    const legT = isLeg ? Math.min(1, (s - xFrac) / (1 - xFrac)) : 0;
-    const c = paint({ u: (z1 - pos[i*3+2]) / (z1 - z0), x, y, z, s, h, leg, legT, n: [nor[i*3], nor[i*3+1], nor[i*3+2]] });
+    let leg = isLeg ? (pos[i*3+2] > zmid ? 1 : 3) + (pos[i*3] > 0 ? 1 : 0) : 0;
+    let legT = isLeg ? Math.min(1, (s - xFrac) / (1 - xFrac)) : 0;
+    const extra = {};
+    if (rig) {
+      const j = src(i);
+      leg = rig.leg[j]; legT = rig.legT[j];
+      Object.assign(extra, { part: rig.part[j], ao: rig.ao[j], eyeT: rig.eyeT[j], zf: rig.zf[j] });
+    }
+    const c = paint({ u: (z1 - pos[i*3+2]) / (z1 - z0), x, y, z, s, h, leg, legT, n: [nor[i*3], nor[i*3+1], nor[i*3+2]], ...extra });
     col[i*3] = c[0]; col[i*3+1] = c[1]; col[i*3+2] = c[2];
   }
   const doc = new Document();
@@ -77,12 +99,70 @@ async function build(id, job, paint, level, geo, fullNormals) {
     .setAttribute('COLOR_0', doc.createAccessor().setType('VEC3').setArray(col).setBuffer(buf))
     .setIndices(doc.createAccessor().setType('SCALAR').setArray(idx).setBuffer(buf))
     .setMaterial(doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.6).setMetallicFactor(0));
+  if (rig) {
+    const r = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) { const j = src(i); r[i*4] = Math.max(0, Math.min(1, (z1 - pos[i*3+2]) / (z1 - z0))); r[i*4+1] = rig.leg[j] / 8; r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
+    prim.setAttribute('_RIG', doc.createAccessor().setType('VEC4').setArray(r).setBuffer(buf));
+  }
   const mesh = doc.createMesh(id).addPrimitive(prim);
   doc.createScene().addChild(doc.createNode(id).setMesh(mesh));
-  await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeColor: 8 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+  await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeColor: 8, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   const file = path.join(OUT, level === 'hi' ? `${id}.glb` : `${id}.lo.glb`);
   await io.write(file, doc);
   return { file, verts: n, tris: idx.length / 3, bytes: fs.statSync(file).size, size: [(x1 - x0) * 100, (y1 - y0) * 100, (z1 - z0) * 100] };
+}
+
+// The textured variant of build(): positions, normals, UVs and the baked rig; the hi level embeds the colour texture.
+async function buildTextured(id, job, level, g, rig, image) {
+  const { pos, nor, uv, idx, from } = g, n = pos.length / 3;
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (let i = 0; i < n; i++) { x0 = Math.min(x0, pos[i*3]); x1 = Math.max(x1, pos[i*3]); y0 = Math.min(y0, pos[i*3+1]); y1 = Math.max(y1, pos[i*3+1]); z0 = Math.min(z0, pos[i*3+2]); z1 = Math.max(z1, pos[i*3+2]); }
+  const r = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) { const j = from[i]; r[i*4] = Math.max(0, Math.min(1, (z1 - pos[i*3+2]) / (z1 - z0))); r[i*4+1] = rig.leg[j] / 8; r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
+  const doc = new Document();
+  const buf = doc.createBuffer();
+  const mat = doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.7).setMetallicFactor(0);
+  if (image) {
+    doc.createExtension(EXTTextureWebP).setRequired(true);
+    mat.setBaseColorTexture(doc.createTexture(`${id}_color`).setImage(image).setMimeType('image/webp'));
+  }
+  const prim = doc.createPrimitive()
+    .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setArray(pos).setBuffer(buf))
+    .setAttribute('NORMAL', doc.createAccessor().setType('VEC3').setArray(nor).setBuffer(buf))
+    .setAttribute('TEXCOORD_0', doc.createAccessor().setType('VEC2').setArray(uv).setBuffer(buf))
+    .setAttribute('_RIG', doc.createAccessor().setType('VEC4').setArray(r).setBuffer(buf))
+    .setIndices(doc.createAccessor().setType('SCALAR').setArray(idx).setBuffer(buf))
+    .setMaterial(mat);
+  doc.createScene().addChild(doc.createNode(id).setMesh(doc.createMesh(id).addPrimitive(prim)));
+  await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 12, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+  const file = path.join(OUT, level === 'hi' ? `${id}.glb` : `${id}.lo.glb`);
+  await io.write(file, doc);
+  return { file, verts: n, tris: idx.length / 3, bytes: fs.statSync(file).size, size: [(x1 - x0) * 100, (y1 - y0) * 100, (z1 - z0) * 100] };
+}
+
+async function bakeTextured(id, job, pos, srcIdx, fullN, rig) {
+  const { unwrap, paintTexture, simplifyKeepingSeams } = await import('./rig/texture.mjs');
+  const { texel } = await import(`./paint/${job.paint}.mjs`);
+  const U = await unwrap(pos, srcIdx, job.texture);
+  const n = U.from.length, P = new Float32Array(n * 3), N = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) { P[i*3+k] = pos[U.from[i]*3+k]; N[i*3+k] = fullN[U.from[i]*3+k]; }
+  const t0 = Date.now();
+  const img = paintTexture(job.texture, U.uv, U.idx, P, N, ({ p, n: nn, w, v }) => {
+    const o = v.map((i) => U.from[i]);
+    const lerp = (arr) => w[0] * arr[o[0]] + w[1] * arr[o[1]] + w[2] * arr[o[2]];
+    const main = o[w.indexOf(Math.max(...w))];
+    return texel({ x: p[0] * 100, y: p[1] * 100, z: p[2] * 100, n: nn, part: rig.part[main], leg: rig.leg[main], legT: lerp(rig.legT), ao: lerp(rig.ao), eyeT: lerp(rig.eyeT), zf: lerp(rig.zf) });
+  });
+  const webp = await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).removeAlpha().webp({ quality: 88, effort: 6 }).toBuffer();
+  fs.mkdirSync('test-output/bake', { recursive: true });
+  await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).png().toFile(`test-output/bake/${id}_color.png`);
+  console.log(`  texture ${job.texture}px painted in ${Date.now() - t0} ms, ${(webp.length / 1024) | 0} KB webp (preview test-output/bake/${id}_color.png)`);
+  const hi = await buildTextured(id, job, 'hi', { pos: P, nor: N, uv: U.uv, idx: U.idx, from: U.from }, rig, webp);
+  const L = simplifyKeepingSeams(P, U.idx, job.tris[1]);
+  const m = L.from.length, LP = new Float32Array(m * 3), LN = new Float32Array(m * 3), LU = new Float32Array(m * 2), LF = new Uint32Array(m);
+  for (let i = 0; i < m; i++) { const j = L.from[i]; for (let k = 0; k < 3; k++) { LP[i*3+k] = P[j*3+k]; LN[i*3+k] = N[j*3+k]; } LU[i*2] = U.uv[j*2]; LU[i*2+1] = U.uv[j*2+1]; LF[i] = U.from[j]; }
+  const lo = await buildTextured(id, job, 'lo', { pos: LP, nor: LN, uv: LU, idx: L.idx, from: LF }, rig, null);
+  return { hi, lo };
 }
 
 fs.mkdirSync(OUT, { recursive: true });
@@ -105,11 +185,35 @@ for (const [id, job] of Object.entries(JOBS)) {
   for (let i = 0; i < pos.length; i += 3) { const x = pos[i], z = pos[i + 2]; pos[i] = x * ca + z * sa; pos[i + 2] = -x * sa + z * ca; }
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, z0 = 1e9, z1 = -1e9;
   for (let i = 0; i < pos.length; i += 3) { x0 = Math.min(x0, pos[i]); x1 = Math.max(x1, pos[i]); y0 = Math.min(y0, pos[i + 1]); z0 = Math.min(z0, pos[i + 2]); z1 = Math.max(z1, pos[i + 2]); }
-  const k = (job.lengthCm / 100) / (z1 - z0), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  let k = (job.lengthCm / 100) / (z1 - z0), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  let rig = null, eyesOut = null;
+  if (job.rig) {
+    // Segment and shade in the scan's own units (the thresholds are tuned to it), then scale by the shell.
+    const { [`${job.rig}Rig`]: makeRig } = await import(`./rig/${job.rig}.mjs`);
+    const { ambientOcclusion, normals: nrm } = await import('./rig/appendages.mjs');
+    rig = makeRig(pos, src.idx);
+    rig.ao = ambientOcclusion(pos, src.idx, nrm(pos, src.idx), { rays: 48, reach: 0.3 });
+    const sh = rig.shell;
+    k = (job.shellWidthCm / 100) / (sh.x1 - sh.x0); cx = (sh.x0 + sh.x1) / 2; cz = (sh.z0 + sh.z1) / 2;
+    const n = pos.length / 3;
+    rig.zf = new Float32Array(n); rig.eyeT = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      rig.zf[i] = Math.max(0, Math.min(1, (pos[i*3+2] - sh.z0) / (sh.z1 - sh.z0)));
+      if (rig.part[i] !== 'eye') continue;
+      const e = rig.eyes.reduce((b, e) => (Math.abs(e.c[0] - pos[i*3]) < Math.abs(b.c[0] - pos[i*3]) ? e : b));
+      rig.eyeT[i] = Math.max(0, 1 - Math.hypot(pos[i*3] - e.c[0], pos[i*3+1] - e.c[1], pos[i*3+2] - e.c[2]) / (2.4 * e.r));
+    }
+    // The +x eye in centimetres of the baked frame, looking along its stalk tipped forward (the shader mirrors it).
+    const e = rig.eyes.reduce((a, b) => (b.c[0] > a.c[0] ? b : a));
+    const cm = (p) => [(p[0] - cx) * k * 100, (p[1] - y0) * k * 100, (p[2] - cz) * k * 100];
+    const stalk = e.c.map((v, i) => v - e.base[i]), sl = Math.hypot(...stalk);
+    eyesOut = { c: cm(e.c).map((v) => +v.toFixed(3)), r: +(e.r * k * 100).toFixed(3), axis: [stalk[0] / sl * 0.6 + 0.25, stalk[1] / sl * 0.6, stalk[2] / sl * 0.6 + 0.75] };
+  }
   for (let i = 0; i < pos.length; i += 3) { pos[i] = (pos[i] - cx) * k; pos[i + 1] = (pos[i + 1] - y0) * k; pos[i + 2] = (pos[i + 2] - cz) * k; }
   const fullN = normals(pos, src.idx);
-  const hi = await build(id, job, paint, 'hi', simplified(pos, src.idx, job.tris[0]), fullN);
-  const lo = await build(id, job, paint, 'lo', simplified(pos, src.idx, job.tris[1]), fullN);
+  const { hi, lo } = job.texture && rig
+    ? await bakeTextured(id, job, pos, src.idx, fullN, rig)
+    : { hi: await build(id, job, paint, 'hi', simplified(pos, src.idx, job.tris[0]), fullN, rig), lo: await build(id, job, paint, 'lo', simplified(pos, src.idx, job.tris[1]), fullN, rig) };
   if (process.argv.includes('--eyes')) {
     // Candidate eye bulges: clusters of the highest vertices on each side of the midline (cm).
     let ymax = -1e9; for (let i = 0; i < pos.length / 3; i++) ymax = Math.max(ymax, pos[i*3+1]);
@@ -122,7 +226,9 @@ for (const [id, job] of Object.entries(JOBS)) {
     }
     console.log('  eye candidates (mean of the 40 highest vertices per side, cm)', JSON.stringify(out));
   }
-  manifest[id] = { file: `${id}.glb`, lo: `${id}.lo.glb`, legs: job.legs, tris: { hi: hi.tris, lo: lo.tris }, sizeCm: hi.size.map((v) => +v.toFixed(2)), ...(EYES[id] ?? {}) };
+  const extra = EYES[id] ?? {};
+  if (eyesOut && typeof extra.finish?.eyes === 'function') extra.finish = { ...extra.finish, eyes: extra.finish.eyes(eyesOut) };
+  manifest[id] = { file: `${id}.glb`, lo: `${id}.lo.glb`, legs: job.legs, ...(job.rig ? { rig: 'baked' } : {}), tris: { hi: hi.tris, lo: lo.tris }, sizeCm: hi.size.map((v) => +v.toFixed(2)), ...extra };
   console.log(`${id}: hi ${hi.tris} tris ${(hi.bytes / 1024) | 0} KB, lo ${lo.tris} tris ${(lo.bytes / 1024) | 0} KB, ${hi.size.map((v) => v.toFixed(2)).join(' x ')} cm (x y z)`);
 }
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));

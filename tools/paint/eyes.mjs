@@ -13,4 +13,8 @@ export const EYES = {
   leucomelas: frog(1),
   strawberry: frog(0.511),
   firesal: { finish: { eyes: [eye([1.05, 3.7, 7.5], 0.5, [0.65, 0.5, 0.55], { pupil: [0.78, 0.76], inner: lin([0.06, 0.04, 0.02]), outer: lin([0.03, 0.02, 0.012]) })], rough: 0.5, coat: 0.5, coatRough: 0.2, grainAmt: 0.2 } },
+  // Vampire crab: glossy yellow eyes with a small dark pupil. The ball's centre, radius and stalk direction come from the
+  // baked rig (tools/rig/crab.mjs), so `eyes` is a function of them. Hard shell: no skin grain (the scan has its own relief,
+  // and grainAmt 0 skips the per-fragment noise).
+  crab: { finish: { eyes: (e) => [eye(e.c, e.r, e.axis, { pupil: [0.34, 0.34], inner: lin([0.96, 0.82, 0.19]), outer: lin([0.83, 0.6, 0.08]), rim: lin([0.04, 0.03, 0.02]), limb: lin([0.61, 0.42, 0.05]), cap: 0.97, seed: 4 })], rough: 0.68, coat: 0.08, coatRough: 0.55, grainAmt: 0, tone: 0.02 } },   // satin, not lacquered
 };

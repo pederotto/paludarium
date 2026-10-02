@@ -11,6 +11,8 @@ import { packAnim } from '../render/creatures/instanced.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
+import { CRAB, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
+import { hideScore } from './habitat.js';
 import { PIECES } from './decor.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
 
@@ -171,9 +173,11 @@ export const SPECIES = {
   },
   crab: {
     name: 'Vampire crab', group: 'Crustaceans', kind: 'crab', size: 1.0, speed: 2,
-    temp: [22, 28], humidity: 70, hungerHours: 200, lifeDays: 900, eats: ['detritus', 'flake', 'springtail'], cap: 10, breed: 0,
-    anim: { lift: 0.15, stride: 0.2 },
-    body: () => BODIES.crab?.() ?? withRig(crabGeo()), note: 'Semi-terrestrial: needs land and shallow water.',
+    temp: [24, 28], humidity: 80, hungerHours: 200, lifeDays: 900, eats: ['detritus', 'flake', 'springtail', 'fly'], cap: 10, breed: 0,
+    // Sideways walker (legAxis 'x', render/creatures/instanced.js); stride = a quarter of the leg cycle (util/gait.js crabStride) so feet do not slip.
+    anim: { lift: 0.3, stride: 0.47, legAxis: 'x', limb: 1 },
+    body: () => BODIES.crab?.() ?? withRig(crabGeo()),
+    note: 'Lives on land and wets its gills in shallow water; out at dusk, in its burrow by day. Wants 24–28 °C and 80–90% humidity, a pool no deeper than a few cm with a ramp out, soil, moss and cork to hide in. One male to two or three females.',
   },
   isopod: {
     name: 'Dwarf isopods', group: 'Crustaceans', kind: 'crawlLand', size: 1.0, speed: 0.8,
@@ -329,7 +333,7 @@ export function createSpeciesMesh(scene, id, { cap = null, morph = null } = {}) 
   const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
   return new CreatureLOD(scene, src, {
     cap: cap ?? sp.cap + 20,
-    wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35,
+    wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
     finish: { ...FINISH[group], ...(src.finish ?? {}) },
     near: 34 + sp.size * 10,
   });
@@ -389,7 +393,7 @@ export class Animals {
       const a = sp.anim ?? {};
       const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
       const make = () => new CreatureLOD(this.scene, g.lo, {
-        cap: sp.cap + 20, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35,
+        cap: sp.cap + 20, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
         finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
       });
       this.models[id] = make;
@@ -578,7 +582,7 @@ export class Animals {
           case 'swim': this.swim(a, sp, arr, dt); break;
           case 'crawlWater': this.crawl(a, sp, dt, 'water'); break;
           case 'crawlLand': if (!sp.sessile) this.crawl(a, sp, dt, 'land', sp.crawlOpt ?? null); break;
-          case 'crab': this.crawl(a, sp, dt, 'any'); break;
+          case 'crab': this.crab(a, sp, dt); break;
           case 'fly': this.fly(a, sp, dt); break;
           case 'frog':
           case 'toad': this.frog(a, sp, dt); break;
@@ -591,7 +595,7 @@ export class Animals {
         if (dt > 0 && this.avoid) this.keepFree(a, sp, dt);
         // Distance walked drives the leg cycle.
         const moved = Math.hypot(a.pos.x - px, a.pos.y - py, a.pos.z - pz);
-        a.gait = (a.gait ?? a.phase) + moved * 2.6;
+        a.gait = (a.gait ?? a.phase) + moved * (sp.kind === 'crab' ? crabGaitRate() : 2.6);
         a.speedNow = dt > 0 ? moved / (sp.kind === 'frog' || sp.kind === 'toad' ? dt / this.tf : dt) : 0;
       }
     }
@@ -1004,6 +1008,157 @@ export class Animals {
     a.pos.y = T.heightAt(a.pos.x, a.pos.z) + lift;
     a.normal = T.normalAt(a.pos.x, a.pos.z);
     a.grazing = a.state === 'rest' && !a.hop;     // head-down pauses (see vis)
+  }
+
+  // --- Vampire crab ----------------------------------------------------------------------------------------------
+  // The decisions are in crab.js (pure); this senses the world for it and carries the intent out: a sideways walk in
+  // bursts that leads with whichever side needs less turning, stops to face food or another crab, sinks into its burrow.
+  crab(a, sp, dt) {
+    const W = this.world, T = W.terrain, E = W.env, C = W.climate;
+    const m = (a.cb ??= crabMind());
+    a.male ??= Math.random() < 0.35;
+    const x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z);
+    const depth = W.water.surfaceAt(x, z) - g;
+    const dtMin = dt * (this.warp ?? 1);
+    // Slow senses (home, shore, a way out) every few seconds; fast ones every step.
+    a.cbT = (a.cbT ?? 0) - dt;
+    if (a.cbT <= 0 || (depth > 0.2 && !a.cbBank && m.mode === 'exit')) {
+      a.cbT = 2 + Math.random() * 2;
+      if (!a.home || this.crabHideScore(a, sp, a.home.x, a.home.z) < 0.35) a.home = this.crabFindHome(a, sp) ?? a.home ?? null;
+      a.cbShore = this.crabFind(x, z, 30, (px, pz, d) => d >= CRAB.soakDepth[0] && d <= CRAB.soakDepth[1]);
+      a.cbBank = depth > 0.2 ? this.crabBank(x, z) : null;
+    }
+    const food = this.crabFood(a, x, z);
+    const cam = this.camera?.position;
+    let threat = null;
+    if (cam) { const d = Math.hypot(cam.x - x, cam.y - a.pos.y, cam.z - z); if (d < 22) threat = { x: cam.x, z: cam.z, d: (d - 6) * 0.55 }; }
+    for (const id of ['leucomelas', 'dartfrog', 'auratus', 'toad', 'firesal', 'newt', 'axolotl', 'gecko']) for (const b of this.by[id] ?? []) {
+      const d = Math.hypot(b.pos.x - x, b.pos.z - z);
+      if (d < CRAB.scareCm && Math.abs(b.pos.y - a.pos.y) < 6 && (!threat || d < threat.d)) threat = { x: b.pos.x, z: b.pos.z, d };
+    }
+    let other = null;
+    for (const b of this.by.crab) {
+      if (b === a || b.dead) continue;
+      const d = Math.hypot(b.pos.x - x, b.pos.z - z);
+      if (!other || d < other.d) other = { x: b.pos.x, z: b.pos.z, d, male: !!b.male, morph: b.morph ?? null };
+    }
+    const sense = {
+      t: this.t, dt, dtMin, x, z, depth, light: clamp(E.bright(), 0, 1), rain: E.rain ?? 0,
+      rh: C.humidityAt(x, g + 1, z), temp: C.tempAt(x, g + 1, z),
+      wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + (W.nearWater(V(x, g, z), 3) ? 0.5 : 0)),
+      cover: this.crabCover(x, z), hunger: a.hunger, food: food && { x: food.p.pos.x, z: food.p.pos.z, d: food.d, kind: food.pid },
+      threat, other, home: a.home, shore: a.cbShore, bank: a.cbBank, male: a.male, morph: a.morph ?? null,
+    };
+    const it = (a.ci = crabThink(m, sense));
+    if (it.say) W.log(it.say, 'warn');
+    if (it.eat && food) {
+      if (food.pid === 'flake') { food.p.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); }
+      else this.consume(a, sp, food.pid, food.p);
+    }
+    if (it.drown) { a.health = Math.max(0, a.health - dtMin / 120); if (a.health <= 0) { this.remove(a, 'drowned: it could not climb out of the water'); return; } }
+    m.sinkNow = lerp(m.sinkNow ?? 0, it.sink, Math.min(1, dt * 1.5));
+    // Carry it out.
+    a.state = it.goal && it.speed > 0 ? 'walk' : 'rest';
+    a.target = it.goal ? V(it.goal.x, 0, it.goal.z) : null;
+    if (a.target && it.speed > 0) {
+      const dx = it.goal.x - x, dz = it.goal.z - z, dist = Math.hypot(dx, dz);
+      if (dist > 0.2) {
+        const step = Math.min(dist, it.speed * dt);
+        const maxD = m.mode === 'exit' ? 99 : m.mode === 'soak' ? CRAB.soakDepth[1] + 0.5 : CRAB.safeDepth;
+        let ux = dx / dist, uz = dz / dist;
+        if (!this.okFor('any', x + ux * step, z + uz * step, maxD)) {
+          // Blocked: slide round it, trying the side that worked last time first.
+          const sd = a.side ?? 1, base = Math.atan2(ux, uz);
+          let ok = false;
+          for (const da of [0.7 * sd, -0.7 * sd, 1.4 * sd, -1.4 * sd, 2.1 * sd]) {
+            const sx = Math.sin(base + da), sz = Math.cos(base + da);
+            if (this.okFor('any', x + sx * step, z + sz * step, maxD)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
+          }
+          if (!ok) { ux = 0; uz = 0; m.goal = null; }
+        }
+        a.pos.x += ux * step; a.pos.z += uz * step;
+        if (ux || uz) {
+          const h = crabHeading(ux, uz, a.yaw ?? 0);
+          // Keep the leading side through a burst; choose again when it starts from a standstill.
+          if ((a.speedNow ?? 0) < 0.3) m.lead = h.lead;
+          const want = Math.atan2(ux, uz) + (m.lead > 0 ? Math.PI / 2 : -Math.PI / 2);
+          a.yaw = angLerp(a.yaw ?? want, want, Math.min(1, dt * 8));
+        }
+      }
+    } else if (it.face) {
+      a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - x, it.face.z - z), Math.min(1, dt * 5));
+    }
+    a.pos.y = T.heightAt(a.pos.x, a.pos.z);
+    a.normal = T.normalAt(a.pos.x, a.pos.z);
+    a.grazing = it.mode === 'eat';
+  }
+
+  // How good a burrow or hide (x, z) is for a crab: cover, shade, damp air, near the animal (habitat.js hideScore).
+  crabHideScore(a, sp, x, z) {
+    const W = this.world, g = W.terrain.heightAt(x, z), C = W.climate;
+    if (!this.okFor('land', x, z)) return 0;
+    return hideScore({ cover: this.crabCover(x, z), light: C.lightAt(x, z), rh: C.humidityAt(x, g + 1, z), rhIdeal: 85, temp: C.tempAt(x, g + 1, z), tIdeal: 26, dist: Math.hypot(x - a.pos.x, z - a.pos.z) });
+  }
+
+  crabCover(x, z) {
+    const W = this.world, T = W.terrain, g = T.heightAt(x, z);
+    const over = this.occ.count && this.occ.solidAt(x, g + 2.5, z) ? 1 : 0;      // wood, cork or rock overhead
+    return Math.min(1, over + T.field.matAt(x, z, MAT.moss) * 0.6);
+  }
+
+  // A burrow: the best hide among a few dozen spots within 25 cm. Crabs keep it and come back to it.
+  crabFindHome(a, sp) {
+    let best = null, bs = 0.3;
+    for (let k = 0; k < 24; k++) {
+      const r = 3 + Math.random() * 22, t = Math.random() * Math.PI * 2;
+      const x = a.pos.x + Math.sin(t) * r, z = a.pos.z + Math.cos(t) * r;
+      const s = this.crabHideScore(a, sp, x, z);
+      if (s > bs) { bs = s; best = { x, z }; }
+    }
+    return best;
+  }
+
+  // The nearest point within maxR cm where ok(x, z, depth) holds (rings outward), or null.
+  crabFind(x, z, maxR, ok) {
+    const W = this.world;
+    for (let r = 1.5; r <= maxR; r += 1.5) {
+      const n = Math.max(8, Math.ceil(r * 1.6));
+      for (let k = 0; k < n; k++) {
+        const t = (k / n) * Math.PI * 2 + r * 0.37, px = x + Math.sin(t) * r, pz = z + Math.cos(t) * r;
+        if (Math.abs(px) > TANK.w / 2 - 1 || Math.abs(pz) > TANK.d / 2 - 1) continue;
+        const d = W.water.surfaceAt(px, pz) - W.terrain.heightAt(px, pz);
+        if (ok(px, pz, d)) return { x: px, z: pz, d: r };
+      }
+    }
+    return null;
+  }
+
+  // From water: the nearest dry ground it can walk up to. The way there must not climb more than 1 cm per 0.6 cm (a steep
+  // glass-smooth bank traps it) unless hardscape (rock, wood, cork) stands at the water line to climb on.
+  crabBank(x, z) {
+    const W = this.world, T = W.terrain;
+    const climbable = (px, pz) => {
+      const L = Math.hypot(px - x, pz - z), n = Math.ceil(L / 0.6);
+      let h = T.heightAt(x, z);
+      for (let i = 1; i <= n; i++) {
+        const qx = x + (px - x) * i / n, qz = z + (pz - z) * i / n, hh = T.heightAt(qx, qz);
+        const ramp = this.occ.count && this.occ.solidAt(qx, W.water.surfaceAt(qx, qz) - 0.3, qz);
+        if (hh - h > 1 && !ramp) return false;
+        h = hh;
+      }
+      return true;
+    };
+    return this.crabFind(x, z, 40, (px, pz, d) => !(d > -0.2) && this.okFor('land', px, pz) && climbable(px, pz));
+  }
+
+  // The nearest food it can smell: settled flakes and pellets, springtails, resting fruit flies.
+  crabFood(a, x, z) {
+    let best = null, bd = CRAB.smell;
+    const look = (pid, list, ok) => { for (const p of list ?? []) { if (!ok(p) || !this.validPrey(p, a)) continue; const d = Math.hypot(p.pos.x - x, p.pos.z - z); if (d < bd && Math.abs(p.pos.y - a.pos.y) < 3) { bd = d; best = { pid, p, d }; } } };
+    look('flake', this.food, (f) => f.settled && !f.eaten);
+    look('springtail', this.by.springtail, () => true);
+    look('fly', this.by.fly, (f) => f.state === 'rest');
+    return best;
   }
 
   fly(a, sp, dt) {
@@ -1839,6 +1994,15 @@ export class Animals {
           } else if (VIS.has(sp.kind)) packed = packAnim(hop, v.breath, 0, v.eye);
           if (!a.hop && !a.wallMode) _qo.setFromEuler(_e.set(v.pitch, v.yaw + v.yawN, v.roll, 'YXZ')); else _qo.setFromEuler(_e.set(v.pitch, v.yaw + v.yawN, 0, 'YXZ'));
           if (!a.hop) q.multiply(_qo);
+        }
+        if (sp.kind === 'crab' && a.cb) {
+          // anim.y: the direction of travel along the body's x (the leading side), anim.x: the claw wave phase; claw pose and
+          // still legs ride in the packed word; a crab in its burrow sinks until only the eye stalks show.
+          const cb = a.cb, i = a.ci ?? {};
+          cb.wph = (cb.wph ?? 0) + dt * (i.mode === 'eat' ? 4 : 2.6);
+          amp = -cb.lead; a.wph = cb.wph;
+          packed = packAnim(0, 0, 0, 0, i.claw ?? 0, i.calm ?? 1);
+          if (cb.sinkNow > 0.01) { pos = _p.copy(pos); pos.y -= cb.sinkNow * 1.35 * sc; }
         }
         cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);
       }

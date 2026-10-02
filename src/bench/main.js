@@ -63,7 +63,7 @@ if (q.get('src') === 'glb') {
   if (g) {
     lod.lo.mesh.removeFromParent();
     const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
-    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(man[id].finish ?? {}) }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
+    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, legAxis: sp.anim?.legAxis ?? 'z', limb: sp.anim?.limb ?? 1, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(man[id].finish ?? {}) }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
     hiReady = true;
   } else console.warn('no GLB for', id);
 }

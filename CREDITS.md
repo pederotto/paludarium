@@ -79,3 +79,5 @@ SOFTWARE.
 ## Creature models
 
 The clown loach, the sculpted frog and the salamander meshes (`art-src/raw/`) were supplied by the project owner (AI-generated, reference photos of a clown loach, yellow-banded poison frog, strawberry poison frog and fire salamander). `tools/bake-creature.mjs` paints the untextured meshes procedurally with vertex colours (`tools/paint/`); `tools/import-creatures.mjs` compresses the textured loach. Game assets total about 1.4 MB.
+
+- Vampire crab (`public/assets/creatures/crab.glb`, `crab.lo.glb`): an AI-generated untextured mesh the project owner supplied through the Paludarium Drop on 2026-10-02 (original kept as `art-src/raw/crab_mesh.glb`, SHA-256 ce7311aa…5a8a); rig, colours and ambient occlusion baked by `tools/bake-creature.mjs crab`.
