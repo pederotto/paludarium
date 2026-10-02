@@ -31,9 +31,11 @@ export class Game {
     this.world = null;
     this.stage = null;
     this.tankId = null;
+    this.showcase = false;         // the tank on screen is the title screen's, which nobody has touched
     this.frameHooks = [];          // (dt) callbacks run each frame after the simulation
     this.tickHooks = [];           // (dt) callbacks at ~4 Hz
     this._tickT = 0;
+    this.slack = 1.2;              // ms of a frame that background work (erosion) may use
   }
 
   async boot() {
@@ -64,8 +66,11 @@ export class Game {
   }
 
   // Builds a tank of the given kind and fills it. `layout`: 'empty', 'starter'
-  // (only the standard tank has one) or a saved world object to load.
-  async loadTank(id, { layout = 'empty', save = null } = {}) {
+  // (only the standard tank has one); `save`: a saved world object to load instead. `showcase`: it is the title
+  // screen's tank (see restartTank).
+  async loadTank(id, { layout = 'empty', save = null, showcase = false } = {}) {
+    const same = TANKS[id] ?? TANKS.standard;
+    if (this.world && this.showcase && this.tankId === same.id && same.id !== 'custom') return this.restartTank(same, layout, save);
     this.unloadTank();
     // A saved custom tank brings its own size along (app/saves.js), whatever size was built last.
     const sz = save?.tank;
@@ -102,6 +107,21 @@ export class Game {
     this.stage.setLid(world.env.lid);
     // Opt-in (?precompile): builds the shaders before the first frame instead of inside it. Measured no faster, see gfx.compile.
     if (this.gfx.params.has('precompile')) await this.gfx.compile();
+    this.showcase = showcase;
+    this.events.emit('tank', world, spec);
+    return world;
+  }
+
+  // The title screen's tank is built behind the menu; when the player starts a game with the same kind of tank, it is
+  // reset and reused instead of thrown away and rebuilt. Building a world is mostly building shaders (a second and a half
+  // on a fast machine, several times that on a slow one), and all of them are still compiled; a reset takes a tenth of a
+  // second. Nobody has touched the showcase tank, so it holds nothing a new world would not.
+  restartTank(spec, layout, save) {
+    const world = this.world;
+    this.events.emit('unload', world);
+    world.restart(layout === 'starter' && spec.id === 'standard' ? 'starter' : 'empty', save);
+    this.showcase = false;
+    this.stage.setLid(world.env.lid);
     this.events.emit('tank', world, spec);
     return world;
   }
@@ -146,6 +166,8 @@ export class Game {
 
   frame(dt) {
     const W = this.world;
+    // Background work gets a slice of a frame that has room, and next to nothing after a slow one.
+    this.slack = dt > 0.024 ? 0.3 : 1.2;
     if (W) {
       const speed = this.rate;
       if (this.lapse) {
@@ -155,13 +177,12 @@ export class Game {
         W.sim.step(dt * speed * MINUTES_PER_SECOND);
         W.animals.move(dt * Math.min(speed, 4));
       }
-      W.water.animate(dt, speed);
+      W.water.animate(dt, speed, this.slack);
       this.mist.update(dt);
       updateAirflow(W, speed, dt);   // plant sway follows the real air and water movement
       W.plumbing?.update(dt);
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
-      this.lens?.update(dt);
       this.lens?.update(dt);
       const E = W.env, light = Math.max(E.bright(), this.lapse ? 0.34 : 0);   // a time-lapse keeps nights readable
       U.daylight.value = Math.min(1, light);

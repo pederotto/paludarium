@@ -17,6 +17,7 @@ import { U } from './uniforms.js';
 import { waterSurfaceMaterial, SIM, FX } from './waterfx.js';
 import { Hydro, WET } from '../sim/hydro.js';
 import { Erosion, ERO } from '../sim/erosion.js';
+import { Jobs } from '../sim/jobs.js';
 import { Support } from '../sim/support.js';
 import { PLANTS } from '../sim/plants.js';
 import { SedimentFX } from './sedimentfx.js';
@@ -29,6 +30,9 @@ export function loadErosionSetting() {
 }
 export function saveErosionSetting(v) { try { localStorage.setItem(EROSION_KEY, String(v)); } catch { /* ignore */ } }
 const rootedPlant = (p) => p.surface === 'terrain' && !String(PLANTS[p.id]?.habitat ?? '').includes('floating');
+
+// When erosion's changes are applied to the mesh and the water (Water._commitDue).
+const COMMIT = { gap: 4, drift: 0.05, max: 20 };
 
 let ribbonId = 1;
 
@@ -43,7 +47,13 @@ export class Water {
     this.erosion = new Erosion(this.hydro, { strength: loadErosionSetting() });
     this.support = new Support(world);
     this.sedFx = new SedimentFX(scene, world);
-    this._tur = 0; this._rootT = 0; this._applyT = 0; this._pend = false; this._puffT = 0; this._lastSlump = -1e9;
+    this._tur = 0; this._rootT = 0; this._puffT = 0; this._lastSlump = -1e9;
+    // Erosion is slow and needs no real time. Its runs and the commit of what they changed are background jobs that share
+    // a slice of every frame (sim/jobs.js); the commit waits until the ground has really moved (see COMMIT below).
+    this.jobs = new Jobs();
+    this._pend = false;      // erosion changed the ground since the last commit
+    this._commitT = 0;       // seconds since the last commit
+    this._driftT = 0;
 
     // Main pool: a fine grid moved by the ripples (one vertex per ripple cell).
     const g = new THREE.PlaneGeometry(TANK.w - 0.1, TANK.d - 0.1, SIM[0], SIM[1]);
@@ -112,6 +122,8 @@ export class Water {
   }
 
   groundChanged() {
+    this._pend = false; this._commitT = 0;   // sculpting applies whatever erosion had moved too
+    this.erosion.markCommitted();
     this.hydro.rebuild();
     this.syncLevel();
     this.syncFalls(true);
@@ -391,11 +403,12 @@ export class Water {
   }
 
   // --- Per frame ------------------------------------------------------------------
-  animate(dt, speed = 1) {
+  // `budget`: milliseconds of this frame the background jobs (erosion) may use.
+  animate(dt, speed = 1, budget = 1.2) {
     const H = this.hydro;
     const hs = dt * Math.max(1, Math.min(3, speed));
     H.step(hs);
-    this.erode(hs, dt * speed * MINUTES_PER_SECOND, dt);
+    this.erode(hs, dt * speed * MINUTES_PER_SECOND, dt, budget);
     this.syncLevel();
     // The surface mesh and its three uploads change slowly; every second frame is indistinguishable.
     if ((this._flowTick = (this._flowTick || 0) + 1) % 2 === 0 || this._flowTick === 1) this.updateFlowMesh();
@@ -428,35 +441,65 @@ export class Water {
   }
 
   // --- Erosion, sediment and what stands ---------------------------------------------
-  // hs: seconds of flow simulated this frame, gm: game minutes, dt: real seconds.
-  erode(hs, gm, dt) {
+  // hs: seconds of flow simulated this frame, gm: game minutes, dt: real seconds, budget: ms for background jobs.
+  erode(hs, gm, dt, budget) {
     const W = this.world, E = this.erosion, eco = W.env;
     this.sedFx.update(dt, E.enabled);
     // Cloudy water: sediment adds to the algae and detritus turbidity (ecology.js sets that one each tick).
     this._tur += ((E.enabled ? E.turb : 0) - this._tur) * Math.min(1, dt * 1.5);
     if (eco && Number.isFinite(eco.algae)) U.turbidity.value = Math.min(1, Math.max(0, eco.algae * 0.9 + (eco.detritus ?? 0) / 60) + this._tur * 0.8);
     if (!W.decor) return;
-    this._applyT -= dt;
     if (E.enabled) {
       this._rootT -= dt;
       if (this._rootT <= 0) { this._rootT = 4; E.setRoots(W.plants?.list ?? [], rootedPlant); }
-      if (E.tick(hs, gm)) this._pend = true;
+      this._commitT += dt;
+      E.gather(hs, gm);
+      // One job at a time: a run of erosion over the flow gathered so far, or the commit of what the runs have changed.
+      if (!this.jobs.busy) {
+        if (this._commitDue(dt)) this.jobs.add(this._commit());
+        else { const w = E.take(); if (w) this.jobs.add(this._run(w)); }
+      }
+      this.jobs.pump(budget);
       for (const ev of E.events.splice(0)) {
         if (this._puffT <= 0) { this.sedFx.puff(ev.x, ev.y, ev.z, ev.v); this._puffT = 0.6; }
         if (eco && eco.minute - this._lastSlump > 30) { this._lastSlump = eco.minute; W.log?.('A bank slumped.', 'info'); }
       }
       this._puffT -= dt;
-      if (this._pend && this._applyT <= 0) {
-        this._pend = false; this._applyT = 1;
-        W.terrain.compose(W.decor.stamps());
-        W.terrain.update();
-        this.hydro.rebuild(true);
-        this.syncLevel();
-        this._fxT = (this._fxT ?? 0) - 1;
-        if (this._fxT <= 0) { this._fxT = 3; W.fx?.updateTerrain?.(); this.reseatPlants(); this.updateMarkers(); }
-      }
     }
     this.support.update(dt);
+  }
+
+  // The eroded ground reaches the mesh and the water only now and then: after COMMIT.gap seconds, and then only once some
+  // cell has moved by COMMIT.drift cm (or COMMIT.max seconds have passed): a millimetre of bank is not worth a rebuild.
+  _commitDue(dt) {
+    if (!this._pend || this._commitT < COMMIT.gap) return false;
+    if (this._commitT >= COMMIT.max) return true;
+    this._driftT -= dt;
+    if (this._driftT > 0) return false;
+    this._driftT = 0.5;
+    return this.erosion.drift() >= COMMIT.drift;
+  }
+
+  // A run of erosion over a window of flow (a job: see sim/jobs.js).
+  *_run(w) {
+    if (yield* this.erosion.steps(w.dt, w.T)) this._pend = true;
+  }
+
+  // Applies what erosion changed to the terrain mesh and the water, in pieces: the ground and its mesh, then the water's
+  // books (the heavy one), then everything that follows the ground.
+  *_commit() {
+    const W = this.world;
+    this._pend = false; this._commitT = 0;
+    W.terrain.compose(W.decor.stamps());
+    W.terrain.update();
+    yield;
+    this.hydro.rebuild(true);
+    this.syncLevel();
+    this.erosion.markCommitted();
+    yield;
+    W.fx?.updateTerrain?.();
+    this.reseatPlants();
+    this.updateMarkers();
   }
 
   // Plants follow the ground as it erodes.
@@ -483,6 +526,8 @@ export class Water {
   }
 
   load(o) {
+    this.jobs.clear(); this.erosion.reset();
+    this._pend = false; this._commitT = 0;
     this.erosion.s.fill(0); this.erosion.cum.fill(0);
     if (o.hydro) this.hydro.deserialize(o.hydro);
     else {
@@ -500,6 +545,8 @@ export class Water {
   }
 
   clear() {
+    this.jobs.clear(); this.erosion.reset();
+    this._pend = false; this._commitT = 0; this._lastSlump = -1e9; this._puffT = 0;
     this.erosion.s.fill(0); this.erosion.cum.fill(0);
     this.hydro.outlets = [];
     this.hydro.d.fill(0);

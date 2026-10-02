@@ -161,6 +161,15 @@ export class World {
     await Promise.all([this.decor.preload(), this.plants.preload()]);
   }
 
+  // Starts over in this world as if it had just been built (the same tank, the same scene objects): the layouts clear what
+  // the simulation put in, and the counters a new World begins with are set again. Building a world is mostly building
+  // shaders, and they are all still compiled; see Game.restartTank.
+  restart(layout, save = null) {
+    this.stats = { births: 0, deaths: 0, metamorphs: 0, hatched: 0, lastDeathMinute: -1e9 };
+    this.history = undefined;
+    if (save) this.load(save); else if (layout === 'starter') this.starter(); else this.empty();
+  }
+
   // A layout that shows the water system: a pump in the lagoon lifts water
   // to a pool on top of the rock massif on the left; it spills through a
   // notch, pours down the cliff into a middle pool, and a stream winds from

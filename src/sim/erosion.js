@@ -26,6 +26,7 @@ import { retainMap, slumpPass, stressMap, paintMat, dominant } from './support.j
 import { clamp } from '../util/math.js';
 
 export const WET = 0.05;
+const WINDOW = 0.2;                     // seconds of hydro time that make one run
 export const HARD = [1.0, 1.5, 0.3, 0, 0.12, 0];   // soil, sand, gravel, rock, moss, dark stone
 export const ERO = {
   Kc: 0.03,        // cm of sediment a fast, steep, deep-enough flow carries
@@ -51,6 +52,7 @@ export class Erosion {
     this.s = new Float32Array(N);        // suspended sediment (cm)
     this.cum = new Float32Array(N);      // net depth eroded so far (cm): the bed armours as it goes
     this.last = f.base.slice();          // the ground as we left it (to notice the player's edits)
+    this.committed = f.base.slice();     // the ground as the water and the mesh last saw it (see markCommitted)
     this.root = new Float32Array(N);     // 0..1 root mat cover
     this.ret = new Float32Array(N);      // 0..1 retained by rock or roots
     this.grand = new Float32Array(N).fill(1);   // as-built allowance on the angle of repose (see run)
@@ -125,18 +127,52 @@ export class Erosion {
     return a;
   }
 
-  // Called every frame with the hydro seconds and game minutes elapsed; works a few times per second.
-  tick(dt, gm) {
+  // Called every frame with the hydro seconds and game minutes elapsed; they gather until take() has a window.
+  gather(dt, gm) { this.acc.dt += dt; this.acc.gm += gm; }
+
+  // The live game's way in: flow time is accumulated every frame (cheap), and when a window has gathered it becomes a job
+  // (a generator, see steps) that the caller shares out in small pieces (jobs.js). Erosion is slow and needs no real time:
+  // while a job is still working, further flow time simply keeps adding up and the next job covers all of it.
+  // Returns null until a window is ready, then { dt, T } (and clears the accumulator).
+  take() {
     const A = this.acc;
-    A.dt += dt; A.gm += gm;
-    if (A.dt < 0.2) return false;
-    const T = Math.max(A.dt, A.gm), d = A.dt;
+    if (A.dt < WINDOW) return null;
+    const T = Math.max(A.dt, A.gm), dt = A.dt;
     A.dt = 0; A.gm = 0;
-    return this.run(d, T);
+    return { dt, T };
+  }
+
+  // Forgets the flow time gathered so far and everything pending (the ground is about to be replaced). The ground as we
+  // left it is forgotten too, so the next run takes whatever it finds as a whole new ground, built that way and stable as it
+  // stands, as in a new world, and not as a few cells the player sculpted (which lose their allowance on the angle of repose).
+  reset() {
+    this.acc.dt = 0; this.acc.gm = 0;
+    this.events.length = 0; this.ev.length = 0;
+    this.eT.fill(0); this.dT.fill(0);
+    this.last.fill(NaN);
+  }
+
+  // The ground as the water and the mesh last saw it (set when a change is applied, see Water.commit).
+  markCommitted() { this.committed.set(this.f.base); }
+
+  // The largest change to any cell since then, in cm: how much a refresh would actually show.
+  drift() {
+    const B = this.f.base, C = this.committed;
+    let m = 0;
+    for (let n = 0; n < B.length; n++) { const d = Math.abs(B[n] - C[n]); if (d > m) m = d; }
+    return m;
   }
 
   // dt: hydro seconds; T: virtual seconds of flow they stand for. Returns true when the ground changed.
+  // All in one go (tests, tools); the game uses steps() so a run never costs a frame more than a slice.
   run(dt, T) {
+    const g = this.steps(dt, T);
+    for (;;) { const r = g.next(); if (r.done) return r.value; }
+  }
+
+  // The same run as a generator: it yields between its phases (scan, capacity, each sweep, the pool, the paint, each slump
+  // pass) and returns whether the ground changed. Every yield is a point where soil is conserved (bed + suspended).
+  *steps(dt, T) {
     const S = this.strength * (this.scale ?? 1);   // scale: the mode's multiplier (modes.js), 1 by default
     if (S <= 0) return false;
     const H = this.H, f = this.f, B = f.base, h = f.h, st = f.stamped, N = this.N, area = this.area, cols = f.cols;
@@ -146,7 +182,7 @@ export class Erosion {
     const maxH = f.maxH ?? 1e9;
     this.age += dt;
     this.retT -= dt;
-    if (this.retT <= 0) { this.retT = 2.5; retainMap(f, this.root, this.ret); }
+    if (this.retT <= 0) { this.retT = 2.5; retainMap(f, this.root, this.ret); yield; }
     this.depNode.fill(0);
     let ero = 0, dep = 0;
     // --- Scan: which cells are wet, which pool cells hold sediment; the player's edits reset the armour.
@@ -158,6 +194,7 @@ export class Erosion {
       if (s[n] > 0) { const nb2 = Math.fround(B[n] + s[n]), real = nb2 - B[n]; B[n] = nb2; s[n] -= real; dep += real; this.depNode[H.grp[n]] += real * area; }   // the water left: it settles where it is
     }
     this.nWet = nW; this.nPool = nP;
+    yield;
     // The player's sculpting (a few cells) loses the as-built allowance; a whole new ground (a generated,
     // loaded or restored tank: most cells changed at once) is taken as built and stable as it stands.
     if (nCh > 0) {
@@ -180,6 +217,7 @@ export class Erosion {
         }
       }
     }
+    yield;
     // --- Capacity and erodibility, once per run (the flow field is steady over it).
     const da = f.da;
     risk.fill(0);
@@ -200,6 +238,7 @@ export class Erosion {
       eroda[n] = ERO.Kr * S * hard;
       risk[n] = Math.min(2, c * hard * S / 0.004);
     }
+    yield;
     // --- Sweeps: exchange with the bed, then ride the pipes.
     const sweeps = clamp(Math.ceil(T / 0.25), 1, 24), ds = T / sweeps;
     for (let w = 0; w < sweeps; w++) {
@@ -259,6 +298,7 @@ export class Erosion {
         }
       }
       for (let i = 0; i < nt; i++) { const t = touched[i]; s[t] += add[t]; add[t] = 0; }
+      yield;
     }
     // --- The main pool: sediment spreads a little and settles slowly.
     {
@@ -280,6 +320,7 @@ export class Erosion {
         }
         for (let i = 0; i < nt; i++) { const t = touched[i]; if (add[t] !== 0) { s[t] += add[t]; add[t] = 0; } }
         void m0;
+        yield;
       }
       const L = H.level;
       for (let i = 0; i < nt; i++) {
@@ -299,6 +340,7 @@ export class Erosion {
       for (let i = 0; i < np; i++) add[pool[i]] = 0;
       this.nPool = np;
     }
+    yield;
     // --- Material: sand fans where moving water drops its load, silt where it is still, lag gravel where it dug.
     const paint = (n) => {
       const dT = this.dT[n], eT = this.eT[n];
@@ -315,11 +357,12 @@ export class Erosion {
     };
     for (let q = 0; q < nW; q++) paint(wet[q]);
     for (let q = 0; q < this.nPool; q++) paint(this.pool[q]);
+    yield;
     // --- Slumping.
     let slumped = 0;
     const passes = clamp(1 + Math.floor(T / 4), 1, 4);
     this.ev.length = 0;
-    for (let p = 0; p < passes; p++) slumped += slumpPass(f, this.ret, 0.35 * (this.slump ?? 1), this.dz, p === 0 ? this.ev : null, this.grand);
+    for (let p = 0; p < passes; p++) { slumped += slumpPass(f, this.ret, 0.35 * (this.slump ?? 1), this.dz, p === 0 ? this.ev : null, this.grand); yield; }
     if (this.ev.length) {
       this.ev.sort((a, b) => b[1] - a[1]);
       for (const [n, a] of this.ev.slice(0, 3)) {

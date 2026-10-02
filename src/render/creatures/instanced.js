@@ -92,7 +92,9 @@ function hasTranslucent(geometry, finish) {
 
 // Species whose finish, animation numbers and textures are identical draw with ONE material: building a node graph
 // into a shader is the expensive part of loading a tank (tens of milliseconds each), and the graph depends only on
-// these values. Shared materials live for the whole session (flagged `userData.shared`, so a tank unload leaves them).
+// these values. The materials live in a registry for the whole session and every tank reuses them. (A tank unload still
+// disposes them: that is what frees the render data of the meshes that were using them, and three re-creates a disposed
+// material's GPU side the next time it is drawn.)
 const MATERIALS = new Map();
 const texIds = new WeakMap();
 let nextTexId = 1;
@@ -102,7 +104,7 @@ const finishKey = (_, v) => (v && v.isTexture ? 'tex' + texId(v) : v);
 function buildMaterial(finish, wave, legLift, legStride, textures = null, translucent = false) {
   const key = JSON.stringify([finish, wave, legLift, legStride, translucent, textures && Object.entries(textures).map(([k, t]) => [k, texId(t)])], finishKey);
   let m = MATERIALS.get(key);
-  if (!m) { m = buildUncached(finish, wave, legLift, legStride, textures, translucent); m.userData.shared = true; if (m.userData.blendMaterial) m.userData.blendMaterial.userData.shared = true; MATERIALS.set(key, m); }
+  if (!m) { m = buildUncached(finish, wave, legLift, legStride, textures, translucent); MATERIALS.set(key, m); }
   return m;
 }
 

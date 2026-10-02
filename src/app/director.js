@@ -230,7 +230,7 @@ export class Director {
     S.lens.value = 'off'; S.selection.value = null; S.following.value = null; S.coach.value = null; S.smartBar.value = null; S.pairing.value = null;
     S.modal.value = null; S.modalArg.value = null; S.hub.value = null; S.right.value = false;
     S.tankTitle.value = null;
-    await g.loadTank('standard', { layout: 'starter' });
+    await g.loadTank('standard', { layout: 'starter', showcase: true });
     g.rig.startOrbit(0.04);
     g.rig.view('hero', false);
     S.screen.value = 'title';

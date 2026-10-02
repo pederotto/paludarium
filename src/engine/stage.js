@@ -9,13 +9,15 @@
 
 import * as THREE from 'three/webgpu';
 import {
-  float, vec2, vec3, positionWorld, normalWorld, normalView, cameraPosition, normalize, dot, abs, pow, smoothstep, mix, clamp,
-  mx_worley_noise_float, mx_noise_float, max,
+  Fn, If, float, vec2, vec3, positionWorld, normalWorld, normalView, cameraPosition, normalize, dot, abs, pow, smoothstep, mix, clamp,
+  texture, max,
 } from 'three/tsl';
 import { TANK } from '../sim/tank.js';
 import { U } from '../render/uniforms.js';
+import { DEW, dewTextures, bakeDew } from '../render/dew.js';
 
 const COOL = new THREE.Color(0xf4f7ff), WARM = new THREE.Color(0xffd9a8), GLOW = new THREE.Color(1, 0.965, 0.9);
+const DEW_MIN = 0.015;   // below this much dew the beads are smaller than a pixel: the glass is simply clear
 
 export class Stage {
   constructor(scene) {
@@ -36,16 +38,28 @@ export class Stage {
     // The dew: sparse beads that grow and merge as U.condense rises, each a
     // clear centre with a bright rim (a lens catching the light), and a thin
     // haze of fog on the glass at the top of the range.
-    const pp = vec2(positionWorld.x.add(positionWorld.z), positionWorld.y.mul(0.85));
-    const w = mx_worley_noise_float(pp.mul(0.95).toVec3());
-    const w2 = mx_worley_noise_float(pp.mul(2.7).add(17).toVec3());
-    const c = U.condense;
-    const R = c.mul(0.36), r2 = c.mul(0.3);
-    const body = max(smoothstep(R, R.mul(0.6), w), smoothstep(r2, r2.mul(0.6), w2).mul(0.8));
-    const rimA = smoothstep(R.mul(0.62), R.mul(0.92), w).mul(smoothstep(R.mul(1.08), R.mul(0.9), w));
-    const rimB = smoothstep(r2.mul(0.62), r2.mul(0.92), w2).mul(smoothstep(r2.mul(1.08), r2.mul(0.9), w2));
-    const rim = max(rimA, rimB.mul(0.8)).mul(smoothstep(0.03, 0.15, c));
-    const haze = smoothstep(0.4, 1, c).mul(mx_noise_float(pp.mul(0.25).toVec3()).mul(0.25).add(0.7)).mul(0.22);
+    // Evaluating the noise for every fragment (two Worley fields and a simplex, over the big panes, drawn for both faces)
+    // cost about half of a frame on a retina screen. The pattern never changes, only how much of it shows, so it is baked
+    // into tileable textures (render/dew.js) and the shader takes two samples; and most tanks start with no dew at all, so
+    // the lot sits behind a branch on the uniform: clear glass pays for none of it.
+    const c = U.condense, tex = dewTextures();
+    const dew = Fn(() => {
+      const out = vec3(0).toVar();   // x: the beads, y: their rims, z: the haze
+      If(c.greaterThan(DEW_MIN), () => {
+        const pp = vec2(positionWorld.x.add(positionWorld.z), positionWorld.y.mul(0.85));
+        const ta = texture(tex.a, pp.div(DEW.periodA)).level(0), tb = texture(tex.b, pp.div(DEW.periodB)).level(0);
+        const w = ta.x, w2 = tb.x;
+        const R = c.mul(0.36), r2 = c.mul(0.3);
+        const bodyV = max(smoothstep(R, R.mul(0.6), w), smoothstep(r2, r2.mul(0.6), w2).mul(0.8));
+        const rimA = smoothstep(R.mul(0.62), R.mul(0.92), w).mul(smoothstep(R.mul(1.08), R.mul(0.9), w));
+        const rimB = smoothstep(r2.mul(0.62), r2.mul(0.92), w2).mul(smoothstep(r2.mul(1.08), r2.mul(0.9), w2));
+        const rimV = max(rimA, rimB.mul(0.8)).mul(smoothstep(0.03, 0.15, c));
+        const hazeV = smoothstep(0.4, 1, c).mul(ta.y.mul(0.25).add(0.7)).mul(0.22);
+        out.assign(vec3(bodyV, rimV, hazeV));
+      });
+      return out;
+    })().toVar();
+    const body = dew.x, rim = dew.y, haze = dew.z;
     m.opacityNode = float(0.035).add(fres.mul(0.12)).add(body.mul(0.09)).add(rim.mul(0.4)).add(haze);
     m.roughnessNode = mix(float(0.04), float(0.3), clamp(body.add(haze), 0, 1));
     m.colorNode = mix(vec3(0.8, 0.92, 0.9), vec3(0.96, 0.99, 1), clamp(rim.add(haze), 0, 1));
@@ -153,6 +167,7 @@ export class Stage {
   // Day and night: `light` is the schedule (0 … 1) times the lamp's power;
   // `warmth` (0 cool white … 1 warm) tints the LED; `moon` allows night light.
   setDaylight(light, warmth = 0.35, moon = true) {
+    if (U.condense.value > 0.004) bakeDew();   // the first dew starts baking the pattern it needs (once)
     const L = this.lights;
     const lvl = Math.min(1.5, light);
     L.led.color.copy(COOL).lerp(WARM, warmth);

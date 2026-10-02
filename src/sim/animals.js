@@ -348,8 +348,9 @@ export class Animals {
     this.scene = scene;
     this.world = world;
     this.by = {};
-    this.meshes = {};     // instanced meshes by key: the species id (its default look) or '<species>:<morph>'
-    this.keys = {};       // species id -> the keys of all its meshes (the default and every morph drawn so far)
+    this.meshes = {};     // instanced meshes by key: the species id (its default look) or '<species>:<morph>', each built when first drawn
+    this.keys = {};       // species id -> the keys of the meshes built for it so far (the default and every morph drawn)
+    this.models = {};     // species id -> builds its textured model's mesh, once that model has loaded (upgradeModels)
     this.tails = {};
     this.food = [];
     this.camera = null;   // set by Game: fine meshes are used for animals near it
@@ -361,10 +362,9 @@ export class Animals {
     this.tf = 1;                  // animal time per real time this frame (1 … 4): strikes and hops play in real time
     this.grid = new Map(); this.striking = new Set();
     this.tongues = new Tongues(scene);
-    for (const [id, sp] of Object.entries(SPECIES)) {
+    for (const id of Object.keys(SPECIES)) {
       this.by[id] = [];
-      this.meshes[id] = createSpeciesMesh(scene, id);
-      this.keys[id] = [id];
+      this.keys[id] = [];
     }
     this.upgradeModels().catch((e) => console.warn('creature models', e));
     const fg = new THREE.IcosahedronGeometry(0.22, 0);
@@ -388,24 +388,26 @@ export class Animals {
       if (!g) continue;
       const a = sp.anim ?? {};
       const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
-      const lod = new CreatureLOD(this.scene, g.lo, {
+      const make = () => new CreatureLOD(this.scene, g.lo, {
         cap: sp.cap + 20, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35,
         finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
       });
+      this.models[id] = make;
+      // A species that is already drawn with its procedural body switches over; one that is not yet drawn starts with the model.
       const old = this.meshes[id];
-      this.meshes[id] = lod;
-      old.remove();
+      if (old) { this.meshes[id] = make(); old.remove(); }
     }
   }
 
   get all() { return Object.values(this.by).flat(); }
 
-  // The mesh that draws a morph of a species; built on first use, and the species' default mesh when the body
-  // library has no variant for it (so counts stay right and nothing is built twice).
-  meshFor(id, morph) {
+  // The mesh that draws a species, or one morph of it; built on first use. A tank holds a dozen of the species, and a
+  // mesh is a body to mesh, a material to make and a shader to build, so only the ones in use exist. The species' default
+  // mesh stands in when the body library has no variant for the morph (so counts stay right and nothing is built twice).
+  meshFor(id, morph = null) {
     const key = meshKeyFor(id, morph);
     if (!this.meshes[key]) {
-      this.meshes[key] = createSpeciesMesh(this.scene, id, { morph });
+      this.meshes[key] = key === id && this.models[id] ? this.models[id]() : createSpeciesMesh(this.scene, id, { morph });
       this.keys[id].push(key);
     }
     return this.meshes[key];
@@ -1794,9 +1796,9 @@ export class Animals {
     const cam = this.camera?.position;
     for (const [id, arr] of Object.entries(this.by)) {
       const sp = SPECIES[id];
-      const dm = this.meshes[id];
       const an = sp.anim ?? {};
       const morphs = hasGenetics(id);
+      const dm = arr.length ? this.meshFor(id) : null;   // built the first time the species has an animal
       for (const k of this.keys[id]) this.meshes[k].begin();
       for (const a of arr) {
         const cm = morphs && a.morph ? this.meshFor(id, a.morph) : dm;

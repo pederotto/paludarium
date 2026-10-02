@@ -9,6 +9,7 @@
 
 import * as THREE from 'three/webgpu';
 import { TANK, TERRAIN_RES, WALL_RES, LIMITS, MATERIALS, NMAT, MAT } from './tank.js';
+import { normalsFromIndexed } from './gridmesh.js';
 import { substrateMaterial } from '../render/shaders.js';
 import { hash3, clamp, smooth } from '../util/math.js';
 
@@ -124,6 +125,21 @@ export class Field {
     const o = n * NMAT;
     w0.setXYZ(v, this.mat[o], this.mat[o + 1], this.mat[o + 2]);
     w1.setXYZ(v, this.mat[o + 3], this.mat[o + 4], this.mat[o + 5]);
+  }
+
+  // weightsTo for every vertex at once, straight on the two vec3 arrays. `flipRows`: the wall's plane runs its rows top to bottom.
+  weightsAll(W0, W1, flipRows = false) {
+    const { cols, rows, mat, stamped } = this;
+    for (let j = 0; j < rows; j++) {
+      const row = (flipRows ? rows - 1 - j : j) * cols;
+      for (let i = 0, n = j * cols; i < cols; i++, n++) {
+        const v = (row + i) * 3;
+        if (stamped?.[n]) { W0[v] = 0; W0[v + 1] = 0; W0[v + 2] = 0; W1[v] = 1; W1[v + 1] = 0; W1[v + 2] = 0; continue; }
+        const o = n * NMAT;
+        W0[v] = mat[o]; W0[v + 1] = mat[o + 1]; W0[v + 2] = mat[o + 2];
+        W1[v] = mat[o + 3]; W1[v + 1] = mat[o + 4]; W1[v + 2] = mat[o + 5];
+      }
+    }
   }
 
   colorAt(n, out, extra = 0) {
@@ -265,25 +281,29 @@ export class Terrain {
     return new THREE.Vector3(-gx, 1, -gz).normalize();
   }
 
+  // Refreshes the mesh from the field. Only the heights and the material weights change between calls (the plane's x and z
+  // are laid out once), and the normals come from gridmesh.js, so a refresh is a few typed-array loops and no garbage.
   update() {
     if (!this.field.dirty) return false;
     const f = this.field;
-    const pa = this.geo.attributes.position;
-    const w0 = this.geo.attributes.w0, w1 = this.geo.attributes.w1;
-    for (let j = 0; j <= f.ny; j++) {
-      for (let i = 0; i <= f.nx; i++) {
-        const n = f.idx(i, j);
-        const [x, z] = f.toWorld(i, j);
-        pa.setXYZ(n, x, f.h[n], z);
-        f.weightsTo(n, w0, w1, n);
+    const geo = this.geo, P = geo.attributes.position.array, W0 = geo.attributes.w0.array, W1 = geo.attributes.w1.array;
+    if (!this._laidOut) {
+      for (let j = 0, n = 0; j <= f.ny; j++) {
+        const z = f.ob + j * f.db;
+        for (let i = 0; i <= f.nx; i++, n++) { P[n * 3] = f.oa + i * f.da; P[n * 3 + 2] = z; }
       }
+      this._laidOut = true;
     }
-    pa.needsUpdate = true;
-    w0.needsUpdate = true;
-    w1.needsUpdate = true;
-    this.geo.computeVertexNormals();
-    this.geo.computeBoundingSphere();
-    this.geo.computeBoundingBox();
+    const h = f.h;
+    for (let n = 0; n < h.length; n++) P[n * 3 + 1] = h[n];
+    f.weightsAll(W0, W1);
+    normalsFromIndexed(P, geo.index.array, geo.attributes.normal.array);
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.normal.needsUpdate = true;
+    geo.attributes.w0.needsUpdate = true;
+    geo.attributes.w1.needsUpdate = true;
+    geo.computeBoundingSphere();
+    geo.computeBoundingBox();
     f.dirty = false;
     return true;
   }
@@ -401,27 +421,31 @@ export class Wall {
 
   zAt(x, y) { return -TANK.d / 2 + this.field.sample(x, y); }
 
+  // As Terrain.update: x and y are laid out once; z, the weights and the normals follow the field. Plane rows run top to bottom.
   update() {
     if (!this.field.dirty) return false;
     const f = this.field;
-    const pa = this.geo.attributes.position;
-    const w0 = this.geo.attributes.w0, w1 = this.geo.attributes.w1;
-    for (let j = 0; j <= f.ny; j++) {
-      for (let i = 0; i <= f.nx; i++) {
-        const n = f.idx(i, j);
-        const [x, y] = f.toWorld(i, j);
-        // PlaneGeometry vertex (i, row) where row 0 is the top.
-        const v = (f.ny - j) * f.cols + i;
-        pa.setXYZ(v, x, y, -TANK.d / 2 + f.h[n]);
-        f.weightsTo(n, w0, w1, v);
+    const geo = this.geo, P = geo.attributes.position.array, W0 = geo.attributes.w0.array, W1 = geo.attributes.w1.array;
+    const z0 = -TANK.d / 2, h = f.h;
+    if (!this._laidOut) {
+      for (let j = 0; j <= f.ny; j++) {
+        const y = f.ob + j * f.db, row = (f.ny - j) * f.cols;
+        for (let i = 0; i <= f.nx; i++) { const v = (row + i) * 3; P[v] = f.oa + i * f.da; P[v + 1] = y; }
       }
+      this._laidOut = true;
     }
-    pa.needsUpdate = true;
-    w0.needsUpdate = true;
-    w1.needsUpdate = true;
-    this.geo.computeVertexNormals();
-    this.geo.computeBoundingSphere();
-    this.geo.computeBoundingBox();
+    for (let j = 0, n = 0; j <= f.ny; j++) {
+      const row = (f.ny - j) * f.cols;
+      for (let i = 0; i <= f.nx; i++, n++) P[(row + i) * 3 + 2] = z0 + h[n];
+    }
+    f.weightsAll(W0, W1, true);
+    normalsFromIndexed(P, geo.index.array, geo.attributes.normal.array);
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.normal.needsUpdate = true;
+    geo.attributes.w0.needsUpdate = true;
+    geo.attributes.w1.needsUpdate = true;
+    geo.computeBoundingSphere();
+    geo.computeBoundingBox();
     f.dirty = false;
     return true;
   }

@@ -42,7 +42,7 @@ S.right.value = !mq.matches && drawerPref();
 mq.addEventListener('change', (e) => { S.compact.value = e.matches; S.right.value = !e.matches && drawerPref(); });
 
 // The title screen shows the starter tank slowly turning behind the menu.
-await game.loadTank('standard', { layout: 'starter' });
+await game.loadTank('standard', { layout: 'starter', showcase: true });
 ctx.tools = window.__tools = new ToolController(game);
 const director = ctx.director = window.__director = new Director(game);
 game.rig.startOrbit(0.04);
