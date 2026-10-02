@@ -79,7 +79,7 @@ export const PRESETS = {
   },
 };
 
-export const PRESET_ORDER = ['cascade', 'suriname', 'blackwater', 'stream', 'karst', 'swamp', 'jar'];
+export const PRESET_ORDER = ['cascade', 'suriname', 'blackwater', 'stream', 'karst', 'swamp', 'streambank', 'reedpool', 'matano', 'everglades', 'jar'];
 
 // Presets that suit a tank size, in menu order.
 export function presetsForTier(tier) {
