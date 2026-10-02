@@ -10,7 +10,7 @@
 import * as THREE from 'three/webgpu';
 import { TANK, TERRAIN_RES, WALL_RES, LIMITS, MATERIALS, NMAT, MAT } from './tank.js';
 import { substrateMaterial } from '../render/shaders.js';
-import { hash3, clamp, smooth } from '../render/geo.js';
+import { hash3, clamp, smooth } from '../util/math.js';
 
 export class Field {
   // (a, b) are the two plane axes in world units; h is the height/offset.

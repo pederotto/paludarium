@@ -14,7 +14,7 @@
 import * as THREE from 'three/webgpu';
 import { PIECES } from './decor.js';
 import { TANK, MAT } from './tank.js';
-import { rng, clamp } from '../render/geo.js';
+import { rng, clamp } from '../util/math.js';
 
 const TAU = Math.PI * 2;
 

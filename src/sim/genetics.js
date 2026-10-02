@@ -223,8 +223,6 @@ export function carriedGenes(id, genes) {
   return describe(id, genes).filter((d) => d.state === 'carrier').map((d) => d.name);
 }
 
-export const isCarrier = (id, genes) => carriedGenes(id, genes).length > 0;
-
 // "Pair these two for a 25% chance of golden": the rarest morph neither parent shows, or else a
 // plain statement about what they will have.
 export function suggestPair(id, genesA, genesB) {

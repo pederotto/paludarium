@@ -85,15 +85,14 @@ const PLAIN = {
 };
 export const plainWhy = (w) => PLAIN[w] ?? w;
 
-// --- Small deterministic helpers shared by the smart placement (src/tools/smart.js) ----------
+// --- Small deterministic helpers shared by the smart placement (src/editor/smart.js) ----------
 export function mulberry(seed) {
   let a = seed >>> 0;
   return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 export const seedOf = (x, z, n = 0) => ((Math.round(x * 100) * 73856093) ^ (Math.round(z * 100) * 19349663) ^ (n * 83492791)) >>> 0;
 
-// Groups are odd (3 or 5), sizes graded from one anchor to the smallest.
-export const groupCount = (n) => (n >= 5 ? 5 : 3);
+// Sizes graded from one anchor to the smallest (groups are odd: 3 or 5).
 export function gradedSizes(n, base, rnd = Math.random) {
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -158,7 +157,6 @@ export function scatterSpots(cx, cz, radius, spacing, existing, { seed = 1, max 
 }
 
 // What a mode's HUD shows, and what a tool offers. Used by ToolRail, ToolOptions and the water tool.
-export const hudOf = (id) => rules(id).hud;
 export const simplified = (id) => rules(id).hud.toolOptions !== 'full';
 
 // The hint that replaces a long tool hint in Explorer.

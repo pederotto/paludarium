@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'preact/hooks';
 import { S, toast, openModal, closeModal } from '../store.js';
-import { Sheet } from './Modals.jsx';
+import { Sheet } from './Sheet.jsx';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { GEAR, GEAR_GROUPS } from '../../content/equipment.js';

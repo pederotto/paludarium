@@ -9,7 +9,7 @@
 // few minutes and then waits a cool-down.
 
 import { GEAR, SENSORS, ACTUATORS } from '../content/equipment.js';
-import { clamp } from '../render/geo.js';
+import { clamp } from '../util/math.js';
 
 const DEFAULT_OWNED = Object.values(GEAR).filter((g) => g.owned).map((g) => g.id);
 

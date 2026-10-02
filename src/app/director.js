@@ -15,6 +15,7 @@ import { S, toast, closeModal } from '../ui/store.js';
 import { ctx } from './ctx.js';
 import { Saves, Meta } from './saves.js';
 import { TANKS } from '../content/tanks.js';
+import { START_TANK } from '../content/economy.js';
 import { loadGenerator } from './lazy-gen.js';
 import { setMode } from './modes-runtime.js';
 import { MODES } from './modes.js';
@@ -75,7 +76,7 @@ export class Director {
     S.tankTitle.value = null;
     const career = new Career({ mode: 'career' });
     this.attach(career);
-    await this.game.loadTank('jar', { layout: 'empty' });
+    await this.game.loadTank(START_TANK, { layout: 'empty' });
     this.syncGear();
     this.commissions.accept(FIRST_COMMISSION, this.game.world);
     this.tutorial.step = 0; this.tutorial.finished = false;

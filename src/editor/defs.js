@@ -33,8 +33,7 @@ export const WATER_TOOLS = [
   ['pump', 'Pump', 'Click in the main pool to move the pump.'],
 ];
 
-// Where the Mirror toggle (key M) applies: tools, and the Water tool's modes.
-export const MIRROR_TOOLS = ['sculpt', 'paint', 'rock', 'water', 'plant'];
+// The Water tool's modes the Mirror toggle (key M) applies to.
 export const MIRROR_WATER = ['channel', 'basin', 'bank', 'outlet'];
 
 export const SCULPT_OPS = [['raise', 'Raise'], ['lower', 'Lower'], ['smooth', 'Smooth'], ['flatten', 'Flatten']];

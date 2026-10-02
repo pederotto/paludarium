@@ -7,7 +7,7 @@ import { App } from './ui/App.jsx';
 import { S, closeModal, toast, drawerPref } from './ui/store.js';
 import { ctx } from './app/ctx.js';
 import { Game } from './app/game.js';
-import { ToolController } from './tools/controller.js';
+import { ToolController } from './editor/controller.js';
 import { snapshot } from './app/snapshot.js';
 import { Meta } from './app/saves.js';
 import { Director } from './app/director.js';

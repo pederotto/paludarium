@@ -12,7 +12,7 @@ import { Env, Sim } from './sim.js';
 import { Climate } from './climate.js';
 import { Equipment } from './equipment.js';
 import { TANK, MAT, NMAT } from './tank.js';
-import { rng, smooth, clamp, lerp } from '../render/geo.js';
+import { rng, smooth, clamp, lerp } from '../util/math.js';
 
 export class World {
   constructor(scene) {

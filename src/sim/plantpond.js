@@ -8,7 +8,7 @@
 // Land plants do not read water at all: they use the fertility of the soil
 // (sim/humus.js).
 
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+import { clamp } from '../util/math.js';
 
 // How big a plant's appetite is, in units (a full-grown plant of normal size is 1).
 export function plantUnits(p, hab) {

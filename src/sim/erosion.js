@@ -23,6 +23,7 @@
 import { MAT, NMAT } from './tank.js';
 import { NODE } from './waterbodies.js';
 import { retainMap, slumpPass, stressMap, paintMat, dominant } from './support.js';
+import { clamp } from '../util/math.js';
 
 export const WET = 0.05;
 export const HARD = [1.0, 1.5, 0.3, 0, 0.12, 0];   // soil, sand, gravel, rock, moss, dark stone
@@ -40,7 +41,6 @@ export const ERO = {
   bodyK: 4e4,      // sediment per volume of a whole body (cm3 per cm3) to cloudiness (a pond dilutes it)
 };
 const NN = NODE.MAX;
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export class Erosion {
   constructor(H, opt = {}) {

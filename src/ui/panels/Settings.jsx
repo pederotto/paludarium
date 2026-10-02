@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { S, closeModal } from '../store.js';
-import { Sheet } from './Modals.jsx';
+import { Sheet } from './Sheet.jsx';
 import { ctx } from '../../app/ctx.js';
 import { QUALITY } from '../../engine/gfx.js';
 import { DISPLAY, toggleFullscreen, toggleZen, fullscreenSupported, isStandalone } from '../fullscreen.js';

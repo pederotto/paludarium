@@ -3,7 +3,8 @@
 // instanced, procedurally animated mesh (see creatures.js).
 
 import * as THREE from 'three/webgpu';
-import { Builder, PRIM, hash3, clamp, lerp, rng } from '../render/geo.js';
+import { Builder, PRIM } from '../render/geo.js';
+import { hash3, clamp, lerp, rng } from '../util/math.js';
 import { CreatureLOD, BODIES, FINISH, withRig } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';

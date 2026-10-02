@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'preact/hooks';
 import { S, openModal } from '../store.js';
-import { Sheet } from './Modals.jsx';
+import { Sheet } from './Sheet.jsx';
 import { Icon } from '../icons.jsx';
 import { RangeBar, WIDGETS } from './widgets.jsx';
 import { ctx } from '../../app/ctx.js';

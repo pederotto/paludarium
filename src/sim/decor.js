@@ -26,7 +26,7 @@ import { TEX, modelParts } from '../render/assets.js';
 import { plantMaterial, hardscapeMaterial, mouldMix, wet, triplanar, blendWeights } from '../render/shaders.js';
 import { U } from '../render/uniforms.js';
 import { MAT, NMAT, TANK } from './tank.js';
-import { rng, clamp } from '../render/geo.js';
+import { rng, clamp } from '../util/math.js';
 import { TINTS, PROC, rollLook, hullPoints, transformedBox, boxShift, nearestWall, faceQuat, faceOrigin, FACE_EMBED, SLOPE_NORMAL_Y } from './placement.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;

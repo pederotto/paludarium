@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import { S, toast } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { Env } from '../../sim/env.js';
-import { LENSES } from '../../tools/controller.js';
+import { LENSES } from '../../editor/controller.js';
 import { SPECIES } from '../../sim/animals.js';
 import { SPECIES_GENETICS, lociOf, describe, morphOf } from '../../sim/genetics.js';
 import { LOCI_TEXT, morphName } from '../../content/morphs.js';

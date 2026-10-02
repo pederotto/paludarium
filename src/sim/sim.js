@@ -17,7 +17,7 @@ import { FlyLife } from './flylife.js';
 import { FruitView } from '../render/fruit.js';
 import { U } from '../render/uniforms.js';
 import { PLANTS } from './plants.js';
-import { clamp, lerp } from '../render/geo.js';
+import { clamp, lerp } from '../util/math.js';
 import { TANK } from './tank.js';
 import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from './genetics.js';
 import { morphName, morphRarity } from '../content/morphs.js';

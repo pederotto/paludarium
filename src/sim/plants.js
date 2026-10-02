@@ -3,7 +3,8 @@
 // with the conditions in the tank.
 
 import * as THREE from 'three/webgpu';
-import { Builder, PRIM, rng, lerp, clamp } from '../render/geo.js';
+import { Builder, PRIM } from '../render/geo.js';
+import { rng, lerp, clamp } from '../util/math.js';
 import { plantMaterial } from '../render/shaders.js';
 import { MAT, TANK } from './tank.js';
 import { plantFit } from './placement.js';
