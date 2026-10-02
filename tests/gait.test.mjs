@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   frogKick, kickSpeed, KICK, KICK_MEAN, kickPeriod, bob, gaitRate, sweepFor, strideFor, footSwing, footLift, footGrounded, TROT, TAU,
-  scuttleSpeed, crabStride, clawRaise, frogSwimPose, salamanderSwimPose, packAnim, unpackAnim, strideRate, hopLegs, hopPitch, HOP, callSac, toeTap,
+  scuttleSpeed, crabStride, clawRaise, frogSwimPose, salamanderSwimPose, packAnim, unpackAnim, strideRate, hopLegs, HOP, callSac, toeTap,
 } from '../src/util/gait.js';
 
 const grid = (n, f) => { for (let i = 0; i <= n; i++) f(i / n, i); };
@@ -143,7 +143,6 @@ test('a hop: the legs snap out at take-off, trail, and are folded before landing
   let prev = 0, worst = 0;
   for (let i = 1; i <= 2000; i++) { const v = hopLegs(i / 2000); worst = Math.max(worst, Math.abs(v - prev)); prev = v; }
   assert.ok(worst < 0.02, `no jumps (${worst})`);
-  assert.ok(hopPitch(0) < -0.3 && Math.abs(hopPitch(0.5)) < 1e-9 && hopPitch(1) > 0.3, 'nose up, level, nose down');
 });
 
 test('a call bout and a toe tap stay in range and end at rest', () => {

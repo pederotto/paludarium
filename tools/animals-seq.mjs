@@ -2,6 +2,8 @@
 //
 //   node tools/animals-seq.mjs --scenario=swim|walk|crab|salamander --species=dartfrog,toad [--url=http://localhost:4173/]
 //        [--out=test-output/seq] [--tag=after] [--frames=8] [--dt=0.2] [--warm=2] [--size=420] [--view=side|three|top]
+//        [--force=walk|hop|turn|tap|call]   a frog or toad on land is made to do that right after the warm-up (a walk or hop of
+//        about 4 cm ahead, a half turn on the spot, toe tapping at a fly in front of it, a calling bout), so a short sequence shows it
 //
 // Opens the starter tank, takes every other animal out, puts ONE animal of each requested species where the scenario
 // wants it (the deepest part of the main pool for `swim`; open ground near the pool for `walk`), pauses the world and
@@ -21,6 +23,7 @@ const tag = arg('tag', 'after');
 const frames = +arg('frames', 8), dt = +arg('dt', 0.2), warm = +arg('warm', 2), size = +arg('size', 420);
 const view = arg('view', 'three');
 const cols = +arg('cols', 4);
+const force = arg('force', '');
 fs.mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
@@ -120,6 +123,17 @@ for (const id of species) {
   });
 
   await advance(warm);
+  if (force) await page.evaluate(({ force }) => {
+    const A = window.game.world.animals, a = window.__a, sp = { size: 1 }, V3 = window.game.camera.position.constructor;
+    const ahead = (d) => new V3(a.pos.x + Math.sin(a.yaw) * d, 0, a.pos.z + Math.cos(a.yaw) * d);
+    a.order = null; a.chain = 0;
+    if (force === 'walk') { a.plan = { type: 'walk', to: ahead(4), ang: a.yaw, water: false, v: 1 }; a.fs = 'walk'; a.walkT = 0; }
+    else if (force === 'hop') { const to = ahead(4); to.y = window.game.world.terrain.heightAt(to.x, to.z); A.startHop(a, to, 1.4); }
+    else if (force === 'turn') { a.faceTo = a.yaw + Math.PI; a.afterTurn = 'sit'; a.fs = 'turn'; }
+    else if (force === 'tap') { a.fs = 'sit'; a.fsT = 99; a.tapT = 99; }
+    else if (force === 'call') { a.fs = 'sit'; a.fsT = 99; a.male = true; a.v ??= null; if (a.v) a.v.callNext = 0; }
+    void sp;
+  }, { force });
   const shots = [], tel = [];
   for (let i = 0; i < frames; i++) {
     await cam(dist);

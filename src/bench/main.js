@@ -15,7 +15,7 @@ import { CreatureLOD } from '../render/creatures/instanced.js';
 import { FINISH } from '../render/creatures/material.js';
 import { BODIES } from '../render/creatures/bodies/index.js';
 import { packAnim } from '../render/creatures/instanced.js';
-import { frogSwimPose, salamanderSwimPose, TAU } from '../util/gait.js';
+import { frogSwimPose, salamanderSwimPose, hopLegs, TAU } from '../util/gait.js';
 
 const q = new URLSearchParams(location.search);
 const fullId = q.get('sp') ?? 'dartfrog';
@@ -117,7 +117,7 @@ const POSES = {
     ? { ...frogSwimPose(t, { level: sp.anim?.level ?? 0.28 }), phase: 0, amp: 0, gait: 0 }
     : { ...salamanderSwimPose(0.6), amp: (sp.anim?.amp ?? 0.6) * 2.5, phase: -t * TAU, gait: 0 }),
   walk: (t) => ({ calm: 0, gait: t * TAU, phase: t * TAU, amp: (sp.anim?.amp ?? 0), hop: 0, pose: 0 }),
-  hop: (t) => ({ calm: 0, hop: Math.sin(Math.PI * t), pose: 0, gait: 0 }),
+  hop: (t) => ({ calm: 1, hop: hopLegs(t), pose: 0, gait: 0, y: 4 * 1.2 * t * (1 - t), pitch: -0.35 * Math.cos(Math.PI * t) }),   // the game's leg timing (util/gait.js hopLegs) on a 1.2 cm arc
   claw: (t) => ({ calm: 1, pose: 1, phase: t * TAU * 3, gait: 0 }),
 };
 function frame() {

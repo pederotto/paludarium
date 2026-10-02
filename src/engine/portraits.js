@@ -7,7 +7,7 @@
 
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { SPECIES, createSpeciesMesh } from '../sim/animals.js';
+import { SPECIES, createSpeciesMesh, modelBuilder } from '../sim/animals.js';
 import { PLANTS, Plants } from '../sim/plants.js';
 import { U } from '../render/uniforms.js';
 import { setFoliageMRT } from '../render/shaders.js';
@@ -92,7 +92,9 @@ export class Portraits {
 
   async animal(id) {
     if (!SPECIES[id]) return null;
-    const lod = createSpeciesMesh(this.scene, id, { cap: 2 });
+    // The scanned, textured model when the species has one (as in the tank), else its procedural body.
+    const model = await modelBuilder(id).catch(() => null);
+    const lod = model ? model(this.scene, 2) : createSpeciesMesh(this.scene, id, { cap: 2 });
     lod.refine(true);
     lod.near2 = 1e12;
     lod.begin();

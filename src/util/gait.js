@@ -129,9 +129,6 @@ export function hopLegs(t) {
   return 1 - smooth((t - HOP.hold) / (HOP.fold - HOP.hold));
 }
 
-// Body pitch through a hop (radians, positive tips the nose down): nose up on take-off, level at the top, nose down to land.
-export const hopPitch = (t) => -0.32 * Math.cos(Math.PI * clamp01(t));
-
 // --- Frog calls ----------------------------------------------------------------------------------------------
 // A dart frog's call is a buzz: the vocal sac pulses some 5 times a second for a few seconds. `t` seconds into a bout of
 // `dur` seconds: the sac's inflation 0 … 1 (rising in, pulsing, and collapsing at the end).

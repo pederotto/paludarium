@@ -349,6 +349,24 @@ let nextId = 1;
 // Body meshes take a moment to build (surface nets), so they are built once and shared by every tank.
 const BODY_CACHE = {};
 
+// The textured model of a species (public/assets/creatures/manifest.json), as a function that makes its mesh in a scene, or
+// null when the species has none. Used by Animals.upgradeModels and by the portraits (engine/portraits.js), so a menu picture
+// shows the model the tank shows. `cap`: how many instances the mesh holds.
+export async function modelBuilder(id, meta = null) {
+  meta ??= (await loadManifest())[id];
+  const sp = SPECIES[id];
+  if (!sp || !meta || meta.disabled || meta.pose) return null;
+  if (!GLB_CACHE.has(id)) GLB_CACHE.set(id, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
+  const g = await GLB_CACHE.get(id);
+  if (!g) return null;
+  const a = sp.anim ?? {};
+  const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
+  return (scene, cap = sp.cap + 20) => new CreatureLOD(scene, g.lo, {
+    cap, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
+    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+  });
+}
+
 export class Animals {
   constructor(scene, world) {
     this.scene = scene;
@@ -390,17 +408,9 @@ export class Animals {
     const man = await loadManifest();
     for (const [id, meta] of Object.entries(man)) {
       if (meta.pose) { const [b, p] = id.split('.'); (this.poseMeta[b] ??= {})[p] = { key: id, meta }; if (this.meshes[b]) this.ensurePose(b, p); continue; }
-      const sp = SPECIES[id];
-      if (!sp || meta.disabled) continue;
-      if (!GLB_CACHE.has(id)) GLB_CACHE.set(id, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
-      const g = await GLB_CACHE.get(id);
-      if (!g) continue;
-      const a = sp.anim ?? {};
-      const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
-      const make = () => new CreatureLOD(this.scene, g.lo, {
-        cap: sp.cap + 20, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-        finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
-      });
+      const build = await modelBuilder(id, meta);
+      if (!build) continue;
+      const make = () => build(this.scene);
       this.models[id] = make;
       // A species that is already drawn with its procedural body switches over; one that is not yet drawn starts with the model.
       const old = this.meshes[id];
@@ -1171,8 +1181,8 @@ export class Animals {
     return { want: BURROW.depth, wantMolt: BURROW.depth + 0.4, room: spot.room, rate: spot.rate, spoil: { x: h.x + h.dir.x * BURROW.spoil, z: h.z + h.dir.z * BURROW.spoil } };
   }
 
-  // One load out of the burrow: the soil really moves (bowl to spoil heap), the heap takes the material that was dug, moss
-  // scraped out of the pit leaves bare soil, and the water is told so it commits the new ground (mesh, water, plants).
+  // One load out of the burrow: the soil really moves (bowl to spoil heap), the heap takes the material that was dug, the pit
+  // shows bare soil, and the water is told so it commits the new ground (mesh, water, plants).
   crabDig(a, m) {
     const W = this.world, f = W.terrain.field, h = a.home;
     const rim = pitDepth(f, h.x, h.z) + f.sample(h.x, h.z, f.base);
@@ -1182,7 +1192,7 @@ export class Animals {
     for (const id of [MAT.soil, MAT.sand, MAT.gravel]) { const w = f.matAt(h.x, h.z, id); if (w > best) { best = w; k = id; } }
     const r = excavate(f, h.x, h.z, { dir: h.dir, bottom: rim - want, root: W.water.erosion?.root, paint: (n, w) => f.paintAt(n, k, 0.3 * w) });
     if (r.moved <= 0) return;
-    if (f.matAt(h.x, h.z, MAT.moss) > 0.05) f.brush(h.x, h.z, BURROW.r * 0.8, 'paint', 0.5, { mat: MAT.soil });
+    f.brush(h.x, h.z, BURROW.r * 0.75, 'paint', 0.45, { mat: MAT.soil });     // the pit shows bare damp soil (moss scraped away): a dark mouth
     W.water.groundDisturbed?.();
   }
 
