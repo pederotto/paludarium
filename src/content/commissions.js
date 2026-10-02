@@ -147,7 +147,7 @@ const GIVERS = { suriname: 'Dr. Okafor', bocas: 'Dr. Okafor', blackwater: 'Ines'
 for (const id of BIOTOPE_ORDER) {
   const b = BIOTOPES[id];
   const natives = b.animals.filter((a) => !['springtail', 'isopod', 'fly'].includes(a));
-  const featureText = { bromeliad2: 'Grow 2 bromeliads', bromeliad3: 'Grow 3 bromeliads', leaflitter: 'Build leaf litter and moss on the floor', shallowpool: 'A shallow pool', moss15: 'Moss over 15% of the surfaces', stream: 'A flowing stream', wood: 'Driftwood or roots', deep: 'A deep pool', cycled: 'Cycled water', falls: 'A waterfall', oxygen: 'Oxygen at 7 mg/L or more', stones: 'At least three stones', cool: 'A cool tank (22 °C or less)', tall4: 'Four tall plants or climbers', basking: 'A basking lamp' };
+  const featureText = { bromeliad2: 'Grow 2 bromeliads', bromeliad3: 'Grow 3 bromeliads', leaflitter: 'Build leaf litter and moss on the floor', shallowpool: 'A shallow pool', moss15: 'Moss over 15% of the surfaces', stream: 'A flowing stream', wood: 'Driftwood or roots', deep: 'A deep pool', cycled: 'Cycled water', falls: 'A waterfall', oxygen: 'Oxygen at 7 mg/L or more', stones: 'At least three stones', cool: 'A cool tank (22 °C or less)', tall4: 'Four tall plants or climbers', basking: 'A basking lamp', hardwater: 'Hard water (GH 10 or more)', softwater: 'Soft water (GH 6 or less)', stillwater: 'Still or gently moving water', uvb: 'A UVB tube', falsebottom: 'A false bottom under the land' };
   list.push({
     id: `biotope-${id}`, tier: 3, level: b.level, giver: GIVERS[id] ?? 'The Museum', title: b.name,
     brief: `${b.blurb} Recreate it: the climate, the animals that live there, and the features that make it recognisable.`,

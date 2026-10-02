@@ -6,6 +6,50 @@
 // widget  = 'nitrogen' | 'watercycle' | 'dewpoint' | 'photoperiod' | 'oxygen' | 'feedback' | 'lens' | 'punnett'
 
 export const CONCEPTS = {
+  'water-hardness': {
+    title: 'Hard water, soft water and pH', icon: 'flask',
+    blurb: 'Why a crab from a rift lake and a danio from a forest pond want different water.',
+    sections: [
+      { p: ['Water carries dissolved minerals. GH (general hardness) measures calcium and magnesium, in degrees (°dH). Rain is soft (close to 0); water that has run through limestone is hard (12 and more).'] },
+      { p: ['pH says how acid or alkaline the water is: 7 is neutral, lower is acid, higher is alkaline. Hard water holds its pH up; in soft water it swings. CO₂ from breathing animals and rotting food lowers it, most at night; tannins from wood and leaves lower it too.'] },
+      { h: 'Who needs what', ul: ['Shrimp and crabs build a new shell at every molt from the minerals in the water: too soft and the molt fails.', 'Forest fish such as cardinals and pearl danios come from soft, neutral to acid water.', 'The panther crab comes from Lake Matano, hard and alkaline (pH 8).'] },
+      { fact: 'You set the hardness mostly with the water you use for changes: tap, rain or RO water, or RO water with minerals added back.' },
+      { tryit: 'In Care > Water choose a water source, change some water, and watch pH and GH in the status drawer settle.' },
+    ],
+    related: ['nitrogen-cycle', 'biotope', 'filtration'],
+  },
+  filtration: {
+    title: 'Filters and false bottoms', icon: 'filter',
+    blurb: 'Three ways to keep a paludarium\'s water clean, and the build that hides one under the land.',
+    sections: [
+      { p: ['A paludarium\'s water is shallow and collects everything that runs off the land. A filter here is mostly a home for the bacteria of the nitrogen cycle, so surface area matters more than force.'] },
+      { h: 'Three kinds', ul: [
+        'A corner foam filter (Mattenfilter): a block of coarse foam walls off a corner, with a small pump or air-lift behind it. No suction, so baby shrimp and tadpoles are safe; a huge surface for bacteria.',
+        'A canister: lots of media outside the tank, through bulkheads or hidden behind the background. The most capacity and current, but its intake needs a sponge over it.',
+        'A false bottom (plenum): an egg-crate floor on PVC legs under the land, covered with fibreglass mesh. The water under it, full of bio-rings or clay pebbles, is one big filter bed.',
+      ] },
+      { h: 'Building a false bottom', ul: [
+        'Put the pump in a back corner of the water, inside a slotted PVC tube with foam around the slots, so it can be lifted out later: never seal a pump in.',
+        'Cut the egg-crate to the land, stand it on legs of equal length, zip-tie mesh over it and fold the mesh up the walls.',
+        'Run tubing from the pump up behind the background to the waterfall; build the bank where land meets water from egg-crate, slate or cork.',
+        'Fill the plenum with bio-media, keep the water line half an inch below the mesh, and lay the soil on top.',
+      ] },
+      { fact: 'Flow matters to the animals as well: a pygmy sunfish or a newt wants almost still water, a stream fish wants a current.' },
+      { tryit: 'In Care > Water pick a filter, then look at the current in the status drawer.' },
+    ],
+    related: ['nitrogen-cycle', 'drainage', 'bioactive'],
+  },
+  uvb: {
+    title: 'Light you cannot see: UVB', icon: 'sun',
+    blurb: 'Why a shy skink still needs a little ultraviolet.',
+    sections: [
+      { p: ['UVB light lets skin make vitamin D3, and the body needs D3 to use the calcium in its food. Without it, bones soften over months (metabolic bone disease).'] },
+      { p: ['Animals of the forest floor get little sun and need little UVB: a low tube over part of the tank, with shade to retreat to, is enough. Desert reptiles need far more.'] },
+      { fact: 'Glass and most plastic block UVB: a lamp must shine through mesh or straight in.' },
+      { tryit: 'Fit a low UVB tube and watch a crocodile skink\'s needs clear in the Inspector.' },
+    ],
+    related: ['microclimate', 'photoperiod'],
+  },
   'nitrogen-cycle': {
     title: 'The nitrogen cycle', icon: 'flask', widget: 'nitrogen',
     blurb: 'Why a new tank is dangerous, and how it becomes safe.',

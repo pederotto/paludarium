@@ -4,6 +4,42 @@
 // tank against its chosen biotope; commissions ask for them by name.
 
 export const BIOTOPES = {
+  newguinea: {
+    id: 'newguinea', name: 'New Guinea stream bank', country: 'Papua New Guinea', level: 7,
+    animals: ['skink', 'purpleiso', 'springtail'], plants: ['fernph', 'pothos', 'bromeliad', 'weed'],
+    climate: { temp: [23, 28], humidity: [80, 98] },
+    features: ['leaflitter', 'shallowpool', 'basking', 'uvb'],
+    blurb: 'Humid lowland forest floor beside a creek: deep leaf litter, rotting logs and the roots of sago palms. The red-eyed crocodile skink lives here, hidden by day and out at dusk to hunt insects and worms along the water.',
+    facts: ['The skink lays a single egg at a time, often in a damp burrow under a log.', 'Crocodile skinks can squeak: one of the few lizards that make a sound when handled.'],
+    hint: '80% land with deep litter, cork and wood to hide under, a shallow pool, a mild warm spot and low UVB, 80% humidity or more.',
+  },
+  madagascar: {
+    id: 'madagascar', name: 'Madagascar reed marsh', country: 'Madagascar', level: 6,
+    animals: ['reedfrog', 'springtail', 'fly'], plants: ['cattail', 'bamboo', 'bromeliad', 'pothos', 'frogbit'],
+    climate: { temp: [24, 29], humidity: [70, 90] },
+    features: ['deep', 'tall4', 'bromeliad2'],
+    blurb: 'Reeds and shrubs around marshes and paddies in southern and eastern Madagascar. Starry night reed frogs sit high on stems and leaves above the water by day and call in chorus from them in the rainy season.',
+    facts: ['Reed frogs sit flat on a leaf with their legs tucked in to save water in the heat of the day.', 'Their eggs are laid in the water below, so the tadpoles drop straight into a pond.'],
+    hint: 'A tall tank, mostly water, with broad leaves, reeds and stems above it to perch on.',
+  },
+  matano: {
+    id: 'matano', name: 'Lake Matano shore', country: 'Indonesia', level: 7,
+    animals: ['panther', 'snail'], plants: ['javafern', 'vallisneria'],
+    climate: { temp: [24, 28], humidity: [70, 100] },
+    features: ['deep', 'hardwater', 'stones', 'wood'],
+    blurb: 'An ancient, very deep lake in the mountains of Sulawesi with clear, warm, alkaline water. Panther crabs live among the rocks and sunken wood of its shore, beside snails and shrimp found nowhere else.',
+    facts: ['Lake Matano is more than a million years old and 590 m deep, one of the oldest lakes on Earth.', 'Its water is low in nutrients and rich in minerals, so it is extremely clear.'],
+    hint: 'Deep, hard water (GH 10 or more), stones and wood that reach out of it, strong filtration.',
+  },
+  everglades: {
+    id: 'everglades', name: 'Everglades swamp margin', country: 'United States', level: 5,
+    animals: ['pygmy', 'springtail', 'isopod'], plants: ['cattail', 'grass', 'frogbit', 'weed'],
+    climate: { temp: [18, 26], humidity: [65, 95] },
+    features: ['stillwater', 'shallowpool', 'moss15'],
+    blurb: 'Weedy, still margins of the Florida swamps, thick with stems, floating plants and mats of vegetation. The Everglades pygmy sunfish hangs among the stems waiting for tiny crustaceans to drift by.',
+    facts: ['The swamp cools in winter: these fish need a cooler spell to breed well.', 'A displaying male turns velvet black with blue spangles.'],
+    hint: 'Still water, thick with stems and floating plants; no strong filter.',
+  },
   suriname: {
     id: 'suriname', name: 'Suriname forest island', country: 'Suriname', level: 4,
     animals: ['dartfrog', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'fernph', 'fern', 'pothos', 'grass'],

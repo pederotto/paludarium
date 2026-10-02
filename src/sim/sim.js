@@ -19,6 +19,8 @@ import { U } from '../render/uniforms.js';
 import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../util/math.js';
 import { TANK } from './tank.js';
+import { HABITAT } from '../content/habitats.js';
+import { filterOf } from '../content/equipment.js';
 import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from './genetics.js';
 import { morphName, morphRarity } from '../content/morphs.js';
 
@@ -123,13 +125,13 @@ export class Sim {
     // --- Auto-feeder: once a day at 10:00 if there are fish.
     if (E.autoFeed && E.day !== E.lastFed && E.minute % 1440 >= 600) {
       E.lastFed = E.day;
-      const fish = ['neon', 'guppy', 'cory'].some((id) => W.animals.count(id) > 0);
+      const fish = Object.keys(SPECIES).some((id) => SPECIES[id].kind === 'swim' && SPECIES[id].eats.includes('flake') && W.animals.count(id) > 0);
       if (fish && W.animals.feed()) W.log('Auto-feeder dropped food.');
     }
     // Fruit fly culture: a few flies hatch every other day, if anyone eats them.
     if (E.culture && E.day - E.lastCulture >= 2 && E.minute % 1440 >= 660) {
       E.lastCulture = E.day;
-      const hunters = ['dartfrog', 'strawberry', 'toad', 'gecko', 'newt'].some((id) => W.animals.count(id) > 0);
+      const hunters = Object.keys(SPECIES).some((id) => SPECIES[id].eats.includes('fly') && SPECIES[id].kind !== 'crab' && W.animals.count(id) > 0);
       if (hunters) {
         let n = 0;
         for (let k = 0; k < 8; k++) {
@@ -154,13 +156,60 @@ export class Sim {
     this.animals(d, light);
   }
 
+  // The keeper's-sheet needs (animals.js: ph, gh, flow, uvb, bask, flock, territorial, drowns). Returns extra stress and pushes
+  // the reasons. Q: the water body the animal is in (or env). Cheap: a few comparisons per animal per tick.
+  careStress(a, sp, Q, aquatic, why, d) {
+    const W = this.world, E = this.env;
+    let st = 0;
+    const g = W.terrain.heightAt(a.pos.x, a.pos.z), surf = W.water.surfaceAt(a.pos.x, a.pos.z);
+    const wet = aquatic || surf > a.pos.y + 0.3;
+    if (wet && sp.ph) {
+      const B = aquatic ? Q : W.water.bodies.at(a.pos.x, a.pos.z) ?? E;
+      const ph = B.ph ?? E.ph, gh = B.gh ?? E.gh;
+      if (ph < sp.ph[0] - 0.3) { st += (sp.ph[0] - 0.3 - ph) * 0.3 + 0.03; why.push('water too acid'); }
+      else if (ph > sp.ph[1] + 0.3) { st += (ph - sp.ph[1] - 0.3) * 0.3 + 0.03; why.push('water too alkaline'); }
+      if (sp.gh && gh < sp.gh[0] - 1) { st += (sp.gh[0] - 1 - gh) * 0.02 + 0.02; why.push('water too soft (molting)'); }
+      else if (sp.gh && gh > sp.gh[1] + 3) { st += (gh - sp.gh[1] - 3) * 0.015 + 0.02; why.push('water too hard'); }
+      const fl = B.flow ?? E.flow;
+      if (sp.flow != null && fl > sp.flow + 0.12) { st += (fl - sp.flow - 0.12) * 0.5 + 0.02; why.push('current too strong'); }
+    }
+    // Without UVB the trouble (soft bones) builds over weeks; without a warm spot, digestion slows over days.
+    a.noUvb = sp.uvb && E.uvb * 4 < sp.uvb * 0.5 ? (a.noUvb ?? 0) + d : Math.max(0, (a.noUvb ?? 0) - d * 2);
+    if (a.noUvb > 1440 * 14) { st += 0.06; why.push('no UVB light (weak bones)'); } else if (a.noUvb > 1440) why.push('no UVB light');
+    a.noBask = sp.bask && this.warmSpot < sp.bask - 1.5 ? (a.noBask ?? 0) + d : Math.max(0, (a.noBask ?? 0) - d * 2);
+    if (a.noBask > 1440 * 3) { st += 0.04; why.push('no warm spot to bask'); }
+    if (sp.flock) {
+      const n = W.animals.count(a.sp);
+      if (n < sp.flock[0] && sp.flock[0] > 1) { st += 0.06 * (1 - n / sp.flock[0]); why.push(`lonely: keep ${sp.flock[0]} or more`); }
+      else if (n > sp.flock[1]) { st += 0.06; why.push('too many of its kind'); }
+    }
+    if (sp.territorial && a.age > (sp.adultDays ?? 10) * 1440) {
+      a.male ??= Math.random() < 0.5;
+      if (a.male && W.animals.by[a.sp].some((b) => b !== a && b.male && b.age > (sp.adultDays ?? 10) * 1440)) { st += 0.08; why.push('rival male'); }
+    }
+    // Poor swimmers drown in water deeper than they can stand in (content/habitats.js maxDepth) when they cannot get out.
+    if (sp.drowns) {
+      const maxD = HABITAT[a.sp]?.maxDepth ?? 1;
+      if (surf - g > maxD + 0.3 && surf > a.pos.y) { a.under = (a.under ?? 0) + d; if (a.under > 15) { st += 4; why.push('drowning: the water is too deep'); } }
+      else a.under = 0;
+      // Isopods near open water now and then fall in; with a ramp of rock, wood or bark at the edge they climb out.
+      if (sp.kind === 'crawlLand' && Math.random() < d / (1440 * 25) && W.nearWater(a.pos, 1.5)) {
+        const ramp = W.animals.occ.count && [0, 1, 2, 3].some((k) => W.animals.occ.solidAt(a.pos.x + Math.cos(k * 1.57) * 1.5, W.water.level - 0.3, a.pos.z + Math.sin(k * 1.57) * 1.5));
+        if (!ramp) { a.health = -1; why.unshift('drowned: fell into the water with no ramp out'); }
+      }
+    }
+    return st;
+  }
+
   // Mould: stale, saturated air with something to feed on. Springtails and
   // isopods eat it, a fan starves it, dry air stops it.
   mould(d) {
     const W = this.world, E = this.env;
     const stale = clamp((E.humidity - 90) / 8, 0, 1) * (1 - E.fan) * (E.lid || TANK.closed ? 1 : 0.5);
     const food = clamp(E.detritus / 8, 0, 1) * 0.7 + clamp((E.soil - 0.8) * 5, 0, 1) * 0.6;
-    const crew = (W.animals.count('isopod') + W.animals.count('springtail') * 0.25) / 40;
+    let crew = 0;
+    for (const id in SPECIES) if (SPECIES[id].crew) crew += W.animals.count(id) * SPECIES[id].crew;   // isopods 1, springtails 0.25 … (animals.js `crew`)
+    crew /= 40;
     const rate = stale * food * 0.9 - crew * 0.6 - E.fan * 0.25 - 0.04;
     E.mold = clamp(E.mold + (rate * d) / 1440 * 1.2 * (rate > 0 ? W.realism?.mould ?? 1 : 1), 0, 1);
     U.mold.value = E.mold;
@@ -170,6 +219,10 @@ export class Sim {
   animals(d, light) {
     const W = this.world, E = this.env;
     const births = [];
+    // The warmest spot in the tank (the basking lamp's patch), for animals that need a warm spot (`bask`).
+    let warm = -99;
+    for (const t of W.climate.temp) if (t > warm) warm = t;
+    this.warmSpot = warm;
     for (const a of [...W.animals.all]) {
       if (a.dead) continue;
       const sp = SPECIES[a.sp];
@@ -196,7 +249,7 @@ export class Sim {
         // Hunters (frogs, newts, axolotls, geckos) also find prey here, so
         // they eat at any simulation speed. The chance grows with how much
         // prey there is.
-        if (['frog', 'toad', 'newt', 'axolotl', 'gecko'].includes(sp.kind) && a.hunger > 0.3) {
+        if (['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink'].includes(sp.kind) && a.hunger > 0.3) {
           for (const pid of sp.eats) {
             const prey = pid === 'flake' ? W.animals.food.filter((f) => !f.eaten) : W.animals.by[pid] ?? [];
             // Refuge: moss and litter hide the last few of any prey species.
@@ -215,6 +268,16 @@ export class Sim {
           for (const f of W.animals.food) {
             if (!f.eaten && f.settled && f.pos.distanceTo(a.pos) < 3) { f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); break; }
           }
+        }
+      }
+      // Micro-predators (the pygmy sunfish) pick off young shrimp: it keeps a shrimp colony in check, it does not wipe it out.
+      if (sp.kind === 'swim' && a.hunger > 0.25 && Math.random() < d / 900) {
+        for (const pid of sp.eats) {
+          const young = (W.animals.by[pid] ?? []).filter((b) => b.age < (SPECIES[pid]?.adultDays ?? 10) * 1440 * 0.5);
+          if (!young.length) continue;
+          W.animals.remove(young[Math.floor(Math.random() * young.length)], `eaten by a ${one(a.sp)}`);
+          a.hunger = Math.max(0, a.hunger - 0.15);
+          break;
         }
       }
       // Stress from the environment.
@@ -250,6 +313,8 @@ export class Sim {
       }
       if (sp.kind === 'toad' && W.water.surfaceArea() < 200) { stress += 0.5; why.push('no water to swim in'); }
       if (sp.kind === 'crab' && W.water.surfaceArea() < 100) { stress += 0.5; why.push('no water'); }
+      if (sp.crabProfile?.aquatic && W.water.level < 8) { stress += 0.4; why.push('water too shallow'); }
+      stress += this.careStress(a, sp, Q, aquatic, why, d);
       if (a.hunger > 0.75) { stress += (a.hunger - 0.75) * 4; why.push('hungry'); }
       a.why = why;
       if (stress > 0.05) a.health -= stress * d / (60 * 10) * (W.realism?.harm ?? 1);
@@ -297,7 +362,8 @@ export class Sim {
         const damp = !sp.eggs || sp.group !== 'Amphibians' || E.humidity > (sp.humidity ?? 60) + 5;
         const clutches = W.animals.by.eggs.filter((e) => e.parent === a.sp).length * (sp.eggs?.n ?? 0);
         const room2 = room - clutches / sp.cap;
-        if (damp && room2 > 0 && Math.random() < sp.breed * (d / 1440) * room2 * (sp.kind === 'crawlWater' ? E.cycle : 1)) {
+        const suck = (sp.kind === 'crawlWater' || sp.kind === 'swim') && E.filter ? filterOf(E).suction * (E.prefilter ? 0.08 : 1) : 0;   // a canister intake takes babies
+        if (damp && room2 > 0 && Math.random() < sp.breed * (d / 1440) * room2 * (sp.kind === 'crawlWater' ? E.cycle : 1) * (1 - suck * 0.7)) {
           // Species with genes need two parents: a marked pair if there is one, else any fit adult.
           const mate = hasGenetics(a.sp) ? W.animals.partnerFor(a) : null;
           if (!hasGenetics(a.sp) || mate) {

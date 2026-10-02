@@ -15,7 +15,8 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 // Bent, tapering leaf blade from the origin along `dir`, curving down by
 // `droop`. Adds one ribbon to the builder.
-function blade(b, { dir, len, width, droop = 0.4, segs = 5, color, tip, twist = 0, flat = false }) {
+// base: where the blade starts (default the plant's origin).
+function blade(b, { dir, len, width, droop = 0.4, segs = 5, color, tip, twist = 0, flat = false, base = null }) {
   const pts = [], widths = [], sides = [];
   const d = dir.clone().normalize();
   const up = V(0, 1, 0);
@@ -26,6 +27,7 @@ function blade(b, { dir, len, width, droop = 0.4, segs = 5, color, tip, twist = 
     const t = i / segs;
     const p = d.clone().multiplyScalar(len * t);
     p.y -= droop * len * t * t;
+    if (base) p.add(base);
     pts.push(p);
     widths.push(width * Math.sin(Math.PI * Math.min(0.98, 0.12 + t * 0.9)) * (flat ? 1 : 1));
     sides.push(side.clone().applyAxisAngle(d, twist * t));
@@ -305,6 +307,53 @@ export const PLANTS = {
     },
     material: { amp: 0.2, underwaterAmp: 1.0, speed: 0.7 },
   },
+  // ---- From the keeper's care sheets (2026-10) ----
+  anubias: {
+    name: 'Anubias', habitat: 'emergent', humidity: [60, 100], light: 0.15, nutrients: 0.4, size: 6,
+    note: 'Tough, slow, dark-leaved: on wood or stone in the water or at the edge, where fire-bellied toads rest on its leaves.',
+    build() {
+      // A creeping rhizome with stiff, broad, glossy leaves on short stalks.
+      const b = new Builder();
+      const r = rng(41);
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + r() * 0.4, x = (k - 3) * 0.35;
+        blade(b, { base: V(x, 0, 0), dir: V(Math.cos(a) * 0.9, 0.9 + r() * 0.5, Math.sin(a) * 0.9), len: 3.6 + r() * 1.4, width: 2.0, droop: 0.12, segs: 4, color: 0x1d4a1c, tip: 0x2e6a26, twist: 0.2 });
+      }
+      return b.build();
+    },
+    material: { amp: 0.12, underwaterAmp: 0.6, speed: 0.6 },
+  },
+  javamoss: {
+    name: 'Java moss', habitat: 'emergent', humidity: [65, 100], light: 0.15, nutrients: 0.3, size: 4,
+    note: 'Fine, tangled moss for wood, stone and the water\'s edge: cover for fry and shrimp, grazing for both.',
+    build() {
+      // A low mound of fine, branching strands.
+      const b = new Builder();
+      const r = rng(43);
+      for (let k = 0; k < 60; k++) {
+        const a = r() * Math.PI * 2, d = r() * 1.4;
+        blade(b, { base: V(Math.cos(a) * d, 0, Math.sin(a) * d), dir: V(Math.cos(a) * 1.4, 0.5 + r() * 0.6, Math.sin(a) * 1.4), len: 1.2 + r() * 1.2, width: 0.18, droop: 0.35, segs: 3, color: 0x2a5a1e, tip: 0x5a8a2e, twist: r() });
+      }
+      return b.build();
+    },
+    material: { amp: 0.25, underwaterAmp: 1.4, speed: 0.9 },
+  },
+  monstera: {
+    name: 'Monstera vine', habitat: 'wall|land', humidity: [60, 100], light: 0.35, size: 1,
+    note: 'Monstera adansonii: a climbing aroid with big broad leaves; reed frogs sit on them. Climbs the background.', wallTilt: 0.4,
+    build() {
+      // A climbing stem with big, broad, heart-shaped leaves held out flat on stalks.
+      const b = new Builder();
+      const r = rng(47);
+      for (let k = 0; k < 6; k++) {
+        const y = 0.5 + k * 1.6, a = k * 2.4 + r() * 0.5;
+        blade(b, { base: V(0, y, 0), dir: V(Math.cos(a), 0.25, Math.sin(a)), len: 3.6 + r() * 1.0, width: 3.6, droop: 0.18, segs: 4, color: 0x2f6a24, tip: 0x4c8a34, twist: 0.1 });
+      }
+      blade(b, { base: V(0, 0, 0), dir: V(0, 1, 0.1), len: 10, width: 0.25, droop: 0, segs: 4, color: 0x3a5a22, tip: 0x4a6a2a });
+      return b.build();
+    },
+    material: { amp: 0.25, speed: 0.6 },
+  },
   frogbit: {
     name: 'Frogbit', habitat: 'floating', light: 0.5, nutrients: 0.8, size: 4,
     note: 'Floats on the surface and shades the water.',
@@ -349,6 +398,7 @@ const SPREAD = {
   weed: [0.15, 5, 30], grass: [0.08, 4, 30], fernph: [0.03, 8, 16], fern: [0.03, 7, 14], bilberry: [0.02, 6, 8],
   pothos: [0.08, 6, 20], bromeliad: [0.02, 6, 10], cattail: [0.04, 5, 10], bamboo: [0.03, 6, 8],
   vallisneria: [0.12, 5, 40], sword: [0.02, 8, 6], javafern: [0.05, 4, 16], frogbit: [0.35, 5, 40], lily: [0.03, 9, 6],
+  anubias: [0.02, 4, 10], javamoss: [0.12, 4, 40], monstera: [0.04, 8, 10],
 };
 
 export class Plants {
@@ -358,17 +408,23 @@ export class Plants {
     this.meshes = {};
     this.variants = {};
     this.cap = 300;
+    // Procedural species are built when first used (the first plant of that species, a portrait): a tank pays the mesh,
+    // the material and its shader build only for the species it grows. Reading this.meshes[id] builds it.
     for (const [id, sp] of Object.entries(PLANTS)) {
       if (sp.model) continue; // built in preload()
-      this.addMesh(id, sp.build(), plantMaterial({ ...(sp.material ?? {}), map: sp.map ? sp.map() : null }));
       this.variants[id] = 1;
+      Object.defineProperty(this.meshes, id, { configurable: true, enumerable: false, get: () => {
+        delete this.meshes[id];
+        this.addMesh(id, sp.build(), plantMaterial({ ...(sp.material ?? {}), map: sp.map ? sp.map() : null }));
+        return this.meshes[id];
+      } });
     }
   }
 
   addMesh(key, geo, mat) {
     const im = new THREE.InstancedMesh(geo, mat, this.cap);
     im.count = 0;
-    im.castShadow = true;
+    im.castShadow = !this.shadowless;
     // Thin flat ribbons self-shadow into noise: the procedural (non-card) plants only cast.
     im.receiveShadow = !!(PLANTS[key.split('#')[0]]?.map || PLANTS[key.split('#')[0]]?.model);
     im.frustumCulled = false;

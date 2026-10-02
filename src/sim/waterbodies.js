@@ -11,18 +11,21 @@
 // it under Node. Species and plant tables are handed in by sim.js.
 
 import { clamp, lerp } from '../util/math.js';
+import { filterOf, sourceOf } from '../content/equipment.js';
 
 export const NODE = { GROUND: 0, SUMP: 1, EXT: 2, OUT0: 3, OUTS: 12, BODY0: 15, BODIES: 48, TRANSIT: 63, MAX: 64 };
 
 const WET_STREAM = 0.12;   // cm of water that makes a stream cell
-const CHEM = ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'temp', 'co2'];
+const CHEM = ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'temp', 'co2', 'ph', 'gh'];
+// Hardscape that leaches tannins (softens and acidifies the water a little) or minerals (hardens it).
+const TANNIN = { wood: 1, roots: 1, stump: 0.6, cork: 0.5, bamboo: 0.2 }, MINERAL = { boulder: 0.25, spire: 0.15, cliff: 0.3, slate: 0.35 };
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function makeBody(uid, kind, name) {
   return {
     uid, key: uid === 0 ? 'sump' : 'b' + uid, kind, name, slot: -1,
     n: 0, area: 0, vol: 0, depth: 0, maxDepth: 0, cx: 0, cz: 0, surfY: 0, bottom: 0,
-    ammonia: 0, nitrite: 0, nitrate: 0, oxygen: 7.5, temp: 23, co2: 4, algae: 0,
+    ammonia: 0, nitrite: 0, nitrate: 0, oxygen: 7.5, temp: 23, co2: 4, algae: 0, ph: 7.4, gh: 9, flow: 0.1,
     inLph: 0, outLph: 0, dStoreLph: 0, fill: 0, spill: null, spillVer: -1,
     fishLoad: 0, plantUse: 0, letter: null, pool: null,
     sediment: 0, turbidity: 0, silt: 0,   // cm3 in suspension, cloudiness 0..1, cm3 settled so far (erosion.js)
@@ -403,9 +406,15 @@ export class WaterBodies {
     // Light on the water (for algae) and the air above it (for warmth).
     let raw = 0, rawV = 0;
     const nitRef = Math.max(1, list.reduce((s, b) => s + b.nitrate * Vb(b), 0) / Vtot);
+    // Filter, plenum and the water the tank is topped up with (content/equipment.js).
+    const F = filterOf(E), src = sourceOf(E);
+    const plenum = E.drainage >= 1 ? 0.3 : E.drainage > 0 ? 0.1 : 0;      // the false bottom's bio-rings are one big filter bed
+    let tannin = 0, mineral = 0;
+    for (const p of W.decor?.pieces ?? []) { tannin += TANNIN[p.type] ?? 0; mineral += MINERAL[p.type] ?? 0; }
+    const pumpTurn = H.pump?.running ? (H.pump.lph ?? 0) / Math.max(1, sump.vol) : 0;   // tank volumes an hour
     for (const b of list) {
       const V = Vb(b);
-      const media = b === sump ? 0.6 + E.mediaBio * 0.9 : 0.6;
+      const media = b === sump ? 0.6 + Math.min(E.mediaBio, F.mediaMax) * 0.9 + plenum : 0.6;
       // --- Nitrogen cycle
       const rot = rotting * V / Vtot;
       b.ammonia += ((b.waste + shared * V / Vtot + rot) * d * 0.25) / V;
@@ -422,7 +431,7 @@ export class WaterBodies {
       // sump), plants by day and a stream's churn add; fish and heat take away.
       const depth = Math.max(1, b.depth || 6);
       const aer = clamp(8 / depth, 0.5, 2.5);
-      const oT = 5.2 + Math.min(4, b.falls) * fallK * 0.9 + (b === sump && E.filter ? 1.6 : b.kind === 'stream' ? 1.2 : 0.3) + E.fan * 0.4 + E.rain * 0.5
+      const oT = 5.2 + Math.min(4, b.falls) * fallK * 0.9 + (b === sump && E.filter ? F.oxygen : b.kind === 'stream' ? 1.2 : 0.3) + E.fan * 0.4 + E.rain * 0.5
         + (light - 0.4) * b.plantUse * 0.02 * Math.sqrt(100 / V) - b.fishLoad * 0.8 / V - Math.max(0, b.temp - 24) * 0.12;
       b.oxygen = clamp(lerp(b.oxygen, oT, clamp(d * 0.01 * aer, 0, 1)), 0.5, 10);
       // --- Temperature: shallow water takes the warmth of the lamp, deep
@@ -432,6 +441,16 @@ export class WaterBodies {
       const w = 0.6 * clamp(1 - depth / 14, 0.1, 1);
       const tT = E.temp + clamp((tAir - E.temp) * w, -3, 3);
       b.temp = lerp(b.temp, tT, clamp(d * 0.01 / (1 + V / 25), 0, 1));
+      // --- Hardness and pH. GH drifts (over weeks) toward the source water plus what rock leaches; pH (over a day) toward
+      // what the hardness buffers it to, pushed down by CO2 (at night), nitrate and tannins from wood and leaves.
+      const ghT = src.gh + Math.min(4, mineral) * (1 + 2 / Math.max(2, V));
+      b.gh = lerp(b.gh ?? src.gh, ghT, clamp(d / (1440 * 20), 0, 1));
+      const buf = 6.0 + 0.16 * Math.min(b.gh, 16);                 // a harder water holds a higher pH
+      const phT = buf + (src.ph - (6.0 + 0.16 * src.gh)) - 0.35 * clamp((b.co2 - 4) / 8, 0, 1) - 0.004 * b.nitrate
+        - Math.min(0.6, tannin * 0.12) * clamp(4 / Math.max(2, V), 0.3, 1) * (b.gh < 6 ? 1.4 : 1);
+      b.ph = clamp(lerp(b.ph ?? src.ph, phT, clamp(d / 1440, 0, 1)), 4.5, 9.5);
+      // --- Current: the filter and the pump turnover in the main pool, the run of water in streams and fed ponds.
+      b.flow = b === sump ? clamp((E.filter ? F.flow : 0) + Math.min(0.5, pumpTurn / 60), 0, 1) : b.kind === 'stream' ? 0.7 : clamp(b.inLph / Math.max(0.25, b.vol) / 10, 0, 1);
       // --- Algae likes light, nutrients and shallows.
       const lampLight = C?.lightAt && b.n ? C.lightAt(b.cx, b.cz) / Math.max(0.2, E.lampPower) : 1;
       b.rawAlgae = clamp(lampLight, 0.15, 1.3) * (0.3 + 0.7 * b.nitrate / nitRef) * clamp(8 / depth, 0.5, 2) * (1 - 0.6 * b.turbidity);
@@ -441,7 +460,8 @@ export class WaterBodies {
     this.exchange(d, Vb);
     // --- Mean back into env; algae spread around the mean.
     const mean = (k) => list.reduce((s, b) => s + b[k] * Vb(b), 0) / Vtot;
-    for (const k of ['ammonia', 'nitrite', 'nitrate', 'oxygen']) E[k] = mean(k);
+    for (const k of ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'ph', 'gh']) E[k] = mean(k);
+    E.flow = sump.flow;
     const kA = rawV ? raw / rawV : 1;
     for (const b of list) b.algae = clamp(E.algae * (kA ? b.rawAlgae / kA : 1), 0, 1);
     this.last = { ammonia: E.ammonia, nitrite: E.nitrite, nitrate: E.nitrate, oxygen: E.oxygen };
@@ -536,7 +556,7 @@ export class WaterBodies {
   }
 
   adoptAll(E) {
-    for (const b of this.list) { b.ammonia = E.ammonia; b.nitrite = E.nitrite; b.nitrate = E.nitrate; b.oxygen = E.oxygen; b.temp = E.temp; b.algae = E.algae; }
+    for (const b of this.list) { b.ammonia = E.ammonia; b.nitrite = E.nitrite; b.nitrate = E.nitrate; b.oxygen = E.oxygen; b.temp = E.temp; b.algae = E.algae; b.ph = E.ph ?? 7.4; b.gh = E.gh ?? 9; }
     this.last = { ammonia: E.ammonia, nitrite: E.nitrite, nitrate: E.nitrate, oxygen: E.oxygen };
   }
 

@@ -8,6 +8,113 @@
 //   lesson   a concept card this animal illustrates (content/concepts.js)
 
 export const ANIMAL_INFO = {
+  // ---- From the keeper's care sheets (2026-10) ----
+  cpd: {
+    sci: 'Danio margaritatus', family: 'Danionidae', status: 'Vulnerable', region: 'Shan Plateau, Myanmar and northern Thailand',
+    habitat: 'Shallow, spring-fed ponds and marshes on a high plateau, dense with grasses and water plants; clear, still, neutral water.',
+    facts: [
+      'It was found only in 2006 and became a sensation in the hobby; the first wild population was nearly fished out within a year.',
+      'Males spar constantly, fins spread, but rarely hurt each other: the display decides who gets to spawn in the moss.',
+      'The eggs are scattered in fine plants and hatch in three days; the parents eat any they find.',
+    ],
+    care: ['Keep 6 to 10 or more, in a tank with dense moss and roots.', '22–26 °C, pH 6.5–7.5, GH 5–12, only gentle flow.', 'Feed micro-pellets, baby brine shrimp and crushed flakes.'],
+    lesson: 'water-hardness',
+  },
+  pygmy: {
+    sci: 'Elassoma evergladei', family: 'Elassomatidae', status: 'Least Concern', region: 'Southeastern United States: Florida to the Carolinas',
+    habitat: 'Weedy, still margins of swamps, ditches and ponds, among stems and mats of vegetation; cool in winter.',
+    facts: [
+      'At about 3 cm it is one of the smallest fish in North America.',
+      'A courting male turns velvet black with glittering blue spangles and dances in front of a female, fins spread, rocking from side to side.',
+      'It hunts like a heron: it hangs still among the stems and snaps up tiny crustaceans that drift past.',
+    ],
+    care: ['One male to two or three females per 20 litres; males hold small territories.', 'Still water, no strong filter: a sponge or foam filter.', 'Live or frozen food (baby brine shrimp, daphnia, worms); it ignores flakes and eats baby shrimp.'],
+    lesson: 'filtration',
+  },
+  blueshrimp: {
+    sci: 'Neocaridina davidi', family: 'Atyidae', status: 'captive-bred', region: 'Taiwan and southern China (wild form)',
+    habitat: 'Wild relatives are brown and live in plant-choked streams; the blue is a line kept pure by breeders.',
+    facts: [
+      'Every colour line of this shrimp is the same species. Mix two colours and within a few generations the young drift back toward wild brown.',
+      'A shrimp grows by molting its shell; the new one needs calcium and magnesium from the water, which is what GH measures.',
+    ],
+    care: ['Start with 10 to 15 for a colony.', 'pH 6.8–8.0, GH 6–12: in very soft water molts fail.', 'Keep the intake of any filter covered; babies are tiny.'],
+    lesson: 'water-hardness',
+  },
+  panther: {
+    sci: 'Parathelphusa pantherina', family: 'Gecarcinucidae', status: 'Endangered', region: 'Lake Matano, Sulawesi, Indonesia',
+    habitat: 'An ancient, very deep rift lake with clear, warm, alkaline water; the crabs live among rocks and sunken wood along the shore.',
+    facts: [
+      'Lake Matano is more than a million years old and full of species found nowhere else: snails, shrimp, fish and crabs that evolved in it.',
+      'Unlike land crabs it spends most of its life under water, climbing out onto roots and rocks now and then.',
+      'Strong claws and a big appetite: in a mixed tank it takes snails and shrimp.',
+    ],
+    care: ['80% water, 15–25 cm deep, with caves of slate and roots that reach above the surface.', '24–28 °C, hard alkaline water: pH 7.5–8.5, GH 8–15 for its shell.', 'Keep one, or a true male–female pair.'],
+    lesson: 'water-hardness',
+  },
+  skink: {
+    sci: 'Tribolonotus gracilis', family: 'Scincidae', status: 'Least Concern', region: 'New Guinea',
+    habitat: 'Humid forest floor near streams and swamps: under logs, in leaf litter and around the roots of sago palms.',
+    facts: [
+      'The orange rings around its eyes and the rows of spiky scales on its back give it its name: a dragon in miniature.',
+      'Threatened, it may freeze, squeak, or flop over and play dead.',
+      'A female lays a single egg at a time and is said to stay with it, which is unusual for a lizard.',
+    ],
+    care: ['80% land, a shallow pool (5–7 cm) with a textured way out.', '23–27 °C with a mild 28–29 °C warm spot, 80–90% humidity, low UVB.', 'Deep litter, cork bark and moss to hide in; one animal or a bonded pair, never two males.'],
+    lesson: 'uvb',
+  },
+  bumblebee: {
+    sci: 'Melanophryniscus stelzneri', family: 'Bufonidae', status: 'Least Concern', region: 'Central Argentina and Uruguay',
+    habitat: 'Rocky grassland and hill country; it breeds in rain pools after storms.',
+    facts: [
+      'It walks rather than hops, and when threatened rolls onto its back to flash its red soles and belly: the colours warn that its skin is toxic.',
+      'It is active by day, which makes it one of the few toads you see moving about.',
+    ],
+    care: ['Keep 4 to 6 together.', 'A poor swimmer: water no deeper than 2–3 cm with gentle slopes, or it drowns.', 'Micro-food only: springtails, small fruit flies, pinhead crickets dusted with calcium.'],
+    lesson: 'bioactive',
+  },
+  reedfrog: {
+    sci: 'Heterixalus alboguttatus', family: 'Hyperoliidae', status: 'Least Concern', region: 'Southern and eastern Madagascar',
+    habitat: 'Reeds and shrubs around marshes, rice paddies and pools, from forest edge to open country.',
+    facts: [
+      'Its starry spots and orange legs make it look like a tiny night sky on legs.',
+      'By day it sits pressed flat on a leaf or stem, legs tucked in, which saves water; it hunts at dusk.',
+      'Males call in chorus from vegetation over water in the rainy season.',
+    ],
+    care: ['A tall tank with 70% water and plenty of broad leaves, bamboo and branches above it.', '24–29 °C air, 70–85% humidity.', 'Keep 3 to 5; feed fruit flies and small crickets dusted with calcium and vitamins.'],
+    lesson: 'parental-care',
+  },
+  marbled: {
+    sci: 'Triturus marmoratus', family: 'Salamandridae', status: 'Least Concern', region: 'Iberian Peninsula and western France',
+    habitat: 'Ponds and slow water in spring; woods, hedges and stone walls the rest of the year.',
+    facts: [
+      'In the breeding season the male grows a tall crest along his back; out of it the newt lives on land.',
+      'Females and young keep an orange stripe down the spine.',
+    ],
+    care: ['Cool: 15–21 °C; above about 23 °C it suffers.', 'Half water (10–15 cm, still, with a slate ramp out) and half damp mossy land.', 'One male to two or three females.'],
+    lesson: 'microclimate',
+  },
+  purpleiso: {
+    sci: 'Trichorhina tropicalis', family: 'Platyarthridae', status: 'captive-bred', region: 'Tropical America (spread worldwide)',
+    habitat: 'Wet soil and rotting wood; in a tank it lives deep, down by the drainage layer.',
+    facts: ['It hardly ever comes to the surface, so it is the crew member you forget you have.'],
+    care: ['Very damp soil; it does not drown in a waterlogged layer as easily as bigger isopods.'],
+    lesson: 'bioactive',
+  },
+  pandaking: {
+    sci: 'Cubaris sp. "Panda King"', family: 'Armadillidae', status: 'captive-bred', region: 'Thailand (a captive line)',
+    habitat: 'Damp limestone and leaf litter; it rolls into a ball when disturbed.',
+    facts: ['One of the most prized isopods in the hobby, bred from a handful of wild animals.', 'Heavy and slow to breed: a colony takes months to grow.'],
+    care: ['Damp ground with dry bark to rest on.', 'It can fall into open water and drown: keep land raised and give bark ramps out.'],
+    lesson: 'bioactive',
+  },
+  springpink: {
+    sci: 'Pseudosinella sp.', family: 'Entomobryidae', status: 'captive-bred', region: 'Tropical cultures',
+    habitat: 'Warm, damp substrate and moss.',
+    facts: ['Springtails are water-repellent: they float on the surface film rather than drown, and graze along the shoreline.'],
+    care: ['Warm and damp; breeds more slowly than the white springtail.'],
+    lesson: 'mould',
+  },
   neon: {
     sci: 'Paracheirodon innesi', family: 'Characidae', status: 'Least Concern', region: 'Upper Amazon: Peru, Colombia, Brazil',
     habitat: 'Slow, shaded forest streams and flooded forest with soft, slightly acidic, tea-coloured water.',

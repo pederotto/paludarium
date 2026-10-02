@@ -40,6 +40,10 @@ export const PIECES = {
   roots: { name: 'Roots', model: ['root_cluster_01'], size: 30, stamp: false, moss: 0.25 },
   stump: { name: 'Tree stump', model: ['tree_stump_01'], size: 16, stamp: true, moss: 0.4 },
   wood: { name: 'Driftwood', model: ['dead_tree_trunk'], size: 36, stamp: false, moss: 0.3 },
+  // From the keeper's care sheets (2026-10): a hide and a cave-or-ramp stone. Not stamped, so animals walk under them
+  // (the occupancy grid keeps an arch's inside free) and count them as cover.
+  cork: { name: 'Cork bark tube', procedural: true, size: 16, stamp: false, moss: 0.2 },
+  slate: { name: 'Slate slab', procedural: true, size: 18, stamp: false, moss: 0.15 },
 };
 
 export { TINTS, PROC, rollLook };
@@ -62,6 +66,69 @@ function warp(src, fn) {
 }
 
 // A weathered tree stump: a flared, uneven cylinder with a ragged top.
+// A split cork-bark tube lying on its side: half a rough cylinder, bark outside and in, open underneath so an animal can
+// creep in. Length 1 along x, radius 0.3, base at y = 0. r: seeded random (rng).
+function corkGeo(r, { arc = Math.PI, rad = 0.3, wall = 0.05, n = 26, m = 14 } = {}) {
+  const pos = [], uv = [], idx = [];
+  const bump = Array.from({ length: 5 }, () => ({ k: 3 + Math.floor(r() * 6), ph: r() * 6.28, a: 0.02 + r() * 0.04 }));
+  const sag = (r() - 0.5) * 0.12, a0 = (Math.PI - arc) / 2;
+  const ring = (inner) => {
+    const o = pos.length / 3;
+    for (let i = 0; i <= m; i++) {
+      const u = i / m, x = u - 0.5;
+      for (let j = 0; j <= n; j++) {
+        const th = a0 + (j / n) * arc;
+        let R = inner ? rad - wall : rad;
+        if (!inner) for (const b of bump) R += b.a * rad * Math.sin(b.k * th + b.ph + u * 3);   // furrowed bark
+        R *= 1 - 0.08 * Math.cos(u * Math.PI * 2);                                           // a little waist
+        pos.push(x, Math.sin(th) * R + sag * Math.sin(u * Math.PI) * 0.3, Math.cos(th) * R);
+        uv.push(u * 2, j / n);
+      }
+    }
+    for (let i = 0; i < m; i++) for (let j = 0; j < n; j++) {
+      const a = o + i * (n + 1) + j, b = a + n + 1;
+      if (inner) idx.push(a, a + 1, b, a + 1, b + 1, b); else idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+    return o;
+  };
+  const out = ring(false), inn = ring(true);
+  // Close the cut edges along the bottom and the two end arcs.
+  for (let i = 0; i < m; i++) for (const j of [0, n]) {
+    const a = out + i * (n + 1) + j, b = out + (i + 1) * (n + 1) + j, c = inn + i * (n + 1) + j, d = inn + (i + 1) * (n + 1) + j;
+    if (j === 0) idx.push(a, c, b, b, c, d); else idx.push(a, b, c, b, d, c);
+  }
+  for (const i of [0, m]) for (let j = 0; j < n; j++) {
+    const a = out + i * (n + 1) + j, b = a + 1, c = inn + i * (n + 1) + j, d = c + 1;
+    if (i === 0) idx.push(a, b, c, b, d, c); else idx.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  g.translate(0, -g.boundingBox.min.y, 0);
+  return g;
+}
+
+// A slab of slate: a thin, flat plate with a broken outline and a gently stepped top (cleavage layers). Width 1.
+function slateGeo(r, { thick = 0.08, n = 16 } = {}) {
+  const g = new THREE.CylinderGeometry(0.5, 0.5, 1, n, 2);
+  const lobes = Array.from({ length: 4 }, () => ({ k: 2 + Math.floor(r() * 4), ph: r() * 6.28, a: 0.05 + r() * 0.08 }));
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), a = Math.atan2(z, x);
+    let k = 1;
+    for (const l of lobes) k += l.a * Math.sin(l.k * a + l.ph);
+    k *= 1 + 0.35 * Math.cos(a) ** 2;                                      // longer than wide
+    const top = y > 0 ? thick * (0.85 + 0.3 * (Math.sin(x * 9 + lobes[0].ph) > 0.4 ? 1 : 0)) : 0;
+    pos.setXYZ(i, x * k, y > 0 ? top : 0, z * k * 0.8);
+  }
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  return g;
+}
+
 function stumpGeo(r, { flare = 0.5, rag = 0.2, taper = 0.12 } = {}) {
   const g = new THREE.CylinderGeometry(0.5, 0.5, 1, 28, 12);
   const lobes = Array.from({ length: 4 }, () => ({ k: 2 + Math.floor(r() * 5), ph: r() * 6.28, a: 0.04 + r() * 0.07 }));
@@ -257,6 +324,20 @@ export class Decor {
       geometry.translate(0, -bb.min.y, 0);
       geometry.computeBoundingBox(); geometry.computeBoundsTree();
       P.stump.push({ ...part(geometry, stumpSrc.make, 'stumpx' + i), src: stumpSrc.src });
+    });
+
+    // Cork bark tubes (bark material of the stump scan) and slate slabs (dark stone).
+    const r6 = R(1201);
+    P.cork = [{ arc: Math.PI }, { arc: Math.PI * 1.25, rad: 0.34 }, { arc: Math.PI * 0.85, rad: 0.27 }].map((o, i) => {
+      const geometry = corkGeo(r6, o);
+      geometry.computeBoundingSphere(); geometry.computeBoundsTree();
+      return { ...part(geometry, stumpSrc.make, 'cork' + i), src: stumpSrc.src };
+    });
+    const r7 = R(1301), slateTint = [0.55, 0.58, 0.62];
+    P.slate = [0.07, 0.1, 0.06].map((thick, i) => {
+      const geometry = slateGeo(r7, { thick });
+      geometry.computeBoundingSphere(); geometry.computeBoundsTree();
+      return part(geometry, (tint) => sm(tint ?? slateTint), 'slate' + i);
     });
 
     // Scanned shapes bent, sheared and rippled into new silhouettes.

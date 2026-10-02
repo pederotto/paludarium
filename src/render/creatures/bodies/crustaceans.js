@@ -97,8 +97,11 @@ const SHRIMP_MORPHS = {
   orange: { base: 0xee5a0e, dark: 0xaa3606, light: 0xff8a34, pink: 0xffb07a, clear: 0xffe2c6, clearAmt: 0.4, speck: null },
 };
 
+// Blue dream (a Neocaridina line bred for a deep blue): a separate species in the game, so it is not in SHRIMP_MORPHS (genes).
+const BLUE_DREAM = { base: 0x1a3fb8, dark: 0x0c2070, light: 0x3f78ee, pink: 0x8fb0e8, clear: 0xc8d8f4, clearAmt: 0.35, speck: null };
+
 function shrimp(morph = 'red') {
-  const PAL = SHRIMP_MORPHS[morph] ?? SHRIMP_MORPHS.red;
+  const PAL = morph === 'blue' ? BLUE_DREAM : SHRIMP_MORPHS[morph] ?? SHRIMP_MORPHS.red;
   // Body axis: a planar curve in the yz plane, rows [z, y, half width, half height, segment, fraction].
   // Every abdominal segment starts a little smaller (hidden under the one before) and grows to its rim, then
   // steps down again: that is what makes the overlapping plates.
@@ -257,8 +260,19 @@ function shrimp(morph = 'red') {
 // =================================================================================================
 // Vampire crab
 // =================================================================================================
-function crab() {
-  const PURP = C(0x3a1462), PURP_L = C(0x6a2ea0), PURP_D = C(0x220a3a), ORANGE = C(0xf5821a), ORANGE_D = C(0xd85a0c), CREAM = C(0xf6dfc0), YEL = C(0xffd21c), BLACK = C(0x050505);
+// Crab palettes (sRGB hex): shell / shellL / shellD = carapace mid, light and dark, legs = leg colour (joints take `joint`),
+// claw / clawD = claws, tip = claw finger tips, eye / pupil = eye ball and its dark patch, flap = the abdomen flap,
+// spots = leopard spots over shell and legs (null: none).
+const CRAB_PAL = {
+  vampire: { shell: 0x3a1462, shellL: 0x6a2ea0, shellD: 0x220a3a, joint: 0xf5821a, claw: 0xf5821a, clawD: 0xd85a0c, tip: 0xf6dfc0, eye: 0xffd21c, pupil: 0x050505, under: 0x6a5a80, flap: 0x8a6aa8, spots: null },
+  // Panther crab (Parathelphusa pantherina): pale gold with dark brown leopard spots; cream claw tips, dark eyes.
+  panther: { shell: 0xc9a660, shellL: 0xe8cf8a, shellD: 0x9a7a3c, joint: 0xd8b878, claw: 0xd9b872, clawD: 0xb08a48, tip: 0xf4ead2, eye: 0x2a2018, pupil: 0x050505, under: 0xe6d6b0, flap: 0xe0cca0, spots: 0x3a2412 },
+};
+
+function crab(pal = 'vampire') {
+  const P = CRAB_PAL[pal];
+  const PURP = C(P.shell), PURP_L = C(P.shellL), PURP_D = C(P.shellD), ORANGE = C(P.claw), ORANGE_D = C(P.clawD), CREAM = C(P.tip), YEL = C(P.eye), BLACK = C(P.pupil), JOINT = C(P.joint), SPOT = P.spots != null ? C(P.spots) : null;
+  const leopard = (x, y, z, k) => (SPOT ? Math.min(1, sstep(0.62, 0.7, vnoise(x * k + 3, y * k, z * k)) * (1 - sstep(0.72, 0.8, vnoise(x * k + 3, y * k, z * k))) + sstep(0.74, 0.8, vnoise(x * k * 1.7, y * k * 1.7 + 5, z * k * 1.7))) : 0);
   const hw = (z) => 1.03 + 0.09 * z;                       // half width of the shell: a little wider at the front
   const carapace = (x, y, z) => {
     const ax = abs(x), w = hw(z);
@@ -330,7 +344,8 @@ function crab() {
     if (ID === 0) {
       let c = lerp3(PURP_D, PURP_L, sstep(0.5, 1.12, y) * (0.75 + 0.5 * n));
       c = lerp3(c, PURP, 0.3 + 0.3 * sstep(0.2, 0.8, abs(x)));
-      return lerp3(c, C(0x6a5a80), sstep(0.5, 0.42, y) * 0.5);
+      if (SPOT) c = lerp3(c, SPOT, leopard(x, y, z, 3.2) * sstep(0.5, 0.7, y) * 0.9);
+      return lerp3(c, C(P.under), sstep(0.5, 0.42, y) * 0.5);
     }
     if (ID === 1) {
       const dx = x < 0 ? -x : x;
@@ -341,10 +356,11 @@ function crab() {
     if (ID === 2) return PURP;
     if (ID === 3 || ID === 4) {
       if (CP >= 2 && CT > 0.72) return CREAM;
-      return lerp3(ORANGE, ORANGE_D, 0.2 * n + (CP === 0 ? 0.2 : 0));
+      const cc = lerp3(ORANGE, ORANGE_D, 0.2 * n + (CP === 0 ? 0.2 : 0));
+      return SPOT ? lerp3(cc, SPOT, leopard(x, y, z, 4) * 0.7) : cc;
     }
-    if (ID === 7) return lerp3(PURP, C(0x8a6aa8), 0.4);
-    if (ID >= 10 && ID < 20) return lerp3(lerp3(PURP, PURP_L, 0.2 + 0.4 * n), ORANGE, JO);
+    if (ID === 7) return lerp3(PURP, C(P.flap), 0.4);
+    if (ID >= 10 && ID < 20) { const lc = lerp3(lerp3(PURP, PURP_L, 0.2 + 0.4 * n), JOINT, JO); return SPOT ? lerp3(lc, SPOT, leopard(x, y, z, 5) * 0.75 * (1 - JO)) : lc; }
     return PURP;
   };
   return {
@@ -366,7 +382,16 @@ function crab() {
 // =================================================================================================
 // Dwarf white isopod
 // =================================================================================================
-function isopod() {
+// Isopod palettes: body / bodyD = plate colour lit and shaded, pale = legs and antennae, blot = dark side patches (null: none).
+const ISO_PAL = {
+  white: { body: 0xf3ecd8, bodyD: 0xd2c7aa, pale: 0xefe8d4, mottle: 0xc9bb98, blot: null },
+  purple: { body: 0x9a8aa8, bodyD: 0x6a5a7c, pale: 0xc8bccf, mottle: 0x56486a, blot: null },
+  // Cubaris 'Panda King': white with bold black patches on the head and down the sides.
+  panda: { body: 0xf4f2ec, bodyD: 0xd8d4ca, pale: 0xe8e4dc, mottle: 0xc8c4bc, blot: 0x101010 },
+};
+
+function isopod(pal = 'white') {
+  const IP = ISO_PAL[pal];
   // Segment boundaries front to back: head, seven pereonites, three visible pleon segments, telson.
   const ZB = [0.36, 0.235, 0.1807, 0.1264, 0.0721, 0.0178, -0.0365, -0.0908, -0.145, -0.185, -0.225, -0.265, -0.335];
   const RIM = [0.1, 0.125, 0.14, 0.15, 0.155, 0.155, 0.147, 0.135, 0.095, 0.08, 0.066, 0.052];
@@ -421,7 +446,7 @@ function isopod() {
     add(sph(ax, y, z, EYEP[0], EYEP[1], EYEP[2], EYEP[3]), 30, 0.012);
     return D;
   };
-  const CREAM = C(0xf3ecd8), CREAM_D = C(0xd2c7aa), PALE = C(0xefe8d4), BLACK = C(0x070707);
+  const CREAM = C(IP.body), CREAM_D = C(IP.bodyD), PALE = C(IP.pale), BLACK = C(0x070707), BLOT = IP.blot != null ? C(IP.blot) : null;
   const color = (x, y, z) => {
     sdf(x, y, z);
     const n = fbm(x * 30, y * 30, z * 30);
@@ -429,7 +454,8 @@ function isopod() {
     if (ID === 0) {
       let c = lerp3(CREAM_D, CREAM, sstep(0, 0.65, BF));                       // tucked-under front of each plate is shaded
       if (BK === 0) c = lerp3(CREAM, CREAM_D, 0.15);
-      c = lerp3(c, C(0xc9bb98), sstep(0.62, 0.85, vnoise(x * 40, y * 40, z * 40)) * 0.25);
+      c = lerp3(c, C(IP.mottle), sstep(0.62, 0.85, vnoise(x * 40, y * 40, z * 40)) * 0.25);
+      if (BLOT) c = lerp3(c, BLOT, Math.max(sstep(0.07, 0.1, abs(x)) * sstep(0.42, 0.5, vnoise(x * 6, y * 6, z * 6 + 2)), BK === 0 ? 1 : 0, BK >= 9 ? sstep(0.45, 0.55, vnoise(x * 5 + 4, y * 5, z * 5)) : 0));   // panda: black head, black side blotches
       c = mul3(c, 0.94 + 0.1 * n);
       return lerp3(c, CREAM_D, sstep(0.09, 0.05, y) * 0.4);
     }
@@ -451,5 +477,8 @@ function isopod() {
 }
 
 // BODIES.shrimp (no morph given) stays the familiar red cherry shrimp; 'shrimp:<morph>' are the colour variants.
-export const CRUSTACEANS = { shrimp: () => shrimp('red'), crab, isopod };
+export const CRUSTACEANS = {
+  shrimp: () => shrimp('red'), crab: () => crab(), isopod: () => isopod(),
+  blueshrimp: () => shrimp('blue'), panther: () => crab('panther'), purpleiso: () => isopod('purple'), pandaking: () => isopod('panda'),
+};
 for (const k of Object.keys(SHRIMP_MORPHS)) CRUSTACEANS[`shrimp:${k}`] = () => shrimp(k);

@@ -3,6 +3,7 @@
 // commissions and the automation controller can call them too.
 
 import * as THREE from 'three/webgpu';
+import { sourceOf } from '../content/equipment.js';
 
 export const Care = {
   feed(game) {
@@ -43,6 +44,10 @@ export const Care = {
   waterChange(game) {
     const E = game.world.env;
     E.ammonia *= 0.6; E.nitrite *= 0.6; E.nitrate *= 0.6; E.detritus *= 0.8; E.algae *= 0.7;
+    // The new water brings the source's hardness and pH (content/equipment.js WATER_SOURCES).
+    const src = sourceOf(E);
+    for (const b of game.world.water.bodies?.list ?? []) { b.ph = b.ph + (src.ph - b.ph) * 0.4; b.gh = b.gh + (src.gh - b.gh) * 0.4; }
+    E.ph += (src.ph - E.ph) * 0.4; E.gh += (src.gh - E.gh) * 0.4;
     game.world.log('Changed 40% of the water.');
     return 'Changed 40% of the water.';
   },

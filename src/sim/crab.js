@@ -80,34 +80,49 @@ export const CRAB = {
   scrape: [1.6, 3.2],           // seconds of scraping per load (at dig rate 1; harder ground takes longer)
   digStall: 10,                 // loads in a row that leave the pit no deeper (sand running back in): give the spot up
   digRest: 240,                 // game minutes before it tries a given-up spot again
+  noun: 'vampire crab',
+};
+
+// The panther crab (Parathelphusa pantherina, Lake Matano, Sulawesi) on the same mind with other numbers: a big, mostly
+// aquatic crab (80% water) that walks the bottom of deep, hard water and hauls out onto roots and rocks now and then. It does not
+// dig, it is out by day as well, its gills want water within half an hour on land, and deep water is home, not a danger.
+export const PANTHER = {
+  ...CRAB,
+  noun: 'panther crab', aquatic: true, dig: false,
+  airT: [24, 28], waterT: [24, 27], rh: [60, 90],
+  shellCm: 5, speed: 7, smell: 26, reach: 2.2, scareCm: 13, rivalCm: 16, mateCm: 18,
+  dryMin: 25, soakAt: 0.5, soakTo: 0.97, soakDepth: [2, 60],
+  safeDepth: 1e9, maxUnder: 1e9, drownMin: 1e9,
+  haulEvery: 240,               // game minutes under water before it wants to climb out for a while
+  moltEvery: [40, 70], moltHours: [12, 24],
 };
 
 // A fresh memory for a new crab. `rnd` decides the molt clock so crabs do not molt together.
-export function crabMind(rnd = Math.random) {
+export function crabMind(rnd = Math.random, P = CRAB) {
   return {
     mode: 'rest', modeT: 0,
     wet: 1, fear: 0,
     burst: 0, burstT: 0, pauseT: rnd() * 1.5,   // the current burst: its length and elapsed time; time left to pause
     goal: null, lead: rnd() < 0.5 ? 1 : -1,
     under: 0, stuck: 0,                          // game minutes submerged; game minutes unable to get out
-    moltIn: (CRAB.moltEvery[0] + rnd() * (CRAB.moltEvery[1] - CRAB.moltEvery[0])) * 1440, moltLeft: 0, soft: 0,
+    moltIn: (P.moltEvery[0] + rnd() * (P.moltEvery[1] - P.moltEvery[0])) * 1440, moltLeft: 0, soft: 0,
     waveT: -1, waveDur: 0, bite: 0, freezeT: 0, look: rnd() * 6.28,
     dig: null, digBest: 0, digLoads: 0, digRest: 0,  // the dig cycle; the deepest the pit got and the loads since; game minutes off digging
   };
 }
 
 // Comfort 0 … 1 from the keeper's ranges: 1 inside them, falling off over 4 °C and 20% outside.
-export function crabComfort(temp, rh) {
-  const [t0, t1] = CRAB.airT, [h0] = CRAB.rh;
+export function crabComfort(temp, rh, P = CRAB) {
+  const [t0, t1] = P.airT, [h0] = P.rh;
   const ct = temp < t0 ? 1 - (t0 - temp) / 4 : temp > t1 ? 1 - (temp - t1) / 4 : 1;
   const ch = rh < h0 ? 1 - (h0 - rh) / 20 : 1;
   return clamp(Math.min(ct, ch), 0, 1);
 }
 
 // How fast the gills dry, per game minute, on land: faster in dry or hot air, slower on wet ground.
-export function dryRate(rh, temp, wetGround = 0) {
+export function dryRate(rh, temp, wetGround = 0, P = CRAB) {
   const air = 1 + Math.max(0, 85 - rh) / 12 + Math.max(0, temp - 26) / 6;
-  return (air * (1 - 0.7 * clamp(wetGround, 0, 1))) / CRAB.dryMin;
+  return (air * (1 - 0.7 * clamp(wetGround, 0, 1))) / P.dryMin;
 }
 
 const toward = (s, p) => (p ? { x: p.x, z: p.z } : null);
@@ -119,7 +134,7 @@ const away = (s, p, dist) => { const dx = s.x - p.x, dz = s.z - p.z, l = Math.hy
 //     eat: true when a bite lands this step, drown: true when it has been unable to get out for too long, say: a log line or null,
 //     dig: true when a load of soil is dropped on the spoil heap this step (animals.js moves it), nose: head down (scraping),
 //     badHome: true when it gives up digging here (animals.js picks another home) }
-export function crabThink(m, s, rnd = Math.random) {
+export function crabThink(m, s, rnd = Math.random, P = CRAB) {
   const dt = s.dt ?? 0, dtMin = s.dtMin ?? dt / 60;
   const inWater = (s.depth ?? 0) > 0.2;
   const out = { mode: m.mode, goal: null, speed: 0, face: null, claw: 0, calm: 1, sink: 0, eat: false, drown: false, say: null, dig: false, nose: false, badHome: false };
@@ -128,12 +143,14 @@ export function crabThink(m, s, rnd = Math.random) {
   if (inWater) m.wet = Math.min(1, m.wet + dtMin / 3);
   else {
     const burrow = m.mode === 'molt' ? 0 : m.mode === 'hide' ? 0.3 : 1;   // a burrow holds damp air: the gills barely dry there (not at all while molting, sealed in)
-    m.wet = clamp(m.wet - dryRate(s.rh ?? 85, s.temp ?? 25, s.wetGround) * dtMin * burrow, 0, 1);
+    m.wet = clamp(m.wet - dryRate(s.rh ?? 85, s.temp ?? 25, s.wetGround, P) * dtMin * burrow, 0, 1);
   }
   m.under = (s.depth ?? 0) > 1.4 ? m.under + dtMin : Math.max(0, m.under - dtMin * 2);
-  const comfort = crabComfort(s.temp ?? 25, s.rh ?? 85);
-  const awake = nightActivity(s.light ?? 0.5, s.rain ?? 0, s.rh ?? 85, 85);   // 0.06 by day in dry air … 1 on a damp night
-  if (s.threat && s.threat.d < CRAB.scareCm) m.fear = Math.max(m.fear, (1 - s.threat.d / CRAB.scareCm) * (m.soft > 0 ? 1.5 : 1));
+  // Aquatic crabs (P.aquatic) build up an urge to haul out while under water; it is spent on land.
+  if (P.aquatic) m.haul = inWater ? (m.haul ?? rnd()) + dtMin / P.haulEvery : Math.max(0, (m.haul ?? 0) - dtMin / 20);
+  const comfort = crabComfort(s.temp ?? 25, s.rh ?? 85, P);
+  const awake = P.aquatic ? 0.55 + 0.35 * (s.light ?? 0.5) : nightActivity(s.light ?? 0.5, s.rain ?? 0, s.rh ?? 85, 85);   // 0.06 by day in dry air … 1 on a damp night
+  if (s.threat && s.threat.d < P.scareCm) m.fear = Math.max(m.fear, (1 - s.threat.d / P.scareCm) * (m.soft > 0 ? 1.5 : 1));
   m.fear = Math.max(0, m.fear - dt * 0.25);
   m.moltIn -= dtMin;
   m.soft = Math.max(0, m.soft - dtMin);
@@ -142,13 +159,14 @@ export function crabThink(m, s, rnd = Math.random) {
   // --- Mode ------------------------------------------------------------------------------------------------------------
   const prev = m.mode;
   let mode;
-  if (inWater && ((s.depth ?? 0) > CRAB.safeDepth || m.under > CRAB.maxUnder)) mode = 'exit';
-  else if (m.moltLeft > 0 || (m.moltIn <= 0 && !inWater)) mode = 'molt';
-  else if (m.fear > CRAB.fearAt) mode = 'flee';
-  else if (m.wet < CRAB.soakAt || (prev === 'soak' && m.wet < CRAB.soakTo)) mode = 'soak';
-  else if (s.food && s.food.d < CRAB.reach && (s.hunger ?? 0) > 0.1) mode = 'eat';
-  else if (s.male && s.other && s.other.d < (s.other.male ? CRAB.rivalCm : CRAB.mateCm) && awake > 0.3) mode = 'display';
-  else if (wantsDig(m, s, prev, awake * comfort < 0.25 || comfort < 0.5)) mode = 'dig';
+  if (inWater && ((s.depth ?? 0) > P.safeDepth || m.under > P.maxUnder)) mode = 'exit';
+  else if (m.moltLeft > 0 || (m.moltIn <= 0 && (!inWater || P.aquatic))) mode = 'molt';
+  else if (m.fear > P.fearAt) mode = 'flee';
+  else if (m.wet < P.soakAt || (prev === 'soak' && m.wet < P.soakTo)) mode = 'soak';
+  else if (s.food && s.food.d < P.reach && (s.hunger ?? 0) > 0.1) mode = 'eat';
+  else if (s.male && s.other && s.other.d < (s.other.male ? P.rivalCm : P.mateCm) && awake > 0.3) mode = 'display';
+  else if (P.aquatic && inWater && m.haul > 1 && s.bank && awake > 0.4) mode = 'haul';
+  else if (wantsDig(m, s, prev, awake * comfort < 0.25 || comfort < 0.5, P)) mode = 'dig';
   else if (awake * comfort < 0.25 || (comfort < 0.5 && (s.cover ?? 0) < 0.3) || m.soft > 0) mode = 'hide';
   else if ((s.hunger ?? 0) > 0.25 || awake > 0.5) mode = 'forage';
   else mode = 'rest';
@@ -157,7 +175,7 @@ export function crabThink(m, s, rnd = Math.random) {
   out.mode = mode;
 
   // A burst: speed follows scuttleSpeed over its length; between bursts the crab stands (calm legs).
-  const run = (goal, top, pause = CRAB.pause) => {
+  const run = (goal, top, pause = P.pause) => {
     out.goal = goal;
     if (m.burst > 0) {
       m.burstT += dt;
@@ -166,54 +184,54 @@ export function crabThink(m, s, rnd = Math.random) {
       out.calm = 0;
       if (u >= 1) { m.burst = 0; m.pauseT = pause[0] + rnd() * (pause[1] - pause[0]); }
     } else if ((m.pauseT -= dt) <= 0) {
-      m.burst = CRAB.burst[0] + rnd() * (CRAB.burst[1] - CRAB.burst[0]); m.burstT = 0;
+      m.burst = P.burst[0] + rnd() * (P.burst[1] - P.burst[0]); m.burstT = 0;
     }
   };
 
   switch (mode) {
     case 'exit': {
-      if (s.bank) { out.goal = toward(s, s.bank); out.speed = CRAB.speed * 0.8; out.calm = 0; m.stuck = Math.max(0, m.stuck - dtMin); }
+      if (s.bank) { out.goal = toward(s, s.bank); out.speed = P.speed * 0.8; out.calm = 0; m.stuck = Math.max(0, m.stuck - dtMin); }
       else {
         m.stuck += dtMin;
         out.goal = null; out.calm = 0.3;                           // paddles in place: nowhere to climb out
-        if (m.stuck > CRAB.drownMin) out.drown = true;
-        if (m.stuck > 5 && m.stuck - dtMin <= 5) out.say = 'A vampire crab cannot climb out of the water: it needs a ramp of rock or wood.';
+        if (m.stuck > P.drownMin) out.drown = true;
+        if (m.stuck > 5 && m.stuck - dtMin <= 5) out.say = `A ${P.noun} cannot climb out of the water: it needs a ramp of rock or wood.`;
       }
       break;
     }
     case 'flee': {
-      if (m.modeT < dt + 1e-9) m.freezeT = CRAB.freeze[0] + rnd() * (CRAB.freeze[1] - CRAB.freeze[0]);
+      if (m.modeT < dt + 1e-9) m.freezeT = P.freeze[0] + rnd() * (P.freeze[1] - P.freeze[0]);
       if ((m.freezeT -= dt) > 0) { out.calm = 1; out.claw = 0.35; break; }   // frozen, claws half up
       const safe = s.home && (!s.threat || Math.hypot(s.home.x - s.threat.x, s.home.z - s.threat.z) > (s.threat.d ?? 0)) ? s.home : null;
       out.goal = safe ? toward(s, safe) : s.threat ? away(s, s.threat, 12) : null;
-      out.speed = CRAB.speed * 1.6; out.calm = 0;
+      out.speed = P.speed * 1.6; out.calm = 0;
       if (safe && Math.hypot(s.x - safe.x, s.z - safe.z) < 1.5) { out.goal = null; out.speed = 0; out.calm = 1; out.sink = 0.7; }
       break;
     }
     case 'molt': {
-      if (m.moltLeft <= 0) { m.moltLeft = (CRAB.moltHours[0] + rnd() * (CRAB.moltHours[1] - CRAB.moltHours[0])) * 60; out.say = 'A vampire crab has gone into its burrow to molt.'; }
+      if (m.moltLeft <= 0) { m.moltLeft = (P.moltHours[0] + rnd() * (P.moltHours[1] - P.moltHours[0])) * 60; out.say = `A ${P.noun} has gone into hiding to molt.`; }
       const home = s.home ?? null;
-      if (home && Math.hypot(s.x - home.x, s.z - home.z) > 1.5) { out.goal = toward(s, home); out.speed = CRAB.speed * 0.6; out.calm = 0; break; }
+      if (home && Math.hypot(s.x - home.x, s.z - home.z) > 1.5) { out.goal = toward(s, home); out.speed = P.speed * 0.6; out.calm = 0; break; }
       m.moltLeft -= dtMin;
       out.sink = 1;
       if (m.moltLeft <= 0) {
-        m.moltIn = (CRAB.moltEvery[0] + rnd() * (CRAB.moltEvery[1] - CRAB.moltEvery[0])) * 1440;
-        m.soft = CRAB.softHours * 60; m.mode = 'hide';
-        out.say = 'A vampire crab has molted; it stays hidden while its new shell hardens.';
+        m.moltIn = (P.moltEvery[0] + rnd() * (P.moltEvery[1] - P.moltEvery[0])) * 1440;
+        m.soft = P.softHours * 60; m.mode = 'hide';
+        out.say = `A ${P.noun} has molted; it stays hidden while its new shell hardens.`;
       }
       break;
     }
     case 'soak': {
-      if (inWater && (s.depth ?? 0) >= CRAB.soakDepth[0] && (s.depth ?? 0) <= CRAB.soakDepth[1]) { out.calm = 1; out.claw = 0.15 + 0.1 * Math.sin((s.t ?? 0) * 3); break; }   // sitting in the shallows, bailing water over its mouthparts
-      run(toward(s, s.shore), CRAB.speed * 0.8, [0.2, 0.8]);
+      if (inWater && (s.depth ?? 0) >= P.soakDepth[0] && (s.depth ?? 0) <= P.soakDepth[1]) { out.calm = 1; out.claw = 0.15 + 0.1 * Math.sin((s.t ?? 0) * 3); break; }   // sitting in the shallows, bailing water over its mouthparts
+      run(toward(s, s.shore), P.speed * 0.8, [0.2, 0.8]);
       break;
     }
     case 'eat': {
       out.face = { x: s.food.x, z: s.food.z };
       m.bite += dt;
-      const u = frac(m.bite / CRAB.biteS);
+      const u = frac(m.bite / P.biteS);
       out.claw = 0.25 + 0.35 * Math.sin(u * Math.PI);                  // claw to mouth and back
-      if (m.bite >= CRAB.biteS) { m.bite = 0; out.eat = true; }
+      if (m.bite >= P.biteS) { m.bite = 0; out.eat = true; }
       break;
     }
     case 'display': {
@@ -224,26 +242,31 @@ export function crabThink(m, s, rnd = Math.random) {
       out.claw = clawRaise(m.waveT, m.waveDur);
       // A rival male that does not back off gets a short charge; morph strangers are always rivals.
       const rival = o.male || (s.morph != null && o.morph != null && o.morph !== s.morph);
-      if (rival && m.modeT > 3 && o.d < CRAB.rivalCm * 0.7) { out.goal = toward(s, o); out.speed = CRAB.speed * 1.2; out.calm = 0; out.claw = 1; }
+      if (rival && m.modeT > 3 && o.d < P.rivalCm * 0.7) { out.goal = toward(s, o); out.speed = P.speed * 1.2; out.calm = 0; out.claw = 1; }
       break;
     }
-    case 'dig': digStep(m, s, out, dt, rnd); break;
+    case 'dig': digStep(m, s, out, dt, rnd, P); break;
+    case 'haul': {
+      // An aquatic crab hauls out now and then: up a root or a rock, where it sits until its gills want water again (soak).
+      run(toward(s, s.bank), P.speed * 0.7, [0.2, 0.8]);
+      break;
+    }
     case 'hide': {
       const home = s.home ?? null;
-      if (home && Math.hypot(s.x - home.x, s.z - home.z) > 1.5) run(toward(s, home), CRAB.speed * 0.7, [0.2, 0.6]);
+      if (home && Math.hypot(s.x - home.x, s.z - home.z) > 1.5) run(toward(s, home), P.speed * 0.7, [0.2, 0.6]);
       else { out.sink = 1 - 0.4 * smooth(Math.sin((s.t ?? 0) * 0.13 + m.look) * 0.5 + 0.5) * (1 - (m.soft > 0 ? 1 : 0)); out.calm = 1; }   // peeks now and then
       break;
     }
     case 'forage': {
       // Smell first; otherwise a wander that keeps a heading and drifts back toward home (a home range, not the whole tank).
-      if (s.food && s.food.d < CRAB.smell) { run(toward(s, s.food), CRAB.speed * 0.8, [0.15, 0.6]); break; }
+      if (s.food && s.food.d < P.smell) { run(toward(s, s.food), P.speed * 0.8, [0.15, 0.6]); break; }
       if (!m.goal || Math.hypot(s.x - m.goal.x, s.z - m.goal.z) < 1 || m.modeT > 20) {
         const h = s.home, hx = h ? h.x - s.x : 0, hz = h ? h.z - s.z : 0, hd = Math.hypot(hx, hz);
         const a = rnd() * Math.PI * 2, r = 4 + rnd() * 8, pull = h ? clamp((hd - 15) / 20, 0, 0.8) : 0;
         m.goal = { x: s.x + Math.sin(a) * r * (1 - pull) + (hd ? (hx / hd) * r * pull : 0), z: s.z + Math.cos(a) * r * (1 - pull) + (hd ? (hz / hd) * r * pull : 0) };
         m.modeT = 0;
       }
-      run(m.goal, CRAB.speed * (0.55 + 0.45 * awake));
+      run(m.goal, P.speed * (0.55 + 0.45 * awake));
       break;
     }
     default: {   // rest: still, with small claw taps and eye grooming
@@ -256,26 +279,27 @@ export function crabThink(m, s, rnd = Math.random) {
 
 // Dig when the home's pit is shallower than it wants: before hiding for the day (`hiding`), and deeper before a molt. Not
 // while soft after a molt, not on a spot given up a little while ago; once started it keeps on until the pit is deep enough.
-function wantsDig(m, s, prev, hiding) {
+function wantsDig(m, s, prev, hiding, P = CRAB) {
+  if (P.dig === false) return false;
   const b = s.burrow;
   if (!b || m.soft > 0 || m.digRest > 0 || (s.depth ?? 0) > 0.2 || b.room < 0.25 || b.rate <= 0.05) return false;
   const moltSoon = m.moltIn < 2 * 1440;
   const want = Math.min(moltSoon ? b.wantMolt ?? b.want : b.want, b.room);
   if (prev === 'dig') return b.depth < want;
-  return (hiding || moltSoon) && b.depth < want * CRAB.digStart;
+  return (hiding || moltSoon) && b.depth < want * P.digStart;
 }
 
 // The dig cycle: scrape in the pit (claws pumping, legs shuffling it sideways, head down), carry the load out to the spoil
 // heap, drop it (out.dig), walk back. Harder ground means longer scraping for the same load.
-function digStep(m, s, out, dt, rnd) {
+function digStep(m, s, out, dt, rnd, P = CRAB) {
   const home = s.home, b = s.burrow;
   const d = (m.dig ??= { ph: 'back', t: 0, dur: 0 });
   d.t += dt;
   const at = (p, r) => Math.hypot(s.x - p.x, s.z - p.z) < r;
   switch (d.ph) {
     case 'back':
-      if (at(home, 0.7)) { d.ph = 'scrape'; d.t = 0; d.dur = (CRAB.scrape[0] + rnd() * (CRAB.scrape[1] - CRAB.scrape[0])) / Math.max(0.25, b.rate); break; }
-      out.goal = { x: home.x, z: home.z }; out.speed = CRAB.speed * 0.4; out.calm = 0;
+      if (at(home, 0.7)) { d.ph = 'scrape'; d.t = 0; d.dur = (P.scrape[0] + rnd() * (P.scrape[1] - P.scrape[0])) / Math.max(0.25, b.rate); break; }
+      out.goal = { x: home.x, z: home.z }; out.speed = P.speed * 0.4; out.calm = 0;
       break;
     case 'scrape': {
       // Shuffles a few millimetres to and fro across the pit as it scrapes: the legs work, the body stays put.
@@ -288,7 +312,7 @@ function digStep(m, s, out, dt, rnd) {
     }
     case 'carry':
       if (at(b.spoil, 0.8) || d.t > 6) { d.ph = 'dump'; d.t = 0; break; }
-      out.goal = { x: b.spoil.x, z: b.spoil.z }; out.speed = CRAB.speed * 0.3; out.calm = 0; out.claw = 0.45;   // the load held under the body
+      out.goal = { x: b.spoil.x, z: b.spoil.z }; out.speed = P.speed * 0.3; out.calm = 0; out.claw = 0.45;   // the load held under the body
       break;
     case 'dump':
       out.face = { x: b.spoil.x, z: b.spoil.z }; out.claw = 0.45 + 0.4 * Math.sin(Math.min(1, d.t / 0.5) * Math.PI);
@@ -296,7 +320,7 @@ function digStep(m, s, out, dt, rnd) {
         out.dig = true; d.ph = 'back'; d.t = 0;
         // Progress: a pit that does not get deeper over many loads is sand running back in.
         if (b.depth > m.digBest + 0.08) { m.digBest = b.depth; m.digLoads = 0; } else m.digLoads++;
-        if (m.digLoads >= CRAB.digStall) { m.digRest = CRAB.digRest; m.digLoads = 0; m.digBest = 0; out.badHome = true; m.mode = 'hide'; }
+        if (m.digLoads >= P.digStall) { m.digRest = P.digRest; m.digLoads = 0; m.digBest = 0; out.badHome = true; m.mode = 'hide'; }
       }
       break;
   }

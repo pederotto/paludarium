@@ -44,7 +44,10 @@ export const START_TANK = 'jar';
 export const ANIMALS = {
   // Cleanup crew and live food: sold as cultures, so cheap per animal.
   springtail: { name: 'Springtails', price: 0.3, rank: 1, batch: 20, source: 'captive', sellable: false, adult: 5, group: 'Insects' },
-  isopod: { name: 'Dwarf isopods', price: 0.7, rank: 1, batch: 10, source: 'captive', sellable: false, adult: 12, group: 'Crustaceans' },
+  springpink: { name: 'Pink springtails', price: 0.4, rank: 2, batch: 20, source: 'captive', sellable: false, adult: 6, group: 'Insects' },
+  purpleiso: { name: 'Dwarf purple isopods', price: 0.8, rank: 2, batch: 10, source: 'captive', sellable: false, adult: 14, group: 'Crustaceans' },
+  pandaking: { name: 'Panda king isopods', price: 6, rank: 5, batch: 4, resale: 0.5, source: 'captive', adult: 45, group: 'Crustaceans' },
+  isopod: { name: 'Dwarf white isopods', price: 0.7, rank: 1, batch: 10, source: 'captive', sellable: false, adult: 12, group: 'Crustaceans' },
   fly: { name: 'Fruit flies', price: 0.4, rank: 3, batch: 10, source: 'captive', sellable: false, adult: 2, group: 'Insects' },
   // The fruit fly's young come from its own life cycle (sim/flylife.js): never bought or sold.
   flylarva: { name: 'Fruit fly maggots', price: 0, rank: 1, sold: false, sellable: false, source: 'captive', adult: 4.5, group: 'Insects' },
@@ -53,6 +56,9 @@ export const ANIMALS = {
   neon: { name: 'Neon tetra', price: 3, rank: 2, batch: 6, resale: 0.4, source: 'shop', adult: 10, group: 'Fish' },
   guppy: { name: 'Guppy', price: 2, rank: 2, batch: 3, resale: 0.4, source: 'captive', adult: 8, group: 'Fish' },
   shrimp: { name: 'Cherry shrimp', price: 3, rank: 2, batch: 5, resale: 0.4, source: 'captive', adult: 20, group: 'Crustaceans' },
+  blueshrimp: { name: 'Blue dream shrimp', price: 4, rank: 3, batch: 5, resale: 0.4, source: 'captive', adult: 20, group: 'Crustaceans' },
+  cpd: { name: 'Celestial pearl danio', price: 4, rank: 3, batch: 6, resale: 0.4, source: 'captive', adult: 45, group: 'Fish' },
+  pygmy: { name: 'Everglades pygmy sunfish', price: 8, rank: 4, batch: 3, resale: 0.45, source: 'captive', adult: 60, group: 'Fish' },
   snail: { name: 'Trumpet snail', price: 2, rank: 2, source: 'captive', sellable: false, adult: 14, group: 'Molluscs' },
   loach: { name: 'Clown loach', price: 22, rank: 5, batch: 2, resale: 0.4, source: 'shop', adult: 30, group: 'Fish' },
   cory: { name: 'Corydoras', price: 6, rank: 3, batch: 3, resale: 0.4, source: 'shop', adult: 10, group: 'Fish' },
@@ -67,6 +73,11 @@ export const ANIMALS = {
   strawberry: { name: 'Strawberry dart frog', price: 90, rank: 5, resale: 0.58, source: 'captive', adult: 25, group: 'Amphibians', frog: true },
   gecko: { name: 'Mourning gecko', price: 25, rank: 5, resale: 0.45, source: 'captive', adult: 25, group: 'Reptiles' },
   crab: { name: 'Vampire crab', price: 15, rank: 5, resale: 0.4, source: 'wild', adult: 10, group: 'Crustaceans' },
+  bumblebee: { name: 'Bumblebee toad', price: 45, rank: 5, resale: 0.5, source: 'captive', adult: 40, group: 'Amphibians', frog: true },
+  reedfrog: { name: 'Starry night reed frog', price: 40, rank: 6, resale: 0.5, source: 'captive', adult: 30, group: 'Amphibians', frog: true },
+  marbled: { name: 'Marbled newt', price: 45, rank: 7, resale: 0.45, source: 'captive', adult: 60, group: 'Amphibians' },
+  skink: { name: 'Red-eyed crocodile skink', price: 85, rank: 7, resale: 0.5, source: 'captive', adult: 120, group: 'Reptiles' },
+  panther: { name: 'Panther crab', price: 35, rank: 6, resale: 0.45, source: 'wild', adult: 60, group: 'Crustaceans' },
   toad: { name: 'Fire-bellied toad', price: 20, rank: 6, resale: 0.4, source: 'captive', adult: 30, group: 'Amphibians', frog: true },
   firesal: { name: 'Fire salamander', price: 60, rank: 8, resale: 0.45, source: 'wild', adult: 40, group: 'Amphibians' },
   newt: { name: 'Paddle-tail newt', price: 35, rank: 7, resale: 0.45, source: 'wild', adult: 30, group: 'Amphibians' },
@@ -103,6 +114,9 @@ export const PLANTS = {
   sword: { name: 'Amazon sword', price: 10, rank: 3 },
   lily: { name: 'Water lily', price: 14, rank: 4 },
   bromeliad: { name: 'Bromeliad', price: 22, rank: 4 },
+  javamoss: { name: 'Java moss', price: 4, rank: 1 },
+  anubias: { name: 'Anubias', price: 9, rank: 2 },
+  monstera: { name: 'Monstera vine', price: 16, rank: 4 },
 };
 
 // ---------------------------------------------------------------------------
@@ -115,6 +129,8 @@ export const PIECES = {
   wood: { name: 'Driftwood', price: 12, rank: 2 },
   spire: { name: 'Stone spire', price: 10, rank: 3 },
   cliff: { name: 'Cliff face', price: 18, rank: 4 },
+  cork: { name: 'Cork bark tube', price: 7, rank: 1 },
+  slate: { name: 'Slate slab', price: 6, rank: 2 },
 };
 
 export const ECON = { animal: ANIMALS, plant: PLANTS, piece: PIECES };

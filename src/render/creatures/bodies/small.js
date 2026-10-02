@@ -137,7 +137,10 @@ const legRig = (legs, x, y, z, dBody, amp) => {
 // Springtail (Collembola, ~0.25 cm): a cream-white segmented body, a rounded head with
 // dark eye spots, short antennae, six legs and the furcula folded under the abdomen.
 // ---------------------------------------------------------------------------------
-function springtail() {
+// Springtail colours: the tropical white (Folsomia candida, default) and the tropical pink (Pseudosinella sp.).
+const SPRING_PAL = { white: [0xf0e8d2, 0xd8d1bd, 0xe2d9c4, 0xcfc6ae], pink: [0xf2b8b0, 0xe0a49c, 0xeaaaa2, 0xd8968e] };
+function springtail(pal = 'white') {
+  const SP = SPRING_PAL[pal];
   const Y0 = 0.055;
   const R = [0.034, 0.036, 0.039, 0.041, 0.042, 0.042, 0.041, 0.038, 0.033, 0.026];   // head, 3 thorax, 6 abdomen segments
   const Z = R.map((_, i) => 0.10 - i * 0.022), RZ = 0.017;
@@ -166,7 +169,7 @@ function springtail() {
     for (const t of tines) d = Math.min(d, chain([x, y, z], t.pts, t.radii)[0]);
     return d;
   };
-  const CREAM = C(0xf0e8d2), LEG = C(0xd8d1bd), EYE = C(0x2b2932), HEAD = C(0xe2d9c4), FURC = C(0xcfc6ae);
+  const CREAM = C(SP[0]), LEG = C(SP[1]), EYE = C(0x2b2932), HEAD = C(SP[2]), FURC = C(SP[3]);
   return {
     sdf: (x, y, z) => smin(bodyD(x, y, z), limbD(x, y, z), 0.008),
     lo: [-0.1, -0.02, -0.15], hi: [0.1, 0.13, 0.22], cell: 0.006, hiScale: 0.5,
@@ -331,4 +334,4 @@ function flypupa() {
   };
 }
 
-export const SMALL = { snail, springtail, fly, flylarva, flypupa };
+export const SMALL = { snail, springtail: () => springtail(), springpink: () => springtail('pink'), fly, flylarva, flypupa };

@@ -7,7 +7,7 @@ import { Sheet } from './Sheet.jsx';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { Care } from '../../app/actions.js';
-import { GEAR } from '../../content/equipment.js';
+import { GEAR, FILTERS, WATER_SOURCES } from '../../content/equipment.js';
 import { TANK } from '../../sim/tank.js';
 
 const TABS = [['lights', 'Lights', 'sun'], ['climate', 'Climate', 'thermo'], ['rain', 'Rain', 'rain'], ['water', 'Water', 'drop'], ['feeding', 'Feeding', 'bowl'], ['foundation', 'Foundation', 'layers']];
@@ -61,6 +61,10 @@ export function CarePanel() {
             <Slider label="Colour" value={E.lampWarmth} min={0} max={1} step={0.05} set={(v) => { E.lampWarmth = v; }} fmt={(v) => (v < 0.3 ? 'cool white' : v > 0.7 ? 'warm white' : 'neutral')} />
             <Toggle label="Moonlight at night" on={E.moonlight} set={(v) => { E.moonlight = v; }} />
           </Gated>
+          <Gated gear="uvb">
+            <Slider label="UVB tube" value={E.uvb} min={0} max={1} step={0.05} set={(v) => { E.uvb = v; }} fmt={(v) => (v ? 'UV index ' + (v * 4).toFixed(1) : 'off')} />
+            <p class="note">Forest-floor animals such as the crocodile skink need only a little (UV index about 2), with shade to hide in.</p>
+          </Gated>
           <Gated gear="basking">
             <Slider label="Basking lamp" value={E.basking} min={0} max={1} step={0.05} set={(v) => { E.basking = v; W.climate.scanAcc = 1e9; }} fmt={(v) => (v ? Math.round(v * 100) + '%' : 'off')} />
             <p class="note">Place it with the Equipment tool, then look at the temperature lens (L).</p>
@@ -101,9 +105,26 @@ export function CarePanel() {
           <div class="chips"><button class="btn sm" onClick={() => { toast(Care.waterChange(ctx.game)); refresh(); }}><Icon name="flask" size={14} /> Change 40% of the water</button><button class="btn sm" onClick={() => { toast(Care.scrubAlgae(ctx.game)); refresh(); }}>Scrub algae</button></div>
           <div class="chips"><button class="btn sm primary" onClick={() => openModal('flow')}><Icon name="drop" size={14} /> Flow balance: pump, valves and ponds</button></div>
           <Toggle label="Filter running" on={E.filter} set={(v) => { E.filter = v; }} />
+          <div class="cols">
+            {Object.entries(FILTERS).map(([id, F]) => {
+              const owned = eq.has(F.gear);
+              return (
+                <div key={id} class={'tile' + (owned ? '' : ' lock')}>
+                  <h4>{F.name}</h4><p>{F.blurb}</p>
+                  <div class="foot"><span class="price">{owned ? '' : `¤${GEAR[F.gear].price}`}</span>
+                    {owned ? <button class={'btn sm' + (E.filterKind === id ? ' primary' : '')} onClick={() => { E.filterKind = id; E.mediaBio = Math.min(E.mediaBio, F.mediaMax); refresh(); }}>{E.filterKind === id ? 'In use' : 'Use'}</button> : <button class="btn sm" onClick={() => openModal('studio', 'shop')}>Shop</button>}</div>
+                </div>
+              );
+            })}
+          </div>
+          {E.filterKind === 'canister' ? <Toggle label="Sponge pre-filter on the intake" on={E.prefilter} set={(v) => { E.prefilter = v; }} title="Keeps baby shrimp and fry out of the intake" /> : null}
+          <label class="row" style={{ gap: 8, alignItems: 'center' }}><span style={{ width: 110 }}>Water source</span>
+            <select value={E.waterSource} onChange={(ev) => { E.waterSource = ev.currentTarget.value; refresh(); }}>{Object.entries(WATER_SOURCES).map(([id, w]) => <option key={id} value={id}>{w.name} (pH {w.ph}, GH {w.gh})</option>)}</select>
+          </label>
+          <p class="note">{WATER_SOURCES[E.waterSource]?.blurb} Water changes bring the tank toward it.</p>
           <Toggle label="Show equipment" on={ctx.game.world.plumbing?.show !== false} set={(v) => { if (ctx.game.world.plumbing) ctx.game.world.plumbing.show = v; }} title="Draw the pump, its hoses and the overflow pipe" />
-          <Slider label="Filter media" value={E.mediaBio} min={0.2} max={eq.has('filterCanister') ? 1 : 0.6} step={0.05} set={(v) => { E.mediaBio = v; }} fmt={(v) => Math.round(v * 100) + '%'} />
-          <p class="note">A filter is mostly a home for nitrifying bacteria: more media, more capacity. A canister filter allows more.</p>
+          <Slider label="Filter media" value={E.mediaBio} min={0.2} max={(FILTERS[E.filterKind] ?? FILTERS.sponge).mediaMax} step={0.05} set={(v) => { E.mediaBio = v; }} fmt={(v) => Math.round(v * 100) + '%'} />
+          <p class="note">A filter is mostly a home for nitrifying bacteria: more media, more capacity. A false bottom full of bio-rings adds a filter bed under the land.</p>
           <div class="chips"><button class="chip" onClick={() => { toast(Care.ammonia(ctx.game)); refresh(); }}>Dose ammonia (fishless cycle)</button><button class="chip" onClick={() => { toast(Care.fertilise(ctx.game)); refresh(); }}>Fertilise</button></div>
         </>
       ) : tab === 'feeding' ? (

@@ -35,6 +35,11 @@ export const GEAR = {
     blurb: 'A spot lamp that makes a warm patch, a thermal gradient for geckos and other animals to choose from.',
     teach: 'Reptiles and amphibians are ectotherms: they regulate their body temperature by moving between warm and cool places. A tank with one uniform temperature takes that choice away.',
   },
+  uvb: {
+    id: 'uvb', group: 'Light', name: 'Low UVB tube', level: 4, price: 60, icon: 'sun',
+    blurb: 'A low-output UVB tube (UV index about 2 in the light) for shade-loving reptiles and amphibians such as the crocodile skink.',
+    teach: 'UVB light lets skin make vitamin D3, which an animal needs to use the calcium in its food; without it bones soften over months. Forest-floor animals need only a little: a low tube over part of the tank, with shade to retreat to.',
+  },
   // --- Climate --------------------------------------------------------------
   heater: {
     id: 'heater', group: 'Climate', name: 'Heater and thermostat', level: 1, price: 0, owned: true, icon: 'thermo',
@@ -67,10 +72,15 @@ export const GEAR = {
     blurb: 'A foam sponge that bacteria grow in, driven by an air stone.',
     teach: 'A filter mostly does not filter: it is a home for nitrifying bacteria. The more surface it has, the more ammonia they can process.',
   },
+  filterMatten: {
+    id: 'filterMatten', group: 'Water', name: 'Corner foam filter (Mattenfilter)', level: 3, price: 40, icon: 'filter',
+    blurb: 'A thick block of coarse foam walls off a back corner of the water; a small air-lift or pump behind it pulls water slowly through the whole face.',
+    teach: 'With a huge face and a slow flow there is no suction anywhere: baby shrimp, tadpoles and tiny fish cannot be pulled in, and the foam is a vast home for nitrifying bacteria. Moss grows over it and hides it.',
+  },
   filterCanister: {
     id: 'filterCanister', group: 'Water', name: 'Canister filter', level: 5, price: 150, icon: 'filter',
     blurb: 'Lots of biological media in a sealed box. A big jump in how much life the water can carry.',
-    teach: 'Biological capacity is surface area. Ceramic media has a huge internal surface, so a small volume can hold a colony large enough for a full stocked tank.',
+    teach: 'Biological capacity is surface area. Ceramic media has a huge internal surface, so a small volume can hold a colony large enough for a full stocked tank. Plumbed through bulkheads or hidden behind the background, it keeps the media out of the water. Its intake sucks: cover it with a sponge pre-filter or it takes baby shrimp and fry.',
   },
   autofeeder: {
     id: 'autofeeder', group: 'Feeding', name: 'Auto-feeder', level: 3, price: 70, icon: 'bowl',
@@ -91,7 +101,7 @@ export const GEAR = {
   falseBottom: {
     id: 'falseBottom', group: 'Foundation', name: 'False bottom with drain', level: 4, price: 95, icon: 'layers', foundation: 1,
     blurb: 'A raised mesh floor with a drain: the professional way to build a wet tank that never sours.',
-    teach: 'A false bottom keeps the soil above a reservoir, so the water table is under your control. It is how bioactive tanks stay healthy for years.',
+    teach: 'A false bottom (a plenum) is an egg-crate grid on short PVC legs, covered with fibreglass mesh so the soil cannot sift through. The water below circulates under the whole land, and the bio-rings or clay pebbles in it are one big filter bed; a pump in a slotted access tube in a back corner lifts it up hidden tubing to a waterfall, and lifts out for cleaning. Keep the water line just under the mesh, or the soil turns to mud.',
   },
   // --- Automation -------------------------------------------------------------
   controller: {
@@ -124,3 +134,22 @@ export const ACTUATORS = {
   lamp: { name: 'Lamp power', gear: 'led', on: 1, off: 0.35, key: 'lampPower' },
   chiller: { name: 'Cooling', gear: 'chiller', on: 1, off: 0, key: 'chill' },
 };
+
+// Filters: what each kind of filter does to the water. mediaMax caps the "Filter media" slider, flow is the current it adds to
+// the main pool (0 still … 1 strong), oxygen is how much it lifts the pool's oxygen target, suction is how many baby shrimp and
+// fry its intake takes (a pre-filter sponge on the intake cuts it to almost nothing).
+export const FILTERS = {
+  sponge: { gear: 'filterSponge', name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, blurb: 'Air-driven foam: gentle, shrimp-safe, small capacity.' },
+  matten: { gear: 'filterMatten', name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, blurb: 'A wall of coarse foam: no suction, a huge bacterial surface, almost no current.' },
+  canister: { gear: 'filterCanister', name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, blurb: 'Most media and the strongest flow; put a sponge over the intake for shrimp and fry.' },
+};
+export const filterOf = (E) => FILTERS[E.filterKind] ?? FILTERS.sponge;
+
+// The water you fill and change with: it sets the hardness (GH, °dH) and pH the tank drifts back to.
+export const WATER_SOURCES = {
+  tap: { name: 'Tap water', ph: 7.5, gh: 10, blurb: 'Moderately hard, slightly alkaline: fine for most fish, shrimp and newts.' },
+  soft: { name: 'Rain or RO water', ph: 6.6, gh: 1, blurb: 'Soft and slightly acid, like a rainforest stream. Shrimp molt badly in it.' },
+  remin: { name: 'RO water, remineralised', ph: 7.1, gh: 6, blurb: 'Soft water with the minerals shrimp need added back: GH about 6.' },
+  hard: { name: 'Hard lake water', ph: 8.2, gh: 14, blurb: 'Hard and alkaline, like the rift lakes of Sulawesi: for panther crabs.' },
+};
+export const sourceOf = (E) => WATER_SOURCES[E.waterSource] ?? WATER_SOURCES.tap;

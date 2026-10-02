@@ -124,7 +124,7 @@ function Pick({ on, lock, title, kind, id, icon, name, children, onClick, tool }
 }
 
 const KIT_ICON = { waterfall: 'waterfall', arch: 'arch', steps: 'steps', spires: 'tower', island: 'island' };
-const ANIMAL_ICON = { Fish: 'fish', Crustaceans: 'bug', Insects: 'bug', Frogs: 'frog', Amphibians: 'frog' };
+const ANIMAL_ICON = { Fish: 'fish', Crustaceans: 'bug', Insects: 'bug', Frogs: 'frog', Amphibians: 'frog', Reptiles: 'frog' };
 
 // The Advanced accordion: closed by default. Its body stays in the DOM (hidden) so toggles inside it keep their state.
 function Adv({ id, children, label = 'Advanced' }) {

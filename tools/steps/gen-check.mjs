@@ -7,7 +7,7 @@
 // Env: GEN_LIST (preset:seed:tier,...), GEN_ALL, GEN_SEEDS (default 1,2,3), GEN_DAYS (default 10).
 // Feeder insects (fruit flies, springtails, isopods) that die of hunger or dryness are counted separately:
 // they breed up to what their food allows, so some losses are normal.
-const FEEDERS = ['fly', 'springtail', 'isopod', 'tadpole', 'eggs'];
+const FEEDERS = ['fly', 'flylarva', 'flypupa', 'springtail', 'springpink', 'isopod', 'purpleiso', 'tadpole', 'eggs'];
 
 export default async (page, shot, name) => {
   const days = +(process.env.GEN_DAYS || 10);

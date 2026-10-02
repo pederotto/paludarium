@@ -90,6 +90,27 @@ export const PLANT_INFO = {
     care: ['Tie it to rock or wood. Shade is fine.'],
     lesson: 'photoperiod',
   },
+  anubias: {
+    sci: 'Anubias barteri', region: 'West and Central Africa',
+    role: 'Tough, low-light plant for wood, stone and the water\'s edge',
+    facts: ['In the wild it grows along streams, often half out of the water, so it does as well above the surface as below it.', 'Its leaves are thick and leathery: fish and snails leave them alone, and toads rest on them.'],
+    care: ['Tie the rhizome to wood or stone; never bury it.', 'Grows slowly in shade: algae can settle on old leaves in strong light.'],
+    lesson: 'photoperiod',
+  },
+  javamoss: {
+    sci: 'Taxiphyllum barbieri', region: 'South-east Asia',
+    role: 'Cover and grazing for fry, shrimp and danios',
+    facts: ['A true moss that grows in and out of water on wet wood and stone.', 'Its tangle traps detritus, which grows a film of microbes: food for baby shrimp and newly hatched fish.'],
+    care: ['Attach it to wood or stone; trim it so the inside does not rot.'],
+    lesson: 'bioactive',
+  },
+  monstera: {
+    sci: 'Monstera adansonii', region: 'Central and South America',
+    role: 'Big-leaved climber for the background',
+    facts: ['A climbing aroid: aerial roots grip bark and stone as it climbs toward the light.', 'In the wild its leaves are full of holes, which may let light and wind through to the leaves below.'],
+    care: ['Let it climb the background; trim it before it shades the whole tank.'],
+    lesson: 'humidity',
+  },
   frogbit: {
     sci: 'Limnobium laevigatum', region: 'South and Central America',
     role: 'Floating cover: shades algae and takes up nutrients',
