@@ -106,7 +106,7 @@ export class ShaderCompiler {
   // A few pipelines can take seconds each to finish in the background (on the live site, WebGPU, the last 2 to 4 of a new
   // tank took 10 to 50 s, so a loading screen waiting for all of them looked stuck). So once every object has its shader
   // code and at most `stragglers` pipelines are still linking, it waits `grace` ms more and lets them appear when ready.
-  settled(timeout = 8000, { stragglers = 4, grace = 1000 } = {}) {
+  settled(timeout = 3000, { stragglers = 4, grace = 500 } = {}) {
     return new Promise((resolve) => {
       const t = performance.now();
       const w = { resolve, n: 0, until: t + timeout, nearSince: 0, stragglers, grace };
