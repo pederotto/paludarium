@@ -1,6 +1,10 @@
 // Creature bench: one species, lit like the tank, seen from any angle.
 //   /bench.html?sp=dartfrog&view=front|side|back|top|three|low|closeup&lod=lo|hi&water=0|1&size=640&anim=0|1
+//   &wl=<cm>    a water surface at that height (the animal is tinted below it, a pane marks the surface)
+//   window.bench.pose('swim'|'walk'|'hop'|'stand'|'claw', t) puts the animal in that pose at phase t (0 … 1), the same
+//   rig inputs the game computes (util/gait.js); bench.setState({...}) sets any of them by hand.
 //   sp may name a genetic morph: sp=axolotl:golden (BODIES['axolotl:golden'], see bodies/index.js).
+//   &src=glb&body=swim   the species' pose model instead of its sitting body (manifest key '<species>.swim', made by tools/bake-frogpose.mjs).
 // window.bench.setView(name) etc. drive it from tools/bench.mjs, which builds contact sheets.
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -10,6 +14,8 @@ import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { CreatureLOD } from '../render/creatures/instanced.js';
 import { FINISH } from '../render/creatures/material.js';
 import { BODIES } from '../render/creatures/bodies/index.js';
+import { packAnim } from '../render/creatures/instanced.js';
+import { frogSwimPose, salamanderSwimPose, TAU } from '../util/gait.js';
 
 const q = new URLSearchParams(location.search);
 const fullId = q.get('sp') ?? 'dartfrog';
@@ -40,8 +46,9 @@ scene.add(led, led.target);
 scene.add(new THREE.HemisphereLight(0xdfeeff, 0x1a1510, 0.5));
 const fill = new THREE.DirectionalLight(0xffe2c0, 0.7); fill.position.set(-30, 20, 60); scene.add(fill);
 
+const wl = q.has('wl') ? +q.get('wl') : null;
 const wet = q.get('water') === '1';
-U.waterLevel.value = wet ? 1000 : -1000;
+U.waterLevel.value = wl !== null ? wl : wet ? 1000 : -1000;
 U.daylight.value = 1;
 
 const sp = SPECIES[id];
@@ -59,13 +66,14 @@ function makeLod() {
 let lod = makeLod();
 if (q.get('src') === 'glb') {
   const man = await loadManifest();
-  const g = man[id] && await loadCreatureGLB(id, { legs: ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab'].includes(sp.kind), ...man[id] });
+  const key = q.has('body') ? `${id}.${q.get('body')}` : id;      // &body=swim: a pose model ('<species>.swim' in the manifest)
+  const g = man[key] && await loadCreatureGLB(key, { legs: !q.has('body') && ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab'].includes(sp.kind), ...man[key] });
   if (g) {
     lod.lo.mesh.removeFromParent();
     const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
-    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, legAxis: sp.anim?.legAxis ?? 'z', limb: sp.anim?.limb ?? 1, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(man[id].finish ?? {}) }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
+    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, legAxis: sp.anim?.legAxis ?? 'z', limb: sp.anim?.limb ?? 1, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(man[key].finish ?? {}) }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
     hiReady = true;
-  } else console.warn('no GLB for', id);
+  } else console.warn('no GLB for', key);
 }
 async function setLod(name) {
   if (name === 'hi' && !hiReady) { lod.refine(true); hiReady = true; }
@@ -75,6 +83,11 @@ const ground = new THREE.Mesh(new THREE.CircleGeometry(30, 48), new THREE.MeshSt
 ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true;
 if (!swimmer) scene.add(ground);
 
+if (wl !== null) {
+  const pane = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshBasicNodeMaterial({ color: 0x3f8fb0, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }));
+  pane.rotation.x = -Math.PI / 2; pane.position.y = wl; pane.renderOrder = 5;
+  scene.add(pane);
+}
 const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 500);
 lod.lo.geometry.computeBoundingBox();
 const bb = lod.lo.geometry.boundingBox.clone();
@@ -94,14 +107,30 @@ function setView(name) {
   cam.updateProjectionMatrix();
 }
 let animOn = q.get('anim') === '1', t0 = performance.now();
-const quat = new THREE.Quaternion();
+const quat = new THREE.Quaternion(), euler = new THREE.Euler(0, 0, 0, 'YXZ');
+// The animal's state as the game would hand it to the rig: pose (hop, pose, calm …) plus body angles and height.
+const state = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, phase: 0, amp: 0, gait: 0, hop: 0, breath: 0, throat: 0, eye: 0, pose: 0, calm: 1 };
+// Named poses at phase t (0 … 1). `swim` is a frog kick (or a salamander's glide for kinds that undulate), `walk` a leg cycle.
+const POSES = {
+  stand: () => ({ calm: 1 }),
+  swim: (t) => (sp.kind === 'frog' || sp.kind === 'toad'
+    ? { ...frogSwimPose(t, { level: sp.anim?.level ?? 0.28 }), phase: 0, amp: 0, gait: 0 }
+    : { ...salamanderSwimPose(0.6), amp: (sp.anim?.amp ?? 0.6) * 2.5, phase: -t * TAU, gait: 0 }),
+  walk: (t) => ({ calm: 0, gait: t * TAU, phase: t * TAU, amp: (sp.anim?.amp ?? 0), hop: 0, pose: 0 }),
+  hop: (t) => ({ calm: 0, hop: Math.sin(Math.PI * t), pose: 0, gait: 0 }),
+  claw: (t) => ({ calm: 1, pose: 1, phase: t * TAU * 3, gait: 0 }),
+};
 function frame() {
   const t = (performance.now() - t0) / 1000;
   const a = sp.anim ?? {};
   lod.begin();
-  const y = swimmer ? 0 : 0;
   const scale = sp.scale ?? 1;
-  lod.put(new THREE.Vector3(0, y, 0), quat, scale, animOn ? t * 8 : 0, animOn ? (a.amp ?? 0) : 0, animOn ? t * 6 : 0, 0, 0);
+  euler.set(state.pitch, state.yaw, state.roll);
+  quat.setFromEuler(euler);
+  const pos = new THREE.Vector3(state.x, state.y, state.z);
+  const packed = packAnim(state.hop, state.breath, state.throat, state.eye, state.pose, state.calm);
+  if (animOn) lod.put(pos, quat, scale, t * 8, a.amp ?? 0, t * 6, 0, 0);
+  else lod.put(pos, quat, scale, state.phase, state.amp, state.gait, packed, 0);
   lod.end();
   renderer.render(scene, cam);
 }
@@ -109,6 +138,8 @@ window.bench = {
   id: fullId, setView, setLod, frame, verts: () => ({ lo: lod.lo.geometry.attributes.position.count, hi: lod.hi?.geometry.attributes.position.count ?? 0 }),
   water: (on) => { U.waterLevel.value = on ? 1000 : -1000; },
   anim: (on) => { animOn = on; },
+  state, setState: (o) => { Object.assign(state, o); animOn = false; },
+  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0 }, POSES[name]?.(t) ?? {}, extra); animOn = false; },
   ready: true,
 };
 setView(q.get('view') ?? 'three');

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   frogKick, kickSpeed, KICK, KICK_MEAN, kickPeriod, bob, gaitRate, sweepFor, strideFor, footSwing, footLift, footGrounded, TROT, TAU,
-  scuttleSpeed, crabStride, clawRaise, frogSwimPose, salamanderSwimPose, packAnim, unpackAnim,
+  scuttleSpeed, crabStride, clawRaise, frogSwimPose, salamanderSwimPose, packAnim, unpackAnim, strideRate, hopLegs, hopPitch, HOP, callSac, toeTap,
 } from '../src/util/gait.js';
 
 const grid = (n, f) => { for (let i = 0; i <= n; i++) f(i / n, i); };
@@ -122,4 +122,33 @@ test('the packed word survives a float32 and decodes to what was put in', () => 
     const u = unpackAnim(packAnim(0.5, br / 7, 3 / 7, ey / 7, po / 15, ca / 7));
     assert.ok(Math.abs(u.breath - br / 7) < 1e-9 && Math.abs(u.pose - po / 15) < 1e-9 && Math.abs(u.calm - ca / 7) < 1e-9 && Math.abs(u.eye - ey / 7) < 1e-9 && Math.abs(u.hop - 0.5) < 1 / 100, `fields ${br} ${po} ${ca} ${ey}`);
   }
+});
+
+test('the stride rate is one leg cycle per stride at any size: a planted foot does not slide', () => {
+  for (const [stride, scale] of [[0.35, 1], [0.26, 0.6], [0.45, 1.9]]) {
+    const cm = strideFor(stride) * scale;
+    assert.ok(Math.abs(strideRate(stride, scale) * cm - TAU) < 1e-9);
+    // Over the stance the foot moves back exactly as far as the body moves forward (in the mesh's own cm, times the scale).
+    const phi0 = Math.PI * 1.1, phi1 = Math.PI * 1.9, dBody = (phi1 - phi0) / strideRate(stride, scale);
+    const dFoot = (footSwing(phi0, sweepFor(strideFor(stride))) - footSwing(phi1, sweepFor(strideFor(stride)))) * scale;
+    assert.ok(Math.abs(dFoot - dBody) < 1e-9, `foot ${dFoot} vs body ${dBody}`);
+  }
+});
+
+test('a hop: the legs snap out at take-off, trail, and are folded before landing', () => {
+  assert.equal(hopLegs(0), 0);
+  assert.ok(hopLegs(HOP.push) > 0.999 && hopLegs(0.3) === 1);
+  assert.ok(hopLegs(0.07) > 0.8, 'most of the extension in the first few hundredths');
+  assert.ok(hopLegs(HOP.fold) < 1e-9 && hopLegs(1) === 0);
+  let prev = 0, worst = 0;
+  for (let i = 1; i <= 2000; i++) { const v = hopLegs(i / 2000); worst = Math.max(worst, Math.abs(v - prev)); prev = v; }
+  assert.ok(worst < 0.02, `no jumps (${worst})`);
+  assert.ok(hopPitch(0) < -0.3 && Math.abs(hopPitch(0.5)) < 1e-9 && hopPitch(1) > 0.3, 'nose up, level, nose down');
+});
+
+test('a call bout and a toe tap stay in range and end at rest', () => {
+  for (let t = -1; t < 8; t += 0.01) { const v = callSac(t, 6); assert.ok(v >= 0 && v <= 1); }
+  assert.equal(callSac(0, 6), 0); assert.equal(callSac(6, 6), 0);
+  assert.ok(Math.max(...Array.from({ length: 300 }, (_, i) => callSac(1 + i / 100, 6))) > 0.9);
+  for (let t = 0; t < 3; t += 0.01) { const v = toeTap(t); assert.ok(v >= 0 && v <= 0.08 + 1e-12); }
 });

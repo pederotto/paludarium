@@ -189,13 +189,14 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       p.y.addAssign(fore.mul(0.5 * limb));
       p.x.subAssign(sgn.mul(fore).mul(0.45 * limb));
     }
-    // Breathing: the flanks swell and sink; throat: the underside of the head bulges; eyes sink into the head.
+    // Breathing: the flanks swell and sink; throat: the underside of the head bulges (to 0.32 cm: a calling frog's vocal sac; the
+    // everyday throat pumping uses about 0.6 of that, util/gait.js callSac and Animals.vis); eyes sink into the head.
     const flank = sin(min(max(spine.sub(0.15).mul(2), float(0)), float(1)).mul(3.14159));
     const k = breath.mul(0.045).mul(flank).mul(isWalk.select(float(0), float(1)));
     p.x.addAssign(p.x.mul(k)); p.y.addAssign(p.y.mul(k));
     const head = max(float(1).sub(spine.mul(3.3)), float(0));
     const under = min(max(normalLocal.y.mul(-1.6), float(0)), float(1));
-    p.addAssign(normalLocal.mul(throat.mul(0.2).mul(head).mul(under).mul(isWalk.select(float(0), float(1)))));
+    p.addAssign(normalLocal.mul(throat.mul(0.32).mul(head).mul(under).mul(isWalk.select(float(0), float(1)))));
     p.y.subAssign(abs(matId.sub(1)).lessThan(0.5).select(eyeRet.mul(0.22), float(0)));
     // Membranes (fins, gills, tail fringes) ripple along the normal.
     const isFin = abs(matId.sub(2)).lessThan(0.5);

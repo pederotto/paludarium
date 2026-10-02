@@ -113,6 +113,38 @@ export function footSwing(phi, amp) {
 export const footLift = (phi, amp) => amp * Math.max(Math.sin(phi), 0);
 export const footGrounded = (phi) => Math.sin(phi) <= 0;
 
+// Leg phase per cm walked for an animal whose rig sweeps a foot `legStride` cm (the species' anim.stride, in the mesh's own
+// centimetres) drawn at instance `scale`: one leg cycle per stride, so a planted foot stays where it was put.
+export const strideRate = (legStride, scale = 1) => gaitRate(strideFor(legStride) * Math.max(0.05, scale));
+
+// --- Frog hop ----------------------------------------------------------------------------------------------
+// Hind-leg extension through one hop, t = 0 (take-off) … 1 (landing). A frog's jump is the legs straightening in the first
+// few hundredths of a second, so they snap out while the feet still push (HOP.push), trail straight through the flight and
+// fold up under the body before it lands (by HOP.fold), ready to absorb the landing.
+export const HOP = { push: 0.14, hold: 0.45, fold: 0.85 };
+export function hopLegs(t) {
+  t = clamp01(t);
+  if (t < HOP.push) return easeOut(t / HOP.push);
+  if (t < HOP.hold) return 1;
+  return 1 - smooth((t - HOP.hold) / (HOP.fold - HOP.hold));
+}
+
+// Body pitch through a hop (radians, positive tips the nose down): nose up on take-off, level at the top, nose down to land.
+export const hopPitch = (t) => -0.32 * Math.cos(Math.PI * clamp01(t));
+
+// --- Frog calls ----------------------------------------------------------------------------------------------
+// A dart frog's call is a buzz: the vocal sac pulses some 5 times a second for a few seconds. `t` seconds into a bout of
+// `dur` seconds: the sac's inflation 0 … 1 (rising in, pulsing, and collapsing at the end).
+export function callSac(t, dur) {
+  if (t <= 0 || t >= dur) return 0;
+  const env = smooth(t / 0.35) * smooth((dur - t) / 0.4);
+  return env * (0.55 + 0.45 * Math.abs(Math.sin(t * Math.PI * 5.2)));
+}
+
+// Toe tapping: hunting dart frogs twitch their hind toes while they watch prey. A small, fast twitch of the hind feet, as a
+// hop extension (0 … 0.08) at time `t` seconds.
+export const toeTap = (t) => 0.08 * Math.max(0, Math.sin(t * TAU * 6.5)) ** 3;
+
 // --- Crab scuttle ------------------------------------------------------------------------------------------
 // A crab moves in bursts: it accelerates, runs a few body lengths sideways and stops dead. `scuttleSpeed(u)` is the
 // speed profile (0 … 1, peak 1) over a burst, u = 0 … 1: a quick start, a plateau, a short stop.

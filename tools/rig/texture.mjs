@@ -18,19 +18,42 @@ async function xatlas() {
   return api;
 }
 
-export async function unwrap(pos, idx, size = 1024) {
+export async function unwrap(pos, idx, size = 1024, { smooth = 0, maxCost = 4 } = {}) {
   if (pos.length / 3 > 65535) throw new Error('unwrap: more than 65535 vertices');
   const xa = await xatlas();
   xa.createAtlas();
-  // Charts are cut on a smoothed copy (same vertices and triangles): a scan's bumpy surface otherwise splits into hundreds
-  // of slivers (350 charts for the crab, 183 smoothed), and the UVs are then used on the real surface.
-  xa.addMesh(new Uint16Array(idx), smoothed(pos, idx, 10));
+  // xatlas treats faces below a fixed area epsilon as degenerate and squashes them to a point in UV space. A creature baked in
+  // metres (a 6 cm crab: faces of about 1e-7 m2) lost a fifth of its triangles that way, each then showing one texel's colour
+  // stretched over the whole face (the "tan patches"). UVs do not depend on scale, so the mesh is unwrapped at about 100 units.
+  let lo = Infinity, hi = -Infinity;
+  for (const v of pos) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  const k = 100 / Math.max(1e-9, hi - lo);
+  const P = Float32Array.from(pos, (v) => v * k);
+  // `smooth` cuts the charts on a smoothed copy (fewer, rounder charts on a bumpy scan); it shrinks thin parts (legs) and
+  // so stretches the texture there, so it is off by default: on the real surface the texel density is nearly even.
+  xa.addMesh(new Uint16Array(idx), smooth ? smoothed(P, idx, smooth) : P);
   // UVs come back normalised to the atlas, which xatlas sizes near `size`; the texture is then painted at exactly `size`.
-  const at = xa.generateAtlas({}, { padding: 4, bilinear: true, resolution: size });
+  const at = xa.generateAtlas({ maxCost }, { padding: 4, bilinear: true, resolution: size });
   const m = at.meshes[0];
   const out = { uv: Float32Array.from(m.vertex.coords1), idx: Uint32Array.from(m.index), from: Uint32Array.from(m.oldIndexes), width: at.width, height: at.height };
   xa.destroyAtlas();
   return out;
+}
+
+// Texel density per triangle relative to the mesh mean (UV area share / 3D area share): 1 is even, near 0 is a face squashed in
+// UV space. Returns percentiles and how many faces fall under 10 %, for the bake log.
+export function uvStats(uv, idx, pos, size) {
+  const r = []; let tA = 0, tU = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
+    const u = [0, 1, 2].map((q) => pos[b * 3 + q] - pos[a * 3 + q]), v = [0, 1, 2].map((q) => pos[c * 3 + q] - pos[a * 3 + q]);
+    const A = 0.5 * Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]);
+    const U = Math.abs((uv[b * 2] - uv[a * 2]) * (uv[c * 2 + 1] - uv[a * 2 + 1]) - (uv[c * 2] - uv[a * 2]) * (uv[b * 2 + 1] - uv[a * 2 + 1])) / 2;
+    r.push([U, A]); tA += A; tU += U;
+  }
+  const d = r.map(([U, A]) => (A > 0 ? (U / tU) / (A / tA) : 1)).sort((x, y) => x - y);
+  const q = (f) => +d[Math.floor(f * (d.length - 1))].toFixed(2);
+  return { p1: q(0.01), p5: q(0.05), p50: q(0.5), squashed: d.filter((x) => x < 0.1).length, used: Math.round(tU * 100) };
 }
 
 function smoothed(pos, idx, iterations) {
@@ -128,10 +151,13 @@ function closest(p, a, b, c) {
   return { p: [a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w], w: [1 - v - w, v, w] };
 }
 
-// Coarse level of detail on the unwrapped mesh: chart borders (the UV seams) are locked so the texture still fits.
+// Coarse level of detail on the unwrapped mesh: chart borders (the UV seams) are locked so the texture still fits, and the
+// UVs count in the error so a collapse that would fold a chart over itself (a face sampling texels of its neighbour) is avoided.
 // Returns { idx, from } with `from` the vertex of the input each kept vertex is.
-export function simplifyKeepingSeams(pos, idx, targetTris) {
-  const [out] = MeshoptSimplifier.simplify(idx, pos, 3, Math.floor(targetTris * 3), 0.03, ['LockBorder']);
+export function simplifyKeepingSeams(pos, idx, targetTris, uv = null) {
+  const [out] = uv
+    ? MeshoptSimplifier.simplifyWithAttributes(idx, pos, 3, uv, 2, [1, 1], null, Math.floor(targetTris * 3), 0.03, ['LockBorder'])
+    : MeshoptSimplifier.simplify(idx, pos, 3, Math.floor(targetTris * 3), 0.03, ['LockBorder']);
   const [remap, count] = MeshoptSimplifier.compactMesh(out);
   const from = new Uint32Array(count);
   for (let i = 0; i < pos.length / 3; i++) if (remap[i] !== 0xffffffff) from[remap[i]] = i;

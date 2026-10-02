@@ -119,8 +119,23 @@ Plug the Mac in first: on battery below about 20% Chrome's Energy Saver caps fra
 |---|---|---|---|---|
 | 2026-10-01 | `arch/optimize` (fa6e238 + metrics), WebGPU | 0.80 s / 0.24 s | 60.0 fps, p95 18.4 ms, GPU 11.7 ms, render call 3.1 ms | 106 animals, 51 plants, 212 draw calls, 2331k triangles; recorder 3 µs a frame (battery 27%, valid) |
 | 2026-10-01 | same, WebGL 2 over the LAN address (plain http) | 0.82 s / 0.31 s | 53.7 fps, p95 33.4 ms, GPU 18.4 ms, render call 10.6 ms | **froze 20.8 s at 19.4 s**: the governor stepped Balanced to High, which recompiles every scene shader in one frame. Fixed afterwards: on WebGL 2 Auto never goes above the starting preset (`autoCeiling`, battery 26%, valid) |
-| 2026-10-01 | original build (`archive/original-build-perf-base`), WebGPU | 3.31 s / 2.88 s | not valid: battery 20%, Energy Saver at 30 Hz | load numbers are probably inflated too; to repeat plugged in |
-| 2026-10-01 | live GitHub Pages build (`main`), WebGPU, `--inject` | 4.34 s / 35 s | not valid: battery 19%, Energy Saver at 30 Hz | repeat plugged in |
+| 2026-10-02 | `arch/optimize` (e90f27d), WebGPU, plugged in (72%) | 0.98 s / 0.28 s | 60.0 fps, p95 18.1 ms, GPU 13.6 ms, render call 3.4 ms | 145 draw calls, 1421k triangles; one 1.1 s freeze at the start (the title tank's first pipeline build) |
+| 2026-10-02 | same, https (`metrics:serve --https`, port 4193) | 1.09 s / 0.33 s | 60.0 fps, p95 18.4 ms, GPU 13.0 ms, render call 3.3 ms | "Nothing wrong was seen" |
+| 2026-10-02 | same, WebGL 2 over the LAN address | 0.93 s / 0.30 s | 59.9 fps, p95 17.4 ms, GPU 28.1 ms, render call 3.6 ms | no freeze in play: the 20.8 s one is gone (`autoCeiling`); a 1.8 s freeze at the start |
+| 2026-10-02 | original build (`archive/original-build-perf-base`), WebGPU | 2.81 s / 2.25 s | 56.6 fps, p95 20.4 ms, GPU 48.9 ms, render call 5.6 ms | 258 draw calls, 2342k triangles; 12 freezes, 8.8 s frozen. Replaces the 2026-10-01 try, made on battery |
+| 2026-10-02 | live GitHub Pages build (`main`), WebGPU, `--inject` | 3.76 s / 2.28 s | 56.3 fps, p95 20.6 ms, GPU 50.6 ms, render call 6.1 ms | 257 draw calls, 2334k triangles; 12 freezes, 9.2 s frozen. Replaces the 2026-10-01 try, made on battery |
+
+**Frog swim and the animals rework, before and after (2026-10-02, not decided).** The committed build (`dist/`) against the working
+tree with the frog swim, the rig rework and the crab work in progress (`test-output/dist-frog`), three WebGPU runs each and one WebGL 2
+run each, interleaved. The CPU split taken from the raw per-frame data does not differ (time before the render p10 1.6 to 1.7 ms in
+both builds, the render call p10 2.2 to 2.5 ms in both), draw calls and triangles do not differ either (139 to 216 calls and 1422k to
+2355k triangles in both, depending on where the camera is when the number is read), and no freeze in play came from the new meshes
+(only the start-up and tank-start warm-up frames). The frame rate and p95 are not conclusive: over the three WebGPU runs of each
+build they swung from 53.8 to 60.0 fps and from 18 to 28 ms p95 in both, because the Mac was short of memory (swap 93% full) and
+another session's browser was running at the same time (the governor lowered the resolution scale to 0.7 to 0.95 in five of the
+eight runs). Repeat on a quiet machine, or on the Windows laptop, before reading anything into the frame rate.
 
 Findings the recorder has made so far: the governor freeze above; the black flash of a resize after the draw is a WebGL 2 problem
-only (compositor check); over plain http the browser hides its CPU architecture, memory and battery state (`--https` shows them).
+only (compositor check); over plain http the browser hides its CPU architecture, memory and battery state (`--https` shows them);
+on a machine that is short of memory or shared with other browsers the governor steps the resolution down and the frame rate
+wanders, so read the load numbers and the CPU split before the frame rate.

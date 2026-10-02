@@ -8,11 +8,13 @@ import { hash3, clamp, lerp, rng } from '../util/math.js';
 import { CreatureLOD, BODIES, FINISH, withRig } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
+import { frogSwimPose, kickPeriod, kickSpeed, bob, frac, strideRate, hopLegs, callSac, toeTap } from '../util/gait.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
 import { CRAB, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
+import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
 
@@ -210,7 +212,7 @@ export const SPECIES = {
     name: 'Blue dart frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.4, speed: 1,
     temp: [20, 27], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 5, days: 10, into: 'tadpole', where: 'shallow' },
-    body: sdfBody('dartfrog'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
+    body: sdfBody('dartfrog'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35, swimLevel: 0 },
     note: 'Terrestrial. Needs high humidity and live insects. Lays eggs by shallow water.',
   },
   strawberry: {
@@ -224,7 +226,7 @@ export const SPECIES = {
     name: 'Fire-bellied toad', scale: 1, group: 'Amphibians', kind: 'toad', size: 1.9, speed: 1.2,
     temp: [18, 26], humidity: 60, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'shrimp', 'flylarva'], cap: 6, breed: 0.04, adultDays: 30,
     eggs: { n: 8, days: 7, into: 'tadpole', where: 'water' },
-    body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45 },
+    body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
     note: 'Semi-aquatic: needs both land and open water. Spawns in the water.',
   },
   newt: {
@@ -295,7 +297,7 @@ export const SPECIES = {
     name: 'Green and black poison frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.25, speed: 1,
     temp: [21, 28], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 4, days: 12, into: 'tadpole', where: 'shallow' },
-    body: sdfBody('auratus'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
+    body: sdfBody('auratus'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35, swimLevel: 0 },
     note: 'Metallic green on black, from Central America. Its colour differs from island to island.',
   },
   tadpole: {
@@ -334,7 +336,7 @@ export function createSpeciesMesh(scene, id, { cap = null, morph = null } = {}) 
   return new CreatureLOD(scene, src, {
     cap: cap ?? sp.cap + 20,
     wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-    finish: { ...FINISH[group], ...(src.finish ?? {}) },
+    finish: { ...FINISH[group], ...(src.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}) },
     near: 34 + sp.size * 10,
   });
 }
@@ -355,6 +357,8 @@ export class Animals {
     this.meshes = {};     // instanced meshes by key: the species id (its default look) or '<species>:<morph>', each built when first drawn
     this.keys = {};       // species id -> the keys of the meshes built for it so far (the default and every morph drawn)
     this.models = {};     // species id -> builds its textured model's mesh, once that model has loaded (upgradeModels)
+    this.poseMeta = {};   // species id -> { swim: { key, meta } }: the manifest entries of its pose models, loaded when the species first shows up (ensurePose)
+    this.poseModels = {}; // species id -> { swim: builds the mesh of its swimming-pose model } (loadPose); drawn instead of the sitting one while it swims
     this.tails = {};
     this.food = [];
     this.camera = null;   // set by Game: fine meshes are used for animals near it
@@ -385,6 +389,7 @@ export class Animals {
   async upgradeModels() {
     const man = await loadManifest();
     for (const [id, meta] of Object.entries(man)) {
+      if (meta.pose) { const [b, p] = id.split('.'); (this.poseMeta[b] ??= {})[p] = { key: id, meta }; if (this.meshes[b]) this.ensurePose(b, p); continue; }
       const sp = SPECIES[id];
       if (!sp || meta.disabled) continue;
       if (!GLB_CACHE.has(id)) GLB_CACHE.set(id, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
@@ -394,7 +399,7 @@ export class Animals {
       const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
       const make = () => new CreatureLOD(this.scene, g.lo, {
         cap: sp.cap + 20, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-        finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+        finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
       });
       this.models[id] = make;
       // A species that is already drawn with its procedural body switches over; one that is not yet drawn starts with the model.
@@ -403,16 +408,58 @@ export class Animals {
     }
   }
 
+  // A pose model is the same animal in another body, drawn while it does one thing: manifest key '<species>.<pose>', for now
+  // 'leucomelas.swim', a frog mid-stroke with its legs out (made by tools/bake-frogpose.mjs). It has no rig of its own: it moves as a
+  // whole (the stroke's surge and glide, the bob and roll of Animals.draw), and the sitting model is drawn the rest of the time.
+  // Fetched only when a tank has an animal of the species (and not at all on a tank without one).
+  ensurePose(id, pose = 'swim') {
+    const m = this.poseMeta[id]?.[pose];
+    if (!m || this.poseModels[id]?.[pose] || this._posing?.has(m.key)) return;
+    (this._posing ??= new Set()).add(m.key);
+    this.loadPose(m.key, m.meta).catch((e) => console.warn('pose model', m.key, e));
+  }
+
+  async loadPose(key, meta) {
+    const [id, pose] = key.split('.');
+    const sp = SPECIES[id];
+    if (!sp || meta.disabled) return;
+    if (!GLB_CACHE.has(key)) GLB_CACHE.set(key, loadCreatureGLB(key, { legs: false, ...meta }));
+    const g = await GLB_CACHE.get(key);
+    if (!g) return;
+    const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
+    (this.poseModels[id] ??= {})[pose] = () => new CreatureLOD(this.scene, g.lo, {
+      cap: sp.cap + 20, wave: 1, legLift: 0, legStride: 0,
+      finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+    });
+    this.warmPose(id, pose);
+  }
+
+  // Building a mesh is a shader to compile, so a pose mesh is made a few seconds after its species first shows up, not in the frame
+  // a frog first goes swimming (and not during the load): one hitch early in the game instead of one at a random moment.
+  warmPose(id, pose) {
+    const key = `${id}#${pose}`;
+    if (this.meshes[key] || this._warming?.has(key)) return;
+    (this._warming ??= new Set()).add(key);
+    setTimeout(() => { if (this.scene.parent) this.meshFor(id, null, pose); }, 6000 + Math.random() * 4000);
+  }
+
   get all() { return Object.values(this.by).flat(); }
 
   // The mesh that draws a species, or one morph of it; built on first use. A tank holds a dozen of the species, and a
   // mesh is a body to mesh, a material to make and a shader to build, so only the ones in use exist. The species' default
   // mesh stands in when the body library has no variant for the morph (so counts stay right and nothing is built twice).
-  meshFor(id, morph = null) {
+  meshFor(id, morph = null, pose = null) {
+    if (pose) {
+      const build = this.poseModels[id]?.[pose], key = `${id}#${pose}`;
+      if (!build) return null;
+      if (!this.meshes[key]) { this.meshes[key] = build(); this.keys[id].push(key); }
+      return this.meshes[key];
+    }
     const key = meshKeyFor(id, morph);
     if (!this.meshes[key]) {
       this.meshes[key] = key === id && this.models[id] ? this.models[id]() : createSpeciesMesh(this.scene, id, { morph });
       this.keys[id].push(key);
+      if (key === id) { this.ensurePose(id, 'swim'); if (this.poseModels[id]?.swim) this.warmPose(id, 'swim'); }
     }
     return this.meshes[key];
   }
@@ -593,9 +640,17 @@ export class Animals {
         }
         if (dt > 0 && LIVE.has(sp.kind)) this.hunter(a, sp, dt);
         if (dt > 0 && this.avoid) this.keepFree(a, sp, dt);
-        // Distance walked drives the leg cycle.
+        // Distance walked drives the leg cycle: one cycle per stride of this animal at its size (util/gait.js strideRate), so
+        // a planted foot does not slide. A frog or salamander turning on the spot steps round too (its feet travel about half a
+        // body length per radian), and `stepping` says the legs are working, so they come to rest planted when it stops.
         const moved = Math.hypot(a.pos.x - px, a.pos.y - py, a.pos.z - pz);
-        a.gait = (a.gait ?? a.phase) + moved * (sp.kind === 'crab' ? crabGaitRate() : 2.6);
+        let steps = moved;
+        if (VIS.has(sp.kind) && !a.hop && !a.swimming && a._py != null) steps += Math.abs(angDiff(a.yaw ?? 0, a._py)) * 0.45 * sp.size;
+        a._py = a.yaw ?? 0;
+        const rate = sp.kind === 'crab' ? crabGaitRate() : VIS.has(sp.kind) && sp.anim?.stride ? strideRate(sp.anim.stride, drawScale(a, sp)) : 2.6;
+        a.gait = (a.gait ?? a.phase) + steps * rate;
+        if (dt > 0) a.stepping = steps > 1e-4 ? 0.18 : Math.max(0, (a.stepping ?? 0) - dt / this.tf);
+        if (a.tapT > 0) a.tapT -= dt / this.tf;
         a.speedNow = dt > 0 ? moved / (sp.kind === 'frog' || sp.kind === 'toad' ? dt / this.tf : dt) : 0;
       }
     }
@@ -1024,7 +1079,8 @@ export class Animals {
     a.cbT = (a.cbT ?? 0) - dt;
     if (a.cbT <= 0 || (depth > 0.2 && !a.cbBank && m.mode === 'exit')) {
       a.cbT = 2 + Math.random() * 2;
-      if (!a.home || this.crabHideScore(a, sp, a.home.x, a.home.z) < 0.35) a.home = this.crabFindHome(a, sp) ?? a.home ?? null;
+      if (!a.home || this.crabHideScore(a, sp, a.home.x, a.home.z) < 0.35) { a.home = this.crabFindHome(a, sp) ?? a.home ?? null; m.digBest = 0; m.digLoads = 0; }
+      a.cbDig = this.crabDigSite(a);
       a.cbShore = this.crabFind(x, z, 30, (px, pz, d) => d >= CRAB.soakDepth[0] && d <= CRAB.soakDepth[1]);
       a.cbBank = depth > 0.2 ? this.crabBank(x, z) : null;
     }
@@ -1048,6 +1104,8 @@ export class Animals {
       wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + (W.nearWater(V(x, g, z), 3) ? 0.5 : 0)),
       cover: this.crabCover(x, z), hunger: a.hunger, food: food && { x: food.p.pos.x, z: food.p.pos.z, d: food.d, kind: food.pid },
       threat, other, home: a.home, shore: a.cbShore, bank: a.cbBank, male: a.male, morph: a.morph ?? null,
+      // The pit is measured every step (cheap, and digging changes it at once); the rest of the site every few seconds.
+      burrow: a.cbDig && { ...a.cbDig, depth: pitDepth(T.field, a.home.x, a.home.z) },
     };
     const it = (a.ci = crabThink(m, sense));
     if (it.say) W.log(it.say, 'warn');
@@ -1056,7 +1114,12 @@ export class Animals {
       else this.consume(a, sp, food.pid, food.p);
     }
     if (it.drown) { a.health = Math.max(0, a.health - dtMin / 120); if (a.health <= 0) { this.remove(a, 'drowned: it could not climb out of the water'); return; } }
-    m.sinkNow = lerp(m.sinkNow ?? 0, it.sink, Math.min(1, dt * 1.5));
+    if (it.dig && a.cbDig) this.crabDig(a, m);
+    if (it.badHome) { (this.badHomes ??= []).push({ x: a.home.x, z: a.home.z, until: (E.minute ?? 0) + CRAB.digRest }); a.home = this.crabFindHome(a, sp) ?? null; a.cbDig = this.crabDigSite(a); }
+    // Sinking into the ground only reads as a burrow under something (wood, cork, rock overhead); on open soil or moss a crab
+    // that sank whole looked like it was melting into the ground, so there it only hunkers down.
+    const covered = this.occ.count > 0 && this.occ.solidAt(x, g + 2.5, z);
+    m.sinkNow = lerp(m.sinkNow ?? 0, covered ? it.sink : Math.min(it.sink, 0.25), Math.min(1, dt * 1.5));
     // Carry it out.
     a.state = it.goal && it.speed > 0 ? 'walk' : 'rest';
     a.target = it.goal ? V(it.goal.x, 0, it.goal.z) : null;
@@ -1090,20 +1153,57 @@ export class Animals {
     }
     a.pos.y = T.heightAt(a.pos.x, a.pos.z);
     a.normal = T.normalAt(a.pos.x, a.pos.z);
-    a.grazing = it.mode === 'eat';
+    a.grazing = it.mode === 'eat' || it.nose;
+  }
+
+  // The crab's home as a dig site (sim/burrow.js): how easily it gives, the soil left above the floor, and where the spoil goes
+  // (fixed per home, so the heap grows in one place). Null where it cannot dig: rock, hardscape, standing water.
+  crabDigSite(a) {
+    const h = a.home;
+    if (!h) return null;
+    const W = this.world, T = W.terrain;
+    if (W.water.surfaceAt(h.x, h.z) > T.heightAt(h.x, h.z) + 0.2) return null;
+    const spot = burrowSpot(T.field, h.x, h.z, W.water.erosion?.root);
+    if (!spot) return null;
+    h.dir ??= spot.dir;
+    const sx = h.x + h.dir.x * BURROW.spoil, sz = h.z + h.dir.z * BURROW.spoil;
+    if (!this.okFor('land', sx, sz)) h.dir = spot.dir;            // the old side is blocked now (a piece moved there)
+    return { want: BURROW.depth, wantMolt: BURROW.depth + 0.4, room: spot.room, rate: spot.rate, spoil: { x: h.x + h.dir.x * BURROW.spoil, z: h.z + h.dir.z * BURROW.spoil } };
+  }
+
+  // One load out of the burrow: the soil really moves (bowl to spoil heap), the heap takes the material that was dug, moss
+  // scraped out of the pit leaves bare soil, and the water is told so it commits the new ground (mesh, water, plants).
+  crabDig(a, m) {
+    const W = this.world, f = W.terrain.field, h = a.home;
+    const rim = pitDepth(f, h.x, h.z) + f.sample(h.x, h.z, f.base);
+    const want = m.moltIn < 2 * 1440 ? a.cbDig.wantMolt : a.cbDig.want;
+    // The material of the dug ground (the heap is made of it).
+    let k = MAT.soil, best = -1;
+    for (const id of [MAT.soil, MAT.sand, MAT.gravel]) { const w = f.matAt(h.x, h.z, id); if (w > best) { best = w; k = id; } }
+    const r = excavate(f, h.x, h.z, { dir: h.dir, bottom: rim - want, root: W.water.erosion?.root, paint: (n, w) => f.paintAt(n, k, 0.3 * w) });
+    if (r.moved <= 0) return;
+    if (f.matAt(h.x, h.z, MAT.moss) > 0.05) f.brush(h.x, h.z, BURROW.r * 0.8, 'paint', 0.5, { mat: MAT.soil });
+    W.water.groundDisturbed?.();
   }
 
   // How good a burrow or hide (x, z) is for a crab: cover, shade, damp air, near the animal (habitat.js hideScore).
   crabHideScore(a, sp, x, z) {
     const W = this.world, g = W.terrain.heightAt(x, z), C = W.climate;
     if (!this.okFor('land', x, z)) return 0;
-    return hideScore({ cover: this.crabCover(x, z), light: C.lightAt(x, z), rh: C.humidityAt(x, g + 1, z), rhIdeal: 85, temp: C.tempAt(x, g + 1, z), tIdeal: 26, dist: Math.hypot(x - a.pos.x, z - a.pos.z) });
+    if (this.badHomes?.some((b) => b.until > (W.env.minute ?? 0) && Math.hypot(b.x - x, b.z - z) < 3)) return 0;
+    // Ground it can dig is a burrow to be: better by a stone or a root (it digs in under the edge, and the face holds).
+    const T = W.terrain, root = W.water.erosion?.root, rate = digRate(T.field, x, z, root);
+    let edge = 0;
+    if (rate > 0.15) for (let k = 0; k < 8 && !edge; k++) { const t = k * Math.PI / 4; if (digRate(T.field, x + Math.sin(t) * 2.2, z + Math.cos(t) * 2.2, root) < 0.15) edge = 1; }
+    const cover = Math.max(this.crabCover(x, z), rate * (0.35 + 0.3 * edge));
+    return hideScore({ cover, light: C.lightAt(x, z), rh: C.humidityAt(x, g + 1, z), rhIdeal: 85, temp: C.tempAt(x, g + 1, z), tIdeal: 26, dist: Math.hypot(x - a.pos.x, z - a.pos.z) });
   }
 
   crabCover(x, z) {
     const W = this.world, T = W.terrain, g = T.heightAt(x, z);
     const over = this.occ.count && this.occ.solidAt(x, g + 2.5, z) ? 1 : 0;      // wood, cork or rock overhead
-    return Math.min(1, over + T.field.matAt(x, z, MAT.moss) * 0.6);
+    const pit = clamp(pitDepth(T.field, x, z) / BURROW.depth, 0, 1) * 0.8;       // a burrow it (or another crab) dug
+    return Math.min(1, over + T.field.matAt(x, z, MAT.moss) * 0.6 + pit);
   }
 
   // A burrow: the best hide among a few dozen spots within 25 cm. Crabs keep it and come back to it.
@@ -1381,19 +1481,19 @@ export class Animals {
     return true;
   }
 
+  // A frog in water deep enough to float: a breaststroke. The legs kick (the stroke is a cycle, `a.kick` in cycles, drawn
+  // by the rig's swim pose, see util/gait.js frogSwimPose) and the animal moves in pulses: a surge as the legs drive, then a
+  // glide (kickSpeed). Dart frogs avoid deep water and head for the nearest bank at once, kicking hard; a toad floats about and
+  // now and then decides to climb out.
   frogSwim(a, sp, dt, s, toad) {
     const W = this.world, T = W.terrain;
     a.pos.y = Math.max(s - 0.35 * sp.size, T.heightAt(a.pos.x, a.pos.z));
     a.normal = null;
-    // Kick now and then; glide in between.
-    a.kick = (a.kick ?? 0) + dt * 2.2;
-    const push = Math.max(0, Math.sin(a.kick * Math.PI));
     if (!a.shore || a.timer <= 0) {
       a.timer = 4 + Math.random() * 4;
       a.shore = null;
-      // Dart frogs head for the nearest bank; toads float about and
-      // sometimes decide to climb out.
       if (!toad || Math.random() < 0.35) {
+        a.floating = false;
         for (let r = 2; r < 30 && !a.shore; r += 2) {
           for (let k = 0; k < 16; k++) {
             const ang = (k / 16) * Math.PI * 2;
@@ -1408,15 +1508,19 @@ export class Animals {
         a.floating = true;
       }
     }
+    // The stroke: how urgent it is sets the beat (1.7 s a stroke floating, 1 s flat out).
+    const urgent = a.floating ? 0.1 : toad ? 0.5 : 0.9;
+    const before = a.kick ?? Math.random();
+    a.kick = before + dt / kickPeriod(urgent);
+    if (Math.floor(a.kick) !== Math.floor(before)) W.fx?.addDrop(a.pos.x, a.pos.z, -1.2, 0.5);   // the legs drive: a ripple
     if (!a.shore) return;
     const dir = V(a.shore.x - a.pos.x, 0, a.shore.z - a.pos.z);
     const dist = dir.length();
     a.yaw = angLerp(a.yaw, Math.atan2(dir.x, dir.z), Math.min(1, dt * 3));
-    const v = sp.speed * (toad ? 3 : 2.2) * (0.3 + push);
+    const v = sp.speed * (a.floating ? 1.2 : toad ? 4.6 : 5.4) * kickSpeed(a.kick);   // a stroke's average comes to about 2 cm/s for a dart frog
     const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt;
     if (this.avoid && this.occ.solidAt(nx, a.pos.y, nz)) { a.shore = null; a.timer = 0; }
     else if (Math.abs(nx) < TANK.w / 2 - 1 && Math.abs(nz) < TANK.d / 2 - 1) { a.pos.x = nx; a.pos.z = nz; }
-    if (push > 0.9 && Math.random() < dt * 4) W.fx?.addDrop(a.pos.x, a.pos.z, -1.2, 0.5);
     if (!a.shore) return;
     // Close to the bank: climb out with a hop.
     if (dist < 2.5 * sp.size) {
@@ -1583,6 +1687,7 @@ export class Animals {
     const frog = sp.kind === 'frog' || sp.kind === 'toad';
     if (frog) {
       if (a.swimming || a.hop) return;
+      if (d < reach * 2.5 && sp.kind === 'frog') a.tapT = 0.4;     // watching it: the hind toes twitch (dart frogs do this)
       if (d > reach) return;
       const diff = angDiff(Math.atan2(tp.x - a.pos.x, tp.z - a.pos.z), a.yaw);
       if (Math.abs(diff) < 0.6 && (a.fs === 'sit' || a.fs === 'turn' || a.fs === 'walk')) this.beginStrike(a, sp, o);
@@ -1813,7 +1918,7 @@ export class Animals {
     v.bp += dtV * TAU * (0.7 + 0.5 * v.alert);
     v.tp += dtV * TAU * (2.2 + 1.6 * v.alert);
     v.breath = 0.5 + 0.5 * Math.sin(v.bp);
-    let th = (0.5 + 0.5 * Math.sin(v.tp)) * (0.15 + 0.4 * v.alert);
+    let th = (0.5 + 0.5 * Math.sin(v.tp)) * (0.15 + 0.4 * v.alert) * 0.62;   // (the rig's throat range fits a full vocal sac)
     let eye = 0;
     // Blink.
     v.blinkT -= dtV;
@@ -1822,9 +1927,13 @@ export class Animals {
     // Gulp: two throat pulses, eyes pulled in.
     if (st && st.ph === 'gulp') {
       const g = st.t / st.dur;
-      th = Math.max(th, Math.pow(Math.sin(g * Math.PI * 2), 2) * (1 - g * 0.3));
+      th = Math.max(th, Math.pow(Math.sin(g * Math.PI * 2), 2) * (1 - g * 0.3) * 0.62);
       eye = Math.max(eye, Math.sin(Math.min(1, g * 1.4) * Math.PI));
     }
+    // Calling: a male dart frog sits up and buzzes, the vocal sac pulsing, in bouts of a few seconds, mostly in the morning
+    // after the lamp comes on and after rain. A calling male sets off the other males near it.
+    const call = this.frogCall(a, sp, v, dtV, busy);
+    if (call > 0) th = Math.max(th, call);
     v.throat = th; v.eye = eye;
     // Head twitches while sitting (or resting); none while moving.
     const calm = !busy && (frog ? a.fs === 'sit' : a.state === 'rest' || a.state === 'idle');
@@ -1843,6 +1952,7 @@ export class Animals {
     // Pose.
     let pitch = Math.sin(v.bp * 0.31) * 0.012, y = 0, hop = 0;
     const size = sp.size;
+    if (call > 0) { pitch -= 0.1 * Math.min(1, call * 2); y += 0.05 * size * Math.min(1, call * 2); }   // sits up to call
     const cr = a.crouch ?? 0;
     pitch += -0.16 * cr; y -= 0.1 * size * cr;
     if (a.settle > 0) {
@@ -1850,7 +1960,7 @@ export class Animals {
       const p = 1 - a.settle;
       y -= 0.12 * size * Math.sin(Math.PI * p);
       pitch += 0.12 * Math.sin(Math.PI * p);
-      hop = 0.55 * a.settle * a.settle;
+      hop = 0.12 * a.settle * a.settle;                              // the legs were folded for the landing: only a little give
     }
     v.off.set(0, 0, 0);
     if (st) {
@@ -1866,6 +1976,26 @@ export class Animals {
     }
     v.pitch = pitch; v.y = y; v.hop = hop; v.yawN = yawN;
     return v;
+  }
+
+  // A calling bout (see vis): the vocal sac's inflation 0 … 1 now, or 0. Males of the dart frogs only; sitting, not hunting.
+  frogCall(a, sp, v, dtV, busy) {
+    if (sp.kind !== 'frog' || sp.breed <= 0) return 0;
+    a.male ??= Math.random() < 0.5;
+    if (!a.male || a.age / 1440 < (sp.adultDays ?? 10)) return 0;
+    if (v.call) {
+      v.call.t += dtV;
+      if (busy || a.fs !== 'sit' || v.call.t >= v.call.dur) { v.call = null; v.callNext = 20 + Math.random() * 60; return 0; }
+      return callSac(v.call.t, v.call.dur);
+    }
+    const E = this.world.env, sinceOn = ((E.minute % 1440) - (E.lightsOn ?? 480) + 1440) % 1440;
+    const mood = (sinceOn < 240 ? 1 : 0.15) * (E.light() > 0.2 ? 1 : 0.2) * (1 + 2 * (E.rain ?? 0));
+    v.callNext = (v.callNext ?? 5 + Math.random() * 40) - dtV * mood;
+    if (v.callNext > 0 || busy || a.fs !== 'sit') return 0;
+    v.call = { t: 0, dur: 3 + Math.random() * 6 };
+    // Answering: other males within 25 cm call soon after.
+    for (const b of this.by[a.sp] ?? []) if (b !== a && b.male && b.v && !b.v.call && a.pos.distanceTo(b.pos) < 25) b.v.callNext = Math.min(b.v.callNext ?? 99, 1 + Math.random() * 3);
+    return 0;
   }
 
   // --- Newts: mostly swimming, now and then a walk on land ------------------
@@ -1957,9 +2087,13 @@ export class Animals {
       for (const k of this.keys[id]) this.meshes[k].begin();
       for (const a of arr) {
         const cm = morphs && a.morph ? this.meshFor(id, a.morph) : dm;
-        const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
-        const sc = (sp.scale ?? sp.size) * grow;
+        const sc = drawScale(a, sp);
         const swimming = sp.kind === 'swim' || a.swimming;
+        // A swimming frog or toad is drawn in the breaststroke pose (forelegs along the flanks, hind legs kicking), level, bobbing on the water.
+        const frogish = sp.kind === 'frog' || sp.kind === 'toad';
+        // A species with a swimming-pose model draws that one (level already, legs out); the others get the pose from the rig.
+        const poseMesh = frogish && a.swimming && !a.hop ? this.meshFor(id, null, 'swim') : null;
+        const sw = frogish && a.swimming && !a.hop ? frogSwimPose(frac(a.kick ?? 0), { floating: a.floating ? 1 : 0, level: poseMesh ? 0 : an.swimLevel ?? 0.28, t: this.t + a.phase }) : null;
         if (a.wallMode) {
           // On the background: belly to the wall, heading within its plane.
           q.setFromUnitVectors(UP, a.normal);
@@ -1969,7 +2103,7 @@ export class Animals {
           q.setFromUnitVectors(UP, up);
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
         } else {
-          e.set(a.pitch ?? 0, a.yaw, 0, 'YXZ');
+          e.set(sw ? sw.pitch : a.pitch ?? 0, a.yaw, sw ? sw.roll : 0, 'YXZ');
           q.setFromEuler(e);
         }
         const rel = Math.min(1.5, (a.speedNow ?? 0) / Math.max(0.1, sp.speed));
@@ -1982,18 +2116,26 @@ export class Animals {
         // Legs: stretched out through the first part of a hop and tucked in
         // for the landing; a swimming frog kicks.
         let hop = 0;
-        if (a.hop) { const t = Math.min(1, a.hop.t); hop = t < 0.6 ? Math.sin((t / 0.6) * Math.PI * 0.5) : 1 - (t - 0.6) / 0.4; }
-        else if ((sp.kind === 'frog' || sp.kind === 'toad') && a.swimming) hop = 0.45 + 0.55 * Math.max(0, Math.sin((a.kick ?? 0) * Math.PI));
+        if (a.hop) hop = hopLegs(a.hop.t);
+        else if (sw) hop = sw.hop;
         let pos = a.pos, packed = hop;
         if (VIS.has(sp.kind) || sp.kind === 'crawlWater' || sp.kind === 'crawlLand' || sp.kind === 'crab') {
           const v = this.vis(a, sp, dt / this.tf);
           if (VIS.has(sp.kind) && !a.swimming) {
-            if (!a.hop) hop = Math.max(hop, v.hop);
-            packed = packAnim(hop, v.breath, v.throat, v.eye);
+            if (!a.hop) hop = Math.max(hop, v.hop, a.tapT > 0 ? toeTap(this.t + a.phase) : 0);
+            // Legs work while it walks or turns; when it stops they settle planted (an unstopped gait left two feet in the air).
+            a.legCalm = (a.legCalm ?? 1) + ((a.stepping > 0 || a.hop ? 0 : 1) - (a.legCalm ?? 1)) * Math.min(1, dt / this.tf * 7);
+            packed = packAnim(hop, v.breath, v.throat, v.eye, 0, a.legCalm);
             if (!a.hop) pos = _p.copy(a.pos).add(v.off); pos.y += v.y;
-          } else if (VIS.has(sp.kind)) packed = packAnim(hop, v.breath, 0, v.eye);
-          if (!a.hop && !a.wallMode) _qo.setFromEuler(_e.set(v.pitch, v.yaw + v.yawN, v.roll, 'YXZ')); else _qo.setFromEuler(_e.set(v.pitch, v.yaw + v.yawN, 0, 'YXZ'));
-          if (!a.hop) q.multiply(_qo);
+          } else if (VIS.has(sp.kind)) {
+            // A swimming frog or toad is in the stroke pose; other swimmers are as they were.
+            packed = sw ? packAnim(hop, v.breath, 0, v.eye, sw.pose, sw.calm) : packAnim(hop, v.breath, 0, v.eye);
+            if (sw) { pos = _p.copy(a.pos); pos.y += bob(this.t + a.phase, sp.size, frac(a.kick ?? 0), a.floating ? 0 : 1); }
+          }
+          if (!sw) {
+            if (!a.hop && !a.wallMode) _qo.setFromEuler(_e.set(v.pitch, v.yaw + v.yawN, v.roll, 'YXZ')); else _qo.setFromEuler(_e.set(v.pitch, v.yaw + v.yawN, 0, 'YXZ'));
+            if (!a.hop) q.multiply(_qo);
+          }
         }
         if (sp.kind === 'crab' && a.cb) {
           // anim.y: the direction of travel along the body's x (the leading side), anim.x: the claw wave phase; claw pose and
@@ -2004,7 +2146,9 @@ export class Animals {
           packed = packAnim(0, 0, 0, 0, i.claw ?? 0, i.calm ?? 1);
           if (cb.sinkNow > 0.01) { pos = _p.copy(pos); pos.y -= cb.sinkNow * 1.35 * sc; }
         }
-        cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);
+        // The swimming-pose model flexes a little in time with the stroke; everything else is the rig's business.
+        if (poseMesh) poseMesh.put(pos, q, sc, (a.kick ?? 0) * TAU, 0.16, 0, 0, cam ? cam.distanceToSquared(a.pos) : 1e9);
+        else cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);
       }
       for (const k of this.keys[id]) this.meshes[k].end();
     }
@@ -2047,6 +2191,12 @@ export class Animals {
 }
 
 const SPECIES_LOCI = (id) => lociOf(id).length;
+
+// The scale an animal is drawn at (its species' scale grown with age): the same number Animals.draw hands the rig.
+function drawScale(a, sp) {
+  const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
+  return (sp.scale ?? sp.size) * grow;
+}
 
 function pick(o, keys) {
   const r = {};

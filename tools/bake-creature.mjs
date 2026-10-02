@@ -29,9 +29,9 @@ const JOBS = {
   firesal: { src: 'salamander_mesh', rotY: 90, lengthCm: 18, headZ: 6.2, tris: [32000, 8000], paint: 'firesal', legs: true },
   // Vampire crab: carapace 2.1 cm wide (the procedural body's size, so the sim's spacing is unchanged), legs about 6 cm across.
   // matId 0 (skin) not 4 (chitin): the chitin id has a fixed clear coat that ignores finish and looked like plastic on the scan.
-  crab: { src: 'crab_mesh', rotY: 0, shellWidthCm: 2.1, tris: [10000, 3200], paint: 'crab', rig: 'crab', legs: true, matId: 0 },
-  // `texture: 1024` bakes a UV texture instead (tools/rig/texture.mjs); OFF until a bug is found: in the game some triangles
-  // sample a neighbouring UV island (tan patches), although the same file maps correctly when sampled in Node.
+  crab: { src: 'crab_mesh', rotY: 0, shellWidthCm: 2.1, tris: [10000, 3200], paint: 'crab', rig: 'crab', legs: true, matId: 0, texture: 1024 },
+  // `texture: 1024`: a painted UV texture instead of vertex colours (tools/rig/texture.mjs). The old "tan patches" were faces that
+  // xatlas squashed to a point because the crab was unwrapped in metres; unwrap now rescales (see unwrap()).
 };
 const M_CHITIN = 4;   // render/creatures/kit.js M.CHITIN: the default material id of a baked rig (job.matId overrides)
 // Eyes (cm, in the baked frame) and finish per job live in tools/paint/eyes.mjs so they can be tuned without touching code.
@@ -134,18 +134,21 @@ async function buildTextured(id, job, level, g, rig, image) {
     .setIndices(doc.createAccessor().setType('SCALAR').setArray(idx).setBuffer(buf))
     .setMaterial(mat);
   doc.createScene().addChild(doc.createNode(id).setMesh(doc.createMesh(id).addPrimitive(prim)));
-  await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 12, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+  await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 16, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   const file = path.join(OUT, level === 'hi' ? `${id}.glb` : `${id}.lo.glb`);
   await io.write(file, doc);
   return { file, verts: n, tris: idx.length / 3, bytes: fs.statSync(file).size, size: [(x1 - x0) * 100, (y1 - y0) * 100, (z1 - z0) * 100] };
 }
 
 async function bakeTextured(id, job, pos, srcIdx, fullN, rig) {
-  const { unwrap, paintTexture, simplifyKeepingSeams } = await import('./rig/texture.mjs');
+  const { unwrap, paintTexture, simplifyKeepingSeams, uvStats } = await import('./rig/texture.mjs');
   const { texel } = await import(`./paint/${job.paint}.mjs`);
   const U = await unwrap(pos, srcIdx, job.texture);
   const n = U.from.length, P = new Float32Array(n * 3), N = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) { P[i*3+k] = pos[U.from[i]*3+k]; N[i*3+k] = fullN[U.from[i]*3+k]; }
+  const st = uvStats(U.uv, U.idx, P, job.texture);
+  console.log(`  uv: texel density p1 ${st.p1} p5 ${st.p5} p50 ${st.p50} (1 = even), ${st.squashed} faces under 10 %, ${st.used} % of the atlas used`);
+  if (st.squashed > U.idx.length / 3 * 0.01) throw new Error(`${id}: ${st.squashed} faces squashed in UV space (they would show as flat-coloured patches)`);
   const t0 = Date.now();
   const img = paintTexture(job.texture, U.uv, U.idx, P, N, ({ p, n: nn, w, v }) => {
     const o = v.map((i) => U.from[i]);
@@ -158,9 +161,11 @@ async function bakeTextured(id, job, pos, srcIdx, fullN, rig) {
   await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).png().toFile(`test-output/bake/${id}_color.png`);
   console.log(`  texture ${job.texture}px painted in ${Date.now() - t0} ms, ${(webp.length / 1024) | 0} KB webp (preview test-output/bake/${id}_color.png)`);
   const hi = await buildTextured(id, job, 'hi', { pos: P, nor: N, uv: U.uv, idx: U.idx, from: U.from }, rig, webp);
-  const L = simplifyKeepingSeams(P, U.idx, job.tris[1]);
+  const L = simplifyKeepingSeams(P, U.idx, job.tris[1], U.uv);
   const m = L.from.length, LP = new Float32Array(m * 3), LN = new Float32Array(m * 3), LU = new Float32Array(m * 2), LF = new Uint32Array(m);
   for (let i = 0; i < m; i++) { const j = L.from[i]; for (let k = 0; k < 3; k++) { LP[i*3+k] = P[j*3+k]; LN[i*3+k] = N[j*3+k]; } LU[i*2] = U.uv[j*2]; LU[i*2+1] = U.uv[j*2+1]; LF[i] = U.from[j]; }
+  const sl = uvStats(LU, L.idx, LP, job.texture);
+  console.log(`  lo uv: texel density p1 ${sl.p1} p5 ${sl.p5}, ${sl.squashed} faces under 10 %`);
   const lo = await buildTextured(id, job, 'lo', { pos: LP, nor: LN, uv: LU, idx: L.idx, from: LF }, rig, null);
   return { hi, lo };
 }
