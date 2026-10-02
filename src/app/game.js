@@ -154,7 +154,7 @@ export class Game {
 
   // Resolves once everything on screen has its shaders (engine/compiler.js). Loading screens wait for this, so the tank
   // appears whole; meanwhile the page keeps running and shaders build faster than during play.
-  async settle(timeout = 60000) {
+  async settle(timeout = 8000) {
     const c = this.gfx.compiler;
     c.budget = 40;
     try { return await c.settled(timeout); } finally { c.budget = 8; }
