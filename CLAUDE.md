@@ -17,6 +17,7 @@
 - Size rule: no file over 50 MB in git (GitHub refuses 100 MB). Larger files need Git LFS set up first.
 - `public/assets/` is what the game serves; `art-src/` is what we keep. Do not hand-edit
   `public/assets/creatures/manifest.json`: `npm run import-creatures` writes it.
+- Hardscape and plant models in `public/assets/models/` are meshopt-compressed with WebP textures: after importing one run `node tools/compress-models.mjs public/assets/models/<name>.glb` (keeps vertex data float32, which sim/decor.js reads). Creature models load only when their species first appears (`Animals.loadModel`).
 - Species and plant pictures (Add menu, Field Guide, Kids) are files in `public/assets/portraits/`: after adding or changing a creature or plant model run `node tools/bake-portraits.mjs [--only=<id>]`. A missing picture is rendered live in the player's browser, which is slow (a second renderer, every model: about a minute, freezes of seconds).
 - Back up with `npm run backup` after any batch of assets (see `tools/backup.sh`).
 - `dist/` and `test-output/` are build output and are git-ignored.

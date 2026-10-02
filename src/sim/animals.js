@@ -341,6 +341,7 @@ export function createSpeciesMesh(scene, id, { cap = null, morph = null } = {}) 
   });
 }
 
+const READY = new Map();         // id → (scene, cap) => mesh: models already loaded, so a later tank uses them at once
 const GLB_CACHE = new Map();     // id → Promise<{lo, hi, textures} | null>, shared by every tank
 const WALKERS = ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab', 'crawlLand', 'crawlWater'];
 
@@ -408,14 +409,26 @@ export class Animals {
     const man = await loadManifest();
     for (const [id, meta] of Object.entries(man)) {
       if (meta.pose) { const [b, p] = id.split('.'); (this.poseMeta[b] ??= {})[p] = { key: id, meta }; if (this.meshes[b]) this.ensurePose(b, p); continue; }
-      const build = await modelBuilder(id, meta);
-      if (!build) continue;
-      const make = () => build(this.scene);
-      this.models[id] = make;
-      // A species that is already drawn with its procedural body switches over; one that is not yet drawn starts with the model.
-      const old = this.meshes[id];
-      if (old) { this.meshes[id] = make(); old.remove(); }
+      if (SPECIES[id] && !meta.disabled) (this.modelMeta ??= {})[id] = meta;
+      if (this.meshes[id]) this.loadModel(id);
     }
+  }
+
+  // A species' textured model is fetched the first time an animal of it is drawn (meshFor), not at start: every model
+  // together is over 1.5 MB and fetching them all held the loading screen 4 to 5 s on the live site. Once loaded (READY,
+  // shared by every tank) a new tank builds the model directly; until then the procedural body stands in and is swapped.
+  loadModel(id) {
+    const meta = this.modelMeta?.[id];
+    if (!meta || this.models[id] || this._loadingModel?.has(id)) return;
+    (this._loadingModel ??= new Set()).add(id);
+    modelBuilder(id, meta).then((build) => {
+      if (!build) return;
+      READY.set(id, build);
+      this.models[id] = () => build(this.scene);
+      // A species that is already drawn with its procedural body switches over.
+      const old = this.meshes[id];
+      if (old && this.scene.parent) { this.meshes[id] = this.models[id](); old.remove(); }
+    }).catch((e) => console.warn('creature model', id, e));
   }
 
   // A pose model is the same animal in another body, drawn while it does one thing: manifest key '<species>.<pose>', for now
@@ -467,7 +480,9 @@ export class Animals {
     }
     const key = meshKeyFor(id, morph);
     if (!this.meshes[key]) {
+      if (key === id && !this.models[id] && READY.has(id)) { const b = READY.get(id); this.models[id] = () => b(this.scene); }
       this.meshes[key] = key === id && this.models[id] ? this.models[id]() : createSpeciesMesh(this.scene, id, { morph });
+      if (key === id && !this.models[id]) this.loadModel(id);
       this.keys[id].push(key);
       if (key === id) { this.ensurePose(id, 'swim'); if (this.poseModels[id]?.swim) this.warmPose(id, 'swim'); }
     }

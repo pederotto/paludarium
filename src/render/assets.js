@@ -3,6 +3,7 @@
 
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const loader = new THREE.TextureLoader();
 const base = new URL(`${import.meta.env.BASE_URL}assets/`, location.href);
@@ -41,7 +42,8 @@ export const TEX = {
 };
 
 // glTF models (Poly Haven), loaded once and shared.
-const gltf = new GLTFLoader();
+// Meshes are meshopt-compressed and textures WebP (tools/compress-models.mjs): 3.1 MB instead of 5 MB to download.
+const gltf = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 const cache = new Map();
 export function loadModel(name) {
   if (!cache.has(name)) cache.set(name, gltf.loadAsync(new URL(`models/${name}.glb`, base).href));
