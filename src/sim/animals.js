@@ -15,6 +15,7 @@ import { Occupancy } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
 import { SKINK, skinkMind, skinkThink } from './skink.js';
+import { herpMind, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
@@ -243,28 +244,28 @@ export const SPECIES = {
     name: 'Paddle-tail newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.6, speed: 2,
     temp: [15, 24], humidity: 60, hungerHours: 200, lifeDays: 3000, eats: ['springtail', 'fly', 'isopod', 'flake', 'tadpole', 'flylarva'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 6, days: 8, into: 'tadpole', where: 'water' },
-    body: sdfBody('newt'), anim: { amp: 0.6, wave: 1.2, lift: 0.2, stride: 0.3 },
-    note: 'Mostly aquatic, comes ashore at times. Prefers cool water (under 24 °C).',
+    body: sdfBody('newt'), anim: { amp: 0.85, wave: 1.25, lift: 0.3, stride: 0.85, rig2: { neck: 0.26, s0: 0.04, s1: 0.31, neckY: 0.75, len: 10.8 } },
+    note: 'A cool-stream newt. Wedges itself between rocks by day, walks the bottom at night with its head sweeping, swims in bursts, rises to gulp air, and on damp nights may wander the bank. Needs cool water (under 24 °C) and a hide.',
   },
   firesal: {
     name: 'Fire salamander', scale: 1, group: 'Amphibians', kind: 'newt', size: 2.4, speed: 1.6, landBias: 0.9,
     temp: [8, 22], humidity: 70, hungerHours: 220, lifeDays: 7000, eats: ['springtail', 'fly', 'isopod', 'flylarva'], cap: 6, breed: 0, adultDays: 40,
-    body: sdfBody('newt'), anim: { amp: 0.6, wave: 1.2, lift: 0.25, stride: 0.35 },
-    note: 'A forest salamander of cool, damp woods: bold black and yellow-orange warns that its skin is toxic. Lives on land, near shallow water.',
+    body: sdfBody('newt'), anim: { amp: 1.15, wave: 1.3, lift: 0.4, stride: 1.1, rig2: { neck: 0.27, s0: 0.04, s1: 0.31, neckY: 1.4, len: 18 } },
+    note: 'A forest salamander of cool, damp woods (8–22 °C). Out on dark, damp nights and after rain; by day it sits in a hide (wood, a rock, leaf litter) and comes back to the same one. Creeps up on prey and freezes, dries out without damp ground or a shallow dish to soak in, and warns with its black and yellow-orange instead of running.',
   },
   axolotl: {
     name: 'Axolotl', scale: 1, group: 'Amphibians', kind: 'axolotl', size: 2.6, speed: 1.4,
     temp: [14, 21], hungerHours: 260, lifeDays: 5000, eats: ['shrimp', 'flake', 'tadpole'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 4, days: 10, into: 'axolotl', where: 'water' },
-    body: sdfBody('axolotl'), anim: { amp: 0.9, wave: 1.1, lift: 0.25, stride: 0.4 },
-    note: 'Fully aquatic and needs cold water (14–21 °C): turn the heater down or it will suffer. A pair lays eggs in the water; its colour genes make morphs.',
+    body: sdfBody('axolotl'), anim: { amp: 0.9, wave: 1.1, lift: 0.22, stride: 0.6, rig2: { neck: 0.27, s0: 0.05, s1: 0.31, neckY: 0.9, len: 12 } },
+    note: 'Fully aquatic and needs cold water (14–21 °C): turn the heater down or it will suffer. Shuns bright light (give it a cave or shade), sits on the bottom with its gills fanning, rises now and then to gulp air, and finds food by smell. A pair lays eggs in the water; its colour genes make morphs.',
   },
   gecko: {
     name: 'Mourning gecko', scale: 1, group: 'Reptiles', kind: 'gecko', size: 1.4, speed: 4,
     temp: [21, 29], humidity: 55, hungerHours: 150, lifeDays: 3500, eats: ['fly', 'springtail', 'flylarva'], cap: 10, breed: 0.04, adultDays: 25,
     eggs: { n: 2, days: 12, into: 'gecko', where: 'wall' },
-    body: sdfBody('gecko'), anim: { amp: 0.35, wave: 1.0, lift: 0.18, stride: 0.3 },
-    note: 'Climbs the background and glass hunting insects. Females lay eggs without males.',
+    body: sdfBody('gecko'), anim: { amp: 0.6, wave: 1.1, lift: 0.28, stride: 0.75, rig2: { neck: 0.24, s0: 0.04, s1: 0.28, neckY: 0.43, len: 9.5 } },
+    note: 'Climbs the background and glass. Sleeps by day in a crevice, often with others, comes out at dusk, drinks droplets after rain or misting, stalks insects with its tail waving, and licks its own eyes clean. Females lay eggs without males.',
   },
   cardinal: {
     name: 'Cardinal tetra', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 3.4, speed: 5,
@@ -425,7 +426,7 @@ export function createSpeciesMesh(scene, id, { cap = null, morph = null } = {}) 
   return new CreatureLOD(scene, src, {
     cap: cap ?? sp.cap + 20,
     wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-    finish: { ...FINISH[group], ...(src.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}) },
+    finish: { ...FINISH[group], ...(src.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}) },
     near: 34 + sp.size * 10,
   });
 }
@@ -453,7 +454,7 @@ export async function modelBuilder(id, meta = null) {
   const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
   return (scene, cap = sp.cap + 20) => new CreatureLOD(scene, g.lo, {
     cap, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
   });
 }
 
@@ -754,9 +755,7 @@ export class Animals {
           case 'fly': this.fly(a, sp, dt); break;
           case 'frog':
           case 'toad': if (!(sp.perch && this.perchFrog(a, sp, dt))) this.frog(a, sp, dt); break;
-          case 'newt': this.newt(a, sp, arr, dt); break;
-          case 'axolotl': this.axolotl(a, sp, arr, dt); break;
-          case 'gecko': this.gecko(a, sp, dt); break;
+          case 'newt': case 'axolotl': case 'gecko': this.herp(a, sp, arr, dt); break;
           case 'skink': this.skink(a, sp, dt); break;
           case 'egg': break;
         }
@@ -863,7 +862,7 @@ export class Animals {
       case 'swim': return true;
       case 'crawlWater': case 'crawlLand': case 'crab': return a.state === 'walk' && !!a.target;
       case 'frog': case 'toad': return (a.hopFail ?? 0) >= 1 || (!!a.swimming && !!a.shore);
-      case 'newt': case 'axolotl': return a.swimming ? true : a.state === 'walk' && !!a.target;
+      case 'newt': case 'axolotl': return a.herp ? !!a.wantMove : a.swimming ? true : a.state === 'walk' && !!a.target;
       case 'fly': return a.state === 'fly';
     }
     return false;
@@ -982,7 +981,8 @@ export class Animals {
     return null;
   }
 
-  swim(a, sp, arr, dt) {
+  // ctl: { x, y, z, speed } steers it to that point instead of wandering (a salamander's or newt's mind, herp.js).
+  swim(a, sp, arr, dt, ctl = null) {
     const W = this.world, T = W.terrain;
     const L = this.waterTop(a.pos.x, a.pos.z);
     const floor = T.heightAt(a.pos.x, a.pos.z);
@@ -1021,7 +1021,7 @@ export class Animals {
       a.nib.t -= dtS;
       if (a.nib.f.eaten) a.nib = null;
       else if (a.nib.t <= 0) { a.nib.f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); a.ate = (a.ate ?? 0) + 1; a.nib = null; }
-    } else if (a.hunger > 0.25 && this.food.length) {
+    } else if (a.hunger > 0.25 && this.food.length && !ctl) {
       let best = null, bd = 30;
       for (const f of this.food) {
         if (f.eaten) continue;
@@ -1037,10 +1037,11 @@ export class Animals {
     }
     // A newt or axolotl swimming after prey it has been ordered to hunt.
     const ot = a.order?.target;
-    if (ot && !a.st && this.validPrey(ot, a)) desired.copy(ot.pos).sub(a.pos).normalize().multiplyScalar(sp.speed * 1.6);
+    if (ot && !a.st && !ctl && this.validPrey(ot, a)) desired.copy(ot.pos).sub(a.pos).normalize().multiplyScalar(sp.speed * 1.6);
     // Depth preference.
     const band = sp.band === 'top' ? L - 2.5 : sp.band === 'bottom' ? floor + 1.0 : lerp(floor, L, 0.5);
-    desired.y += (band - a.pos.y) * 0.8;
+    if (ctl) { a.nib = null; a.dart = false; desired.set(ctl.x - a.pos.x, ctl.y - a.pos.y, ctl.z - a.pos.z); const dl = desired.length(); desired.multiplyScalar(dl > 1e-4 ? ctl.speed * Math.min(1, dl / 1.5) / dl : 0); }
+    else desired.y += (band - a.pos.y) * 0.8;
     // Look ahead for walls, banks and the surface.
     const sp2 = a.vel.lengthSq() > 0.01 ? a.vel.clone().normalize() : V(Math.sin(a.yaw), 0, Math.cos(a.yaw));
     const ahead = a.pos.clone().addScaledVector(sp2, 4);
@@ -1068,7 +1069,7 @@ export class Animals {
     }
     if (a.nib) desired.multiplyScalar(0.1);
     a.vel.lerp(desired, Math.min(1, dt * (a.dart ? 4 : 1.8)));
-    const maxS = sp.speed * (a.dart ? 2.1 : a.hunger > 0.25 ? 1.5 : 1);
+    const maxS = ctl ? Math.max(0.1, ctl.speed * 1.1) : sp.speed * (a.dart ? 2.1 : a.hunger > 0.25 ? 1.5 : 1);
     if (a.vel.length() > maxS) a.vel.setLength(maxS);
     const prev = a.pos.clone();
     a.pos.addScaledVector(a.vel, dt);
@@ -1950,7 +1951,7 @@ export class Animals {
     if (a.dead || a.st || a.stranded) return;
     let o = a.order;
     if (!o) {
-      if (a.hunger < 0.55 || !this.avoid) return;
+      if (a.hunger < (a.hm?.mode === 'hunt' ? 0.4 : 0.55) || !this.avoid) return;
       a.scanT = (a.scanT ?? Math.random()) - dt;
       if (a.scanT > 0) return;
       a.scanT = 0.8 + Math.random() * 0.8;
@@ -1983,7 +1984,9 @@ export class Animals {
       return;
     }
     if (d <= reach * 0.9) { this.beginStrike(a, sp, o); return; }
-    // Go for it: crawlers aim their walk at the prey, swimmers do so in swim().
+    // Go for it: crawlers aim their walk at the prey, swimmers do so in swim(). (Salamanders, newts, axolotls and geckos have a
+    // mind that creeps up on it, herp.js.)
+    if (a.herp) return;
     if (sp.kind === 'gecko' && a.onWall) { a.target = V(clamp(tp.x, -TANK.w / 2 + 2, TANK.w / 2 - 2), clamp(tp.y, this.world.water.level + 2, TANK.h - 3), 0); a.timer = Math.max(a.timer, 1); }
     else if (!a.swimming) { a.state = 'walk'; a.target = V(tp.x, 0, tp.z); a.timer = Math.max(a.timer, 1.5); }
   }
@@ -2286,79 +2289,298 @@ export class Animals {
     return 0;
   }
 
-  // --- Newts: mostly swimming, now and then a walk on land ------------------
-  newt(a, sp, arr, dt) {
-    const W = this.world, T = W.terrain;
-    a.modeT = (a.modeT ?? 20 + Math.random() * 40) - dt;
-    const inWater = W.water.surfaceAt(a.pos.x, a.pos.z) > T.heightAt(a.pos.x, a.pos.z) + 1.5;
-    if (a.modeT <= 0) {
-      a.modeT = 20 + Math.random() * 50;
-      const stay = a.mode === 'land' && Math.random() < (sp.landBias ?? 0);
-      a.mode = stay ? 'land' : a.mode === 'land' ? 'water' : Math.random() < (sp.landBias ?? 0.35) ? 'land' : 'water';
+  // --- Salamanders, newts, axolotls and geckos ---------------------------------------------------------------------------
+  // The decisions are in herp.js (pure); this senses the world for them and carries the intent out: it walks, swims, climbs the
+  // background, creeps up on prey (the strike itself is hunter()/strikes()), and hands the head and tail posture to the rig
+  // (a.hr, see draw()).
+  herp(a, sp, arr, dt) {
+    const W = this.world, T = W.terrain, E = W.env, C = W.climate, Wl = W.wall;
+    const P = profileFor(a.sp, sp.kind);
+    const m = (a.hm ??= herpMind(a.sp));
+    a.herp = true;
+    const gecko = sp.kind === 'gecko', axo = sp.kind === 'axolotl';
+    const wall = gecko && !!a.onWall;
+    const x = a.pos.x, z = a.pos.z;
+    const g = T.heightAt(x, wall ? Wl.zAt(x, a.pos.y) + 1.5 : z);
+    const top = this.waterTop(x, z);
+    const depth = top > -Infinity ? top - g : -1;
+    const dtMin = dt * Math.min(this.warp ?? 1, 5);       // (at the fast speeds a breath would be all they did)
+    const pl = (px, py, pz, onWall) => ({ x: px, z: onWall ? -py : pz });          // the plane the mind works in (see herp.js)
+    const here = pl(x, a.pos.y, z, wall);
+    // A shelter, and the slow senses, every few seconds.
+    a.hhT = (a.hhT ?? 0) - dt;
+    if (a.hhT <= 0) {
+      a.hhT = 2 + Math.random() * 2;
+      if (!a.hh || this.herpHomeScore(a, sp, P, a.hh) < 0.28) a.hh = this.herpFindHome(a, sp, P) ?? a.hh ?? null;
+      a.hShore = null;
+      if (sp.kind === 'newt' && a.sp === 'firesal') a.hShore = this.crabFind(x, z, 40, (px, pz, d) => d >= 0.3 && d <= 1.8);
+      else if (depth <= 0.3) a.hShore = this.crabFind(x, z, 40, (px, pz, d) => d >= 1.6);
+      if (gecko) a.hWet = this.geckoWetSpot(a, wall);
     }
-    if (a.mode === 'land') {
-      // Walk toward the nearest shore, then potter about on land.
-      this.crawl(a, sp, dt, inWater ? 'any' : 'land', a.sp === 'firesal' ? { rest: [3, 13], restP: 0.65, speed: 0.75 } : { rest: [2, 8], restP: 0.55, speed: 0.9 });
-      if (inWater && a.state !== 'walk') a.pos.y = T.heightAt(a.pos.x, a.pos.z);
-      a.swimming = false;
-    } else if (inWater) {
-      this.swim(a, { ...sp, band: 'bottom', school: false, speed: sp.speed }, arr, dt);
+    const mouth = this.mouth(a, sp, _m);
+    // Looking for prey is the costly part (every list of everything it eats): a few times a second is plenty; in between the one it has
+    // found is followed.
+    a.hpT = (a.hpT ?? 0) - dt;
+    if (a.hpT <= 0 || (a.hPrey && !this.validPrey(a.hPrey.p, a)) || a.order) { a.hpT = 0.25 + Math.random() * 0.2; a.hPrey = this.herpPrey(a, sp, P, mouth, wall); }
+    else if (a.hPrey) { const pp = a.hPrey.p.pos; a.hPrey.d = Math.hypot(pp.x - mouth.x, pp.y + 0.15 - mouth.y, pp.z - mouth.z); a.hPrey.x = pp.x; a.hPrey.z = wall ? -pp.y : pp.z; a.hPrey.y = pp.y; }
+    const prey = a.hPrey;
+    const threat = this.herpThreat(a, sp, P, wall);
+    const home = a.hh && { x: a.hh.x, z: gecko && a.hh.wall ? -a.hh.y : a.hh.z, wall: !!a.hh.wall };
+    const Q = depth > 0.3 ? W.water.bodies.at(x, z) ?? E : E;
+    const hy = wall ? a.pos.y : g + 1;
+    const sense = {
+      t: this.t, dt, dtMin, dtAir: dt * Math.min(this.warp ?? 1, 2), x: here.x, z: here.z, yaw: a.yaw ?? 0, kind: sp.kind, onWall: wall, depth,
+      light: clamp(E.bright(), 0, 1), rain: E.rain ?? 0, rh: C.humidityAt(x, hy, z), temp: depth > 0.3 ? Q.temp ?? E.temp : C.tempAt(x, hy, z), oxygen: depth > 0.3 ? Q.oxygen : undefined,
+      wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + (W.nearWater(V(x, g, z), 3) ? 0.5 : 0)),
+      cover: wall ? 0 : this.herpCover(x, z), hunger: a.hunger, health: a.health, male: !!a.male,
+      prey, threat, home, reach: this.reachOf(a, sp), moved: a.hmoved ?? 0, toSurface: depth > 0.3 ? top - a.pos.y : 99,
+      shore: a.hShore && { x: a.hShore.x, z: a.hShore.z, d: a.hShore.d },
+      wetSpot: gecko && a.hWet ? { x: a.hWet.x, z: a.hWet.wall ? -a.hWet.y : a.hWet.z, d: Math.hypot(a.hWet.x - x, (a.hWet.wall ? -a.hWet.y : a.hWet.z) - here.z), wall: a.hWet.wall } : null,
+      dew: E.condense ?? 0, mist: E.mist ?? 0,
+      legsFn: () => this.herpLegs(a, sp, P, m, wall),
+    };
+    // A water animal in water too shallow to swim in, with no way out of it, is stranded (as swim() does it).
+    if (axo && depth < 1.0 && !a.swimming) { a.stranded = true; a.pos.y = g + 0.3; a.pitch = Math.PI / 2 * Math.sin(this.t * 12 + a.phase) * 0.3; return; }
+    a.stranded = false;
+    const it = herpThink(m, sense);
+    if (it.say === 'warn' && Math.random() < 0.3) W.log(`A ${one(a.sp)} froze and showed its warning colours.`, 'info');
+    a.hit = it;
+    a.doing = doing(it.mode, sp.kind, { prey: prey && prey.pid ? `a ${one(prey.pid)}` : null, asleep: !!it.tuck, hot: sense.temp > P.tHot, wet: m.wet });
+    a.hr = a.hr ?? [0, 0, 0, 0];
+    a.hr[0] = it.head; a.hr[1] = it.headP; a.hr[2] = it.bend; a.hr[3] = it.tail;
+    a.hpump = it.throat; a.heye = it.eye; a.hgill = it.gill;
+    if (it.needHome && (a.hhT > 0.5)) a.hhT = 0.2;
+    // --- Carry it out ---------------------------------------------------------------------------------------------------
+    const px = a.pos.x, py = a.pos.y, pz = a.pos.z;
+    const goal = it.goal;
+    a.wantMove = !!goal && it.speed > 0.1;
+    a.state = a.wantMove ? 'walk' : 'rest';
+    a.target = goal ? V(goal.x, 0, gecko && wall ? 0 : goal.z) : null;
+    if (gecko) this.geckoMove(a, sp, P, it, wall, dt);
+    else if (depth > 1.3 && (it.swim || (goal && (m.mode === 'shore' || m.mode === 'return' || m.mode === 'flee') && depth > 1.6))) {
+      // Swimming: to the goal, at the height the mode wants (the bottom, the surface, the prey).
+      const ty = it.rise ? top - 0.5 : prey && m.mode === 'hunt' ? clamp(prey.p.pos.y, g + 0.6, top - 0.5) : it.bottom ? g + 0.9 : lerp(g, top, 0.55);
+      const to = goal ?? (it.calm && !it.rise ? { x, z } : null);
+      const sc = { x: to ? to.x : x, y: ty, z: to ? to.z : z, speed: goal ? it.speed : 0 };
+      this.swim(a, { ...sp, band: 'bottom', school: false }, arr, dt, sc);
       a.swimming = true;
     } else {
-      this.crawl(a, sp, dt, 'any', { rest: [2, 8], restP: 0.55, speed: 0.9 });
-      a.swimming = false;
+      if (a.swimming) { a.swimming = false; a.vel.multiplyScalar(0.2); }
+      const amph = m.mode === 'shore' || m.mode === 'return' || m.mode === 'flee';        // a newt in the water stays in it unless it is going ashore
+      const medium = axo ? 'water' : a.sp === 'firesal' ? (m.mode === 'soak' ? 'any' : 'land') : amph || depth <= 0.3 ? 'any' : 'water';
+      const maxD = a.sp === 'firesal' ? (m.mode === 'soak' ? 1.8 : 0.6) : 99;
+      if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, medium, maxD);
+      else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - x, it.face.z - z), Math.min(1, dt * 4)); }
+      const gy = T.heightAt(a.pos.x, a.pos.z);
+      a.pos.y = a.pos.y > gy + 0.05 ? Math.max(gy, lerp(a.pos.y, gy, Math.min(1, dt * 6))) : gy;
+      a.normal = T.normalAt(a.pos.x, a.pos.z);
     }
+    a.hmoved = Math.hypot(a.pos.x - px, a.pos.y - py, a.pos.z - pz);
+    a.grazing = false;
   }
 
-  // --- Axolotls: walk the bottom, sometimes drift up and swim ----------------
-  axolotl(a, sp, arr, dt) {
-    const W = this.world;
-    a.modeT = (a.modeT ?? 30 + Math.random() * 30) - dt;
-    if (a.modeT <= 0) { a.modeT = 20 + Math.random() * 40; a.mode = Math.random() < 0.3 ? 'swim' : 'walk'; }
-    if (a.mode === 'swim') { this.swim(a, { ...sp, band: 'mid', school: false }, arr, dt); a.swimming = true; }
-    else { this.crawl(a, sp, dt, 'water', { rest: [2, 9], restP: 0.5, speed: 0.9 }); a.swimming = false; }
+  // Walking toward a point on the ground (or the bottom): turn first if it is behind, slide round what is in the way.
+  herpStep(a, sp, P, goal, speed, dt, medium, maxD) {
+    const x = a.pos.x, z = a.pos.z;
+    const dx = goal.x - x, dz = goal.z - z, dist = Math.hypot(dx, dz);
+    if (dist < 0.15) { a.hsp = (a.hsp ?? 0) * 0.5; return; }
+    const want = Math.atan2(dx, dz), diff = angDiff(want, a.yaw ?? 0);
+    // Pivot on the spot when the goal is well off the heading; the legs step round (move() counts the turn).
+    a.yaw = (a.yaw ?? 0) + clamp(diff, -dt * 3.2, dt * 3.2);
+    const fwd = clamp(1 - Math.abs(diff) / 1.1, 0, 1);
+    a.hsp = (a.hsp ?? 0) + (speed * fwd - (a.hsp ?? 0)) * Math.min(1, dt * 5);
+    const step = Math.min(dist, a.hsp * dt);
+    let ux = Math.sin(a.yaw), uz = Math.cos(a.yaw);
+    if (fwd > 0.95) { ux = dx / dist; uz = dz / dist; }
+    // (An animal standing where it is not allowed, in the margin by the glass, may step toward the middle.)
+    const here = this.okFor(medium, x, z, maxD);
+    const free = (nx, nz) => this.okFor(medium, nx, nz, maxD) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02);
+    const probe = Math.max(step, 0.15);       // (the first step of a start has no length yet)
+    if (!free(x + ux * probe, z + uz * probe)) {
+      const sd = a.side ?? 1, base = Math.atan2(ux, uz);
+      let ok = false;
+      for (const da of [0.7 * sd, -0.7 * sd, 1.4 * sd, -1.4 * sd, 2.1 * sd]) {
+        const sx = Math.sin(base + da), sz = Math.cos(base + da);
+        if (free(x + sx * probe * 1.2, z + sz * probe * 1.2)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
+      }
+      if (!ok) { a.hsp = 0; a.hm.goal = null; a.hm.moveLeft = 0; a.hm.pauseLeft = 1 + Math.random(); return; }
+    }
+    a.pos.x += ux * step; a.pos.z += uz * step;
   }
 
-  // --- Geckos: run over the ground, climb the background, hunt insects ------
-  gecko(a, sp, dt) {
+  // The gecko moves in the plane it is on; getting between the wall and the ground is a step at the foot of the wall.
+  geckoMove(a, sp, P, it, wall, dt) {
     const W = this.world, T = W.terrain, Wl = W.wall;
-    a.timer -= dt;
-    // Hunting is in hunter(): it steers `a.target` at the prey and strikes.
-    if (a.onWall) {
-      if (!a.target || a.timer <= 0) {
-        a.timer = 1 + Math.random() * 4;
-        a.target = Math.random() < 0.35 ? null : V(clamp(a.pos.x + (Math.random() - 0.5) * 24, -TANK.w / 2 + 2, TANK.w / 2 - 2), clamp(a.pos.y + (Math.random() - 0.5) * 20, W.water.level + 2, TANK.h - 3), 0);
-      }
-      if (a.target) {
-        const dx = a.target.x - a.pos.x, dy = a.target.y - a.pos.y, d = Math.hypot(dx, dy);
-        if (d < 0.4) a.target = null;
-        else {
-          const st = Math.min(d, sp.speed * dt * (0.5 + 0.5 * Math.sin(this.t * 5 + a.phase) ** 2));
-          a.pos.x += dx / d * st; a.pos.y += dy / d * st;
-          a.yaw = angLerp(a.yaw, Math.atan2(dx, -dy), Math.min(1, dt * 8));
-        }
-      }
-      const z = Wl.zAt(a.pos.x, a.pos.y);
-      a.pos.z = z + 0.35;
+    const goal = it.goal, hx = TANK.w / 2 - 2;
+    const lo = W.water.level + 2, hi = TANK.h - 3;
+    const stepPlane = (tx, ty, speed, onWall) => {
+      const dx = tx - a.pos.x, dy = ty - a.pos.y, d = Math.hypot(dx, dy);
+      if (d < 0.2) { a.hsp = 0; return d; }
+      a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, -dy), Math.min(1, dt * 9));
+      a.hsp = (a.hsp ?? 0) + (speed - (a.hsp ?? 0)) * Math.min(1, dt * 7);
+      const st = Math.min(d, a.hsp * dt);
+      a.pos.x = clamp(a.pos.x + dx / d * st, -hx, hx); a.pos.y = clamp(a.pos.y + dy / d * st, onWall ? lo : 0, hi);
+      return d;
+    };
+    if (wall) {
+      let tx = goal ? goal.x : a.pos.x, ty = goal ? -goal.z : a.pos.y;
+      const ground = T.heightAt(a.pos.x, Wl.zAt(a.pos.x, a.pos.y) + 1.5);
+      if (!it.wantWall) { tx = a.pos.x; ty = ground + 1.0; }                       // down to the foot of the wall first
+      if (goal || !it.wantWall) stepPlane(tx, clamp(ty, lo, hi), it.wantWall || !goal ? (goal ? it.speed : P.walk) : P.walk, true);
+      else a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8);
+      if (it.face && !goal) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - a.pos.x, -(-it.face.z - a.pos.y)), Math.min(1, dt * 6));
+      a.pos.z = Wl.zAt(a.pos.x, a.pos.y) + 0.35;
       const [gx, gy] = Wl.field.gradient(a.pos.x, a.pos.y);
       a.normal = V(-gx, -gy, 1).normalize();
       a.wallMode = true;
-      // Climb back down when the wall meets the ground.
-      const ground = T.heightAt(a.pos.x, z + 1.5);
-      if (a.pos.y < ground + 1.2 && Math.random() < dt * 0.5) {
-        a.onWall = false; a.wallMode = false;
-        a.pos.set(a.pos.x, ground, z + 1.5);
-      }
+      if (!it.wantWall && a.pos.y < ground + 1.4) { a.onWall = false; a.wallMode = false; a.pos.set(a.pos.x, ground, Wl.zAt(a.pos.x, ground + 1) + 1.5); a.target = null; }
       return;
     }
-    this.crawl(a, { ...sp, speed: sp.speed * 0.8 }, dt, 'land');
-    // At the back of the tank, sometimes step up onto the background.
-    const wz = Wl.zAt(a.pos.x, a.pos.y + 1);
-    if (a.pos.z < wz + 3 && Math.random() < dt * 0.4) {
-      a.onWall = true;
-      a.pos.y += 1;
-      a.target = null;
+    // On the ground.
+    if (it.wantWall) {
+      // To the back of the tank, then up the background.
+      const wz = Wl.zAt(a.pos.x, a.pos.y + 1);
+      if (a.pos.z < wz + 2.6) { a.onWall = true; a.pos.y += 1; a.hsp = 0; return; }
+      this.herpStep(a, sp, P, { x: a.pos.x, z: wz + 1.5 }, goal ? it.speed : P.walk, dt, 'land', 5);
+    } else if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, 'land', 0.3);
+    else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - a.pos.x, it.face.z - a.pos.z), Math.min(1, dt * 5)); }
+    a.pos.y = T.heightAt(a.pos.x, a.pos.z);
+    a.normal = T.normalAt(a.pos.x, a.pos.z);
+    a.wallMode = false;
+  }
+
+  // --- What they sense ---
+  // How well covered a spot on the ground is: wood, cork or rock overhead, moss, leaf litter.
+  herpCover(x, z) {
+    const W = this.world, T = W.terrain, g = T.heightAt(x, z);
+    const over = this.occ.count && this.occ.solidAt(x, g + 2.2, z) ? 1 : 0;
+    return Math.min(1, over + T.field.matAt(x, z, MAT.moss) * 0.5 + Math.min(0.4, W.climate.sample(W.climate.litter, x, z) * 2));
+  }
+
+  // Cover under water: a ledge, a root or a rock close to the bottom, or a plant bed.
+  herpWaterCover(x, z) {
+    const g = this.world.terrain.heightAt(x, z);
+    if (!this.occ.count) return 0;
+    let c = this.occ.solidAt(x, g + 1.6, z) ? 1 : 0;
+    for (const [dx, dz] of [[1.6, 0], [-1.6, 0], [0, 1.6], [0, -1.6]]) if (this.occ.solidAt(x + dx, g + 0.8, z + dz)) c += 0.2;
+    return Math.min(1, c);
+  }
+
+  // Where a shelter is and how good: { x, z, y, wall } in world coordinates (a wall home has y, a ground home has z).
+  herpHomeScore(a, sp, P, h) {
+    const W = this.world, T = W.terrain, C = W.climate;
+    if (sp.kind === 'gecko') {
+      if (h.wall) {
+        const wz = W.wall.zAt(h.x, h.y);
+        const cov = this.occ.count && (this.occ.solidAt(h.x, h.y, wz + 1.6) || this.occ.solidAt(h.x, h.y + 1.2, wz + 1.6)) ? 1 : 0.15;
+        let near = 0;
+        for (const b of this.by[a.sp] ?? []) if (b !== a && b.hh && Math.hypot(b.hh.x - h.x, (b.hh.y ?? 0) - h.y) < 7) near = 1;
+        const warm = 1 - clamp((C.tempAt(h.x, h.y, wz + 1) - P.tHot) / 4, 0, 1);
+        return clamp(cov * 0.5 + near * 0.25 + C.humidityAt(h.x, h.y, wz + 1) / 100 * 0.15 + warm * 0.1 - (h.y > TANK.h - 6 ? 0.15 : 0), 0, 1);
+      }
+      if (!this.okFor('land', h.x, h.z)) return 0;
+      return this.herpCover(h.x, h.z) * 0.8 + 0.1;
     }
+    const d = this.waterTop(h.x, h.z) - T.heightAt(h.x, h.z);
+    if (sp.kind === 'newt' && a.sp === 'firesal') {
+      if (!this.okFor('land', h.x, h.z)) return 0;
+      if (this.badHomes?.some((b) => b.until > (W.env.minute ?? 0) && Math.hypot(b.x - h.x, b.z - h.z) < 3)) return 0;
+      const g = T.heightAt(h.x, h.z);
+      return hideScore({ cover: this.herpCover(h.x, h.z), light: C.lightAt(h.x, h.z), rh: C.humidityAt(h.x, g + 1, h.z), rhIdeal: P.rhIdeal, temp: C.tempAt(h.x, g + 1, h.z), tIdeal: P.tIdeal, dist: Math.hypot(h.x - a.pos.x, h.z - a.pos.z) });
+    }
+    if (!(d >= 1.6)) return 0;
+    const shade = 1 - clamp(C.lightAt(h.x, h.z), 0, 1);
+    return clamp(this.herpWaterCover(h.x, h.z) * 0.65 + shade * (P.lightShy ?? 0.3) * 0.5 + 0.12 - Math.hypot(h.x - a.pos.x, h.z - a.pos.z) * 0.003, 0, 1);
+  }
+
+  herpFindHome(a, sp, P) {
+    const gecko = sp.kind === 'gecko';
+    let best = null, bs = 0.25;
+    for (let k = 0; k < 28; k++) {
+      const r = 3 + Math.random() * (gecko ? 30 : 24), t = Math.random() * Math.PI * 2;
+      let h;
+      if (gecko && (a.onWall || Math.random() < 0.7)) {
+        const y = clamp(a.pos.y + Math.cos(t) * r * 0.8, this.world.water.level + 3, TANK.h - 5);
+        h = { x: clamp(a.pos.x + Math.sin(t) * r, -TANK.w / 2 + 3, TANK.w / 2 - 3), y, z: 0, wall: true };
+      } else h = { x: a.pos.x + Math.sin(t) * r, z: a.pos.z + Math.cos(t) * r, y: 0, wall: false };
+      const sc = this.herpHomeScore(a, sp, P, h) + Math.random() * 0.04;
+      if (sc > bs) { bs = sc; best = h; }
+    }
+    return best;
+  }
+
+  // Candidates for the next leg of a patrol (herp.js pickLeg): points a few cm away that the animal can walk to, with what it
+  // likes about them. Computed only when a leg is chosen.
+  herpLegs(a, sp, P, m, wall) {
+    const W = this.world, T = W.terrain, C = W.climate;
+    const out = [];
+    const land = a.sp === 'firesal' || m.mode === 'shore';
+    const gecko = sp.kind === 'gecko';
+    for (let k = 0; k < 6; k++) {
+      const r = 4 + Math.random() * 12, t = Math.random() * Math.PI * 2;
+      if (gecko && wall) {
+        const x = clamp(a.pos.x + Math.sin(t) * r, -TANK.w / 2 + 2, TANK.w / 2 - 2), y = clamp(a.pos.y + Math.cos(t) * r, W.water.level + 2, TANK.h - 3);
+        out.push({ x, z: -y, damp: C.humidityAt(x, y, W.wall.zAt(x, y) + 1) / 100, near: W.nearWater(V(x, y, 0), 8) ? 1 : 0, cover: this.occ.count && this.occ.solidAt(x, y, W.wall.zAt(x, y) + 1.6) ? 1 : 0, wall: true });
+        continue;
+      }
+      const x = a.pos.x + Math.sin(t) * r, z = a.pos.z + Math.cos(t) * r;
+      if (!this.okFor(gecko || land ? 'land' : 'water', x, z)) continue;
+      const g = T.heightAt(x, z);
+      let food = 0;
+      if (a.hunger > 0.3) for (const pid of sp.eats) { const p = this.by[pid]?.[0]; if (p && Math.hypot(p.pos.x - x, p.pos.z - z) < 8) food = 1; }
+      out.push({ x, z, damp: T.field.matAt(x, z, MAT.moss) + (W.nearWater(V(x, g, z), 5) ? 0.6 : 0), near: W.nearWater(V(x, g, z), 6) ? 1 : 0, cover: gecko || land ? this.herpCover(x, z) : this.herpWaterCover(x, z), food, wall: false });
+    }
+    return out;
+  }
+
+  // The wettest place a gecko can drink at: drops on the glass after rain or misting (any spot within a few cm), or the water's edge.
+  geckoWetSpot(a, wall) {
+    const W = this.world, E = W.env;
+    if ((E.rain ?? 0) > 0.1 || (E.mist ?? 0) > 0.2 || (E.condense ?? 0) > 0.3) {
+      const y = clamp(a.pos.y + (Math.random() - 0.3) * 10, W.water.level + 2, TANK.h - 4), x = clamp(a.pos.x + (Math.random() - 0.5) * 14, -TANK.w / 2 + 2, TANK.w / 2 - 2);
+      return { x, y, z: 0, wall: true };
+    }
+    const sh = this.crabFind(a.pos.x, wall ? W.wall.zAt(a.pos.x, a.pos.y) + 4 : a.pos.z, 40, (px, pz, d) => d >= 0.3 && d <= 2.5);
+    if (!sh) return null;
+    return { x: sh.x, z: sh.z, y: 0, wall: false };
+  }
+
+  // The prey it is after: the one it has been ordered to hunt, or the nearest it can see or smell when it is hungry. `d` is from the mouth.
+  herpPrey(a, sp, P, mouth, wall) {
+    let p = null, pid = null, mine = false;
+    const o = a.order;
+    if (o && !a.st && this.validPrey(o.target, a)) { p = o.target; pid = o.pid; mine = true; }
+    else if (a.hunger > 0.3 && !a.st) {
+      let bd = Math.max(P.smell, P.sight);
+      for (const id of sp.eats) {
+        if (id !== 'flake' && !this.catchable(id)) continue;
+        const q = this.nearestPrey(a, sp, id, bd);
+        if (q) { const d = a.pos.distanceTo(q.pos); if (d < bd) { bd = d; p = q; pid = id; } }
+      }
+    }
+    if (!p) return null;
+    const pp = p.pos;
+    return { p, pid, mine, d: Math.hypot(pp.x - mouth.x, pp.y + 0.15 - mouth.y, pp.z - mouth.z), x: pp.x, z: wall ? -pp.y : pp.z, y: pp.y, wall: sp.kind === 'gecko' && pp.y > a.pos.y - 8 && wall ? true : sp.kind === 'gecko' && pp.y > this.world.terrain.heightAt(pp.x, pp.z) + 3 && pp.z - this.world.wall.zAt(pp.x, pp.y) < 5,
+      moving: p.state === 'fly' || p.state === 'walk' || !!p.hop || (p.vel ? p.vel.lengthSq() > 0.02 : false) };
+  }
+
+  // The nearest big thing that looms: the camera right up at the glass, a larger animal in the same medium that is close and moving.
+  herpThreat(a, sp, P, wall) {
+    const cam = this.camera?.position;
+    let t = null;
+    const planar = (v) => ({ x: v.x, z: wall ? -v.y : v.z });
+    if (cam) { const d = Math.hypot(cam.x - a.pos.x, cam.y - a.pos.y, cam.z - a.pos.z); if (d < 22) t = { ...planar(cam), d: (d - 6) * 0.55 }; }
+    for (const id of ['leucomelas', 'dartfrog', 'auratus', 'toad', 'crab', 'firesal', 'newt', 'axolotl', 'gecko']) {
+      if (id === a.sp) continue;
+      const osp = SPECIES[id];
+      if (osp.size < sp.size * 1.25) continue;
+      for (const b of this.by[id] ?? []) {
+        if (b.dead || !!b.swimming !== !!a.swimming && (sp.kind !== 'gecko') && Math.abs(b.pos.y - a.pos.y) > 3) continue;
+        const d = Math.hypot(b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z);
+        if (d < P.scareCm * 0.7 && ((b.speedNow ?? 0) > 0.6 || d < 3.5) && (!t || d < t.d)) t = { ...planar(b.pos), d: d * 1.1 };
+      }
+    }
+    return t;
   }
 
   draw(dt = 0.016) {
@@ -2399,7 +2621,7 @@ export class Animals {
         // Undulation: strong when swimming; walking salamanders, newts and geckos bend sideways in step with the legs.
         let amp = (an.amp ?? 0) * (swimming ? 0.6 + rel * 0.6 : walker ? Math.min(1, rel * 1.2) * 0.9 : rel * 0.35);
         if (a.stranded) amp = (an.amp ?? 0.3) * 2.5;
-        a.wph = (a.wph ?? a.phase) + dt * (swimming ? 5 + rel * 7 : 3 + rel * 4) * 2;
+        a.wph = (a.wph ?? a.phase) + dt * (swimming ? 5 + rel * 7 : 3 + rel * 4) * 2 * (a.herp ? 0.5 + (a.hgill ?? 0.3) * 1.4 : 1);
         if (walker && !swimming && (a.speedNow ?? 0) > 0.05) a.wph = (a.gait ?? 0) + a.phase;
         // Legs: stretched out through the first part of a hop and tucked in
         // for the landing; a swimming frog kicks.
@@ -2413,6 +2635,7 @@ export class Animals {
             if (!a.hop) hop = Math.max(hop, v.hop, a.tapT > 0 ? toeTap(this.t + a.phase) : 0);
             // Legs work while it walks or turns; when it stops they settle planted (an unstopped gait left two feet in the air).
             a.legCalm = (a.legCalm ?? 1) + ((a.stepping > 0 || a.hop ? 0 : 1) - (a.legCalm ?? 1)) * Math.min(1, dt / this.tf * 7);
+            if (a.herp) { v.throat = Math.max(v.throat, (a.hpump ?? 0) * 0.62); v.eye = Math.max(v.eye, a.heye ?? 0); }
             packed = packAnim(hop, v.breath, v.throat, v.eye, 0, a.legCalm);
             if (!a.hop) pos = _p.copy(a.pos).add(v.off); pos.y += v.y;
           } else if (VIS.has(sp.kind)) {
@@ -2441,7 +2664,13 @@ export class Animals {
         }
         // The swimming-pose model flexes a little in time with the stroke; everything else is the rig's business.
         if (poseMesh) poseMesh.put(pos, q, sc, (a.kick ?? 0) * TAU, 0.16, 0, 0, cam ? cam.distanceToSquared(a.pos) : 1e9);
-        else cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);
+        else if (a.hr && an.rig2) {
+          // The mind's head, bend and tail, plus what the gait adds: the head swings against the body wave as the feet step, and
+          // follows the wave (late) when swimming.
+          const r = a.hr, lk = walker && !swimming ? Math.min(1, rel * 1.5) : 0;
+          const hy = r[0] + 0.2 * lk * Math.sin((a.gait ?? 0) + 1) + (swimming ? 0.14 * Math.min(1, rel) * Math.sin(a.wph - 0.7) : 0);
+          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy, r[1], r[2], r[3]);
+        } else cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);
       }
       for (const k of this.keys[id]) this.meshes[k].end();
     }
