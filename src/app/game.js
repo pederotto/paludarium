@@ -193,6 +193,7 @@ export class Game {
   }
 
   frame(dt) {
+    const t0 = performance.now();
     const W = this.world;
     // Background work gets a slice of a frame that has room, and next to nothing after a slow one.
     this.slack = dt > 0.024 ? 0.3 : 1.2;
@@ -230,6 +231,7 @@ export class Game {
     this.gfx.compiler.beginFrame();
     this.gfx.frame(dt);
     this.gfx.render();
+    this.gfx.cpuMs = performance.now() - t0;   // the governor's hint that the main thread, not the GPU, is the bottleneck
     this._tickT += dt;
     if (this._tickT > 0.25) {
       const step = this._tickT;

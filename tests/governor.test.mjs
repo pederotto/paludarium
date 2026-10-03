@@ -5,12 +5,14 @@ import assert from 'node:assert/strict';
 import { Governor, PRESETS, autoCeiling } from '../src/engine/governor.js';
 
 // Drives a governor with frames of a given length for a given number of seconds of (fake) time. Returns the changes it made.
-function run(gov, clock, ms, seconds, { jitter = 0, stallEvery = 0, stallMs = 0 } = {}) {
+// `cpu` is the main thread's time a frame, `gpu` the GPU latency sampled every fourth frame (both optional, in ms).
+function run(gov, clock, ms, seconds, { jitter = 0, stallEvery = 0, stallMs = 0, cpu, gpu } = {}) {
   const changes = []; let n = 0;
   for (let t = 0; t < seconds * 1000;) {
     const dt = ms + (jitter ? ((n * 7) % 5 - 2) * jitter : 0) + (stallEvery && n % stallEvery === stallEvery - 1 ? stallMs : 0);
     clock.t += dt; t += dt; n++;
-    const c = gov.frame(dt / 1000);
+    if (gpu !== undefined && n % 4 === 0) gov.gpu(gpu);
+    const c = gov.frame(dt / 1000, cpu);
     if (c) changes.push({ at: Math.round(clock.t / 1000), ...c });
   }
   return changes;
@@ -112,4 +114,39 @@ test('with a ceiling the preset is never raised by Auto, however fast the frames
   assert.equal(gov.level.q, 1, 'balanced stays balanced');
   const down = run(gov, clock, 40, 120);                     // then the machine struggles: it may still go down
   assert.ok(down.some((c) => c.q === 0), JSON.stringify(down));
+});
+
+test('frames the browser paces (an iPhone in Low Power Mode: 30 a second, GPU and main thread mostly idle) change nothing', () => {
+  const { gov, clock } = make();
+  assert.deepEqual(run(gov, clock, 33.3, 300, { jitter: 0.3, cpu: 6, gpu: 9 }), []);
+  assert.deepEqual(gov.level, { q: 2, scale: 1, cap: 60 });
+  assert.equal(gov.why, 'paced');
+});
+
+test('a main thread that is the bottleneck lowers only the frame cap, never the picture', () => {
+  const { gov, clock } = make();
+  const ch = run(gov, clock, 38, 300, { cpu: 31, gpu: 8 });
+  assert.equal(ch.length, 1, JSON.stringify(ch));
+  assert.deepEqual(gov.level, { q: 2, scale: 1, cap: 30 });
+  assert.equal(ch[0].reason, 'cpu');
+});
+
+test('a GPU that is the bottleneck (its latency a frame or more) still steps down as before', () => {
+  const { gov, clock } = make();
+  const ch = run(gov, clock, 38, 240, { cpu: 6, gpu: 45 });
+  const seq = ch.map((c) => `${PRESETS[c.q]}@${c.scale}/${c.cap}`);
+  assert.deepEqual(seq.slice(0, 3), ['high@0.85/60', 'high@0.7/60', 'high@0.6/60']);
+  assert.equal(gov.level.cap, 30, 'and ends at the bottom of the ladder');
+});
+
+test('a busy main thread that delays the GPU answer reads as a busy GPU (the old behaviour, never a wrong "paced")', () => {
+  const { gov, clock } = make();
+  const ch = run(gov, clock, 38, 30, { cpu: 31, gpu: 30 });
+  assert.ok(ch.length >= 1 && ch[0].scale < 1, JSON.stringify(ch));
+});
+
+test('the scale floor the graphics set (a phone: one render pixel a CSS pixel) is where the scale steps stop', () => {
+  const { gov, clock } = make({ scaleMin: 0.82 });
+  const seq = run(gov, clock, 38, 240).map((c) => `${PRESETS[c.q]}@${c.scale}/${c.cap}`);
+  assert.deepEqual(seq.slice(0, 3), ['high@0.85/60', 'high@0.82/60', 'balanced@0.85/60'], seq.join(' '));
 });

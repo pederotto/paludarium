@@ -12,6 +12,10 @@
 // scene pass runs without MSAA and SMAA cleans the edges afterwards. When AO
 // is off (Balanced) the scene pass uses 4× MSAA instead, which is cheaper.
 // An adaptive resolution scaler trades pixels for frame rate on slow GPUs.
+//
+// A preset's `dpr` is its pixel ratio on a computer screen; `mp` is the most pixels (in millions) it may draw, which on a
+// small screen buys a higher ratio than `dpr`: a phone is a third of a laptop's area at three device pixels a point, and at
+// a laptop's ratio its picture was soft, at the governor's floor blocky. Unchanged at 1280×720 and up.
 
 import * as THREE from 'three/webgpu';
 import {
@@ -26,13 +30,14 @@ import { sharpen } from 'three/addons/tsl/display/SharpenNode.js';
 import { denoise } from 'three/addons/tsl/display/DenoiseNode.js';
 import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
 import { Governor, PRESETS, autoCeiling } from './governor.js';
+import { gpuLatency } from './gpulatency.js';
 import { ShaderCompiler } from './compiler.js';
 
 export const QUALITY = {
-  ultra:    { label: 'Ultra',    dpr: 2,    ao: true,  aoScale: 0.75, aoSamples: 16, aa: 'smaa', sharpen: 0.55, bloom: true, bloomScale: 0.5,  shadow: 4096, aniso: 16 },
-  high:     { label: 'High',     dpr: 1.5,  ao: true,  aoScale: 0.5,  aoSamples: 10, aa: 'smaa', sharpen: 0.7,  bloom: true, bloomScale: 0.5,  shadow: 2048, aniso: 8 },
-  balanced: { label: 'Balanced', dpr: 1.25, ao: false, aoScale: 0.5,  aoSamples: 8,  aa: 'msaa', sharpen: 0,    bloom: true, bloomScale: 0.25,  shadow: 2048, aniso: 4 },
-  low:      { label: 'Low',      dpr: 1,    ao: false, aoScale: 0.5,  aoSamples: 8,  aa: 'none', sharpen: 0,    bloom: false, bloomScale: 0.25, shadow: 1024, aniso: 2 },
+  ultra:    { label: 'Ultra',    dpr: 2,    mp: 3,   ao: true,  aoScale: 0.75, aoSamples: 16, aa: 'smaa', sharpen: 0.55, bloom: true, bloomScale: 0.5,  shadow: 4096, aniso: 16 },
+  high:     { label: 'High',     dpr: 1.5,  mp: 1.6, ao: true,  aoScale: 0.5,  aoSamples: 10, aa: 'smaa', sharpen: 0.7,  bloom: true, bloomScale: 0.5,  shadow: 2048, aniso: 8 },
+  balanced: { label: 'Balanced', dpr: 1.25, mp: 1.2, ao: false, aoScale: 0.5,  aoSamples: 8,  aa: 'msaa', sharpen: 0,    bloom: true, bloomScale: 0.25,  shadow: 2048, aniso: 4 },
+  low:      { label: 'Low',      dpr: 1,    mp: 0.6, ao: false, aoScale: 0.5,  aoSamples: 8,  aa: 'none', sharpen: 0,    bloom: false, bloomScale: 0.25, shadow: 1024, aniso: 2 },
 };
 
 // The look of the picture: everything here is live-adjustable uniforms.
@@ -48,12 +53,13 @@ export const GRADE = {
   bokeh: uniform(2.2),
 };
 
-// What the governor settled on for this device last time, so the next visit does not have to find it out again.
+// What the governor settled on for this device last time, so the next visit does not have to find it out again. Version 2:
+// a version-1 profile may hold the floor a phone was pushed to by frames the GPU was not to blame for (see governor.js).
 const PROFILE_KEY = 'paludarium.gfx';
 function loadProfile() {
   try {
     const o = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? 'null');
-    if (o && o.v === 1 && QUALITY[o.quality] && o.scale >= 0.5 && o.scale <= 1 && [30, 60, 120, 240].includes(o.cap)) return o;
+    if (o && o.v === 2 && QUALITY[o.quality] && o.scale >= 0.5 && o.scale <= 1 && [30, 60, 120, 240].includes(o.cap)) return o;
   } catch { /* private mode */ }
   return null;
 }
@@ -71,6 +77,8 @@ function gpuName(r) {
 }
 // Integrated, mobile and software renderers: they start on the Low preset (the governor raises it if the machine proves fast).
 const WEAK_GPU = /adreno|qualcomm|mali|powervr|videocore|swiftshader|llvmpipe|software|basic render|intel.*(hd |uhd|graphics 6|gen\d)/i;
+// A phone (its GPU names itself like a laptop's: an iPhone says "apple", as an M1 does), by the size of its screen.
+const isPhone = () => Math.min(screen.width || 1e4, screen.height || 1e4) < 600;
 
 export class Gfx {
   constructor(host, params = new URLSearchParams()) {
@@ -90,6 +98,8 @@ export class Gfx {
     this._stable = 0; this._saved = false;
     this.shadowEvery = Math.max(1, +params.get('shadowevery') || 2);   // redraw the shadow map every Nth frame (1 = every frame)
     this._shadowLights = []; this._frameNo = 0;
+    this.phone = false;
+    this.cpuMs = -1;             // the main thread's time for the last frame (set by the game loop), for the governor
   }
 
   async init() {
@@ -111,6 +121,8 @@ export class Gfx {
     this.backend = r.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL 2';
     this.maxAniso = r.getMaxAnisotropy?.() ?? 4;
     this.gpu = gpuName(r);
+    this.phone = isPhone();
+    this.latency = gpuLatency(r, (ms) => this.governor?.gpu(ms));
     if (p.has('lowres')) this.quality = 'low';
     const q = p.get('quality');
     const forced = p.has('lowres') || (q && QUALITY[q]);
@@ -118,7 +130,7 @@ export class Gfx {
     else if (this.backend !== 'WebGPU' && !p.has('lowres')) this.quality = WEAK_GPU.test(this.gpu) ? 'low' : 'balanced';
     // WebGPU starts on High, except on an integrated or mobile GPU: Balanced (no ambient occlusion), from where the governor
     // raises it to High if the machine proves fast. Starting high and stepping down cost a few slow seconds on such machines.
-    else if (!p.has('lowres') && WEAK_GPU.test(this.gpu)) this.quality = 'balanced';
+    else if (!p.has('lowres') && (WEAK_GPU.test(this.gpu) || this.phone)) this.quality = 'balanced';
     const capMax = this.maxFps;
     this.qCeil = autoCeiling(this.backend, this.quality);     // how high Auto may take the preset by itself (see governor.js)
     const saved = forced ? null : loadProfile();
@@ -141,7 +153,7 @@ export class Gfx {
     this.onChange?.({ quality: this.quality, scale: this.adapt, cap: this.maxFps, reason: ch.reason });
   }
 
-  profile() { return { v: 1, quality: this.quality, scale: +this.adapt.toFixed(2), cap: this.maxFps, auto: this.auto }; }
+  profile() { return { v: 2, quality: this.quality, scale: +this.adapt.toFixed(2), cap: this.maxFps, auto: this.auto }; }
 
   // Auto in Settings: the governor chooses the preset too, from where we are now.
   setAuto(on) {
@@ -163,15 +175,27 @@ export class Gfx {
 
   get q() { return QUALITY[this.quality]; }
 
-  pixelRatio() {
-    return Math.max(0.5, Math.min(window.devicePixelRatio || 1, this.q.dpr) * this.adapt);
+  size() { return [this.host.clientWidth || window.innerWidth, this.host.clientHeight || window.innerHeight]; }
+
+  // The preset's pixel ratio at full scale: its `dpr`, or more on a small screen while it stays inside the preset's `mp`.
+  ratioCap() {
+    const [w, h] = this.size(), q = this.q;
+    return Math.min(window.devicePixelRatio || 1, Math.max(q.dpr, Math.sqrt(q.mp * 1e6 / Math.max(1, w * h))));
   }
 
+  // However slow the GPU: half a pixel a CSS pixel on a computer; on a phone one, below which a picture next to its
+  // three-times-sharper interface is blocks (the frame cap gives the GPU its rest instead).
+  ratioFloor() { return this.phone ? Math.min(window.devicePixelRatio || 1, 1) : 0.5; }
+
+  pixelRatio() { return Math.max(this.ratioFloor(), this.ratioCap() * this.adapt); }
+
   resize() {
-    const w = this.host.clientWidth || window.innerWidth, h = this.host.clientHeight || window.innerHeight;
+    const [w, h] = this.size();
     this.renderer.setPixelRatio(this.pixelRatio());
     this.renderer.setSize(w, h);
     this.aspect = w / h;
+    // Scale steps below the floor would change nothing: the governor moves on to the preset and the cap sooner.
+    if (this.governor) this.governor.scaleMin = Math.min(0.85, Math.max(0.6, this.ratioFloor() / this.ratioCap()));
     this.governor?.warm(60);          // the first frames at a new size build render targets: not a measure of the GPU
     return [w, h];
   }
@@ -298,12 +322,13 @@ export class Gfx {
     const c = this.compiler;
     c.inFrame = true;
     try { this.pipeline.render(); } finally { c.inFrame = false; }
+    this.latency?.after();
   }
 
   // Call once per frame, before it is drawn, with the time since the previous drawn frame in seconds.
   frame(dt) {
     if (this.governor && this.measuring && !this.params.has('fixedres')) {
-      const ch = this.governor.frame(dt);
+      const ch = this.governor.frame(dt, this.cpuMs);
       if (ch) this.apply(ch);
       else if ((this._stable += dt) > 25 && !this._saved) { this._saved = true; saveProfile(this.profile()); }   // settled: remember it
     }
