@@ -30,9 +30,18 @@
 //             is a milky tint in the material before a shed.
 //   legAxis   'x' for a sideways walker (crab): the gait swings feet along the body's x axis, in the direction given
 //             by the sign of anim.y (the body wave is not used).
+//   invert    (finish.invert = { antenna, wave, curl }) insects, isopods and shrimp. The packed bits a frog spends on breath,
+//             throat and eyes mean other things here: breath = how busy the antennae are, throat = a beat (wings buzzing, a shrimp's
+//             swimmerets paddling), eye = feeding (a shrimp's pincers picking at the ground and back to its mouth), pose = the
+//             wings spread from folded; hop = the jumping hind legs and a springtail's furcula kicking out, or the body curling
+//             (`curl`: { z0, y0, len, flick }: a panda king isopod rolls into a ball, a shrimp flicks its tail under, about the
+//             belly line y0 at z0 over `len` cm). Leg ids beyond the four walking ones: 7 / 8 antennae, 9 wings, 10 swimmerets,
+//             11 / 12 jumping hind legs (walk with the tripod of 1 and 4 / 2 and 3), 13 furcula, 15 / 16 a shrimp's pincers.
+//             `wave` (radians per spine length): legs step in a wave from tail to head, opposite sides half a cycle apart,
+//             instead of in diagonal pairs (seven pairs of isopod legs or five of a shrimp's walking in two groups shuffled).
 
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, positionLocal, normalLocal, float, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView } from 'three/tsl';
+import { Fn, attribute, positionLocal, normalLocal, float, vec3, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView, varyingProperty } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
 import { packAnim, rig2Pack } from '../../util/gait.js';
 import { requestBody } from './meshpool.js';
@@ -153,6 +162,8 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
   const waveHead = finish.waveHead ?? 0;
   const rig2 = finish.rig2 ?? null;
   const side = legAxis === 'x';
+  const inv = finish.invert ?? null;
+  const vCurl = inv?.curl ? varyingProperty('float', 'vCurl') : null;   // the curl's angle at this vertex, for its normal
   m.positionNode = Fn(() => {
     const spine = rig.x, leg = rig.y, legT = rig.z;
     const spineW = spine.toVar();      // the spine position the body wave sees (the part of a cut tail is folded into what is left)
@@ -210,9 +221,13 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     // then, so it is on the ground the other half of the cycle, when it moves back relative to the body at a constant speed
     // (util/gait.js footSwing: the same curve, so a foot that is down does not slide when legStride = a quarter of the stride).
     const isFore = abs(leg.sub(1.5)).lessThan(0.6), isHind = abs(leg.sub(3.5)).lessThan(0.6);
-    const isWalk = isFore.or(isHind);
-    const diag = abs(leg.sub(1)).lessThan(0.5).or(abs(leg.sub(4)).lessThan(0.5));
-    const lp = anim.z.add(diag.select(float(0), float(3.14159)));
+    const idIs = (k) => abs(leg.sub(k)).lessThan(0.5);
+    const jump = inv ? idIs(11).or(idIs(12)) : null;                    // an insect's jumping hind legs (cricket)
+    const isWalk = inv ? isFore.or(isHind).or(jump) : isFore.or(isHind);
+    const diag = inv ? idIs(1).or(idIs(4)).or(idIs(11)) : abs(leg.sub(1)).lessThan(0.5).or(abs(leg.sub(4)).lessThan(0.5));
+    // (a wave of legs: the left legs, 1, 3 and 11, half a cycle from the right; along the body each leg a little later than the one behind it)
+    const lp = inv?.wave ? anim.z.add(idIs(1).or(idIs(3)).or(idIs(11)).select(float(0), float(3.14159))).add(spine.mul(inv.wave))
+      : anim.z.add(diag.select(float(0), float(3.14159)));
     const go = float(1).sub(calm);
     const lift = max(sin(lp), 0).mul(legT).mul(legLift).mul(go);
     const u = fract(lp.mul(1 / 6.283185));
@@ -221,7 +236,7 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     if (side) p.x.addAssign(isWalk.select(swing.mul(sign(anim.y)), float(0)));
     else p.z.addAssign(isWalk.select(swing, float(0)));
     const sgn = sign(positionLocal.x);
-    const hind = isHind.select(float(1), float(0));
+    const hind = (inv ? jump : isHind).select(float(1), float(0));
     // Hop (or one frog kick): the back legs stretch out behind.
     p.z.subAssign(hind.mul(hopv).mul(legT).mul(1.6 * limb));
     p.y.subAssign(hind.mul(hopv).mul(legT).mul(0.4 * limb));
@@ -232,6 +247,51 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       p.y.addAssign(claw.mul(wv.mul(0.55).add(0.35)).mul(limb));
       p.x.addAssign(sgn.mul(claw).mul(sin(anim.x.mul(0.5)).mul(0.3)).mul(limb));
       p.z.addAssign(claw.mul(0.25).mul(limb));
+    } else if (inv) {
+      const act = breath.mul(0.85).add(0.15), beat = throat, feed = eyeRet, spread = pose;
+      // Antennae (7 left, 8 right): a slow sweep and dip, out of step with each other, livelier the busier the animal is.
+      const antL = idIs(7), ant = antL.or(idIs(8)), sa = antL.select(float(-1), float(1));
+      const sweep = sin(anim.x.mul(0.33).add(sa.mul(1.9))).mul(0.8).add(sin(anim.x.mul(0.71).add(sa)).mul(0.3));
+      const dip = sin(anim.x.mul(0.27).add(sa.mul(0.8)).add(1.3));
+      const ka = legT.mul(act).mul(inv.antenna ?? 1);
+      p.x.addAssign(ant.select(ka.mul(sweep), float(0)));
+      p.y.addAssign(ant.select(ka.mul(dip).mul(0.6), float(0)));
+      // Wings (9): spread out, forward and up from folded over the back, and buzz while they beat.
+      const wing = idIs(9).select(legT, float(0));
+      const buzz = sin(anim.x.mul(7)).mul(beat);
+      p.x.addAssign(sgn.mul(wing).mul(spread.mul(0.9).add(beat.mul(0.35))));
+      p.y.addAssign(wing.mul(spread.mul(0.25).add(buzz.mul(0.6))));
+      p.z.addAssign(wing.mul(spread.mul(0.35)));
+      // Swimmerets (10): paddle in a wave from front to back while the shrimp swims.
+      const plp = idIs(10).select(legT, float(0)), pw = sin(anim.x.mul(2.4).add(spine.mul(9)));
+      p.z.addAssign(plp.mul(beat).mul(pw));
+      p.y.addAssign(plp.mul(beat).mul(pw.mul(0.4).add(0.2)));
+      // Pincers (15 left, 16 right): down to the ground and back up to the mouth, one side then the other, while it feeds.
+      const chL = idIs(15), ch = chL.or(idIs(16)).select(legT, float(0)), pk = sin(anim.x.mul(0.9).add(chL.select(float(0), float(3.14159))));
+      p.y.addAssign(ch.mul(feed).mul(pk.mul(0.5).add(0.1)));
+      p.z.subAssign(ch.mul(feed).mul(pk.mul(0.3)));
+      p.x.subAssign(sgn.mul(ch).mul(feed).mul(max(pk, 0)).mul(0.3));
+      // Furcula (13): the springtail's spring snaps down and back as it jumps.
+      const fur = idIs(13).select(legT, float(0));
+      p.z.subAssign(fur.mul(hopv)); p.y.subAssign(fur.mul(hopv).mul(0.8));
+      if (inv.curl) {
+        // Curling under: the body is laid round a circle below its belly, all of it (a ball) or the part behind z0 (a tail flick).
+        const { z0, y0, len, flick } = inv.curl;      // (and h: the height of the back, for the lift)
+        const c = max(hopv, 0.0015), on = hopv.greaterThan(0.002);
+        const Rc = float(flick ? len / Math.PI : len / (2 * Math.PI)).div(c);
+        const u = p.z.sub(z0).toVar(), uu = flick ? min(u, float(0)) : u;
+        // (rolling, the side edges of the plates come round to the axis, so the sides of the ball close over the legs)
+        const sx = min(abs(p.x).div(inv.curl.w ?? 1), float(1));
+        const r = (flick ? Rc : Rc.mul(float(1).sub(c.mul(sx.mul(sx)).mul(0.92)))).add(p.y.sub(y0)).toVar(), phi = uu.div(Rc).toVar();
+        // (a ball is lifted so its lowest point stays on the ground: the ends of a half-curled body touch down, the middle rises)
+        const ce = cos(c.mul(Math.PI)), lift = flick ? float(0) : Rc.mul(float(1).sub(ce)).add(max(ce.negate(), float(0)).mul(inv.curl.h ?? 0));
+        const zN = r.mul(sin(phi)).add(z0).add(flick ? max(u, float(0)) : float(0)), yN = r.mul(cos(phi)).add(y0).sub(Rc).add(lift);
+        // a ball closes at the sides: the flanks fold in toward the belly as it rolls (a ring would leave a hole down the middle)
+        const pinch = flick ? float(1) : float(1).sub(c.mul(0.2).mul(float(1).sub(min(max(p.y.sub(y0).div(inv.curl.h ?? 0.1), float(0)), float(1)))));
+        p.x.assign(select(on, p.x.mul(pinch), p.x));
+        p.z.assign(select(on, zN, p.z)); p.y.assign(select(on, yN, p.y));
+        vCurl.assign(select(on, phi, float(0)));
+      }
     } else {
       // Swimming (pose): the breaststroke splays the feet as the legs extend (largest halfway) and closes them at full
       // extension; the forelegs sweep back, up and in along the flanks.
@@ -245,18 +305,22 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     // Breathing: the flanks swell and sink; throat: the underside of the head bulges (to 0.32 cm: a calling frog's vocal sac; the
     // everyday throat pumping uses about 0.6 of that, util/gait.js callSac and Animals.vis); eyes sink into the head.
     const flank = sin(min(max(spine.sub(0.15).mul(2), float(0)), float(1)).mul(3.14159));
-    const k = breath.mul(0.045).mul(flank).mul(isWalk.select(float(0), float(1)));
-    p.x.addAssign(p.x.mul(k)); p.y.addAssign(p.y.mul(k));
-    const head = max(float(1).sub(spine.mul(3.3)), float(0));
-    const under = min(max(normalLocal.y.mul(-1.6), float(0)), float(1));
-    p.addAssign(normalLocal.mul(throat.mul(0.32).mul(head).mul(under).mul(isWalk.select(float(0), float(1)))));
-    p.y.subAssign(abs(matId.sub(1)).lessThan(0.5).select(eyeRet.mul(0.22), float(0)));
+    if (!inv) {
+      const k = breath.mul(0.045).mul(flank).mul(isWalk.select(float(0), float(1)));
+      p.x.addAssign(p.x.mul(k)); p.y.addAssign(p.y.mul(k));
+      const head = max(float(1).sub(spine.mul(3.3)), float(0));
+      const under = min(max(normalLocal.y.mul(-1.6), float(0)), float(1));
+      p.addAssign(normalLocal.mul(throat.mul(0.32).mul(head).mul(under).mul(isWalk.select(float(0), float(1)))));
+      p.y.subAssign(abs(matId.sub(1)).lessThan(0.5).select(eyeRet.mul(0.22), float(0)));
+    }
     // Membranes (fins, gills, tail fringes) ripple along the normal.
     const isFin = abs(matId.sub(2)).lessThan(0.5);
     p.addAssign(normalLocal.mul(sin(anim.x.mul(1.7).add(positionLocal.z.mul(4)).add(positionLocal.y.mul(3))).mul(flutter).mul(isFin.select(float(1), float(0)))));
     return qrot(q, p.mul(iPos.w)).add(iPos.xyz);
   })();
-  m.normalNode = transformNormalToView(qrot(q, n));
+  // A curled body turns its normals with it (about x, by the angle at the vertex), or a rolled isopod is lit as if still flat.
+  const nc = vCurl ? vec3(n.x, n.y.mul(cos(vCurl)).sub(n.z.mul(sin(vCurl))), n.z.mul(cos(vCurl)).add(n.y.mul(sin(vCurl)))) : n;
+  m.normalNode = transformNormalToView(qrot(q, nc));
   return m;
 }
 

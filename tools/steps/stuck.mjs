@@ -56,7 +56,7 @@ export default async (page, shot, name) => {
           if (a.onWall || a.hop || a.stranded) return false;
           const g = T.heightAt(a.pos.x, a.pos.z);
           const fish = FISH.includes(a.sp);
-          if (A.occ.solidAt(a.pos.x, a.pos.y + (fish || a.swimming || a.sp === 'fly' ? 0 : 0.5), a.pos.z)) return true;
+          if (A.occ.solidAt(a.pos.x, a.pos.y + (fish || a.swimming ? 0 : 0.5), a.pos.z)) return true;      // (fruit flies walk now: tested like any walker)
           if (fish) {
             const top = A.waterTop(a.pos.x, a.pos.z);
             if (a.pos.y < g + 0.2 || a.pos.y > top + 0.05 || !(top > -Infinity)) return true;
