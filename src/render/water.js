@@ -10,7 +10,7 @@
 import * as THREE from 'three/webgpu';
 import {
   float, vec3, vec2, uv, time, mix, smoothstep, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
-  attribute, fract, length, max, min, Fn, reflect,
+  attribute, fract, length, max, min, Fn, reflect, viewportSharedTexture, viewportSafeUV, screenUV,
 } from 'three/tsl';
 import { noise3 } from './noise3.js';
 import { TANK, MINUTES_PER_SECOND } from '../sim/tank.js';
@@ -663,8 +663,16 @@ function makeFlowMaterial() {
   const glint = pow(rl, 500).mul(4).add(pow(rl, 40).mul(0.2)).mul(U.daylight);
   const room = vec3(0.025, 0.03, 0.034);
   const flowing = mix(water, vec3(0.42, 0.52, 0.56).mul(lit), sheen.mul(0.45));
-  m.colorNode = mix(mix(flowing, room, fres), vec3(0.8, 0.85, 0.88).mul(lit), foam).add(glint);
-  m.opacityNode = clamp(float(0.12).add(flowK.mul(0.1)).add(sheen.mul(0.15)).add(deep.mul(0.35)).add(foam.mul(0.75)).add(fres.mul(0.5)).add(tur.mul(0.3)).add(glint), 0, 0.92).mul(smoothstep(0.05, 1, show));
+  // Seen through the water: the rendered scene behind the surface, as the main pool does (render/waterfx.js), bent by
+  // the ripples, so the bed wavers as the stream runs over it; running water bends it more. The water's own colour lies
+  // over it (more of it with depth, cloudiness and the sheen), the reflection with the angle, foam on top. Opaque, so
+  // nothing is drawn twice; at the banks it fades out to the plain ground.
+  const bendK = mix(float(0.02), float(0.06), flowK);
+  const below = viewportSharedTexture(viewportSafeUV(screenUV.add(nrm.xz.mul(bendK)))).rgb;
+  const veil = clamp(float(0.12).add(flowK.mul(0.1)).add(sheen.mul(0.15)).add(deep.mul(0.35)).add(tur.mul(0.3)), 0, 0.85);
+  const under = mix(below.mul(vec3(0.9, 0.96, 0.97)), flowing, veil);
+  m.colorNode = mix(mix(under, room, fres), vec3(0.8, 0.85, 0.88).mul(lit), foam).add(glint);
+  m.opacityNode = smoothstep(0.05, 1, show);
   return m;
 }
 

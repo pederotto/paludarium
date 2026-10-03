@@ -13,8 +13,9 @@
 // Visualization on GPU", 2007), the method used by open-source terrain
 // simulators such as LanLou123/Webgl-Erosion and bshishov/UnityTerrainErosionGPU:
 // every cell keeps the flow through four virtual pipes to its neighbours; the
-// flow accelerates with the difference in water surface height, and it is
-// scaled down so a cell never gives away more water than it holds. Where the
+// flow accelerates with the difference in water surface height, is held back
+// by the friction of the bed (Manning), and is scaled down so a cell never
+// gives away more water than it holds. Where the
 // ground drops away steeply (a ledge), the water leaves the surface and lands
 // at the foot of the drop, which is how waterfalls form.
 
@@ -24,6 +25,13 @@ import { WaterBodies, NODE } from './waterbodies.js';
 
 const G = 981;                // cm/s²
 const DAMP = 0.992;           // pipe friction per sub-step
+// Bed friction (Manning): a shallow stream on a slope runs at the speed its depth and the roughness of the bed allow,
+// u = (1/n) h^(2/3) S^(1/2), not as fast as gravity can push it. Without it water on any slope ran at the model's limit
+// of one cell per sub-step (about 1.8 m/s) as a film a millimetre or two thick, so a stream carrying the whole pump's
+// flow looked like a trickle and a joined stream narrower than the two feeding it. n = 0.05 is a natural bed of
+// soil, gravel and moss; FRICTION is 9.81 n^2 100^(1/3), the Manning drag in cm units (see the pipe loop in step).
+const MANNING_N = 0.05;
+const FRICTION = 9.81 * MANNING_N * MANNING_N * Math.cbrt(100);
 const SUB_DT = 1 / 240;       // s
 const JUMP = 1.6;             // cm of drop between neighbouring cells that makes water leave the surface
 export const WET = 0.05;      // cm: thinner films count as dry
@@ -479,6 +487,11 @@ export class Hydro {
         const o = n * 4;
         if (res[n] || d[n] <= 1e-6) { F[o] = F[o + 1] = F[o + 2] = F[o + 3] = 0; continue; }
         const sn = h[n] + d[n];
+        // Manning drag on a pipe's flow F through water h deep: dF/dt = -FRICTION F^2 / h^(10/3) (from the friction
+        // slope g n^2 u^2 / h^(4/3), with u = F / (h * cell width)). Taken implicitly, so it is stable however thin
+        // the water: F' + a F'^2 = F. Not over a ledge: water pouring off a lip is not held back by its bed.
+        const hd = Math.max(d[n], 0.02);
+        const a = sdt * FRICTION / (hd * hd * hd * Math.cbrt(hd));
         let tot = 0;
         for (let k = 0; k < 4; k++) {
           const m = nb[o + k];
@@ -486,6 +499,7 @@ export class Hydro {
           const sm = res[m] ? Math.max(this.level, h[m]) : h[m] + d[m];
           let v = F[o + k] * DAMP + sdt * kA * (sn - sm);
           if (v < 0) v = 0;
+          else if (jump[o + k] < 0) v = 2 * v / (1 + Math.sqrt(1 + 4 * a * v));
           F[o + k] = v;
           tot += v;
         }
