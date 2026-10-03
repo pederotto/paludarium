@@ -21,7 +21,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, attribute, positionLocal, normalLocal, vec2, vec3, float, bool, sin, sqrt, mix, select, abs, max, normalize, dot, transformNormalToView,
-  cross, time, cameraPosition, positionWorld, pow, smoothstep, texture, uv, length,
+  cross, time, cameraPosition, positionWorld, pow, smoothstep, texture, uv, length, floor, varying,
 } from 'three/tsl';
 import { noise3 } from '../noise3.js';
 import { wet } from '../shaders.js';
@@ -29,6 +29,16 @@ import { U } from '../uniforms.js';
 
 const qrot = (q, v) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
 const is = (id, n) => abs(id.sub(n)).lessThan(0.5);
+
+// The second per-instance vector of the head-steering species (finish.rig2) is (head yaw, head pitch, A, B), where the animation
+// packs several small numbers into the floats A and B (WebGPU allows only 8 vertex buffers a pipeline, so there is no room for
+// another attribute): A = bend + 1024 * tail, each 0 … 1022 over -1 … 1 and -0.5 … 0.5 (so 0 is exact);
+// B = tailLength * 63 + 64 * (dullness * 63 + 64 * tailPiece * 127). `rig2Pack` (util/gait.js, CPU) and `rig2Unpack` (a node graph) are inverses.
+export const rig2Unpack = (a2) => {
+  const tq = floor(a2.z.div(1024)), bq = a2.z.sub(tq.mul(1024));
+  const pq = floor(a2.w.div(4096)), r = a2.w.sub(pq.mul(4096)), dq = floor(r.div(64)), fq = r.sub(dq.mul(64));
+  return { bend: bq.div(1022).mul(2).sub(1), tail: tq.div(1022).sub(0.5), tailF: fq.div(63), dull: dq.div(63), piece: pq.div(127) };
+};
 
 // Default finish per species group; def.finish overrides any of it.
 //   grain      frequency of the fine skin noise (per cm); bump its normal strength; tone the colour speckle
@@ -92,7 +102,14 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   const m = new THREE.MeshPhysicalNodeMaterial({ roughness: f.rough, metalness: 0.0, side: f.doubleSided ? THREE.DoubleSide : THREE.FrontSide });
   const id = attribute('rig', 'vec4').w;
   // Procedural bodies paint per-vertex colour; scanned or generated models bring a texture.
-  const base = map ? texture(map, uv()).rgb : attribute('color', 'vec3');
+  let base = map ? texture(map, uv()).rgb : attribute('color', 'vec3');
+  // Before a shed the skin goes dull and milky (finish.rig2 species; decoded in the vertex stage and passed on as a varying, because a
+  // large packed float does not survive interpolation exactly).
+  if (f.rig2) {
+    const dull = varying(rig2Unpack(attribute('iAnim2', 'vec4')).dull);
+    const grey = dot(base, vec3(0.3, 0.55, 0.15));
+    base = mix(base, vec3(grey.mul(0.55).add(0.3)), dull.mul(0.62));
+  }
   // Species with analytic eyes (finish.eyes) never use the eye id: material ids are interpolated across a
   // triangle, so a skin (0) to fin (2) seam would otherwise pass through the eye material (1) as a dark line.
   const eye = f.eyes ? bool(false) : is(id, 1), fin = is(id, 2), iri = is(id, 3), chitin = is(id, 4), gloss = is(id, 5), horn = is(id, 6), glass = is(id, 7);

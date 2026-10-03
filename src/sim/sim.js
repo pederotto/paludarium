@@ -363,7 +363,7 @@ export class Sim {
         const clutches = W.animals.by.eggs.filter((e) => e.parent === a.sp).length * (sp.eggs?.n ?? 0);
         const room2 = room - clutches / sp.cap;
         const suck = (sp.kind === 'crawlWater' || sp.kind === 'swim') && E.filter ? filterOf(E).suction * (E.prefilter ? 0.08 : 1) : 0;   // a canister intake takes babies
-        if (damp && room2 > 0 && Math.random() < sp.breed * (d / 1440) * room2 * (sp.kind === 'crawlWater' ? E.cycle : 1) * (1 - suck * 0.7)) {
+        if (damp && room2 > 0 && Math.random() < sp.breed * (d / 1440) * room2 * (sp.kind === 'crawlWater' ? E.cycle : 1) * (1 - suck * 0.7) * ((a.courtedUntil ?? 0) > E.minute ? 2.5 : 1)) {   // (a courted pair breeds more readily: sim/herp.js)
           // Species with genes need two parents: a marked pair if there is one, else any fit adult.
           const mate = hasGenetics(a.sp) ? W.animals.partnerFor(a) : null;
           if (!hasGenetics(a.sp) || mate) {

@@ -109,7 +109,7 @@ function setView(name) {
 let animOn = q.get('anim') === '1', t0 = performance.now();
 const quat = new THREE.Quaternion(), euler = new THREE.Euler(0, 0, 0, 'YXZ');
 // The animal's state as the game would hand it to the rig: pose (hop, pose, calm …) plus body angles and height.
-const state = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, phase: 0, amp: 0, gait: 0, hop: 0, breath: 0, throat: 0, eye: 0, pose: 0, calm: 1, hy: 0, hp: 0, bend: 0, tail: 0 };   // hy hp bend tail: the rig2 channel
+const state = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, phase: 0, amp: 0, gait: 0, hop: 0, breath: 0, throat: 0, eye: 0, pose: 0, calm: 1, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0 };   // hy hp bend tail: the rig2 channel; tf dull piece: iAnim3 (tail length, skin dullness, tail piece)
 // Named poses at phase t (0 … 1). `swim` is a frog kick (or a salamander's glide for kinds that undulate), `walk` a leg cycle.
 const POSES = {
   stand: () => ({ calm: 1 }),
@@ -124,6 +124,9 @@ const POSES = {
   nod: (t) => ({ calm: 1, hp: 0.5 * Math.sin(t * TAU) }),
   arch: (t) => ({ calm: 1, bend: 0.5 * Math.sin(t * TAU), tail: 0 }),
   tailwave: (t) => ({ calm: 1, tail: 0.18 * Math.sin(t * TAU) }),
+  stump: (t) => ({ calm: 1, tf: 0.1 + 0.9 * (1 - t) }),                 // the tail cut short, growing back (t = 0: a stump, 1: whole)
+  piece: (t) => ({ calm: 1, piece: 0.55, tail: 0.26 * Math.sin(t * TAU * 2) }),   // the dropped tail alone, thrashing
+  dull: (t) => ({ calm: 1, dull: 0.85 * t }),                         // the skin going milky before a shed
 };
 function frame() {
   const t = (performance.now() - t0) / 1000;
@@ -135,7 +138,7 @@ function frame() {
   const pos = new THREE.Vector3(state.x, state.y, state.z);
   const packed = packAnim(state.hop, state.breath, state.throat, state.eye, state.pose, state.calm);
   if (animOn) lod.put(pos, quat, scale, t * 8, a.amp ?? 0, t * 6, 0, 0);
-  else lod.put(pos, quat, scale, state.phase, state.amp, state.gait, packed, 0, state.hy, state.hp, state.bend, state.tail);
+  else lod.put(pos, quat, scale, state.phase, state.amp, state.gait, packed, 0, state.hy, state.hp, state.bend, state.tail, state.tf, state.dull, state.piece, 0);
   lod.end();
   renderer.render(scene, cam);
 }
@@ -144,7 +147,7 @@ window.bench = {
   water: (on) => { U.waterLevel.value = on ? 1000 : -1000; },
   anim: (on) => { animOn = on; },
   state, setState: (o) => { Object.assign(state, o); animOn = false; },
-  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0, hy: 0, hp: 0, bend: 0, tail: 0 }, POSES[name]?.(t) ?? {}, extra); animOn = false; },
+  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0 }, POSES[name]?.(t) ?? {}, extra); animOn = false; },
   ready: true,
 };
 setView(q.get('view') ?? 'three');

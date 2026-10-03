@@ -175,3 +175,19 @@ export function unpackAnim(w) {
   const n1 = Math.floor(n0 * 0.125), n2 = Math.floor(n1 * 0.125), n3 = Math.floor(n2 * 0.125), n4 = Math.floor(n3 * 0.0625);
   return { hop, breath: (n0 - n1 * 8) / 7, throat: (n1 - n2 * 8) / 7, eye: (n2 - n3 * 8) / 7, pose: (n3 - n4 * 16) / 15, calm: n4 / 7 };
 }
+
+// --- The head-steering rig's packed floats ------------------------------------------------------------------------------------
+// The second per-instance vector of a species with finish.rig2 is (head yaw, head pitch, A, B). WebGPU allows 8 vertex buffers a
+// pipeline and the creature meshes already use them, so the rest rides packed in two floats (each below 2^24, exact in float32):
+//   A = bend + 1024 * tail            bend -1 … 1 and tail -0.5 … 0.5 (fractions of the body length), 0 … 1022 steps each: 0 is exact
+//   B = tailLength * 63 + 64 * (dullness * 63 + 64 * piece * 127)    tail length 0 … 1, skin dullness 0 … 1, the tail piece's cut 0 … 1
+// render/creatures/material.js rig2Unpack is the same arithmetic as a node graph.
+export function rig2Pack(bend, tail, tailF = 1, dull = 0, piece = 0) {
+  const q = (v, n) => Math.round(clamp01(v) * n);
+  return [q((bend + 1) / 2, 1022) + 1024 * q(tail + 0.5, 1022), q(tailF, 63) + 64 * (q(dull, 63) + 64 * q(piece, 127))];
+}
+export function rig2Unpack(a, b) {
+  const tq = Math.floor(a / 1024), bq = a - tq * 1024;
+  const pq = Math.floor(b / 4096), r = b - pq * 4096, dq = Math.floor(r / 64), fq = r - dq * 64;
+  return { bend: (bq / 1022) * 2 - 1, tail: tq / 1022 - 0.5, tailF: fq / 63, dull: dq / 63, piece: pq / 127 };
+}

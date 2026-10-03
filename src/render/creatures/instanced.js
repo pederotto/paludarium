@@ -23,15 +23,20 @@
 //             up the wall, the C-curve of a turn or a warning arch, a tail that waves. Yaw and pitch (radians, + = toward +x /
 //             nose up) rotate the part of the body ahead of the neck (`neck`: spine fraction of the pivot; the weight is 1 at
 //             `s0` and 0 at `s1`; `neckY` the pivot height; `len` the model length, cm); bend and tail are fractions of `len`.
+//             Two more numbers ride in the same vector (material.js rig2Pack): the tail's length 0 … 1 and the skin's dullness 0 … 1, and
+//             the spine fraction a dropped tail piece was cut at (0 for a whole animal). A gecko that dropped its tail has a blunt
+//             stump (`rig2.tail0`: the spine fraction of the vent; `tailY`: the height of the tail's axis); the dropped tail is another
+//             instance of the same mesh with the piece set, which shows only the part beyond the cut and thrashes about it. The dullness
+//             is a milky tint in the material before a shed.
 //   legAxis   'x' for a sideways walker (crab): the gait swings feet along the body's x axis, in the direction given
 //             by the sign of anim.y (the body wave is not used).
 
 import * as THREE from 'three/webgpu';
 import { Fn, attribute, positionLocal, normalLocal, float, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
-import { packAnim } from '../../util/gait.js';
+import { packAnim, rig2Pack } from '../../util/gait.js';
 import { requestBody } from './meshpool.js';
-import { creatureMaterial, qrot } from './material.js';
+import { creatureMaterial, qrot, rig2Unpack } from './material.js';
 
 // anim.w carries the hop extension and, above it, the packed pose bits (packAnim, in util/gait.js, which says how).
 export { packAnim };
@@ -78,13 +83,13 @@ export class CreatureMesh {
 
   begin() { this.n = 0; }
 
-  put(pos, quat, scale, a0 = 0, a1 = 0, a2 = 0, a3 = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0) {
+  put(pos, quat, scale, a0 = 0, a1 = 0, a2 = 0, a3 = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0) {
     if (this.n >= this.cap) return;
     const i = this.n++;
     this.iPos.setXYZW(i, pos.x, pos.y, pos.z, scale);
     this.iRot.setXYZW(i, quat.x, quat.y, quat.z, quat.w);
     this.iAnim.setXYZW(i, a0, a1, a2, a3);
-    this.iAnim2?.setXYZW(i, b0, b1, b2, b3);
+    if (this.iAnim2) { const [pa, pb] = rig2Pack(b2, b3, c0, c1, c2); this.iAnim2.setXYZW(i, b0, b1, pa, pb); }
   }
 
   end() {
@@ -150,6 +155,7 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
   const side = legAxis === 'x';
   m.positionNode = Fn(() => {
     const spine = rig.x, leg = rig.y, legT = rig.z;
+    const spineW = spine.toVar();      // the spine position the body wave sees (the part of a cut tail is folded into what is left)
     const p = positionLocal.toVar();
     // Head and body steering (finish.rig2): the head turns about the neck on its own, the body curves into a C, the tail swings.
     if (rig2) {
@@ -166,11 +172,27 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       const x1 = x0.mul(cy).add(dzv.mul(sy)).toVar(), dz1 = dzv.mul(cy).sub(x0.mul(sy)).toVar();
       const dy2 = dyv.mul(cp).add(dz1.mul(spn)).toVar(), dz2 = dz1.mul(cp).sub(dyv.mul(spn)).toVar();
       p.x.assign(x1); p.y.assign(dy2.add(neckY)); p.z.addAssign(dz2.sub(dzv));
-      // C-curve about the shoulders (head and tail swing to the same side), tail swing beyond the middle
-      const c0 = spine.sub(0.4);
-      p.x.addAssign(a2.z.mul(len).mul(c0.mul(c0)));
-      const tt = max(spine.sub(0.5).mul(2), float(0));
-      p.x.addAssign(a2.w.mul(len).mul(tt.mul(tt)));
+      // Tail: a gecko's cut (the stump after it dropped its tail, or the dropped piece itself, which is the part beyond the cut).
+      // The spine fraction the body is bent by is clamped to what is left, so the collapsed part follows the rest.
+      const u2 = rig2Unpack(a2);
+      const t0 = rig2.tail0 ?? 0.5, tailY = rig2.tailY ?? neckY * 0.8;
+      const piece = u2.piece.greaterThan(0.01);
+      const sCut = float(t0).add(float(1 - t0).mul(u2.tailF));
+      const endS = sCut.add(0.07);
+      const lowS = u2.piece.sub(0.07);
+      const shrink = select(piece, float(1).sub(smoothstep(lowS, u2.piece, spine)), smoothstep(sCut, endS, spine)).toVar();
+      const dzCut = select(piece, max(lowS.sub(spine), float(0)).negate(), max(spine.sub(endS), float(0))).mul(len);
+      p.x.assign(p.x.mul(float(1).sub(shrink)));
+      p.y.assign(float(tailY).add(p.y.sub(tailY).mul(float(1).sub(shrink))));
+      p.z.addAssign(dzCut);
+      spineW.assign(select(piece, max(spine, lowS), min(spine, endS)));
+      // C-curve about the shoulders (head and tail swing to the same side), tail swing beyond the middle (about the cut for a piece)
+      const c0 = spineW.sub(0.4);
+      p.x.addAssign(u2.bend.mul(len).mul(c0.mul(c0)));
+      const ttBody = max(spineW.sub(0.5).mul(2), float(0));
+      const ttPiece = max(spine.sub(u2.piece), float(0)).div(max(float(1).sub(u2.piece), 0.05));
+      const tt = select(piece, ttPiece, ttBody);
+      p.x.addAssign(u2.tail.mul(len).mul(tt.mul(tt)));
     }
     // Per-instance state, unpacked from anim.w (see packAnim).
     const n0 = floor(anim.w.mul(0.5));
@@ -181,8 +203,8 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     // Body wave: a travelling sine along the spine, growing toward the tail (the head keeps `waveHead` of the amplitude).
     // A sideways walker (crab) has no body wave: anim.y is its direction of travel.
     if (!side) {
-      const profile = spine.mul(spine).mul(1 - waveHead).add(waveHead);
-      p.x.addAssign(sin(spine.mul(wave * 3.14159).sub(anim.x)).mul(anim.y).mul(profile));
+      const profile = spineW.mul(spineW).mul(1 - waveHead).add(waveHead);
+      p.x.addAssign(sin(spineW.mul(wave * 3.14159).sub(anim.x)).mul(anim.y).mul(profile));
     }
     // Legs: diagonal pairs (front left + back right) move together. The foot is up while sin(phase) > 0 and swings forward
     // then, so it is on the ground the other half of the cycle, when it moves back relative to the body at a constant speed
@@ -313,15 +335,15 @@ export class CreatureLOD {
 
   begin() { this._lo?.begin(); this.hi?.begin(); }
   // `d2` is the squared distance from the camera to the animal.
-  // b0 … b3: the second channel (finish.rig2: head yaw, head pitch, body bend, tail swing).
-  put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9, b0 = 0, b1 = 0, b2 = 0, b3 = 0) {
+  // b0 … b3, c0 … c3: the second and third channels (finish.rig2: head yaw, head pitch, body bend, tail swing; tail length, skin dullness, tail piece).
+  put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0) {
     const lo = this._lo;
     if (!lo) return;
     if (d2 < this.near2) {
-      if (this.hi) { this.hi.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3); return; }
+      if (this.hi) { this.hi.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3); return; }
       this.wants = true;
     }
-    lo.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3);
+    lo.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3);
   }
   end() { this._lo?.end(); this.hi?.end(); }
   get mesh() { return this._lo?.mesh; }

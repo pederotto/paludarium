@@ -15,7 +15,7 @@ import { Occupancy } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
 import { SKINK, skinkMind, skinkThink } from './skink.js';
-import { herpMind, herpThink, profileFor, doing } from './herp.js';
+import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
@@ -264,7 +264,7 @@ export const SPECIES = {
     name: 'Mourning gecko', scale: 1, group: 'Reptiles', kind: 'gecko', size: 1.4, speed: 4,
     temp: [21, 29], humidity: 55, hungerHours: 150, lifeDays: 3500, eats: ['fly', 'springtail', 'flylarva'], cap: 10, breed: 0.04, adultDays: 25,
     eggs: { n: 2, days: 12, into: 'gecko', where: 'wall' },
-    body: sdfBody('gecko'), anim: { amp: 0.6, wave: 1.1, lift: 0.28, stride: 0.75, rig2: { neck: 0.24, s0: 0.04, s1: 0.28, neckY: 0.43, len: 9.5 } },
+    body: sdfBody('gecko'), anim: { amp: 0.6, wave: 1.1, lift: 0.28, stride: 0.75, rig2: { neck: 0.24, s0: 0.04, s1: 0.28, neckY: 0.43, len: 9.5, tail0: 0.5, tailY: 0.34 } },
     note: 'Climbs the background and glass. Sleeps by day in a crevice, often with others, comes out at dusk, drinks droplets after rain or misting, stalks insects with its tail waving, and licks its own eyes clean. Females lay eggs without males.',
   },
   cardinal: {
@@ -478,6 +478,7 @@ export class Animals {
     this.warp = 1;                // game minutes per animal second (1 at 1x; the vacation test runs at about 10)
     this.tf = 1;                  // animal time per real time this frame (1 … 4): strikes and hops play in real time
     this.grid = new Map(); this.striking = new Set();
+    this.tails = [];                // dropped gecko tails: { sp, pos, q, sc, age, phase, vy, yaw } (see draw)
     this.tongues = new Tongues(scene);
     for (const id of Object.keys(SPECIES)) {
       this.by[id] = [];
@@ -2296,8 +2297,9 @@ export class Animals {
   herp(a, sp, arr, dt) {
     const W = this.world, T = W.terrain, E = W.env, C = W.climate, Wl = W.wall;
     const P = profileFor(a.sp, sp.kind);
-    const m = (a.hm ??= herpMind(a.sp));
+    const m = (a.hm ??= herpMindFor(a.sp, Math.random, sp.kind));
     a.herp = true;
+    a.male ??= sp.kind === 'gecko' ? false : Math.random() < 0.5;       // (mourning geckos are all female)
     const gecko = sp.kind === 'gecko', axo = sp.kind === 'axolotl';
     const wall = gecko && !!a.onWall;
     const x = a.pos.x, z = a.pos.z;
@@ -2332,7 +2334,8 @@ export class Animals {
       t: this.t, dt, dtMin, dtAir: dt * Math.min(this.warp ?? 1, 2), x: here.x, z: here.z, yaw: a.yaw ?? 0, kind: sp.kind, onWall: wall, depth,
       light: clamp(E.bright(), 0, 1), rain: E.rain ?? 0, rh: C.humidityAt(x, hy, z), temp: depth > 0.3 ? Q.temp ?? E.temp : C.tempAt(x, hy, z), oxygen: depth > 0.3 ? Q.oxygen : undefined,
       wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + (W.nearWater(V(x, g, z), 3) ? 0.5 : 0)),
-      cover: wall ? 0 : this.herpCover(x, z), hunger: a.hunger, health: a.health, male: !!a.male,
+      cover: wall ? 0 : this.herpCover(x, z), hunger: a.hunger, health: a.health,
+      male: !!a.male, adult: a.age / 1440 >= (sp.adultDays ?? 10), mate: this.herpMate(a, sp, P),
       prey, threat, home, reach: this.reachOf(a, sp), moved: a.hmoved ?? 0, toSurface: depth > 0.3 ? top - a.pos.y : 99,
       shore: a.hShore && { x: a.hShore.x, z: a.hShore.z, d: a.hShore.d },
       wetSpot: gecko && a.hWet ? { x: a.hWet.x, z: a.hWet.wall ? -a.hWet.y : a.hWet.z, d: Math.hypot(a.hWet.x - x, (a.hWet.wall ? -a.hWet.y : a.hWet.z) - here.z), wall: a.hWet.wall } : null,
@@ -2345,7 +2348,16 @@ export class Animals {
     const it = herpThink(m, sense);
     if (it.say === 'warn' && Math.random() < 0.3) W.log(`A ${one(a.sp)} froze and showed its warning colours.`, 'info');
     a.hit = it;
-    a.doing = doing(it.mode, sp.kind, { prey: prey && prey.pid ? `a ${one(prey.pid)}` : null, asleep: !!it.tuck, hot: sense.temp > P.tHot, wet: m.wet });
+    // Courtship partner (kept for the whole courtship), a mating, a birth, a dropped tail, a shed skin.
+    a.courtWith = it.mode === 'court' ? (sense.mate?.ref ?? a.courtWith ?? null) : null;
+    if (it.mated) {
+      a.courtedUntil = (E.minute ?? 0) + 4 * 1440;       // (sim.js breeds courted animals more readily)
+      if (a.male && Math.random() < 0.5) W.log(`A ${one(a.sp)} pair courted and mated.`, 'good');
+    }
+    if (it.birth) this.herpBirth(a, sp, it.birth);
+    if (it.dropTail) { a.dropNow = true; W.log(`A ${one(a.sp)} dropped its tail to escape.`, 'info'); }
+    if (it.shed && Math.random() < 0.25) W.log(`A ${one(a.sp)} shed its skin and ate it.`, 'info');
+    a.doing = doing(it.mode, sp.kind, { prey: prey && prey.pid ? (prey.pid === 'flake' ? 'a food flake' : `a ${one(prey.pid)}`) : null, asleep: !!it.tuck, hot: sense.temp > P.tHot, wet: m.wet });
     a.hr = a.hr ?? [0, 0, 0, 0];
     a.hr[0] = it.head; a.hr[1] = it.headP; a.hr[2] = it.bend; a.hr[3] = it.tail;
     a.hpump = it.throat; a.heye = it.eye; a.hgill = it.gill;
@@ -2545,6 +2557,47 @@ export class Animals {
     return { x: sh.x, z: sh.z, y: 0, wall: false };
   }
 
+  // The nearest of its kind of the other sex that it could court or be courted by, in the same medium (herp.js `mate`).
+  herpMate(a, sp, P) {
+    if (!P.court) return null;
+    const T = this.world.terrain;
+    const adult = (x) => x.age / 1440 >= (SPECIES[x.sp].adultDays ?? 10);
+    const wet = (x) => this.waterTop(x.pos.x, x.pos.z) - T.heightAt(x.pos.x, x.pos.z) > 1.2;
+    const same = (x) => (P.court === 'water' ? wet(x) : !x.swimming && !wet(x));
+    const busy = new Set(['court', 'receive', 'follow', 'rest', 'forage', 'hide', 'shore', 'larviposit']);
+    let best = null, bd = 35, courting = null;
+    for (const b of this.by[a.sp] ?? []) {
+      if (b === a || b.dead || !!b.male === !!a.male || !b.hm) continue;
+      const d = Math.hypot(b.pos.x - a.pos.x, b.pos.z - a.pos.z);
+      if (d >= 35) continue;
+      if (!a.male && b.hm.mode === 'court' && b.courtWith === a) courting = { b, d };
+      if (a.male && a.hm?.mode === 'court' && a.courtWith === b) { best = { b, d }; bd = -1; continue; }
+      if (d < bd && adult(b) && adult(a) && same(b) && same(a) && busy.has(b.hm.mode) && !b.hm.gravid && b.hm.pregnant <= 0) { bd = d; best = { b, d }; }
+    }
+    const pick = courting ?? best;
+    if (!pick) return null;
+    const b = pick.b;
+    return { x: b.pos.x, z: b.pos.z, d: pick.d, ok: true, courting: !!courting, phase: b.hm.cp, recv: b.hm.recv, ref: b };
+  }
+
+  // A fire salamander gives birth in the shallows: larvae into the water nearby (they grow up as tadpoles do, and leave it).
+  herpBirth(a, sp, n) {
+    const W = this.world, T = W.terrain;
+    const mine = this.by.tadpole.filter((t) => t.parent === a.sp).length + this.by[a.sp].length;
+    const room = Math.max(0, sp.cap * 2 - mine);
+    const pt = this.crabFind(a.pos.x, a.pos.z, 40, (px, pz, d) => d >= 1.6);
+    if (!pt || !room) return;
+    let k = 0;
+    for (let i = 0; i < Math.min(n, room); i++) {
+      const x = pt.x + (Math.random() - 0.5) * 2, z = pt.z + (Math.random() - 0.5) * 2;
+      const g = T.heightAt(x, z), top = this.waterTop(x, z);
+      if (!(top - g > 1.2)) continue;
+      const c = this.add('tadpole', V(x, g + (top - g) * 0.4, z), { age: 0, hunger: 0.3 });
+      if (c) { c.parent = a.sp; k++; }
+    }
+    if (k) W.log(`A ${one(a.sp)} gave birth to ${k} larvae in the water.`, 'good');
+  }
+
   // The prey it is after: the one it has been ordered to hunt, or the nearest it can see or smell when it is hungry. `d` is from the mouth.
   herpPrey(a, sp, P, mouth, wall) {
     let p = null, pid = null, mine = false;
@@ -2669,8 +2722,35 @@ export class Animals {
           // follows the wave (late) when swimming.
           const r = a.hr, lk = walker && !swimming ? Math.min(1, rel * 1.5) : 0;
           const hy = r[0] + 0.2 * lk * Math.sin((a.gait ?? 0) + 1) + (swimming ? 0.14 * Math.min(1, rel) * Math.sin(a.wph - 0.7) : 0);
-          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy, r[1], r[2], r[3]);
+          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy, r[1], r[2], r[3], a.hm?.tailF ?? 1, a.hm?.dull ?? 0, 0, 0);
+          if (a.dropNow) {
+            // The tail has just come off: a piece of it stays where it was, falls and thrashes.
+            a.dropNow = false;
+            const n = this.tails.filter((t) => t.sp === id).length;
+            if (n >= 6) this.tails.splice(this.tails.findIndex((t) => t.sp === id), 1);
+            this.tails.push({ sp: id, pos: pos.clone(), q: q.clone(), sc, age: 0, phase: 0, vy: 0, wall: !!a.wallMode, cut: 0.5 + 0.5 * 0.1, lie: false });
+          }
         } else cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);
+      }
+      // Dropped tails (geckos): the part of the gecko mesh beyond the cut, thrashing for a few seconds, then lying still, then gone.
+      if (this.tails.length && an.rig2 && dm) {
+        for (let i = this.tails.length - 1; i >= 0; i--) {
+          const t = this.tails[i];
+          if (t.sp !== id) continue;
+          t.age += dt;
+          if (t.age > 90) { this.tails.splice(i, 1); continue; }
+          const g = this.world.terrain.heightAt(t.pos.x, t.pos.z) + 0.1;
+          if (!t.lie) {
+            t.vy -= 30 * dt; t.pos.y += t.vy * dt;
+            if (t.pos.y <= g) {
+              t.pos.y = g; t.lie = true;
+              t.q.setFromEuler(e.set(0, Math.random() * TAU, 0));     // it lands flat
+              t.cut = 0.55;
+            }
+          }
+          const thrash = Math.max(0, 1 - t.age / 22), ph = t.age * (9 + 6 * thrash);
+          dm.put(t.pos, t.q, t.sc, 0, 0, 0, 0, 1e9, 0, 0, 0.0, 0.26 * thrash * Math.sin(ph), 1, 0, t.cut, 0);
+        }
       }
       for (const k of this.keys[id]) this.meshes[k].end();
     }
@@ -2704,6 +2784,7 @@ export class Animals {
   clear() {
     for (const k of Object.keys(this.by)) this.by[k] = [];
     this.food = [];
+    this.tails = [];
     this.draw();
   }
 
