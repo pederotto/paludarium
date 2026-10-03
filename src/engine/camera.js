@@ -6,6 +6,34 @@ import CameraControls from 'camera-controls';
 import { TANK } from '../sim/tank.js';
 
 let installed = false;
+const _ct = new THREE.Vector3(), _cp = new THREE.Vector3(), _cd = new THREE.Vector3();
+
+// What the camera may not pass through: the ground (hardscape stamped in), the background relief and the unstamped pieces
+// (roots, wood: the animals' occupancy grid). Its raycast marches the height fields, which costs far less than testing the
+// triangles of the terrain and rock meshes. Only a crossing from free space into solid counts, so a target that sits right on
+// a surface (a frog on the moss, a double-click on a rock) does not pin the camera to it.
+class TankSolid extends THREE.Object3D {
+  constructor(worldOf) { super(); this.worldOf = worldOf; }
+  solidAt(W, x, y, z) {
+    const hx = TANK.w / 2, hz = TANK.d / 2;
+    if (x < -hx || x > hx || z < -hz || z > hz || y > TANK.h) return false;       // outside the glass is open air
+    if (y < W.terrain.heightAt(x, z) - 0.2) return true;
+    if (z < W.wall.zAt(x, y) - 0.2) return true;
+    return !!W.animals?.occ?.solidAt(x, y, z);
+  }
+  raycast(raycaster, hits) {
+    const W = this.worldOf();
+    if (!W?.terrain || !W.wall) return;
+    const { origin: o, direction: d } = raycaster.ray, far = Math.min(raycaster.far, 400);
+    let free = false;
+    for (let t = 0; t < far; t += 0.35 + t * 0.012) {
+      const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+      const solid = this.solidAt(W, x, y, z);
+      if (!solid) free = true;
+      else if (free) { hits.push({ distance: Math.max(0, t - 0.6), point: new THREE.Vector3(x, y, z), object: this }); return; }
+    }
+  }
+}
 
 export class CameraRig {
   constructor(renderer, aspect) {
@@ -28,7 +56,8 @@ export class CameraRig {
     this.free = { w: 1, h: 1 };                   // fraction of the view left free
     this.size = { w: 1, h: 1 };
     this.moved = false;   // the player has taken the camera: don't re-frame on resize
-    c.addEventListener('controlstart', () => { this.moved = true; });
+    c.addEventListener('controlstart', () => { this.moved = true; this.handling = true; });
+    c.addEventListener('controlend', () => { this.handling = false; this.handledAt = performance.now(); });
   }
 
   // Distance that frames the tank: the vertical field of view fits its
@@ -64,6 +93,37 @@ export class CameraRig {
       close: [-w * 0.09, h * 0.5, w * 0.7, -w * 0.045, h * 0.3, -d * 0.18],
       hero: [-w * 0.3 * Math.min(1.5, D / w) * 0.62 - w * 0.18, h * 0.5, D * 0.86, aspect > 1.2 ? -w * 0.2 : 0, h * 0.42, -d * 0.1],
     };
+  }
+
+  // Keep the camera out of the ground, the background and the hardscape of this world (see TankSolid and clip). Not
+  // camera-controls' own colliderMeshes: those refuse to dolly out while the camera touches a surface, so a camera pushed
+  // against a bank could not be zoomed back out.
+  collideWith(worldOf) {
+    this.solid = new TankSolid(worldOf);
+    this.clipD = null;
+  }
+
+  // After the controls have placed the camera: if a solid surface lies between the target and the camera, draw the camera in
+  // front of it, on the same line (the orbit itself is untouched, so it eases back out when the view clears or the player
+  // zooms out). Comes in at once, goes back out smoothly.
+  clip(dt) {
+    if (!this.solid) return;
+    const c = this.controls, t = c.getTarget(_ct), p = c.getPosition(_cp);
+    const dir = _cd.copy(p).sub(t), len = dir.length();
+    if (len < 1e-3) return;
+    dir.divideScalar(len);
+    const free = Math.max(1.5, this.clearance(t, dir, len + 1) - 0.6);
+    const want = Math.min(len, free);
+    this.clipD = this.clipD == null || want < this.clipD ? want : this.clipD + (want - this.clipD) * Math.min(1, dt * 5);
+    if (this.clipD < len - 0.01) this.camera.position.copy(t).addScaledVector(dir, this.clipD);
+  }
+
+  // How far one can see from `from` along the unit vector `dir` before a solid surface, up to `max`.
+  clearance(from, dir, max) {
+    if (!this.solid) return max;
+    const hits = [];
+    this.solid.raycast({ ray: { origin: from, direction: dir }, far: max }, hits);
+    return hits.length ? hits[0].distance : max;
   }
 
   // Set limits for the current tank and snap to the front view.
@@ -110,7 +170,9 @@ export class CameraRig {
       if (Math.abs(this.shift.x) < 0.4 && Math.abs(this.shift.y) < 0.4) this.camera.clearViewOffset();
       else this.camera.setViewOffset(w, h, -this.shift.x, -this.shift.y, w, h);
     }
-    return this.controls.update(dt);
+    const changed = this.controls.update(dt);
+    this.clip(dt);
+    return changed;
   }
 
   resize(aspect) {

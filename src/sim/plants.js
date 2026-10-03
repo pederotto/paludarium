@@ -12,6 +12,9 @@ import { waterCondition, emergentBoost } from './plantpond.js';
 import { TEX, modelParts } from '../render/assets.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+// How close two plants' stems may stand, as a fraction of their two crowns' reach added: closer, and one grows out of the other
+// (plants of one kind may stand at about half of it: a clump of grass or a stand of vallisneria).
+export const PLANT_ROOM = 0.35;
 
 // Bent, tapering leaf blade from the origin along `dir`, curving down by
 // `droop`. Adds one ribbon to the builder.
@@ -693,6 +696,31 @@ export class Plants {
     im.instanceColor.needsUpdate = true;
   }
 
+  // The plant whose base a new plant of species `id` at `point` would stand in, or null. Two plants may brush leaves, but a stem
+  // inside another plant's crown reads as two models pushed into each other. Plants on the water, on the background and in
+  // the ground only meet their own layer; `skip` is a plant to ignore (the parent of an offshoot is not, it is a neighbour).
+  crowdingAt(id, point, { scale = 1, surface = 'terrain', skip = null } = {}) {
+    const layer = (pid, surf) => (surf === 'wall' ? 'wall' : PLANTS[pid].habitat === 'floating' ? 'float' : 'ground');
+    const mine = layer(id, surface);
+    const im = this.meshes[PLANTS[id].model ? id + '#0' : id];
+    const r = im ? this.reachOf(im, id, scale) : 3;
+    for (const q of this.list) {
+      if (q === skip || layer(q.id, q.surface) !== mine) continue;
+      const d = mine === 'wall' ? Math.hypot(q.pos.x - point.x, q.pos.y - point.y) : Math.hypot(q.pos.x - point.x, q.pos.z - point.z);
+      if (d < (q.id === id ? PLANT_ROOM * 0.55 : PLANT_ROOM) * (r + q.reach)) return q;      // a clump of one kind may stand closer
+    }
+    return null;
+  }
+
+  // How tall plant p stands (cm), from its model's bounds at its size and growth.
+  heightOf(p) {
+    const im = this.meshes[this.key(p)];
+    if (!im) return 3;
+    const g = im.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    return g.boundingBox.max.y * p.scale * (0.3 + 0.7 * p.grown) * (PLANTS[p.id].modelSize ?? 1);
+  }
+
   near(point, r) {
     let best = null, bd = r;
     for (const p of this.list) {
@@ -824,7 +852,7 @@ export class Plants {
         hit = { point: new THREE.Vector3(x, y, z), surface: 'terrain', normal: world.terrain.normalAt(x, z) };
       }
       if (this.canPlace(p.id, hit, world)) continue;
-      const crowd = this.list.some((q) => q.id === p.id && q.pos.distanceTo(hit.point) < r * 0.35);
+      const crowd = this.list.some((q) => q.id === p.id && q.pos.distanceTo(hit.point) < r * 0.35) || this.crowdingAt(p.id, hit.point, { surface: hit.surface });
       if (crowd) continue;
       if (sp.habitat === 'floating') hit.point.y = world.water.surfaceAt(hit.point.x, hit.point.z, 0.2);
       return this.add(p.id, hit.point, { normal: hit.normal, surface: hit.surface, grown: 0.15 });

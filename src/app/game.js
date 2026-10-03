@@ -54,6 +54,7 @@ export class Game {
     this.rig = new CameraRig(this.renderer, gfx.aspect);
     this.camera = this.rig.camera;
     this.controls = this.rig.controls;
+    this.rig.collideWith(() => this.world);
     window.addEventListener('resize', () => this.resize());
     return this;
   }

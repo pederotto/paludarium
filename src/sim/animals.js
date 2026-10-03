@@ -4,8 +4,8 @@
 
 import * as THREE from 'three/webgpu';
 import { Builder, PRIM } from '../render/geo.js';
-import { hash3, clamp, lerp, rng } from '../util/math.js';
-import { CreatureLOD, BODIES, FINISH, withRig } from '../render/creatures.js';
+import { hash3, clamp, lerp, rng, closestOnSegments } from '../util/math.js';
+import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, kickPeriod, kickSpeed, bob, frac, strideRate, hopLegs, callSac, toeTap } from '../util/gait.js';
@@ -18,6 +18,7 @@ import { SKINK, skinkMind, skinkThink } from './skink.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
+import { PLANTS } from './plants.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
 import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
 
@@ -25,7 +26,7 @@ const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
 const TAU = Math.PI * 2;
-const _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion();
+const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion();
 const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0);
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
 const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog']);
@@ -36,6 +37,8 @@ const STRENGTH = { skink: 1, swim: 1, frog: 1, toad: 1, newt: 1, axolotl: 1, gec
 const GROUPS = { water: 1, land: 2, wall: 3, air: 4 };
 const CELLG = 5;
 const VIS = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink']);   // animals with idle pulses, twitches and strikes (see vis)
+const CORE_WALKERS = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink', 'crab']);   // kept out of plant stems (see plantCores)
+const NO_CORE = new Set(['javamoss', 'pothos']);                                            // carpets and creepers: walked over
 const LIVE = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink']);   // hunters that really stalk and strike
 
 // ---------------------------------------------------------------------------
@@ -527,6 +530,7 @@ export class Animals {
     this.grid = new Map(); this.striking = new Set();
     this.tails = [];                // dropped gecko tails: { sp, pos, q, sc, age, phase, vy, yaw } (see draw)
     this.tongues = new Tongues(scene);
+    this.contacts = new ContactShadows(scene);   // the dark spot where an animal meets the ground (render/creatures/contact.js)
     for (const id of Object.keys(SPECIES)) {
       this.by[id] = [];
       this.keys[id] = [];
@@ -2277,12 +2281,16 @@ export class Animals {
   buildGrid() {
     const G = this.grid;
     for (const l of G.values()) l.length = 0;
+    this.maxHalf = 0;
+    this.plantCores();
     for (const arr of Object.values(this.by)) for (const a of arr) {
       if (a.dead) { a.grp = null; continue; }
       const sp = SPECIES[a.sp], g = this.groupOf(a, sp);
       a.grp = g;
       if (!g) continue;
       a.rad = this.radiusOf(a, sp);
+      this.capsuleOf(a, sp, g);
+      if (a.cap) this.maxHalf = Math.max(this.maxHalf ?? 0, a.cap.hl + Math.abs(a.cap.zc) + a.rad);
       const k = this.cellKey(g, a.pos.x, a.pos.y, a.pos.z);
       let l = G.get(k);
       if (!l) G.set(k, l = []);
@@ -2291,9 +2299,9 @@ export class Animals {
   }
 
   // Calls fn(b) for every animal b of group g in the cells around (x, y, z).
-  near(g, x, y, z, fn) {
+  near(g, x, y, z, fn, span = 1) {
     const u = Math.floor(x / CELLG), v = Math.floor((g === 'wall' ? y : z) / CELLG), base = GROUPS[g] * 1000000;
-    for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) {
+    for (let du = -span; du <= span; du++) for (let dv = -span; dv <= span; dv++) {
       const l = this.grid.get(base + (u + du + 200) * 500 + (v + dv + 200));
       if (l) for (let i = 0; i < l.length; i++) fn(l[i]);
     }
@@ -2310,6 +2318,61 @@ export class Animals {
     return hit;
   }
 
+  // The body as the separation sees it. A newt or salamander is three to seven times longer than wide, so a circle either lets
+  // two of them lie across each other or keeps them a body length apart: long bodies are a capsule along the heading, its size
+  // read once from the species' mesh (model units, scaled by drawScale), until then the circle. Sets a.cap = { hl, zc } (half
+  // length of the straight part and how far its middle sits ahead of a.pos, cm) or null, and widens a.rad to the body.
+  capsuleOf(a, sp, g) {
+    a.cap = null;
+    if (g !== 'land' && g !== 'water') return;
+    if (sp.kind !== 'newt' && sp.kind !== 'axolotl' && sp.kind !== 'gecko' && sp.kind !== 'skink' && sp.kind !== 'frog' && sp.kind !== 'toad') return;
+    let b = (this.bodies ??= {})[a.sp];
+    if (b === undefined) {
+      const m = this.meshes?.[a.sp], geo = (m?._lo ?? m)?.geometry, P = geo?.attributes?.position?.array;
+      if (!P) return;
+      let hx = 0, y1 = 0, z0 = 1e9, z1 = -1e9;
+      for (let i = 0; i < P.length; i += 3) { hx = Math.max(hx, Math.abs(P[i])); y1 = Math.max(y1, P[i + 1]); z0 = Math.min(z0, P[i + 2]); z1 = Math.max(z1, P[i + 2]); }
+      b = this.bodies[a.sp] = { hw: hx * 0.6, hh: y1, hlen: (z1 - z0) / 2, zc: (z1 + z0) / 2 };       // the trunk is about 0.6 of the leg span
+    }
+    const sc = drawScale(a, sp);
+    a.rad = Math.max(a.rad, b.hw * sc);
+    const hl = b.hlen * sc - a.rad;
+    if (hl > 0.2) a.cap = { hl, zc: b.zc * sc };
+  }
+
+  // The stems of the plants on the ground, which a frog or salamander walks round rather than through (it may sit under the
+  // leaves). Bucketed by CELLG once a second; carpets and creepers (java moss, pothos) are walked over.
+  plantCores() {
+    const P = this.world?.plants;
+    if (!P) return;
+    const now = this.t ?? 0;
+    if (this._coresT != null && now - this._coresT < 1 && this._coresN === P.list.length) return;
+    this._coresT = now; this._coresN = P.list.length;
+    const G = this.cores ??= new Map();
+    G.clear();
+    for (const q of P.list) {
+      if (q.surface === 'wall' || NO_CORE.has(q.id)) continue;
+      const hab = PLANTS[q.id]?.habitat ?? '';
+      if (hab === 'floating' || hab === 'aquatic') continue;
+      const r = clamp((q.reach ?? 3) * (0.3 + 0.7 * q.grown) * 0.18, 0.5, 2.5);
+      const k = Math.floor(q.pos.x / CELLG) * 1000 + Math.floor(q.pos.z / CELLG);
+      let l = G.get(k);
+      if (!l) G.set(k, l = []);
+      l.push({ x: q.pos.x, y: q.pos.y, z: q.pos.z, r });
+    }
+  }
+
+  // Closest points of two capsules' axes in the ground plane (or the circles' centres): [ax, az, bx, bz].
+  axes(a, b) {
+    const seg = (c) => {
+      if (!c.cap) return [c.pos.x, c.pos.z, c.pos.x, c.pos.z];
+      const fx = Math.sin(c.yaw ?? 0), fz = Math.cos(c.yaw ?? 0), mx = c.pos.x + fx * c.cap.zc, mz = c.pos.z + fz * c.cap.zc;
+      return [mx - fx * c.cap.hl, mz - fz * c.cap.hl, mx + fx * c.cap.hl, mz + fz * c.cap.hl];
+    };
+    const [p0x, p0z, p1x, p1z] = seg(a), [q0x, q0z, q1x, q1z] = seg(b);
+    return closestOnSegments(p0x, p0z, p1x, p1z, q0x, q0z, q1x, q1z);
+  }
+
   separate(dt) {
     if (!this.avoid || !(dt > 0)) return;
     const k = Math.min(1, dt * 8);
@@ -2319,10 +2382,17 @@ export class Animals {
       const sp = SPECIES[a.sp];
       let px = 0, py = 0, pz = 0, n = 0;
       const ma = (a.speedNow ?? 0) > 0.15 ? 1 : 0.4;
+      const span = a.cap || this.maxHalf > CELLG ? Math.ceil(((a.cap ? a.cap.hl + Math.abs(a.cap.zc) : 0) + a.rad + (this.maxHalf ?? 0)) / CELLG) : 1;
       this.near(g, a.pos.x, a.pos.y, a.pos.z, (b) => {
         if (b === a || b.dead || b.grp !== g) return;
         let dx = a.pos.x - b.pos.x, dy = a.pos.y - b.pos.y, dz = a.pos.z - b.pos.z;
         if (g === 'wall') dz = 0; else if (g === 'land') { if (Math.abs(dy) > 1.5) return; dy = 0; }
+        if ((a.cap || b.cap) && g !== 'wall') {
+          // Long bodies: push apart where the two bodies come closest (along the flanks, head to tail), not centre to centre.
+          if (g === 'water' && Math.abs(dy) > a.rad + b.rad) return;
+          const c = this.axes(a, b);
+          dx = c[0] - c[2]; dz = c[1] - c[3]; dy = 0;
+        }
         let d = Math.hypot(dx, dy, dz);
         const R = a.rad + b.rad;
         if (d >= R) return;
@@ -2331,7 +2401,26 @@ export class Animals {
         const mb = (b.speedNow ?? 0) > 0.15 ? 1 : 0.4;
         const w = o / d * (ma / (ma + mb)) * 1.4;
         px += dx * w; py += dy * w; pz += dz * w; n++;
-      });
+      }, span);
+      // Out of the plants' stems (a frog sitting in a bromeliad or climbing a stem is on its perch, not in this group).
+      if (g === 'land' && CORE_WALKERS.has(sp.kind) && this.cores?.size) {
+        const u = Math.floor(a.pos.x / CELLG), v = Math.floor(a.pos.z / CELLG);
+        for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) {
+          const l = this.cores.get((u + du) * 1000 + (v + dv));
+          if (l) for (const c of l) {
+            if (Math.abs(c.y - a.pos.y) > 4) continue;
+            let qx, qz;
+            if (a.cap) { const fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0), mx = a.pos.x + fx * a.cap.zc, mz = a.pos.z + fz * a.cap.zc; const t = clamp((c.x - mx) * fx + (c.z - mz) * fz, -a.cap.hl, a.cap.hl); qx = mx + fx * t; qz = mz + fz * t; }
+            else { qx = a.pos.x; qz = a.pos.z; }
+            let dx = qx - c.x, dz = qz - c.z, d = Math.hypot(dx, dz);
+            const R = c.r + a.rad * 0.7;
+            if (d >= R) continue;
+            if (d < 1e-3) { dx = Math.cos(a.id * 2.4); dz = Math.sin(a.id * 2.4); d = 1; }
+            const w = (R - Math.min(d, R)) / d * 1.2;
+            px += dx * w; pz += dz * w; n++;
+          }
+        }
+      }
       if (!n) continue;
       const str = (STRENGTH[sp.kind] ?? 0.6) * k;
       let len = Math.hypot(px, py, pz) * str;
@@ -2819,12 +2908,39 @@ export class Animals {
     return t;
   }
 
+  // Where the feet are: the ground under the fore and hind feet and under both flanks (from the species' mesh, as in
+  // capsuleOf), a plane fitted through them, and how far the body must move up or down from a.pos (the ground under its
+  // middle) to stand on that plane. Returns { up, dy } or null before the mesh is measured. On a hump the middle is high and
+  // the feet would dangle: the body comes down onto them, but never sinks more than a third of its height into the ground.
+  footing(a, sp) {
+    const b = this.bodies?.[a.sp];
+    if (!b) return null;
+    const T = this.world.terrain, sc = drawScale(a, sp);
+    const fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0), rx = fz, rz = -fx;
+    const zc = b.zc * sc, fore = zc + b.hlen * sc * 0.5, hind = zc - b.hlen * sc * 0.45, side = (b.hw / 0.6) * sc * 0.75;
+    const x = a.pos.x, z = a.pos.z;
+    const hF = T.heightAt(x + fx * fore, z + fz * fore), hB = T.heightAt(x + fx * hind, z + fz * hind);
+    const hR = T.heightAt(x + rx * side, z + rz * side), hL = T.heightAt(x - rx * side, z - rz * side);
+    const span = Math.max(0.3, fore - hind);
+    // Up from the two tangents of the plane: along the body (hind to fore) and across it (left to right).
+    const t1x = fx * span, t1y = hF - hB, t1z = fz * span, t2x = rx * 2 * side, t2y = hR - hL, t2z = rz * 2 * side;
+    const up = _fu.set(t1y * t2z - t1z * t2y, t1z * t2x - t1x * t2z, t1x * t2y - t1y * t2x);
+    if (up.y < 0) up.negate();
+    up.normalize();
+    if (up.y < 0.35) return null;                                      // a cliff edge: leave it to the old tilt
+    const yPlane = 0.5 * (hB + (hF - hB) * (-hind / span)) + 0.25 * (hL + hR);
+    const dy = Math.max(yPlane - T.heightAt(x, z), -b.hh * sc * 0.33);     // a.pos.y is the ground under its middle
+    return { up, dy };
+  }
+
   draw(dt = 0.016) {
     const q = this._q;
     const e = new THREE.Euler();
     const tq = new THREE.Quaternion();
     const fix = new THREE.Quaternion();
     const cam = this.camera?.position;
+    const CS = this.contacts, T = this.world.terrain;
+    CS.begin();
     for (const [id, arr] of Object.entries(this.by)) {
       const sp = SPECIES[id];
       const an = sp.anim ?? {};
@@ -2845,9 +2961,13 @@ export class Animals {
           q.setFromUnitVectors(UP, a.normal);
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
         } else if (a.normal && !swimming && !a.hop && sp.kind !== 'fly') {
-          const up = a.normal.clone().lerp(UP, 0.3).normalize();
+          // Standing on the ground: on the plane through the ground under its feet (see footing), so on a bank or a hump the
+          // front and hind feet both touch, rather than the body tilting with the slope under its middle and its feet in the air.
+          const ft = VIS.has(sp.kind) && !a.perch ? this.footing(a, sp) : null;
+          const up = ft ? ft.up : a.normal.clone().lerp(UP, 0.3).normalize();
           q.setFromUnitVectors(UP, up);
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
+          if (ft) { a._fy = ft.dy; }
         } else {
           e.set(sw ? sw.pitch : a.pitch ?? 0, a.yaw, sw ? sw.roll : 0, 'YXZ');
           q.setFromEuler(e);
@@ -2884,6 +3004,7 @@ export class Animals {
             if (!a.hop) q.multiply(_qo);
           }
         }
+        if (a._fy) { if (pos === a.pos) pos = _p.copy(a.pos); pos.y += a._fy; a._fy = 0; }
         if (sp.kind === 'skink' && a.sk) {
           // Playing dead: rolled onto its back; hiding: sunk into the litter with the head out.
           if (a.sk.rollNow > 0.01) { q.multiply(_qo.setFromAxisAngle(_t.set(0, 0, 1), Math.PI * a.sk.rollNow)); pos = _p.copy(pos); pos.y += 0.5 * sc * Math.sin(Math.PI * a.sk.rollNow) + 0.35 * sc * a.sk.rollNow; }
@@ -2914,6 +3035,14 @@ export class Animals {
             this.tails.push({ sp: id, pos: pos.clone(), q: q.clone(), sc, age: 0, phase: 0, vy: 0, wall: !!a.wallMode, cut: 0.5 + 0.5 * 0.1, lie: false });
           }
         } else cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);
+        // Its contact shadow: the body's outline (or a disc for the small and the unmeasured), fading as it leaves the ground.
+        if (!swimming && !a.wallMode && !a.perch && !a.onWall && sp.kind !== 'fly' && sp.kind !== 'egg' && (a.rad ?? 0) >= 0.25) {
+          const b = this.bodies?.[id], fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0);
+          const w = b ? (b.hw / 0.6) * 2 * sc * 1.05 : a.rad * 2.6, l = b ? b.hlen * 2 * sc * 1.05 : a.rad * 2.8, zc = b ? b.zc * sc : 0;
+          const gx = a.pos.x + fx * zc, gz = a.pos.z + fz * zc, gy = T.heightAt(gx, gz);
+          const lift = pos.y - gy;
+          if (lift < l) CS.put(_p.set(gx, gy, gz), a.normal ?? UP, a.yaw ?? 0, w * (1 + Math.max(0, lift) / l * 0.4), l * (1 + Math.max(0, lift) / l * 0.4), 0.55 * (1 - Math.max(0, lift) / l));
+        }
       }
       // Dropped tails (geckos): the part of the gecko mesh beyond the cut, thrashing for a few seconds, then lying still, then gone.
       if (this.tails.length && an.rig2 && dm) {
@@ -2937,6 +3066,7 @@ export class Animals {
       }
       for (const k of this.keys[id]) this.meshes[k].end();
     }
+    CS.end();
     void fix;
     // Build one fine mesh per frame at most, and only for species the camera is close to.
     for (const cm of Object.values(this.meshes)) if (cm.wants && cm.canRefine) { cm.refine(); cm.wants = false; break; }
