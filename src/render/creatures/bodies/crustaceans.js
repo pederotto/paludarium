@@ -15,7 +15,7 @@
 //
 // Legs beyond four share the nearest of the four leg ids, alternating so neighbours on one side are out of
 // phase (left: 1, 3, 1, 3 ... ; right: 2, 4, 2, 4 ...) and each leg is out of phase with the one opposite it.
-import { ell, smin, smax, vnoise, fbm, C, lerp3, mul3, clamp01, M } from '../kit.js';
+import { ell, smin, smax, vnoise, fbm, cells, C, lerp3, mul3, clamp01, M } from '../kit.js';
 
 const PI = Math.PI, RAD = PI / 180;
 const { sqrt, abs, cos, sin, max, min } = Math;
@@ -245,12 +245,20 @@ function shrimp(morph = 'red') {
   return {
     sdf, lo: [-0.95, -0.05, -1.6], hi: [0.95, 1.15, 2.6], cell: 0.05, hiScale: 0.5,
     color, mat: () => M.TRANSLUCENT,          // one id everywhere: the eyes are analytic, and interpolating 7 to 1 would cross the fin id
+    // The two front pairs (with the little pincers) pick food (15 / 16), the three hind pairs walk in a wave, the swimmerets
+    // under the tail paddle (10), the long antennae and the antennules sweep (7 / 8); the tail flicks under (invert.curl).
     rig: (x, y, z) => {
       sdf(x, y, z);
-      const leg = ID >= 10 && ID < 20 ? legId(ID - 10, x < 0) : 0;
-      return [clamp01((1.0 - z) / 2.5), leg, leg ? WT : 0];
+      const left = x < 0, spineAt = (zz) => clamp01((1.0 - zz) / 2.5);
+      if (ID === 10 || ID === 11) return [spineAt(LEGP[ID - 10][2]), left ? 15 : 16, WT * 0.3];
+      if (ID >= 12 && ID < 15) return [spineAt(LEGP[ID - 10][2]), legId(ID - 12, left), WT];
+      if (ID === 20) return [0, left ? 7 : 8, WT * 0.3];
+      if (ID === 21) return [0, left ? 7 : 8, WT * 0.1];
+      if (ID === 3) return [spineAt(z), 10, clamp01((0.5 - y) / 0.2) * 0.12];
+      return [spineAt(z), 0, 0];
     },
     finish: { rough: 0.3, coat: 0.5, coatRough: 0.15, grain: 60, bump: 0.006, grainAmt: 0.15, tone: 0.03, glassOpacity: 0.95,
+      invert: { antenna: 1, wave: 7, curl: { z0: -0.06, y0: 0.32, len: 1.45, flick: true } },
       // black bead eyes with a catchlight
       eyes: [eyeSpec(EYE.slice(0, 3), EYE[3], [0.75, 0.3, 0.6], { pupil: [0.3, 0.3], inner: C(0x0c0a0a), outer: C(0x050404), rim: C(0x030303), cap: 0.95 })],
     },
@@ -272,20 +280,28 @@ const CRAB_PAL = {
 function crab(pal = 'vampire') {
   const P = CRAB_PAL[pal];
   const PURP = C(P.shell), PURP_L = C(P.shellL), PURP_D = C(P.shellD), ORANGE = C(P.claw), ORANGE_D = C(P.clawD), CREAM = C(P.tip), YEL = C(P.eye), BLACK = C(P.pupil), JOINT = C(P.joint), SPOT = P.spots != null ? C(P.spots) : null;
-  const leopard = (x, y, z, k) => (SPOT ? Math.min(1, sstep(0.62, 0.7, vnoise(x * k + 3, y * k, z * k)) * (1 - sstep(0.72, 0.8, vnoise(x * k + 3, y * k, z * k))) + sstep(0.74, 0.8, vnoise(x * k * 1.7, y * k * 1.7 + 5, z * k * 1.7))) : 0);
-  const hw = (z) => 1.03 + 0.09 * z;                       // half width of the shell: a little wider at the front
+  // Leopard spots: round dark blots of mixed size scattered over shell, legs and claws (a cell pattern, not thresholded noise,
+  // which came out as square patches on the mesh).
+  const leopard = (x, y, z, k) => (SPOT ? clamp01(sstep(0.42, 0.3, cells(x, y, z, k) + 0.14 * vnoise(x * k * 3, y * k * 3, z * k * 3))) : 0);
+  // The carapace: in plan a broad front with a straight margin between the eyes, widest a little ahead of the middle, the hind
+  // sides converging to a narrower back; a gently domed top with a shallow H of grooves; steep sides under a definite rim.
+  const ell2 = (x, z, a, b) => { const u = x / a, v = z / b, k0 = sqrt(u * u + v * v), k1 = sqrt(u * u / (a * a) + v * v / (b * b)); return k1 > 1e-9 ? (k0 * (k0 - 1)) / k1 : -min(a, b); };
   const carapace = (x, y, z) => {
-    const ax = abs(x), w = hw(z);
-    const qx = ax - (w - 0.34), qz = abs(z) - 0.52, mx = max(qx, 0), mz = max(qz, 0);
-    const dp = sqrt(mx * mx + mz * mz) + min(max(qx, qz), 0) - 0.34;           // rounded rectangle in plan
-    const u = ax / w, v = z / 0.86;
-    let d = smax(dp, (y - (1.12 - 0.26 * u * u - 0.22 * v * v)) * 0.85, 0.22);  // domed top
-    d = smax(d, 0.46 - y, 0.1);                                                // nearly flat underside
-    const g = (z - 0.22) / 0.07;
-    return d + 0.03 * Math.exp(-g * g) * sstep(0.7, 0.95, y);                   // shallow cervical groove
+    const ax = abs(x);
+    let d = ell2(ax, z - 0.12, 1.14, 0.8);
+    d = smax(d, z - 0.8, 0.14);                                                   // the straight front margin
+    d = smax(d, -0.74 - z, 0.16);                                                 // the hind margin
+    d = smax(d, (ax - (0.8 + (z + 0.74) * 0.42)) * 0.92, 0.16);                    // the hind sides converge
+    const u = ax / 1.12, v = (z - 0.05) / 0.82;
+    let top = 1.08 - 0.24 * u * u - 0.2 * v * v;
+    const cg = z - (0.1 + 0.28 * u * u);                                         // cervical groove, curving back toward the sides
+    top -= 0.035 * Math.exp(-((cg / 0.05) ** 2)) * sstep(0.12, 0.3, ax) * (1 - sstep(0.75, 0.95, u));
+    top -= 0.03 * Math.exp(-(((ax - 0.32) / 0.045) ** 2)) * sstep(-0.45, -0.2, z) * (1 - sstep(0.1, 0.25, z));   // the cardiac region's grooves
+    d = smax(d, (y - top) * 0.9, 0.07);
+    return smax(d, 0.46 - y, 0.08);                                               // nearly flat underside
   };
   // Walking legs (x > 0; mirrored): hip on the flank, up to the highest joint, out and down to a pointed toe.
-  const Z0 = [0.5, 0.15, -0.2, -0.55], SH = [0.6, 0.2, -0.2, -0.6], LR = [0.1, 0.085, 0.065, 0.05, 0.022], JR = [0.105, 0.085, 0.068];
+  const Z0 = [0.5, 0.15, -0.2, -0.55], SH = [0.6, 0.2, -0.2, -0.6], LR = [0.13, 0.115, 0.09, 0.065, 0.026], JR = [0.12, 0.1, 0.075];
   let JO = 0;       // 1 where an orange joint ball forms the surface
   const legs = Z0.map((z0, i) => {
     const s = SH[i];
@@ -306,7 +322,7 @@ function crab(pal = 'vampire') {
   const mkClaw = (k) => {
     const S = [0.8, 0.6, 0.6];
     const sc = (...p) => [S[0] + (p[0] - S[0]) * k, S[1] + (p[1] - S[1]) * k, S[2] + (p[2] - S[2]) * k];
-    const arm = mkChain([...S, ...sc(1.2, 0.64, 0.98), ...sc(1.1, 0.68, 1.38)], [0.12, max(0.12 * k, 0.06), max(0.11 * k, 0.055)]);
+    const arm = mkChain([...S, ...sc(1.2, 0.64, 0.98), ...sc(1.1, 0.68, 1.38)], [0.15, max(0.15 * k, 0.07), max(0.14 * k, 0.065)]);
     const pc = sc(0.92, 0.68, 1.68);
     const palm = mkEll(pc[0], pc[1], pc[2], 0.27 * k, 0.25 * k, 0.33 * k, -10 * RAD);
     const fixd = mkChain([...sc(0.85, 0.55, 1.85), ...sc(0.74, 0.5, 2.18), ...sc(0.62, 0.47, 2.42)], [max(0.1 * k, 0.05), max(0.07 * k, 0.04), 0.028]);
@@ -380,98 +396,133 @@ function crab(pal = 'vampire') {
 }
 
 // =================================================================================================
-// Dwarf white isopod
+// Isopods: dwarf white, dwarf purple, panda king
 // =================================================================================================
-// Isopod palettes: body / bodyD = plate colour lit and shaded, pale = legs and antennae, blot = dark side patches (null: none).
+// A woodlouse is a flat oval of overlapping plates, not a tube: a dome about half as high as it is wide over a flat belly, the
+// side edges thin and flared, the hind edge of every plate lying over the front of the next. The head is a small shield with
+// short jointed antennae angled forward and down; seven pairs of short legs stay under the rim; the tail ends in a small
+// telson and two stubby uropods. The panda king (a Cubaris) is the domed kind that rolls into a ball (finish.invert.curl).
+// Palettes: body / bodyD plate colour lit and shaded, pale legs and antennae, mottle, blot = the panda's black (null: none);
+// dome = height / half width, wide = width / length, eyes, ant = antenna length (cm), uro = uropod length (cm).
 const ISO_PAL = {
-  white: { body: 0xf3ecd8, bodyD: 0xd2c7aa, pale: 0xefe8d4, mottle: 0xc9bb98, blot: null },
-  purple: { body: 0x9a8aa8, bodyD: 0x6a5a7c, pale: 0xc8bccf, mottle: 0x56486a, blot: null },
-  // Cubaris 'Panda King': white with bold black patches on the head and down the sides.
-  panda: { body: 0xf4f2ec, bodyD: 0xd8d4ca, pale: 0xe8e4dc, mottle: 0xc8c4bc, blot: 0x101010 },
+  white: { body: 0xf4eedc, bodyD: 0xd9cdb0, pale: 0xf2ecdc, mottle: 0xcdbf9c, blot: null, dome: 0.62, wide: 0.46, eyes: false, ant: 0.2, uro: 0.07 },
+  purple: { body: 0x9d8cab, bodyD: 0x67587b, pale: 0xcfc3d6, mottle: 0x54476a, blot: null, dome: 0.6, wide: 0.47, eyes: true, ant: 0.21, uro: 0.07 },
+  panda: { body: 0xf6f4ee, bodyD: 0xd6d2c8, pale: 0xe6e2da, mottle: 0xc9c5bd, blot: 0x0c0c0e, dome: 0.86, wide: 0.6, eyes: true, ant: 0.15, uro: 0.025 },
 };
 
 function isopod(pal = 'white') {
   const IP = ISO_PAL[pal];
-  // Segment boundaries front to back: head, seven pereonites, three visible pleon segments, telson.
-  const ZB = [0.36, 0.235, 0.1807, 0.1264, 0.0721, 0.0178, -0.0365, -0.0908, -0.145, -0.185, -0.225, -0.265, -0.335];
-  const RIM = [0.1, 0.125, 0.14, 0.15, 0.155, 0.155, 0.147, 0.135, 0.095, 0.08, 0.066, 0.052];
-  const STEP = 0.002, ZT = 0.37, NT = Math.ceil((ZT - ZB[12] + 0.03) / STEP);
+  const L = 0.7, ZF = 0.36, ZR = ZF - L, Y0 = 0.028;            // length, front and rear tip, belly line (it walks close to the ground)
+  const A = (L * IP.wide) / 2;                                    // greatest half width
+  // Plate boundaries front to back: head, seven pereonites, five pleon segments, telson.
+  const ZB = [ZF, 0.285];
+  for (let k = 1; k <= 7; k++) ZB.push(0.285 - k * 0.064);
+  const zP = ZB[ZB.length - 1];
+  for (let k = 1; k <= 5; k++) ZB.push(zP - k * 0.023);
+  ZB.push(ZR);
+  const NSEG = ZB.length - 1;                                     // 14: 0 head, 1-7 pereon, 8-12 pleon, 13 telson
+  // Plan outline: an oval, a little fuller in front of the middle; a woodlouse's pleon steps in, a ball-roller's does not.
+  const ZC = (ZF + ZR) / 2 + 0.03;
+  const outline = (z) => {
+    const t = z > ZC ? (z - ZC) / (ZF - ZC) : (ZC - z) / (ZC - ZR);
+    let a = A * Math.pow(max(0, 1 - t * t), 0.45);
+    if (!IP.blot && z < zP) a *= 0.88;
+    return a;
+  };
+  const STEP = 0.002, NT = Math.ceil((ZF - ZR) / STEP) + 2;
   const TA = new Float32Array(NT + 2), TH = new Float32Array(NT + 2), TF = new Float32Array(NT + 2), TK = new Int8Array(NT + 2);
-  const Y0 = 0.055;
   for (let i = 0; i < NT + 2; i++) {
-    const z = ZT - i * STEP;
+    const z = ZF - i * STEP;
     let k = 0;
-    while (k < 11 && z <= ZB[k + 1]) k++;
-    const f = clamp01((ZB[k] - z) / (ZB[k] - ZB[k + 1]));
-    let a = RIM[k] * (k === 0 ? 0.92 + 0.08 * f : 0.9 + 0.1 * Math.pow(f, 1.4));
-    if (z > 0.3) a *= sqrt(max(0, 1 - ((z - 0.3) / 0.06) ** 2));
-    if (z < -0.29) a *= sqrt(max(0, 1 - ((-0.29 - z) / 0.045) ** 2));
-    if (z > ZB[0] || z < ZB[12]) a = 0;
-    a = max(a, 0.006);
-    TA[i] = a; TH[i] = a * (k === 0 ? 0.8 : 0.9); TF[i] = f; TK[i] = k;
+    while (k < NSEG - 1 && z <= ZB[k + 1]) k++;
+    const f = clamp01((ZB[k] - z) / (ZB[k] - ZB[k + 1]));        // 0 at a plate's front edge, 1 at its hind edge
+    // each plate rises a little toward its hind edge and eases down into the join (a sheer step made dark cracks in the mesh)
+    const lap = k === 0 ? 0.95 + 0.05 * f : 0.97 + 0.03 * Math.pow(f, 1.5) * (1 - sstep(0.82, 1, f));
+    let a = outline(z) * lap;
+    if (k === 0) a *= 0.86;                                       // the head is narrower than the first plate
+    a = z > ZF || z < ZR ? 0.004 : max(a, 0.004);
+    TA[i] = a; TH[i] = a * IP.dome * (k === 0 ? 0.8 : 1) * lap; TF[i] = f; TK[i] = k;
   }
   const INV = 1 / STEP;
-  let BK = 0, BF = 0;
+  let BK = 0, BF = 0, BU = 0;
   const body = (x, y, z) => {
     const ax = abs(x);
-    const ex = max(ax - 0.2, 0), ey = max(-y, y - 0.24, 0), ez = max(-0.4 - z, z - 0.4, 0), q = ex * ex + ey * ey + ez * ez;
-    if (q > 0.01) return sqrt(q);
-    const j = clamp01((ZT - z) * INV / (NT + 1)) * (NT + 1);
+    const ex = max(ax - A - 0.02, 0), ey = max(Y0 - 0.03 - y, y - Y0 - A * IP.dome - 0.03, 0), ez = max(ZR - 0.02 - z, z - ZF - 0.02, 0), q = ex * ex + ey * ey + ez * ez;
+    if (q > 0.004) return sqrt(q);
+    const j = clamp01((ZF - z) * INV / (NT + 1)) * (NT + 1);
     const i = min(Math.floor(j), NT), fr = j - i;
     const a = TA[i] + (TA[i + 1] - TA[i]) * fr, h = TH[i] + (TH[i + 1] - TH[i]) * fr;
     const sl = (TA[i + 1] - TA[i]) * INV;
+    // A dome over the belly line: the upper half of an ellipse a x h, cut flat underneath, so the side edge is a thin rim.
     const u = ax / a, v = (y - Y0) / h;
     const k0 = sqrt(u * u + v * v), k1 = sqrt(u * u / (a * a) + v * v / (h * h));
     let d = (k1 > 1e-9 ? (k0 * (k0 - 1)) / k1 : -min(a, h)) / sqrt(1 + min(sl * sl, 4));
-    d = smax(d, 0.04 - y, 0.012);
-    BK = TK[i]; BF = TF[i] + (TF[min(i + 1, NT + 1)] - TF[i]) * fr;
+    d = smax(d, Y0 - y, 0.008);
+    BK = TK[i]; BF = TF[i] + (TF[min(i + 1, NT + 1)] - TF[i]) * fr; BU = u;
     return d;
   };
-  // Seven pairs of short legs tucked under the plates, feet just past the edge.
-  const legs = [];
+  // Seven pairs of short legs under the rim: hip under the plate, knee just inside the edge, foot just past it.
+  const legs = [], LEGZ = [];
   for (let k = 0; k < 7; k++) {
-    const zc = (ZB[k + 1] + ZB[k + 2]) / 2, a = RIM[k + 1], s = (3 - k) * 0.005;
-    legs.push(mkChain([a * 0.55, 0.05, zc, a * 0.95, 0.03, zc + s * 0.3, a + 0.01, 0.008, zc + s * 0.6], [0.024, 0.019, 0.016]));
+    const zc = (ZB[k + 1] + ZB[k + 2]) / 2, a = outline(zc), s = (3 - k) * 0.012;
+    LEGZ.push(zc);
+    legs.push(mkChain([a * 0.4, Y0 + 0.006, zc, a * 0.78, Y0 + 0.004, zc + s * 0.4, a * 0.97, 0.005, zc + s], [0.013, 0.011, 0.008]));
   }
-  const antenna = mkChain([0.045, 0.11, 0.31, 0.1, 0.125, 0.43, 0.17, 0.1, 0.53, 0.2, 0.08, 0.57], [0.023, 0.019, 0.016, 0.014]);
-  const uropod = mkChain([0.035, 0.065, -0.29, 0.06, 0.055, -0.36, 0.085, 0.045, -0.44], [0.03, 0.023, 0.017]);
-  const EYEP = [0.076, 0.088, 0.29, 0.024];
+  // Antennae: five short segments with a knee, forward, out and down from under the head.
+  const an = IP.ant, ab = [0.045, Y0 + 0.02, ZF - 0.03];
+  const AP = [ab, [0.07, Y0 + 0.035, ZF + an * 0.2], [0.1, Y0 + 0.03, ZF + an * 0.42], [0.135, Y0 + 0.012, ZF + an * 0.62], [0.16, Y0 - 0.008, ZF + an * 0.8], [0.18, Y0 - 0.025, ZF + an * 0.93]];
+  const antenna = mkChain(AP.flat(), [0.014, 0.012, 0.01, 0.0085, 0.0075, 0.006]);
+  const joints = AP.slice(1, 5);
+  const uropod = mkChain([0.035, Y0 + 0.008, ZR + 0.04, 0.05, Y0 + 0.004, ZR - IP.uro * 0.4, 0.06, Y0, ZR - IP.uro], [0.016, 0.012, 0.008]);
+  const EYEP = [outline(ZF - 0.045) * 0.76, Y0 + 0.035, ZF - 0.045, 0.013];
 
   const sdf = (x, y, z) => {
     const ax = abs(x);
     first(body(x, y, z), 0);
-    for (let k = 0; k < 7; k++) add(legs[k](ax, y, z), 10 + k, 0.02, TT);
-    add(antenna(ax, y, z), 20, 0.03, TT);
-    add(uropod(ax, y, z), 21, 0.03, TT);
-    add(sph(ax, y, z, EYEP[0], EYEP[1], EYEP[2], EYEP[3]), 30, 0.012);
+    for (let k = 0; k < 7; k++) add(legs[k](ax, y, z), 10 + k, 0.012, TT);
+    let da = antenna(ax, y, z); const ta = TT;
+    for (const J of joints) da = smin(da, sph(ax, y, z, J[0], J[1], J[2], 0.0105), 0.006);
+    add(da, 20, 0.015, ta);
+    add(uropod(ax, y, z), 21, 0.015, TT);
+    if (IP.eyes) add(sph(ax, y, z, EYEP[0], EYEP[1], EYEP[2], EYEP[3]), 30, 0.006);
     return D;
   };
-  const CREAM = C(IP.body), CREAM_D = C(IP.bodyD), PALE = C(IP.pale), BLACK = C(0x070707), BLOT = IP.blot != null ? C(IP.blot) : null;
+  const CREAM = C(IP.body), CREAM_D = C(IP.bodyD), PALE = C(IP.pale), BLACK = C(0x08080a), BLOT = IP.blot != null ? C(IP.blot) : null;
   const color = (x, y, z) => {
     sdf(x, y, z);
     const n = fbm(x * 30, y * 30, z * 30);
     if (ID === 30) return BLACK;
     if (ID === 0) {
-      let c = lerp3(CREAM_D, CREAM, sstep(0, 0.65, BF));                       // tucked-under front of each plate is shaded
-      if (BK === 0) c = lerp3(CREAM, CREAM_D, 0.15);
-      c = lerp3(c, C(IP.mottle), sstep(0.62, 0.85, vnoise(x * 40, y * 40, z * 40)) * 0.25);
-      if (BLOT) c = lerp3(c, BLOT, Math.max(sstep(0.07, 0.1, abs(x)) * sstep(0.42, 0.5, vnoise(x * 6, y * 6, z * 6 + 2)), BK === 0 ? 1 : 0, BK >= 9 ? sstep(0.45, 0.55, vnoise(x * 5 + 4, y * 5, z * 5)) : 0));   // panda: black head, black side blotches
-      c = mul3(c, 0.94 + 0.1 * n);
-      return lerp3(c, CREAM_D, sstep(0.09, 0.05, y) * 0.4);
+      let c = lerp3(CREAM_D, CREAM, sstep(0.05, 0.75, BF));                  // the front of each plate is tucked under the one before
+      c = lerp3(c, CREAM, sstep(0.75, 0.98, BU) * 0.5);                      // the thin side rim catches the light
+      c = lerp3(c, C(IP.mottle), sstep(0.6, 0.85, vnoise(x * 45, y * 45, z * 45)) * 0.3);
+      if (BLOT) {
+        // panda: a black head, black blotches down both flanks (ragged, a little different on every plate), a few spots
+        // either side of the white middle, and black at the tail
+        const rag = vnoise(x * 18 + 3, z * 18, BK * 1.7) - 0.5, spots = sstep(0.68, 0.74, vnoise(abs(x) * 26 + 1, z * 26, 2.1)) * sstep(0.18, 0.3, BU);
+        const flank = sstep(0.5, 0.6, BU + rag * 0.35), tail = BK >= 8 ? sstep(0.25, 0.35, BU + rag * 0.3) : 0;
+        c = lerp3(c, BLOT, clamp01(BK === 0 ? 1 : Math.max(flank, tail, spots)));
+      }
+      c = mul3(c, 0.93 + 0.12 * n);
+      return lerp3(c, CREAM_D, sstep(Y0 + 0.02, Y0, y) * 0.5);
     }
+    if (ID === 20 && BLOT) return lerp3(BLOT, PALE, sstep(0.4, 1, WT) * 0.5);
     return lerp3(PALE, CREAM_D, 0.25 * n + 0.15);
   };
+  const spineOf = (z) => clamp01((ZF - z) / L);
   return {
-    sdf, lo: [-0.32, -0.03, -0.5], hi: [0.32, 0.26, 0.66], cell: 0.02, hiScale: 0.5,
+    sdf, lo: [-0.36, -0.03, -0.46], hi: [0.36, 0.26, 0.6], cell: 0.016, hiScale: 0.5,
     color, mat: () => M.CHITIN,
     rig: (x, y, z) => {
       sdf(x, y, z);
-      const leg = ID >= 10 && ID < 20 ? legId(ID - 10, x < 0) : 0;
-      return [clamp01((0.36 - z) / 0.7), leg, leg ? WT : 0];
+      if (ID >= 10 && ID < 20) return [spineOf(LEGZ[ID - 10]), legId(ID - 10, x < 0), WT];   // a leg steps with its own plate (see invert.wave)
+      if (ID === 20) return [0, x < 0 ? 7 : 8, WT * 0.05];
+      return [spineOf(z), 0, 0];
     },
     finish: {
-      rough: 0.5, coat: 0.3, coatRough: 0.5, grain: 150, bump: 0.004, grainAmt: 0.15, tone: 0.015,
-      eyes: [eyeSpec(EYEP.slice(0, 3), EYEP[3], [0.7, 0.25, 0.65], { pupil: [0.3, 0.3], inner: C(0x0c0a0a), outer: C(0x050404), rim: C(0x030303), cap: 0.95 })],
+      rough: 0.62, coat: 0.18, coatRough: 0.5, grain: 150, bump: 0.004, grainAmt: 0.15, tone: 0.015,
+      invert: { antenna: 1, wave: 13, ...(IP.blot ? { curl: { z0: (ZF + ZR) / 2, y0: Y0, len: L * 0.85, flick: false, h: A * IP.dome * 0.5, w: A } } : {}) },
+      ...(IP.eyes ? { eyes: [eyeSpec(EYEP.slice(0, 3), EYEP[3], [0.75, 0.3, 0.6], { pupil: [0.3, 0.3], inner: C(0x0c0a0a), outer: C(0x050404), rim: C(0x030303), cap: 0.95 })] } : {}),
     },
   };
 }
