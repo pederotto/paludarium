@@ -10,7 +10,7 @@
 import * as THREE from 'three/webgpu';
 import {
   float, vec3, vec2, uv, time, mix, smoothstep, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
-  attribute, fract, length, max, Fn, reflect,
+  attribute, fract, length, max, min, Fn, reflect,
 } from 'three/tsl';
 import { noise3 } from './noise3.js';
 import { TANK, MINUTES_PER_SECOND } from '../sim/tank.js';
@@ -217,13 +217,21 @@ export class Water {
   updateFlowMesh() {
     const H = this.hydro, f = this.terrain.field;
     const pa = this.flowGeo.attributes.position, wd = this.wdata;
-    const h = f.h, d = H.d, res = H.res, L = H.level, sed = this.erosion.s, wt = this.wtur.array;
+    const h = f.h, d = H.d, res = H.res, L = H.level, sed = this.erosion.s, wt = this.wtur.array, nb = H.nb;
+    const wet = (m) => m >= 0 && (res[m] || d[m] > WET);
+    const [vx, vz] = this.smoothVelocities();
     for (let n = 0; n < H.N; n++) {
       const [x, z] = H.cellXZ(n);
       let y, show;
-      if (res[n]) { y = L - 0.05; show = 0; } else if (d[n] > WET) { y = h[n] + d[n]; show = 1; } else { y = h[n] - 0.25; show = 0; }
+      if (res[n]) { y = L - 0.05; show = 0; } else if (d[n] > WET) {
+        y = h[n] + d[n];
+        // Fainter where the bank is (dry neighbours), so a stream a cell or two wide fades out at its sides instead of
+        // ending in the hard zigzag of the grid's triangles.
+        const o = n * 4;
+        show = 0.4 + 0.15 * (wet(nb[o]) + wet(nb[o + 1]) + wet(nb[o + 2]) + wet(nb[o + 3]));
+      } else { y = h[n] - 0.25; show = 0; }
       pa.setXYZ(n, x, y, z);
-      wd.setXYZW(n, d[n], H.vx[n], H.vz[n], show);
+      wd.setXYZW(n, d[n], vx[n], vz[n], show);
       wt[n] = show && sed[n] > 1e-6 ? 1 - Math.exp(-ERO.turbK * sed[n] / Math.max(0.3, d[n])) : 0;
     }
     pa.needsUpdate = true;
@@ -236,6 +244,26 @@ export class Water {
       for (let n = 0; n < H.N; n++) ws.array[n] = res[n] ? L : d[n] > WET ? h[n] + d[n] : -50;
       ws.needsUpdate = true;
     }
+  }
+
+  // The flow as the surface pattern sees it: the simulated velocities averaged twice over each cell and its wet
+  // neighbours. Cell to cell they swing in direction, and a pattern carried along them tears into angular stripes
+  // along the grid's triangles.
+  smoothVelocities() {
+    const H = this.hydro, N = H.N, nb = H.nb, d = H.d;
+    if (this._sv?.[0].length !== N) this._sv = [0, 1, 2, 3].map(() => new Float32Array(N));
+    const [ax, az, bx, bz] = this._sv;
+    const blur = (ix, iz, ox, oz) => {
+      for (let n = 0; n < N; n++) {
+        if (!(d[n] > WET)) { ox[n] = oz[n] = 0; continue; }
+        let x = ix[n], z = iz[n], k = 1;
+        for (let j = n * 4; j < n * 4 + 4; j++) { const m = nb[j]; if (m >= 0 && d[m] > WET) { x += ix[m]; z += iz[m]; k++; } }
+        ox[n] = x / k; oz[n] = z / k;
+      }
+    };
+    blur(H.vx, H.vz, ax, az);
+    blur(ax, az, bx, bz);
+    return [bx, bz];
   }
 
   // --- Falls ---------------------------------------------------------------------
@@ -602,19 +630,29 @@ function makeFlowMaterial() {
   const ph0 = fract(time.div(cycle)), ph1 = fract(time.div(cycle).add(0.5));
   const blend = abs(ph0.mul(2).sub(1));
   const dir = vel.div(max(speed, 0.001));
-  // Stretch the pattern along the flow so fast water looks streaky.
-  const stretch = clamp(speed.div(25), 0, 1).mul(3).add(1);
+  // The pattern drifts with the flow but no faster than 15 cm/s: water running down a slope reaches 1-2 m/s in the
+  // simulation, and a pattern carried that far each cycle is squeezed into stripes wherever the flow bends (and is only
+  // flicker at a phone's 30 fps). It is not turned to the flow either: turning world coordinates by a direction that
+  // changes from cell to cell swirls the noise into rings.
+  const drift = vel.mul(min(float(1), float(15).div(max(speed, 0.001))));
   const pattern = Fn(([ph]) => {
-    const p = pw.xz.sub(vel.mul(ph.mul(cycle)));
-    const a = dot(p, dir), b = dot(p, vec2(dir.y.negate(), dir.x));
-    return noise3(vec3(a.mul(0.9).div(stretch), b.mul(1.3), 0.5)).add(noise3(vec3(a.mul(2.3).div(stretch), b.mul(3.1), 3.1)).mul(0.5));
+    const p = pw.xz.sub(drift.mul(ph.mul(cycle)));
+    return noise3(vec3(p.x.mul(1.1), p.y.mul(1.1), 0.5)).add(noise3(vec3(p.x.mul(2.7), p.y.mul(2.7), 3.1)).mul(0.5));
   });
   const n = mix(pattern(ph0), pattern(ph1), blend);
   // Normal from the pattern (plus a gentle ripple).
   const bump = n.mul(0.25).add(sin(pw.x.mul(0.8).add(time.mul(1.3))).mul(0.03));
   const k = clamp(speed.div(10), 0.2, 1);
   const nrm = normalize(vec3(bump.mul(dir.x).mul(k), 1, bump.mul(dir.y).mul(k)));
-  const foam = smoothstep(0.35, 1.0, n.add(speed.div(45))).mul(clamp(speed.div(30).sub(0.1), 0, 1));
+  // White water: streaks where the pattern runs high, more of them the faster the flow, never a solid sheet (speed
+  // alone used to push every fragment past the threshold, and a stream on a slope was a flat white band). A film a
+  // millimetre or two deep holds little foam: it shows the wet ground through it.
+  const body = smoothstep(0.1, 1.5, depth).mul(0.5).add(0.5);
+  const foam = smoothstep(0.2, 0.9, n.add(clamp(speed.div(100), 0, 0.3))).mul(clamp(speed.div(30).sub(0.1), 0, 1)).mul(body);
+  // Running water between the streaks: a lighter sheen that moves with the pattern, so a shallow stream still reads as
+  // water over the wet ground. Still water (pools) has none.
+  const flowK = clamp(speed.div(40), 0, 1);
+  const sheen = smoothstep(-0.15, 0.5, n).mul(flowK);
   const view = normalize(cameraPosition.sub(pw));
   const fres = pow(float(1).sub(clamp(abs(dot(view, nrm)), 0, 1)), 5).mul(0.9).add(0.03);
   const deep = clamp(depth.div(6), 0, 1);
@@ -624,8 +662,9 @@ function makeFlowMaterial() {
   const rl = max(dot(reflect(view.negate(), nrm), FX.lightDir.negate()), 0);
   const glint = pow(rl, 500).mul(4).add(pow(rl, 40).mul(0.2)).mul(U.daylight);
   const room = vec3(0.025, 0.03, 0.034);
-  m.colorNode = mix(mix(water, room, fres), vec3(0.8, 0.85, 0.88).mul(lit), foam).add(glint);
-  m.opacityNode = clamp(float(0.12).add(deep.mul(0.35)).add(foam.mul(0.75)).add(fres.mul(0.5)).add(tur.mul(0.3)).add(glint), 0, 0.92).mul(smoothstep(0.3, 0.9, show));
+  const flowing = mix(water, vec3(0.42, 0.52, 0.56).mul(lit), sheen.mul(0.45));
+  m.colorNode = mix(mix(flowing, room, fres), vec3(0.8, 0.85, 0.88).mul(lit), foam).add(glint);
+  m.opacityNode = clamp(float(0.12).add(flowK.mul(0.1)).add(sheen.mul(0.15)).add(deep.mul(0.35)).add(foam.mul(0.75)).add(fres.mul(0.5)).add(tur.mul(0.3)).add(glint), 0, 0.92).mul(smoothstep(0.05, 1, show));
   return m;
 }
 
