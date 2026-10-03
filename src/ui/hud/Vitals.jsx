@@ -64,6 +64,13 @@ export function Readings({ live }) {
           <Row label="Nitrate" value={Math.round(e.nitrate) + ' ppm'} level={cls(e.nitrate, 40, 60)} onClick={() => openModal('codex', 'concept:nitrogen-cycle')} />
         </>
       ) : null}
+      {hud.numbers && testKit ? (
+        <>
+          <Row label="pH" value={(e.ph ?? 7).toFixed(1)} level={e.ph < 6 || e.ph > 8.6 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:water-hardness')} />
+          <Row label="Hardness" value={`GH ${Math.round(e.gh ?? 0)} °dH`} level={e.gh < 3 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:water-hardness')} />
+        </>
+      ) : null}
+      {hud.numbers ? <Row label="Current" value={e.flow < 0.15 ? 'still' : e.flow < 0.4 ? 'gentle' : e.flow < 0.7 ? 'moderate' : 'strong'} onClick={() => openModal('codex', 'concept:filtration')} /> : null}
       {hud.numbers ? <Row label="Oxygen" value={e.oxygen.toFixed(1) + ' mg/L'} level={cls(e.oxygen, 5, 4, true)} /> : null}
       {hud.numbers ? <Row label="Bacteria" value={Math.round(e.cycle * 100) + '% cycled'} level={e.cycle < 0.5 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:nitrogen-cycle')} /> : null}
       <Row label="Algae" value={e.algae > 0.3 ? 'bloom' : e.diatoms > 0.3 ? 'diatoms' : e.algae > 0.15 ? 'some' : 'little'} level={e.algae > 0.3 ? 'bad' : e.algae > 0.15 || e.diatoms > 0.3 ? 'warn' : ''} onClick={() => openModal('codex', 'concept:algae')} />

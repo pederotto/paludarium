@@ -234,6 +234,77 @@ export const TETRAS = {
   },
 };
 
+// ---- Celestial pearl danio (Danio margaritatus): a 2 cm steel-blue danio covered in pearly spots, with orange-red fins
+// barred black and red, and an orange-red belly (the male). Same finish as the ember tetra, so it shares its material.
+TETRAS.cpd = () => {
+  const t = 0.043, steel = C(0x3e5468), deep = C(0x1d2a3a), pearl = C(0xf3e2b0), belly = C(0xff6a24), FIN = C(0xff6a28), BAR = C(0x1a0c08), RED = C(0xe02a14);
+  // Barred fins: orange-red with two dark bars parallel to the body and a clear rim.
+  const barred = (y0, dir) => (u, v, ds, x, y, z) => {
+    const k = Math.abs(y - y0) * 7;                                    // distance out from the fin root
+    let c = lerp3(FIN, RED, sm(1.2, 2.2, k));
+    c = lerp3(c, BAR, Math.max(sm(0.35, 0.2, Math.abs(k - 0.8)), sm(0.35, 0.2, Math.abs(k - 2.0))) * 0.9);
+    return lerp3(c, C(0xf8f0e0), sm(-0.06, 0.0, ds) * 0.5);
+  };
+  const tailPaint = (u, v, ds, x, y, z) => {
+    let c = lerp3(FIN, RED, 0.4);
+    c = lerp3(c, BAR, sm(0.06, 0.03, Math.abs(Math.abs(y) - 0.12)) * 0.85);   // the two dark bars of the tail
+    return lerp3(c, C(0xf8f0e0), sm(-0.05, 0.0, ds) * 0.4);
+  };
+  return fishBody({
+    sl: 1.75, total: 2.2, cell: 0.05, eyeRing: mul3(C(0x4a6070), 1.2), box: [0.4, -0.6, 0.6], nose: 0.09,
+    top: [[0, 0.02], [0.06, 0.065], [0.2, 0.11], [0.4, 0.125], [0.6, 0.11], [0.8, 0.07], [1, 0.04]],
+    bot: [[0, -0.03], [0.06, -0.06], [0.2, -0.085], [0.4, -0.1], [0.6, -0.085], [0.8, -0.05], [1, -0.03]],
+    wid: [[0, 0.02], [0.06, 0.048], [0.2, 0.068], [0.4, 0.072], [0.6, 0.06], [0.8, 0.038], [1, 0.02]],
+    eyes: [{ s: 0.09, v: 0.1, r: 0.125, inner: C(0xd8b060), outer: C(0x5a3a18), limb: C(0x1a1008), pupil: [0.55, 0.55] }],
+    fins: ({ Z, TY, BY, sec }) => {
+      const [cy, hy, ww] = sec(0.27);
+      return [
+        medianFin(caudalPoly(Z(0.93), Z(0.93) + 1.05, 0.08, 0.26, (r) => 1 - 0.45 * (1 - r) ** 1.4), t, tailPaint),
+        medianFin([[Z(0.5), TY(0.5) - 0.06], [Z(0.53), TY(0.55) + 0.3], [Z(0.68), TY(0.66) + 0.14], [Z(0.72), TY(0.72) - 0.06]], t, barred(TY(0.6), 1)),
+        medianFin([[Z(0.55), BY(0.55) + 0.06], [Z(0.57), BY(0.6) - 0.24], [Z(0.74), BY(0.72) - 0.12], [Z(0.88), BY(0.88) + 0.06]], t, barred(BY(0.65), -1)),
+        ...pairFin({ x: ww * 0.8, y: cy - hy * 0.45, z: Z(0.27), dir: [0.45, -0.1, -1], poly: [[-0.05, -0.04], [0.04, 0.08], [0.2, 0.09], [0.3, 0.01], [0.2, -0.06], [0.06, -0.07]], t, paint: (u, v, ds) => lerp3(FIN, C(0xf8f0e0), 0.35) }),
+      ];
+    },
+    paint: (s, v, x, y, z) => {
+      let c = lerp3(steel, deep, sm(0.3, 1, v));
+      c = lerp3(c, belly, sm(-0.35, -0.9, v) * sm(0.1, 0.3, s) * (1 - sm(0.6, 0.8, s)) * 0.85);
+      c = lerp3(c, pearl, sm(0.3, 0.16, cells(x, y, z, 7.5)) * sm(0.08, 0.2, s) * (1 - sm(-0.4, -0.7, v)) * 0.95);   // pearl spots big enough for the coarse mesh
+      return mul3(c, 2.2);
+    },
+    finish: { finOpacity: 0.38, sheen: 0 },
+  });
+};
+
+// ---- Everglades pygmy sunfish (Elassoma evergladei): a 3 cm, deep-bodied little sunfish with a rounded tail and big soft
+// dorsal and anal fins set far back; a displaying male is velvet black with electric-blue spangles on flanks and fins.
+TETRAS.pygmy = () => {
+  const t = 0.05, black = C(0x0c0d12), brown = C(0x2a2216), blue = C(0x3ab8ff), blue2 = C(0x7ae0ff), FIN = C(0x14161c);
+  const spangles = (x, y, z, k) => sm(0.2, 0.1, cells(x * k, y * k, z * k, 6));
+  const finPaint = (u, v, ds, x, y, z) => lerp3(lerp3(FIN, blue, spangles(x, y, z, 2.2) * 0.85), blue2, sm(-0.05, 0.0, ds) * 0.6);
+  return fishBody({
+    sl: 2.4, total: 3.1, cell: 0.058, eyeRing: mul3(C(0x2a90d0), 1.4), box: [0.55, -0.9, 0.95], nose: 0.1,
+    top: [[0, 0.03], [0.06, 0.1], [0.2, 0.18], [0.4, 0.21], [0.6, 0.18], [0.8, 0.11], [1, 0.07]],
+    bot: [[0, -0.04], [0.06, -0.1], [0.2, -0.16], [0.4, -0.19], [0.6, -0.16], [0.8, -0.1], [1, -0.07]],
+    wid: [[0, 0.03], [0.06, 0.06], [0.2, 0.085], [0.4, 0.09], [0.6, 0.075], [0.8, 0.05], [1, 0.03]],
+    eyes: [{ s: 0.1, v: 0.2, r: 0.16, inner: C(0x40a8e0), outer: C(0x1a3050), limb: C(0x080a10), pupil: [0.5, 0.5] }],
+    fins: ({ Z, TY, BY, sec }) => {
+      const [cy, hy, ww] = sec(0.27);
+      return [
+        medianFin(caudalPoly(Z(0.92), Z(0.92) + 1.0, 0.12, 0.42, (r) => 0.7 + 0.3 * Math.sqrt(Math.max(0, 1 - r * r)), 1.0), t, finPaint),
+        medianFin([[Z(0.42), TY(0.42) - 0.06], [Z(0.46), TY(0.46) + 0.3], [Z(0.62), TY(0.6) + 0.5], [Z(0.8), TY(0.78) + 0.42], [Z(0.88), TY(0.88) - 0.06]], t, finPaint),
+        medianFin([[Z(0.58), BY(0.58) + 0.06], [Z(0.62), BY(0.62) - 0.36], [Z(0.78), BY(0.76) - 0.34], [Z(0.88), BY(0.88) + 0.06]], t, finPaint),
+        ...pairFin({ x: ww * 0.85, y: cy - hy * 0.3, z: Z(0.25), dir: [0.5, -0.1, -1], poly: [[-0.05, -0.05], [0.05, 0.12], [0.28, 0.14], [0.4, 0.02], [0.28, -0.09], [0.06, -0.1]], t, paint: (u, v, ds) => lerp3(C(0x8a9098), FIN, 0.4) }),
+      ];
+    },
+    paint: (s, v, x, y, z) => {
+      let c = lerp3(lerp3(brown, black, 0.7), black, sm(-0.3, 0.5, v));
+      c = lerp3(c, lerp3(blue, blue2, sm(0.15, 0.05, cells(x * 2.4, y * 2.4, z * 2.4, 5))), spangles(x, y, z, 1.8) * sm(0.15, 0.3, s) * (1 - sm(-0.6, -0.9, v)) * 0.9);
+      return mul3(c, 1.8);
+    },
+    finish: { finOpacity: 0.7, sheen: 0 },
+  });
+};
+
 // ---- Guppy: a slender male with a big delta tail, a tall dorsal and colour spots ---------------------------------------
 // Morph palettes (sRGB hex, no values above 1.0). tail = [root, middle, rim] colours across the fan, rimC = dark edge of the
 // fan, spot / spotAmt = black spots on the tail and dorsal, dor = [low, middle, tip] dorsal fin colours, silver/back/belly =

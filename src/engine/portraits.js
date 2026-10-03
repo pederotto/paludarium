@@ -46,6 +46,7 @@ export class Portraits {
     scene.add(new THREE.HemisphereLight(0xdfeeff, 0x30281c, 0.9));
     this.cam = new THREE.PerspectiveCamera(26, 1, 0.05, 900);
     this.plants = new Plants(scene);
+    this.plants.shadowless = true;     // species built later (on first use) cast none either
     await this.plants.preload();
     this.plants.meshes && Object.values(this.plants.meshes).forEach((m) => { m.castShadow = false; });
   }

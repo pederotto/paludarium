@@ -369,6 +369,7 @@ class Gen {
   env(o = {}, gear = []) {
     const E = this.W.env;
     E.matureTank();
+    if (gear.includes('filterCanister')) E.filterKind = 'canister';
     Object.assign(E, o);
     for (const g of gear) this.gear.add(g);
   }
@@ -943,6 +944,57 @@ BUILDERS.swamp = (g) => {
   g.animal('isopod', g.cnt(12), Z.land);
   g.animal('springtail', g.cnt(40), Z.land);
   g.env({ setpoint: 25, drainage: 0.45, mediaBio: 0.5, lampPower: 1.2, fan: 0.05, fogger: 0.6, rockMoss: 0.6, nitrate: 2, detritus: 8, algae: 0.02 }, ['fan', 'fogger']);
+};
+
+// ===== the care-sheet presets (2026-10): a landscape builder above, restocked and re-equipped for the new animals ====
+// Takes the animals a base builder put in out again (species `out`), and sets climate and gear for the new ones.
+function restock(g, out, env, gear = []) {
+  const A = g.W.animals;
+  for (const id of out) for (const a of [...(A.by[id] ?? [])]) A.remove(a);
+  Object.assign(g.W.env, env);
+  for (const k of gear) g.gear.add(k);
+  if (env.ph != null || env.gh != null) g.W.water.bodies?.resetChem?.();
+}
+BUILDERS.streambank = (g) => {
+  BUILDERS.swamp(g);
+  restock(g, ['crab', 'shrimp'], { setpoint: 25, basking: 0.55, uvb: 0.5, fogger: 0.6, drainage: 1, filterKind: 'matten', ph: 7.0, gh: 6, waterSource: 'remin' }, ['basking', 'uvb', 'falseBottom', 'filterMatten']);
+  const Z = g.zones(g.info.L);
+  g.log(g.X(0.1), g.Z(0.3), 26 * g.sc, 0.2, 1.2);
+  // Cork bark tubes to hide in, one by the water.
+  for (const [test, size] of [[Z.ledge, 18], [Z.bank, 14], [Z.flat, 12]]) { const c = g.spot(test, 300); if (c) g.piece('cork', c.x, c.z, { size: size * g.sc, rot: g.r() * 6.28, sink: 0.1 }); }
+  g.animal('skink', 1, (x, y, z, s) => Z.land(x, y, z, s) && g.W.nearWater(V(x, y, z), 12));
+  g.animal('purpleiso', g.cnt(12), Z.land);
+  g.animal('pandaking', g.cnt(4), Z.ledge);
+};
+BUILDERS.reedpool = (g) => {
+  BUILDERS.blackwater(g);
+  restock(g, ['cardinal', 'cory', 'shrimp'], { setpoint: 26, fogger: 0.4, drainage: 1, filterKind: 'matten', waterSource: 'remin', ph: 7.0, gh: 6 }, ['fogger', 'falseBottom', 'filterMatten']);
+  const Z = g.zones(g.info.L);
+  g.clusters('cattail', 3, 4, Z.edge, { radius: 7, gap: 4 });
+  g.clusters('bamboo', 2, 3, Z.edge, { radius: 7, gap: 6 });
+  g.wallScatter('bromeliad', g.cnt(3) + 1, (x, y) => y > g.info.L + 6, { gap: 12 });
+  g.animal('reedfrog', Math.max(3, g.cnt(4)), (x, y, z, s) => Z.land(x, y, z, s) && g.W.nearWater(V(x, y, z), 10));
+  g.animal('cpd', Math.max(6, g.cnt(8)), Z.deep(4));
+  g.animal('blueshrimp', Math.max(8, g.cnt(10)), Z.deep(2));
+  g.animal('springtail', g.cnt(20), Z.land);
+};
+BUILDERS.matano = (g) => {
+  BUILDERS.blackwater(g);
+  restock(g, ['cardinal', 'cory', 'shrimp'], { setpoint: 26, filterKind: 'canister', prefilter: true, mediaBio: 1, waterSource: 'hard', ph: 8.1, gh: 13 }, ['filterCanister']);
+  const Z = g.zones(g.info.L);
+  // Slate: caves in the deep water and a ramp up the bank.
+  for (let k = 0; k < 3; k++) { const c = g.spot(Z.deep(5), 300); if (c) g.piece('slate', c.x, c.z, { size: (12 + g.r() * 6) * g.sc, rot: g.r() * 6.28, tilt: 0.25 + g.r() * 0.3 }); }
+  const ramp = g.spot(Z.edge, 300);
+  if (ramp) g.piece('slate', ramp.x, ramp.z, { size: 16 * g.sc, rot: g.r() * 6.28, tilt: 0.45 });
+  g.animal('panther', 1, Z.deep(4));
+  g.animal('snail', g.cnt(8), Z.deep(2));
+};
+BUILDERS.everglades = (g) => {
+  BUILDERS.swamp(g);
+  restock(g, ['crab', 'shrimp'], { setpoint: 22, filterKind: 'matten', waterSource: 'remin', ph: 7.0, gh: 6 }, ['filterMatten']);
+  g.W.water.hydro.pump.rate = 30;   // a trickle over the seep, not a current: the sunfish wants still water
+  const Z = g.zones(g.info.L);
+  g.animal('pygmy', 3, Z.deep(2.5));
 };
 
 function V(x, y, z) { return new THREE.Vector3(x, y, z); }

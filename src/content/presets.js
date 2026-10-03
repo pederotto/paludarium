@@ -4,6 +4,30 @@
 // real habitat it copies (a key of content/biotopes.js) and what to expect.
 
 export const PRESETS = {
+  streambank: {
+    id: 'streambank', name: 'Crocodile skink creek', biotope: 'newguinea',
+    blurb: 'A New Guinea creek bank: mostly land, deep litter, roots and logs, a shallow pool, a warm spot and a low UVB tube, with a red-eyed crocodile skink and a clean-up crew.',
+    tiers: ['standard', 'long', 'wide', 'grand', 'show'], tags: ['skink', 'bioactive', 'humid', 'reptile'],
+    adjectives: ['Dusky', 'Hidden', 'Rooted', 'Leafy', 'Quiet', 'Sago'], noun: 'Creek',
+  },
+  reedpool: {
+    id: 'reedpool', name: 'Reed frog marsh', biotope: 'madagascar',
+    blurb: 'A Madagascar marsh: mostly water under reeds, sedges and wall bromeliads for starry night reed frogs to perch on, with pearl danios and blue shrimp below.',
+    tiers: ['tall', 'standard', 'long', 'wide', 'grand', 'show'], tags: ['reed frogs', 'deep water', 'false bottom', 'shrimp'],
+    adjectives: ['Starry', 'Reedy', 'Warm', 'Tall', 'Glinting'], noun: 'Marsh',
+  },
+  matano: {
+    id: 'matano', name: 'Lake Matano shore', biotope: 'matano',
+    blurb: 'A deep, hard-water lake shore of stones, roots and wood that reach out of the water, with a panther crab and snails, and a canister filter.',
+    tiers: ['standard', 'long', 'wide', 'grand', 'show'], tags: ['crab', 'deep water', 'hard water', 'canister'],
+    adjectives: ['Clear', 'Ancient', 'Stony', 'Deep', 'Blue'], noun: 'Shore',
+  },
+  everglades: {
+    id: 'everglades', name: 'Pygmy sunfish swamp', biotope: 'everglades',
+    blurb: 'A still, weedy Everglades margin with floating plants and reeds, pygmy sunfish in the water and a crew on the hummocks.',
+    tiers: ['nano', 'standard', 'long', 'wide', 'grand'], tags: ['fish', 'still water', 'reeds', 'bioactive'],
+    adjectives: ['Still', 'Weedy', 'Sunlit', 'Glinting', 'Southern'], noun: 'Swamp',
+  },
   cascade: {
     id: 'cascade', name: 'Cascade canyon', biotope: 'china',
     blurb: 'A rock gorge with a tall stepped waterfall into a clear lagoon, and a stream winding in from the back.',
@@ -55,7 +79,7 @@ export const PRESETS = {
   },
 };
 
-export const PRESET_ORDER = ['cascade', 'suriname', 'blackwater', 'stream', 'karst', 'swamp', 'jar'];
+export const PRESET_ORDER = ['cascade', 'suriname', 'blackwater', 'stream', 'karst', 'swamp', 'streambank', 'reedpool', 'matano', 'everglades', 'jar'];
 
 // Presets that suit a tank size, in menu order.
 export function presetsForTier(tier) {

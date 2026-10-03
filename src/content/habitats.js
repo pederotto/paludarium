@@ -53,4 +53,21 @@ export const HABITAT = {
   flypupa: { noun: 'fruit fly pupa', zone: 'land', maxDepth: 0.2, need: 'a dry surface' },
   fly: { noun: 'fruit fly', zone: 'air', need: 'air over dry ground' },
   eggs: { noun: 'egg clutch', zone: 'any', need: 'a damp place' },
+
+  // From the keeper's care sheets (2026-10).
+  cpd: { noun: 'celestial pearl danio', zone: 'water', minDepth: 3, need: 'still to gently moving water at least 3 cm deep, with moss and roots' },
+  pygmy: { noun: 'pygmy sunfish', zone: 'water', minDepth: 3, need: 'still water at least 3 cm deep, thick with moss and stems' },
+  blueshrimp: { noun: 'blue dream shrimp', zone: 'water', minDepth: 1, need: 'water at least 1 cm deep' },
+  // Lake Matano: 80% water, 15-25 cm deep, roots and rocks to climb out on.
+  panther: { noun: 'panther crab', zone: 'water', minDepth: 2, need: 'deep, hard water with caves and roots or rocks that reach out of it' },
+  // 80% land and a pool no deeper than 5-7 cm with a textured way out.
+  skink: { noun: 'crocodile skink', zone: 'land', maxDepth: 4, water: 40, cover: 10, rhMin: 65, tMax: 30, need: 'humid ground (80-90%) with cork, litter or moss to hide in and a shallow pool within reach' },
+  // A poor swimmer: water no deeper than 2-3 cm, gentle gravel slopes.
+  bumblebee: { noun: 'bumblebee toad', zone: 'land', maxDepth: 2.5, rhMin: 55, tMax: 27, need: 'damp mossy ground; water no deeper than 2-3 cm (it drowns in deeper water)' },
+  // Perches on leaves, bamboo and wood over water: 30% land (vertical), 70% water.
+  reedfrog: { noun: 'starry night reed frog', zone: 'shore', water: 30, maxDepth: 1.5, rhMin: 55, tMax: 31, need: 'plants, wood or bamboo to perch on above open water' },
+  marbled: { noun: 'marbled newt', zone: 'shore', water: 8, maxDepth: Infinity, tMax: 23, need: 'cool, still water (10-15 cm) with a ramp, or damp land beside it' },
+  purpleiso: { noun: 'dwarf purple isopod', zone: 'land', maxDepth: 0.2, rhMin: 60, need: 'very damp soil on land' },
+  pandaking: { noun: 'panda king isopod', zone: 'land', maxDepth: 0.2, rhMin: 55, need: 'damp ground on raised land, with ramps out of any water' },
+  springpink: { noun: 'pink springtail', zone: 'land', maxDepth: 0.2, rhMin: 55, need: 'damp ground on land' },
 };

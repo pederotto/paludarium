@@ -56,6 +56,12 @@ export class Env {
     this.rainProgram = [];      // [{ at, len }]: minute of day and minutes long
     this.drainage = 0;          // 0 none · 0.6 drainage layer · 1 false bottom
     this.mediaBio = 0.4;        // filter biomedia, 0 … 1: more surface, more bacteria
+    this.filterKind = 'sponge'; // sponge | matten | canister (content/equipment.js FILTERS)
+    this.prefilter = false;     // a sponge over the canister intake (shrimp- and fry-safe)
+    this.waterSource = 'tap';   // content/equipment.js WATER_SOURCES: what the tank is filled and changed with
+    this.ph = 7.4; this.gh = 9; // volume-weighted means of the water bodies (sim/waterbodies.js)
+    this.flow = 0.1;            // current in the main pool, 0 still … 1 strong
+    this.uvb = 0;               // 0 … 1, the UVB tube (1 = UV index about 4 under it)
     this.soil = 0.5;            // mean soil moisture 0 … 1 (from the climate map)
     this.mold = 0;              // 0 … 1
     this.condense = 0;          // 0 … 1, dew on the glass
@@ -78,12 +84,13 @@ export class Env {
   static KEYS = ['minute', 'temp', 'humidity', 'ammonia', 'nitrite', 'nitrate', 'oxygen', 'cycle', 'detritus', 'biofilm', 'lights', 'heater',
     'setpoint', 'lid', 'filter', 'room', 'roomHumidity', 'autoFeed', 'lastFed', 'culture', 'lastCulture', 'algae', 'diatoms', 'rockMoss', 'tankDays',
     'lampPower', 'lampWarmth', 'moonlight', 'fan', 'fogger', 'basking', 'rainProgram', 'drainage', 'mediaBio', 'soil', 'mold', 'season',
-    'lightsOn', 'lightsOff', 'chill', 'coolSet'];
+    'lightsOn', 'lightsOff', 'chill', 'coolSet', 'filterKind', 'prefilter', 'waterSource', 'ph', 'gh', 'uvb'];
 
   serialize() { return Object.fromEntries(Env.KEYS.map((k) => [k, this[k]])); }
   load(o = {}) {
     this.reset();
     for (const k of Env.KEYS) if (o[k] !== undefined) this[k] = o[k];
+    if (o.filterKind === undefined && (o.mediaBio ?? 0) > 0.6) this.filterKind = 'canister';   // saves from before filter kinds: more media than a sponge holds meant a canister
   }
 
   get day() { return Math.floor(this.minute / 1440); }

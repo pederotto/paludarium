@@ -105,6 +105,7 @@ export function computeMetrics(world) {
     moss15: mossPct >= 15, stream: streamCells >= 8 || (falls >= 1 && H.outlets.length >= 1), wood: wood >= 1, deep: W.water.level >= 10,
     cycled, falls: falls >= 1, oxygen: E.oxygen >= 7, stones: stone >= 3, cool: E.temp <= 22, tall4: heights.tall >= 4,
     basking: E.basking > 0,
+    hardwater: (E.gh ?? 0) >= 10, softwater: (E.gh ?? 9) <= 6, stillwater: (E.flow ?? 0) < 0.25, uvb: (E.uvb ?? 0) > 0, falsebottom: E.drainage >= 1,
   };
   return m;
 }

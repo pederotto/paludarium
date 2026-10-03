@@ -638,6 +638,46 @@ const bombina = (a) => {
   return headMarks(a, col, C(0x0a0e04));
 };
 
+// -- Bumblebee toad (Melanophryniscus stelzneri): matte jet black with canary-yellow spots and blotches on the back and flanks,
+// fiery orange-red palms, soles and belly patches.
+const EYE_MEL = { inner: C(0x3a2c1c), outer: C(0x120c06), pupil: [0.46, 0.42] };
+const melanophryniscus = (a) => {
+  const { x, y, z } = a;
+  const eyeC = a.eye ? paintEye(a) : null;
+  if (eyeC) return eyeC;
+  const dorsal = dorsalOf(a), belly = bellyOf(a), limb = a.kind !== 'body';
+  let col = lerp3(C(0x0a0a0c), C(0x18181a), wnoise(x, y, z, 2.2) * 0.6);
+  // yellow spots: bigger blotches on the back, small dots on the flanks and limbs
+  const sp = limb ? spots(x, y, z, 3.4, 0.05, 0.12, 0.45, 0.03, 11) : spots(x, y, z, 1.9, 0.08, 0.22, 0.62, 0.03, 13);
+  col = lerp3(col, lerp3(C(0xf6d21a), C(0xffe65a), wnoise(x + 7, y, z, 3)), sp * (1 - belly * 0.4));
+  // belly: black with red-orange blotches; palms and soles red-orange
+  const bl = sstep(0.5, 0.6, vnoise(x * 2.4 + 8, y * 2.4, z * 2.4) * 0.7 + vnoise(x * 5, y * 5, z * 5) * 0.3);
+  col = lerp3(col, C(0xe8361a), belly * bl * 0.9);
+  if (limb) col = lerp3(col, C(0xf04a18), sstep(0.72, 0.85, a.t) * sstep(0.2, -0.4, a.n[1]));
+  void dorsal;
+  return headMarks(a, col, C(0x020202));
+};
+
+// -- Starry night reed frog (Heterixalus alboguttatus): glossy jet black with many small cream-yellow stars, bright orange
+// limbs (hands, feet, inner thighs), a pale belly.
+const EYE_HET = { inner: C(0x5a4426), outer: C(0x1a1008), pupil: [0.48, 0.36] };
+const heterixalus = (a) => {
+  const { x, y, z } = a;
+  const eyeC = a.eye ? paintEye(a) : null;
+  if (eyeC) return eyeC;
+  const belly = bellyOf(a), limb = a.kind !== 'body';
+  let col = C(0x08080a);
+  const sp = spots(x, y, z, limb ? 4.2 : 3.6, 0.035, 0.08, 0.7, 0.02, 17);
+  col = lerp3(col, lerp3(C(0xf4eac0), C(0xffe680), wnoise(x, y, z, 4)), sp);
+  col = lerp3(col, C(0xe6dcc8), belly * 0.85);
+  if (limb) {
+    // orange from the knee and elbow out; the upper arm and outer thigh stay black and starry
+    const k = a.kind === 'hind' ? sstep(0.28, 0.42, a.t) : sstep(0.35, 0.5, a.t);
+    col = lerp3(col, lerp3(C(0xff6a10), C(0xff8a2a), wnoise(x, y, z, 3)), Math.max(k, sstep(-0.1, -0.5, a.n[1]) * 0.8));
+  }
+  return headMarks(a, col, C(0x020202));
+};
+
 // ---- The frogs ---------------------------------------------------------------------------------
 
 // A seated toad: flat and wide, short legs, blunt fingers, webbed hind feet, eyes up on the head.
@@ -679,6 +719,8 @@ export const FROGS = {
   strawberry: () => frogDef({ size: 2.3, cell: 0.048, paint: pumilio, eyePal: EYE_PUM, legK: 0.8, geo: scaleGeo(DART, { kx: 1.03, ky: 1.06, kz: 0.94, kr: 1.05, ke: 1.16, kd: 1.15 }) }),
   leucomelas: () => frogDef({ size: 4.5, cell: 0.072, paint: leucomelas, eyePal: EYE_LEU, geo: scaleGeo(DART, { kx: 1.03, ky: 1.03, kz: 1.0, kr: 1.06 }) }),
   auratus: () => frogDef({ size: 4.0, cell: 0.066, paint: auratus, eyePal: EYE_AUR, geo: scaleGeo(DART, { kx: 0.97, ky: 0.98, kz: 1.03, kr: 0.95 }) }),
+  bumblebee: () => frogDef({ size: 2.8, cell: 0.052, paint: melanophryniscus, eyePal: EYE_MEL, legK: 0.85, geo: scaleGeo(TOAD, { kx: 0.86, ky: 1.05, kz: 1.02, kr: 0.9, ke: 0.9, kd: 0.6, hind: 0.8, fore: 0.9 }), finish: { rough: 0.6, coat: 0.12, coatRough: 0.5, grain: 10, bump: 0.04, grainAmt: 0.6, tone: 0.03 } }),
+  reedfrog: () => { const g = scaleGeo(DART, { kx: 0.9, ky: 0.92, kz: 1.1, kr: 0.92, ke: 1.08, kd: 1.5, hind: 1.25, fore: 1.15 }); g.box = [2.05, g.box[1], g.box[2] * 1.08, g.box[3]]; return frogDef({ size: 3.0, cell: 0.056, paint: heterixalus, eyePal: EYE_HET, geo: g, finish: { rough: 0.3, coat: 0.6, coatRough: 0.12 } }); },
   toad: () => frogDef({ size: 4.5, cell: 0.072, paint: bombina, eyePal: EYE_BOMB, geo: TOAD, finish: { rough: 0.55, coat: 0.18, coatRough: 0.45, grain: 10, bump: 0.05, grainAmt: 0.8, tone: 0.03 } }),
 };
 
