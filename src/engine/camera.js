@@ -7,7 +7,7 @@ import { TANK } from '../sim/tank.js';
 
 let installed = false;
 const _ct = new THREE.Vector3(), _cp = new THREE.Vector3(), _cd = new THREE.Vector3();
-const _et = new THREE.Vector3(), _ep = new THREE.Vector3(), _eq = new THREE.Vector3(), _ed = new THREE.Vector3(), _sph = new THREE.Spherical();
+const _sph = new THREE.Spherical();
 
 // What the camera may not pass through: the ground (hardscape stamped in), the background relief and the unstamped pieces
 // (roots, wood: the animals' occupancy grid). Its raycast marches the height fields, which costs far less than testing the
@@ -135,63 +135,71 @@ export class CameraRig {
     };
   }
 
-  // Keep the camera out of the ground, the background and the hardscape of this world (see TankSolid and clip). Not
-  // camera-controls' own colliderMeshes: those refuse to dolly out while the camera touches a surface, so a camera pushed
-  // against a bank could not be zoomed back out.
+  // The camera goes where the player puts it, and nowhere else. The game never turns, tilts, pulls in or swings it on its
+  // own: earlier versions did all four (a line-of-sight test drew the camera in front of any bank between it and the target,
+  // a floor test tilted the orbit up, following swung round to a clear side, compartments clamped the turn) and the player
+  // saw the view jump, zoom onto terrain by itself and refuse to turn round the tank. Measured with tools/steps/camjank.mjs.
+  // What is left is a floor, not a spring: the lens cannot enter the ground, the background, a rock or root, or the stand
+  // under the tank. When the player's own turn, tilt or zoom would take it there, it slides up over the surface (the orbit
+  // tilts just as far as needed, current and end together, so there is no dead zone to drag back through); under an overhang
+  // where sliding up is no way out, it stops on the line to the target. Things between the lens and what it looks at stay
+  // where they are: plants dissolve near the lens and around a followed animal (plantMaterial), rocks and banks are for the
+  // player to look round.
   collideWith(worldOf) {
     this.solid = new TankSolid(worldOf);
-    this.clipD = null;
   }
 
-  // After the controls have placed the camera: if a solid surface lies between the target and the camera, draw the camera in
-  // front of it, on the same line (the orbit itself is untouched, so it eases back out when the view clears or the player
-  // zooms out). Comes in fast, goes back out slowly.
-  //
-  // floor() runs first, because the line test cannot fix two things: zooming toward the pointer slides the target along the
-  // view ray, which can carry it into the ground or the background, and orbiting low (down to 115 degrees from straight
-  // down) can put the whole line below the ground with the target on it. (Before: 5 of 12 wheel zooms toward the floor and
-  // every low orbit ended under it.)
-  clip(dt) {
+  // Room for the lens at p.
+  roomFor(W, p) {
+    const { w, d } = TANK;
+    if (Math.abs(p.x) < w / 2 + 6 && Math.abs(p.z) < d / 2 + 5 && p.y < 0.5) return false;   // the tank's bottom and its stand
+    return this.solid.roomAt(W, p.x, p.y, p.z);
+  }
+
+  hold() {
     if (!this.solid) return;
     const W = this.solid.worldOf();
     if (!W?.terrain || !W.wall) return;
-    this.floor(W);
-    // The line from where the target is now to where the camera is now (not to where they are heading: during a glide the
-    // camera used to be drawn onto the end line, a jump of several cm).
-    const c = this.controls, t = c.getTarget(_ct, false), p = c.getPosition(_cp, false);
-    const dir = _cd.copy(p).sub(t), len = dir.length();
-    if (len < 1e-3) return;
-    dir.divideScalar(len);
-    const free = Math.max(1.5, this.clearance(t, dir, len + 1) - 0.6);
-    const want = Math.min(len, free);
-    // In fast (a third of the way per frame at 60 fps: the wood and roots are a grid of 1 cm cells, and snapping onto each
-    // cell edge jerked the camera while following a gecko up a branch), out slowly.
-    this.clipD = this.clipD == null ? want : this.clipD + (want - this.clipD) * Math.min(1, dt * (want < this.clipD ? 24 : 5));
-    if (this.clipD < len - 0.01) this.camera.position.copy(t).addScaledVector(dir, this.clipD);
-  }
-
-  // Where the orbit is heading (its end values) must leave room for the lens: the target is lifted out of the ground or the
-  // background, the orbit is tilted up until the camera is above the ground with a clear line to the target. Both with a
-  // transition, so the camera glides along the floor instead of jumping.
-  floor(W) {
-    const c = this.controls, t = c.getTarget(_et, true);
-    if (Math.abs(t.x) < TANK.w / 2 && Math.abs(t.z) < TANK.d / 2) {
-      const g = W.terrain.heightAt(t.x, t.z) + 0.3, wz = W.wall.zAt(t.x, Math.max(t.y, g)) + 0.3;
-      if (t.y < g - 0.01 || t.z < wz - 0.01) { c.moveTo(t.x, Math.max(t.y, g), Math.max(t.z, wz), true); t.set(t.x, Math.max(t.y, g), Math.max(t.z, wz)); }
+    const c = this.controls, cam = this.camera.position;
+    // Zooming toward the pointer slides what the camera looks at along the view ray, which can take it under the ground:
+    // ease it back onto the surface (where the orbit is heading, so the glide is the controls' own).
+    const te = c.getTarget(_ct, true);
+    if (Math.abs(te.x) < TANK.w / 2 && Math.abs(te.z) < TANK.d / 2) {
+      const g = W.terrain.heightAt(te.x, te.z) + 0.3;
+      if (te.y < g - 0.05) c.moveTo(te.x, g, te.z, true);
     }
-    const p = c.getPosition(_ep, true), dir = p.sub(t), len = dir.length();
-    if (len < 1e-3) return;
-    dir.divideScalar(len);
-    const q = _eq, ok = (d) => { q.copy(t).addScaledVector(d, len); return this.solid.roomAt(W, q.x, q.y, q.z) && this.clearance(t, d, len) >= Math.min(len, 2.5); };
-    if (ok(dir)) return;
-    _sph.setFromVector3(dir);
-    const d = _ed;
-    for (let k = 1; k <= 30; k++) {
-      const phi = _sph.phi - k * 0.035;
-      if (phi < 0.05) return;
-      d.setFromSphericalCoords(1, phi, _sph.theta);
-      if (ok(d)) { c.rotatePolarTo(phi, true); return; }
+    if (this.roomFor(W, cam)) return;
+    const t = c.getTarget(_ct, false);
+    _sph.setFromVector3(_cd.copy(cam).sub(t));
+    const at = (phi) => _cp.setFromSphericalCoords(_sph.radius, phi, _sph.theta).add(t);
+    // Slide up: the smallest tilt that frees the lens, up to straight above (steps of 1.4 degrees, then halved down to a few
+    // hundredths of one).
+    let lo = _sph.phi, hi = null;
+    for (let k = 1; k <= 64; k++) {
+      const phi = Math.max(0.02, _sph.phi - k * 0.025);
+      if (this.roomFor(W, at(phi))) { hi = phi; break; }
+      lo = phi;
+      if (phi === 0.02) break;
     }
+    if (hi != null) {
+      for (let i = 0; i < 6; i++) { const m = (lo + hi) / 2; if (this.roomFor(W, at(m))) hi = m; else lo = m; }
+      // Only the tilt, current and (if it is lower) where the drag is heading: rotatePolarTo would also snap the turn to
+      // where the drag is heading, a jump sideways that can land the lens in the ground again.
+      c._spherical.phi = hi;
+      if (c._sphericalEnd.phi > hi) c._sphericalEnd.phi = hi;
+      cam.copy(at(hi));
+      this.camera.lookAt(t);
+      return;
+    }
+    // Under an overhang: stop on the line to the target, in front of the surface (drawn only; the orbit is kept).
+    const len = _sph.radius;
+    _cd.divideScalar(len || 1);
+    for (let s = len; s > 0.5; s -= 0.25) {
+      _cp.copy(t).addScaledVector(_cd, s);
+      if (this.roomFor(W, _cp)) { cam.copy(_cp); return; }
+    }
+    // Nothing on that line either (the target itself is in the ground for a moment): straight up out of the ground.
+    if (Math.abs(cam.x) < TANK.w / 2 && Math.abs(cam.z) < TANK.d / 2) cam.y = Math.max(cam.y, W.terrain.heightAt(cam.x, cam.z) + 0.8);
   }
 
   // How far one can see from `from` along the unit vector `dir` before a solid surface, up to `max`.
@@ -204,31 +212,36 @@ export class CameraRig {
 
   // Set limits for the current tank and snap to the front view.
   fit() {
-    const c = this.controls;
     this.moved = false;
     if (this.zone && !this.orbit) { this.setZone(this.zone, false); return; }
     this.freeLimits();
-    c.minDistance = 3;
     this.view('front', false);
   }
 
-  // The free camera of the title screen, the time-lapse and the kids' tanks: all the way round, out into the room.
+  // The free camera of the title screen, the time-lapse and the kids' tanks: out into the room.
   freeLimits() {
     const { w, d, h } = TANK, c = this.controls;
-    c.minAzimuthAngle = -Infinity; c.maxAzimuthAngle = Infinity;
     c.minPolarAngle = 0; c.maxPolarAngle = Math.PI * 0.64;
+    c.minDistance = 3;
     c.maxDistance = Math.max(w * 3, this.fitDistance(1.3, 1.3) * 1.5);
     c.setBoundary(new THREE.Box3(new THREE.Vector3(-w * 0.7, -4, -d * 0.8), new THREE.Vector3(w * 0.7, h * 1.25, d * 1.05)));
   }
 
-  // The player's camera works in compartments: each is a framing with its own range of turn, tilt and zoom, all of them in
-  // front of the tank. Turning the camera round the whole tank took it behind the background, where the line test drew it
-  // back inside the tank: the view jumped into fog and leaves and out again, and the room around was empty and dark.
-  //   tank    the whole tank, close enough that it fills the view (no room); turn about 35 degrees either way
+  // The player's camera: all the way round the tank, from straight above down to a little below level, from 3 cm to far
+  // enough to see the whole tank from any side; what it looks at stays inside the tank.
+  playLimits() {
+    const { w, d, h } = TANK, c = this.controls;
+    c.minPolarAngle = 0; c.maxPolarAngle = Math.PI * 0.56;
+    c.minDistance = 3;
+    c.maxDistance = this.fitDistance(1.3, 1.3) * 1.35 + d * 0.5;
+    c.setBoundary(new THREE.Box3(new THREE.Vector3(-w * 0.48, 0.5, -d * 0.48), new THREE.Vector3(w * 0.48, h * 0.98, d * 0.48)));
+  }
+
+  // Framings of the tank the Camera menu offers (a starting point: the camera turns freely from each):
+  //   tank    the whole tank, close enough that it fills the view
   //   bottom  level with the substrate and the water, where the soil layers show at the glass
   //   back    the background and what grows and climbs on it
   //   top     looking down into the tank
-  // The target may go anywhere inside the tank (zoom toward the pointer, follow an animal), never outside it.
   zones() {
     const { w, d, h } = TANK;
     const tv = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)), fh = this.free.h;
@@ -239,13 +252,12 @@ export class CameraRig {
     const yb = h * 0.17, bottom = [0, yb, d * 0.15];
     const yk = h * 0.6, back = [0, yk, (W?.wall ? W.wall.zAt(0, yk) : -d * 0.3) + 3];
     const topD = Math.max((w * 1.06) / 2 / (tv * aspect * this.free.w), (d * 1.1) / 2 / tv / fh) + h * 0.9;
-    const z = {
-      tank: { at: [0, h * 0.45, 0], el: portrait ? 0.8 : 0.2, D: tankD, az: 0.62, polar: [0.2, 0.55], far: 1.06 },
-      bottom: { at: bottom, el: 0.07, D: outside(bottom, 0.07, (h * 0.22) / tv / fh), az: 0.42, polar: [0.4, 0.56], far: 1.6 },
-      back: { at: back, el: 0.2, D: outside(back, 0.2, (h * 0.3) / tv / fh), az: 0.5, polar: [0.3, 0.52], far: 1.3 },
-      top: { at: [0, h * 0.2, 0], el: 1.3, D: topD, az: 0.62, polar: [0.02, 0.32], far: 1.1 },   // the lid and the lamp hide themselves (Stage.setOverhead)
+    return {
+      tank: { at: [0, h * 0.45, 0], el: portrait ? 0.8 : 0.2, D: tankD },
+      bottom: { at: bottom, el: 0.07, D: outside(bottom, 0.07, (h * 0.22) / tv / fh) },
+      back: { at: back, el: 0.2, D: outside(back, 0.2, (h * 0.3) / tv / fh) },
+      top: { at: [0, h * 0.2, 0], el: 1.3, D: topD },   // the lid and the lamp hide themselves (Stage.setOverhead)
     };
-    return z;
   }
 
   setZone(id, animate = true) {
@@ -254,23 +266,15 @@ export class CameraRig {
     this.orbit = null;
     const c = this.controls;
     c.normalizeRotations();
-    this.zoneLimits(z);
+    this.playLimits();
     const [x, y, zz] = z.at;
     c.setLookAt(x, y + z.D * Math.sin(z.el), zz + z.D * Math.cos(z.el), x, y, zz, animate);
   }
 
-  zoneLimits(z) {
-    const { w, d, h } = TANK, c = this.controls;
-    c.minAzimuthAngle = -z.az; c.maxAzimuthAngle = z.az;
-    c.minPolarAngle = Math.PI * z.polar[0]; c.maxPolarAngle = Math.PI * z.polar[1];
-    c.minDistance = 3; c.maxDistance = z.D * z.far;
-    c.setBoundary(new THREE.Box3(new THREE.Vector3(-w * 0.48, 0.5, -d * 0.48), new THREE.Vector3(w * 0.48, h * 0.98, d * 0.48)));
-  }
-
-  // Is the unit vector `dir` (from the target toward the camera) inside the current turn and tilt range?
+  // Is the unit vector `dir` (from the target toward the camera) inside the tilt range?
   allows(dir) {
-    const c = this.controls, az = Math.atan2(dir.x, dir.z), polar = Math.acos(THREE.MathUtils.clamp(dir.y, -1, 1));
-    return az >= c.minAzimuthAngle - 1e-3 && az <= c.maxAzimuthAngle + 1e-3 && polar >= c.minPolarAngle - 1e-3 && polar <= c.maxPolarAngle + 1e-3;
+    const c = this.controls, polar = Math.acos(THREE.MathUtils.clamp(dir.y, -1, 1));
+    return polar >= c.minPolarAngle - 1e-3 && polar <= c.maxPolarAngle + 1e-3;
   }
 
   view(id, animate = true) {
@@ -279,15 +283,15 @@ export class CameraRig {
     this.controls.setLookAt(...v, animate);
   }
 
-  // A slow orbit for the title screen and time-lapse: the free camera. Stopping it returns to the compartment, if any.
+  // A slow orbit for the title screen and time-lapse: the free camera. Stopping it returns to the player's limits, if playing.
   startOrbit(speed = 0.05) { this.orbit = speed; this.freeLimits(); }
   stopOrbit() {
     if (this.orbit == null) return;
     this.orbit = null;
-    if (this.zone) { this.controls.normalizeRotations(); this.zoneLimits(this.zones()[this.zone]); }
+    if (this.zone) { this.controls.normalizeRotations(); this.playLimits(); }
   }
 
-  // Leave the compartments (back to the title screen).
+  // Leave play (back to the title screen).
   freeZone() { this.zone = null; this.freeLimits(); }
 
   // Tell the rig how many pixels of the view the interface covers, so the
@@ -315,7 +319,7 @@ export class CameraRig {
       else this.camera.setViewOffset(w, h, -this.shift.x, -this.shift.y, w, h);
     }
     const changed = this.controls.update(dt);
-    this.clip(dt);
+    this.hold();
     return changed;
   }
 

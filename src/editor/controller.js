@@ -235,12 +235,18 @@ export class ToolController {
       if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 6 && performance.now() - t.t < 500 && this.W) {
         this.setMouse(e);
         this.tap();
-      }
+        this._taps = [...(this._taps ?? []).slice(-1), performance.now()];
+      } else this._taps = [];
       up();
     });
     el.addEventListener('pointercancel', up);
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('dblclick', (e) => {
+      // Only two real clicks fly the camera: the browser also reports two quick drags (turning the view twice) or a trackpad
+      // double tap ending a drag as a double click, and the camera flew off to the ground by itself.
+      const [t1, t2] = this._taps ?? [];
+      if (!(t1 && t2 && t2 - t1 < 500 && performance.now() - t2 < 300)) return;
+      this._taps = [];
       this.setMouse(e);
       const hit = this.pick(['terrain', 'wall', 'water']);
       if (!hit) return;
@@ -351,31 +357,16 @@ export class ToolController {
   // Keep the camera on a moving animal.
   follow(obj) {
     S.following.value = obj ?? null;
-    this._fol = { blocked: 0, check: 0, wait: 1.2 };      // the zoom-in flight first
   }
 
-  // One frame of following: the target slides after the animal; a few times a second the view is checked, and if a bank, a
-  // rock or leaves have hidden the animal for half a second the camera swings round to a clear side (not while the player is
-  // turning the camera, nor for two seconds after).
-  followFrame(a, dt) {
-    const c = this.controls, rig = this.game.rig;
+  // One frame of following: the target slides after the animal; the camera keeps the distance and angle the player chose
+  // (it used to swing round to a clear side by itself when a bank or leaves hid the animal: the player saw the angle jump).
+  // Leaves between the lens and the animal dissolve instead; for a bank or a rock the player turns the camera.
+  followFrame(a) {
     const p = new THREE.Vector3(a.pos.x, a.pos.y + Math.min(1.5, (SPECIES[a.sp]?.size ?? 1) * 0.25), a.pos.z);
-    c.moveTo(p.x, p.y, p.z, true);
+    this.controls.moveTo(p.x, p.y, p.z, true);
     // Leaves between the lens and the animal dissolve (plantMaterial): a tube a little wider than the animal.
     U.focus.value.set(p.x, p.y, p.z, Math.max(2.5, (SPECIES[a.sp]?.size ?? 2) * 0.9));
-    const F = this._fol ??= { blocked: 0, check: 0, wait: 0 };
-    F.wait -= dt; F.check -= dt;
-    if (F.check > 0) return;
-    F.check = 0.25;
-    if (rig.handling || performance.now() - (rig.handledAt ?? -1e9) < 2000 || F.wait > 0) { F.blocked = 0; return; }
-    const cam = c.getPosition(new THREE.Vector3()), d = Math.max(4, cam.distanceTo(p));
-    const dir = cam.sub(p).normalize();
-    const v = this.clearView(p, d, dir);
-    if (v.dir.angleTo(dir) < 0.05) { F.blocked = 0; return; }
-    F.blocked += 0.25;
-    if (F.blocked < 0.5) return;
-    F.blocked = 0; F.wait = 1.5;          // let the swing finish before judging again
-    c.setLookAt(p.x + v.dir.x * d, p.y + v.dir.y * d, p.z + v.dir.z * d, p.x, p.y, p.z, true);
   }
 
   hover() {
@@ -472,7 +463,7 @@ export class ToolController {
   // Continuous brush while the button is held.
   frame(dt) {
     const fol = S.following.value;
-    if (fol && !fol.dead && fol.pos) this.followFrame(fol, dt);
+    if (fol && !fol.dead && fol.pos) this.followFrame(fol);
     else if (fol) S.following.value = null;
     if (!S.following.value && U.focus.value.w) U.focus.value.w = 0;
     this.frameMarker();
