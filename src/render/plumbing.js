@@ -1,28 +1,28 @@
 // The visible plumbing of the pump circuit (sim/hydro.js, nothing here changes the hydrology):
 //
 //   main pool: screened intake -> pump housing -> hose -> (buried under the substrate) -> up the background wall -> outlet
-//   external filter (sponge box, canister) in the cabinet under the tank: the main pool spills into an overflow drain
-//   (a standpipe whose rim sits at the surface), the drain hose runs down through the tank floor to the filter, and the
-//   filter's own pump sends the cleaned water back up over the back rim to a return nozzle or spray bar in the pool
+//   external filter (sponge box, canister) in the cabinet under the tank, plumbed through two bulkheads in the tank floor:
+//   its own pump pulls the pool's water in through the intake (a strainer on a short pipe), through the filter, and
+//   pushes it back up through the return (a short pipe with a nozzle) into the pool. Nothing goes over the rim.
 //
-// Everything static (housing, intake grill, hoses, wall clips, standpipe) is merged into ONE mesh and rebuilt only when the
+// Everything static (housing, intake grill, hoses, wall clips, filter) is merged into ONE mesh and rebuilt only when the
 // intake, an outlet, the water level or the ground changed (at most once every couple of seconds). Hoses follow the
 // ground a little under its surface, so they vanish into the substrate and rocks and show only where they run through
 // open air: up the background wall, and at the pump. Water in the hoses is a highlight that travels along them while the
-// pump runs; the drain shows water going in while the filter pumps. Hidden in photo mode and Kids mode, and
+// pump runs; jets show the clean water leaving the filter. Hidden in photo mode and Kids mode, and
 // with Care > Water > Show equipment off, unless a view layer that shows the build is on (render/layers.js): then the same
 // geometry is drawn a second time, glowing, only where something covers it (the `ghost`, depth test reversed), so hoses
 // buried in the substrate and run behind rocks show through.
 
 import * as THREE from 'three/webgpu';
-import { attribute, uniform, time, sin, smoothstep, vec3, float, positionLocal, mix, abs, dot, normalView } from 'three/tsl';
+import { attribute, uniform, time, sin, smoothstep, vec3, float, mix, abs, dot, normalView } from 'three/tsl';
 import { creatureMaterial } from './shaders.js';
 import { TANK } from '../sim/tank.js';
 import { filterEff } from '../content/equipment.js';
 
 const HOSE_R = 0.38;
 const HOSE = new THREE.Color(0x2e3b41), CLIP = new THREE.Color(0xa6aeb2), BODY = new THREE.Color(0x242b30), CAPC = new THREE.Color(0x39444b);
-const GRILL = new THREE.Color(0x86979c), SLOT = new THREE.Color(0x151a1d), PIPE = new THREE.Color(0xc9ccc6), RIM = new THREE.Color(0xe4e6e0), INNER = new THREE.Color(0x101517);
+const GRILL = new THREE.Color(0x86979c), SLOT = new THREE.Color(0x151a1d), PIPE = new THREE.Color(0xc9ccc6);
 const FOAM = new THREE.Color(0x27333e), FOAM2 = new THREE.Color(0x34424e), CLEAR = new THREE.Color(0x9fb4b8), PVC = new THREE.Color(0xe8e8e2);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -89,7 +89,6 @@ export class Plumbing {
     this.group.name = 'plumbing';
     parent.add(this.group);
     this.run = uniform(0);       // 0 … 1: the pump is running (smoothed)
-    this.spillAmt = uniform(0);  // 0 … 1: bypass flow over the weir
     const mat = creatureMaterial({ rough: 0.42 });
     mat.metalness = 0.15;
     const base = mat.emissiveNode;
@@ -102,15 +101,6 @@ export class Plumbing {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
     this.mesh.frustumCulled = false; this.mesh.castShadow = true; this.mesh.receiveShadow = true; this.mesh.name = 'plumbing-mesh';
     this.group.add(this.mesh);
-    // The sheet of water going over the weir.
-    const sm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
-    sm.colorNode = vec3(0.45, 0.78, 0.95);
-    const streak = smoothstep(0.3, 1.0, sin(positionLocal.x.mul(17).add(positionLocal.z.mul(13))).mul(0.5).add(0.5));
-    const fall = sin(positionLocal.y.mul(4.5).sub(time.mul(8))).mul(0.5).add(0.5);
-    sm.opacityNode = this.spillAmt.mul(streak.mul(0.75).add(0.15)).mul(fall.mul(0.45).add(0.55)).mul(0.6);
-    this.spill = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.15, 1, 14, 1, true), sm);
-    this.spill.visible = false; this.spill.frustumCulled = false; this.spill.name = 'weir-spill';
-    this.group.add(this.spill);
     // Clean water leaving the filter: short streaky jets from its outlets, as strong as the flow it still passes.
     this.fflow = uniform(0);     // 0 … 1: the filter's pump running, less what clogging takes
     const jm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
@@ -120,7 +110,7 @@ export class Plumbing {
     this.jets = new THREE.Mesh(new THREE.BufferGeometry(), jm);
     this.jets.frustumCulled = false; this.jets.renderOrder = 7; this.jets.name = 'filter-jets';
     this.group.add(this.jets);
-    this.sig = ''; this.t = 1e9; this.weir = null;
+    this.sig = ''; this.t = 1e9;
     this.layer = 'surface';      // render/layers.js
     this.ghost = null;           // made the first time the build is shown
   }
@@ -168,10 +158,6 @@ export class Plumbing {
     }
     const P = H.pump;
     this.run.value += ((P.running ? 1 : 0) - this.run.value) * Math.min(1, dt * 2.5);
-    // Water pours into the drain as fast as the external filter pumps it away.
-    const frac = this.weir ? filterEff(W.env) : 0;
-    this.spillAmt.value += (frac - this.spillAmt.value) * Math.min(1, dt * 2);
-    this.spill.visible = !!this.weir && this.spillAmt.value > 0.02;
     this.fflow.value += (filterEff(W.env) - this.fflow.value) * Math.min(1, dt * 2);
   }
 
@@ -244,27 +230,8 @@ export class Plumbing {
       S.tube(dense, HOSE_R, HOSE);
     });
 
-    // --- Overflow drain for an external filter: a standpipe whose rim sits just under the surface, so the pool spills
-    // into it; a bulkhead under it takes the water through the tank floor (the drain hose is drawn with the filter).
-    this.weir = null;
-    const E0 = W.env, ext = E0.filter && (E0.filterKind ?? 'sponge') !== 'matten';
-    const cand = [[7, 0], [-7, 0], [0, -7], [10, -4], [-10, -4], [5, 6], [-5, 6], [3, 0]];
-    for (const [dx, dz] of ext ? cand : []) {
-      const x = px + dx, z = pz + dz;
-      if (Math.abs(x) > wx - 1 || Math.abs(z) > TANK.d / 2 - 2) continue;
-      const gh = T.heightAt(x, z);
-      if (!W.water.inMainPool(x, z) || level - gh < 2.2) continue;
-      const top = level - 0.15;
-      S.geo(new THREE.CylinderGeometry(0.85, 0.95, top - gh + 0.5, 14, 1, true), cylM(x, (top + gh - 0.5) / 2, z), PIPE);
-      S.geo(new THREE.TorusGeometry(0.9, 0.16, 6, 16), new THREE.Matrix4().compose(V(x, top, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)), V(1, 1, 1)), RIM);
-      S.geo(new THREE.CircleGeometry(0.78, 14), new THREE.Matrix4().compose(V(x, top - 1.2, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)), V(1, 1, 1)), INNER);
-      this.weir = { x, z, top, gh };
-      // The sheet of water going in over the rim, inside the pipe.
-      this.spill.scale.set(0.78, 1.1, 0.78);
-      this.spill.position.set(x, top - 0.55, z);
-      break;
-    }    const J = new Soup();
-    this.filterGear(S, px, pz, J, this.weir);
+    const J = new Soup();
+    this.filterGear(S, px, pz, J);
     const oj = this.jets.geometry;
     this.jets.geometry = J.build();
     oj.dispose();
@@ -276,17 +243,15 @@ export class Plumbing {
 
   // The filter (Care > Water) and the false bottom's pump tower, so the build that changes the water is there to see.
   // Each filter has its own small pump (not the main pump): it pulls the pool's water through the media and pushes it back
-  // out clean, shown by the jets (J) at its outlets. The external ones stand on the cabinet floor under the tank and are fed
-  // by the overflow drain (`drain`, from rebuild): its hose runs down through the tank floor; without a drain spot, by an
-  // intake pipe with a strainer over the back rim.
-  //   sponge   external: a box holding the sponge and its pump; the return comes back up over the rim to a nozzle that
-  //            jets the clean water into the pool
+  // out clean, shown by the jets (J) at its outlets.
+  //   sponge, canister  external, on the floor of the cabinet under the tank. Two bulkheads in the tank floor under the pool:
+  //            the intake (a short pipe with a strainer, or a foam pre-filter on the canister) and the return (a short pipe
+  //            whose nozzle jets the clean water back). Both hoses run straight down to the filter.
   //   matten   inside the tank: a wall of coarse foam across a back corner of the pool, a pump behind it, its riser spilling
   //            over the top
-  //   canister external: the canister (a foam pre-filter on its intake if set); the return runs to a spray bar along the
-  //            back, jetting clean water
-  //   false bottom: a slotted PVC access tower standing in a back corner of the land, down to the plenum
-  filterGear(S, px, pz, J, drain = null) {
+  //   false bottom: a slotted PVC access tower standing in a back corner of the land, down to the plenum (it is how you
+  //            reach the water under the land; the pumping is done by the main pump and the filter)
+  filterGear(S, px, pz, J) {
     const W = this.world, E = W.env, T = W.terrain, wall = W.wall, level = W.water.hydro.level;
     const hw = TANK.w / 2, back = (x, y) => wall.zAt(x, y);
     const pool = (x, z) => W.water.inMainPool(x, z) && level - T.heightAt(x, z) > 2;
@@ -297,55 +262,58 @@ export class Plumbing {
     const corners = [[-hw + 4, zb(-hw + 4)], [hw - 4, zb(hw - 4)], [px - 9, pz - 2], [px + 9, pz - 2], [px, pz + 8]];
     // A jet of clean water from p along dir (a short tube; its `along` drives the streaks).
     const jet = (p, dir, r = 0.35) => { const d = dir.clone().normalize(), pts = []; for (let k = 0; k <= 8; k++) pts.push(p.clone().addScaledVector(d, k * 0.45)); J.tube(pts, r, CLEAR, 6); };
-    // A hose (canister or external sponge filter) from (x, y0, z0) to the background just over the water (riding over any land in between), up its face,
-    // over the back rim, down the outside of the back glass and in under the tank to the filter's lid at `end` (an external
-    // filter stands in the cabinet under the tank).
-    const over = (x, z0, y0, end) => {
-      const zr = -TANK.d / 2 + 0.6, top = TANK.h + 1.5, pts = [V(x, y0, z0)];
-      const zw = back(x, y0) + 1.2, n = Math.max(2, Math.ceil(Math.abs(z0 - zw) / 1.5));
-      let y = y0;
-      for (let k = 1; k <= n; k++) { const z = z0 + (zw - z0) * (k / n); y = Math.max(y0, T.heightAt(x, z) + 0.5); pts.push(V(x, y, z)); }
-      for (y += 1.5; y < top - 1; y += 1.5) pts.push(V(x, y, back(x, y) + 1.2));
-      const zo = -TANK.d / 2 - 1.4;   // just outside the back glass
-      pts.push(V(x, top, Math.max(zr, back(x, top - 1) + 1)), V(x, TANK.h + 2.2, zr - 1.5), V(x, TANK.h - 3, zo), V(x, 2, zo), V(end.x, -2, zo), V(end.x, -6, end.z), end.clone());
-      relaxY(pts);
-      S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(Math.max(24, Math.ceil(pts.length * 1.5))), 0.32, HOSE);
-    };
     // External filters stand on the floor of the cabinet under the tank (it spans y -0.8 … -70.8).
     const FLOOR = -70.8;
-    // The drain hose: from the bulkhead under the standpipe straight down through the tank floor into the cabinet and the
-    // filter's inlet at `end`.
-    const drainHose = (end) => {
-      const { x, z, gh } = drain;
-      const pts = [V(x, gh - 0.2, z), V(x, -1.5, z), V(x, -6, z), V(end.x, -14, end.z), end.clone()];
-      S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(40), HOSE_R * 1.1, HOSE);
+    // A hose from a bulkhead in the tank floor at (x, z) straight down into the cabinet to the filter's fitting at `end`.
+    const under = (x, z, end) => {
+      const pts = [V(x, 0.2, z), V(x, -3, z), V(x, -8, z), V(end.x, -16, end.z), end.clone()];
+      S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(40), HOSE_R, HOSE);
+    };
+    // The intake: a pipe up from its bulkhead through the substrate, a strainer (or foam) on top, under the surface.
+    const intake = (x, z, foam) => {
+      const g = T.heightAt(x, z), top = Math.max(g + 0.8, Math.min(g + 2.6, level - 1.2));
+      S.geo(new THREE.CylinderGeometry(0.42, 0.42, top + 0.2, 10), cylM(x, (top - 0.2) / 2, z), PIPE);
+      S.geo(new THREE.CylinderGeometry(0.7, 0.7, 0.2, 12), cylM(x, g + 0.1, z), CAPC);
+      if (foam) { S.geo(new THREE.CylinderGeometry(1.2, 1.2, 2.2, 14), cylM(x, top + 0.6, z), FOAM); return; }
+      S.geo(new THREE.CylinderGeometry(0.85, 0.85, 1.8, 12, 1, true), cylM(x, top + 0.5, z), GRILL);
+      S.geo(new THREE.CylinderGeometry(0.88, 0.88, 0.16, 12), cylM(x, top + 1.45, z), CAPC);
+      for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2; S.geo(new THREE.BoxGeometry(0.16, 1.4, 0.12), new THREE.Matrix4().compose(V(x + Math.cos(a) * 0.88, top + 0.5, z + Math.sin(a) * 0.88), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT); }
+    };
+    // The return: a pipe up from its bulkhead, an elbow and a nozzle jetting the clean water out into the pool.
+    const ret = (x, z) => {
+      const g = T.heightAt(x, z), y = Math.max(g + 0.8, Math.min(g + 1.8, level - 1));
+      S.geo(new THREE.CylinderGeometry(0.38, 0.38, y + 0.2, 10), cylM(x, (y - 0.2) / 2, z), PIPE);
+      S.geo(new THREE.CylinderGeometry(0.7, 0.7, 0.2, 12), cylM(x, g + 0.1, z), CAPC);
+      let dir = V(-x * 0.25, 0, TANK.d * 0.3 - z);
+      if (dir.lengthSq() < 1) dir.set(0, 0, 1);
+      dir.normalize();
+      const ang = Math.atan2(dir.x, dir.z);
+      S.geo(new THREE.CylinderGeometry(0.3, 0.38, 1.2, 10), new THREE.Matrix4().compose(V(x, y, z).addScaledVector(dir, 0.5), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, ang, 0, 'YXZ')), V(1, 1, 1)), PIPE);
+      jet(V(x, y, z).addScaledVector(dir, 1.1), dir.clone().setY(-0.04), 0.3);
+    };
+    // Where the two bulkheads go: the intake in the pool away from the main pump, the return a hand's width from it.
+    const fittings = () => {
+      const c = spot(corners);
+      if (!c) return null;
+      const [x, z] = c;
+      const r = [[x + 10, z], [x - 10, z], [x + 7, z + 6], [x - 7, z + 6], [x, z + 7], [x + 5, z], [x - 5, z]].find(([a, b]) => Math.abs(a) < hw - 2 && Math.abs(b) < TANK.d / 2 - 2 && pool(a, b)) ?? [x + 2.5, z + 1.5];
+      const box = V(Math.max(-hw + 6, Math.min(hw - 6, (x + r[0]) / 2)), 0, Math.max(-TANK.d / 2 + 6, Math.min(TANK.d / 2 - 6, (z + r[1]) / 2)));
+      return { x, z, rx: r[0], rz: r[1], box };
     };
     if (E.filter) {
       const kind = E.filterKind ?? 'sponge';
       if (kind === 'sponge') {
-        const c = spot(corners);
-        if (c) {
-          const [x, z] = c, g = T.heightAt(x, z);
+        const f = fittings();
+        if (f) {
           // The filter box on the cabinet floor: the sponge behind a window in its front, the pump in the box.
-          const xb = Math.max(-hw + 6, Math.min(hw - 6, drain ? drain.x : x)), zbx = -TANK.d / 2 + 8, yb = FLOOR + 4.5;
-          S.geo(new THREE.BoxGeometry(10, 9, 7), new THREE.Matrix4().makeTranslation(xb, yb, zbx), BODY);
-          S.geo(new THREE.BoxGeometry(7.4, 5, 0.3), new THREE.Matrix4().makeTranslation(xb, yb - 0.6, zbx + 3.55), FOAM);
-          S.geo(new THREE.BoxGeometry(10.3, 0.6, 7.3), new THREE.Matrix4().makeTranslation(xb, yb + 4.6, zbx), CAPC);
-          // Its water comes from the overflow drain; failing one, from an intake pipe with a strainer over the back rim.
-          if (drain) drainHose(V(xb - 2.5, yb + 5, zbx));
-          else {
-            S.geo(new THREE.CylinderGeometry(0.4, 0.4, level + 2.5 - (g + 2), 10, 1, true), cylM(x, (level + 2.5 + g + 2) / 2, z), PIPE);
-            S.geo(new THREE.CylinderGeometry(0.85, 0.85, 2.4, 12, 1, true), cylM(x, g + 2.2, z), GRILL);
-            for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2; S.geo(new THREE.BoxGeometry(0.16, 1.9, 0.12), new THREE.Matrix4().compose(V(x + Math.cos(a) * 0.88, g + 2.2, z + Math.sin(a) * 0.88), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT); }
-            over(x, z, level + 2.5, V(xb - 2.5, yb + 5, zbx));
-          }
-          // The return: clean water back into the pool from a nozzle just under the surface.
-          const rc = drain ? [x, z] : [[x + 7, z], [x - 7, z], [x, z + 5], [x + 4, z + 4], [x - 4, z + 4]].find(([a, b]) => Math.abs(a) < hw - 2 && pool(a, b)) ?? [x + 1.6, z + 1.2];
-          const [rx, rz] = rc, ry = level - 0.8;
-          S.geo(new THREE.CylinderGeometry(0.36, 0.36, level + 2.5 - ry, 10), cylM(rx, (level + 2.5 + ry) / 2, rz), PIPE);
-          S.geo(new THREE.CylinderGeometry(0.3, 0.36, 1.2, 10), cylM(rx, ry, rz + 0.5, Math.PI / 2), PIPE);
-          jet(V(rx, ry, rz + 1.1), V(0, -0.06, 1), 0.3);
-          over(rx, rz, level + 2.5, V(xb + 2.5, yb + 5, zbx));
+          const { box } = f, yb = FLOOR + 4.5;
+          S.geo(new THREE.BoxGeometry(10, 9, 7), new THREE.Matrix4().makeTranslation(box.x, yb, box.z), BODY);
+          S.geo(new THREE.BoxGeometry(7.4, 5, 0.3), new THREE.Matrix4().makeTranslation(box.x, yb - 0.6, box.z + 3.55), FOAM);
+          S.geo(new THREE.BoxGeometry(10.3, 0.6, 7.3), new THREE.Matrix4().makeTranslation(box.x, yb + 4.6, box.z), CAPC);
+          intake(f.x, f.z, false);
+          ret(f.rx, f.rz);
+          under(f.x, f.z, V(box.x - 2.5, yb + 5, box.z));
+          under(f.rx, f.rz, V(box.x + 2.5, yb + 5, box.z));
         }
       } else if (kind === 'matten') {
         // Across whichever back corner holds pool water; failing that, along a side glass where the pool reaches it. The
@@ -388,26 +356,16 @@ export class Plumbing {
           jet(V(tb.x - away.x * 2.6, g + hgt - 0.6, tb.z - away.z * 2.6), V(-away.x, -0.9, -away.z), 0.32);
         }
       } else if (kind === 'canister') {
-        const c = spot(corners);
-        if (c) {
-          const [x, z] = c, g = T.heightAt(x, z);
-          if (!drain) S.geo(new THREE.CylinderGeometry(0.45, 0.45, level + 2.5 - (g + 2), 10, 1, true), cylM(x, (level + 2.5 + g + 2) / 2, z), PIPE);
-          if (drain) { if (E.prefilter) S.geo(new THREE.CylinderGeometry(1.25, 1.25, 1.6, 14), cylM(drain.x, drain.top - 1.1, drain.z), FOAM); }
-          else if (E.prefilter) S.geo(new THREE.CylinderGeometry(1.25, 1.25, 3.2, 14), cylM(x, g + 2.4, z), FOAM);
-          else {
-            S.geo(new THREE.CylinderGeometry(0.9, 0.9, 2.6, 12, 1, true), cylM(x, g + 2.3, z), GRILL);
-            for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2; S.geo(new THREE.BoxGeometry(0.16, 2.1, 0.12), new THREE.Matrix4().compose(V(x + Math.cos(a) * 0.93, g + 2.3, z + Math.sin(a) * 0.93), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT); }
-          }
-          // The canister stands on the cabinet floor; the drain (or an intake over the rim) feeds it, the return goes back up.
-          const xc = Math.max(-hw + 5, Math.min(hw - 5, (drain ? drain.x : x) - 6)), zc = -TANK.d / 2 + 8;
-          S.geo(new THREE.CylinderGeometry(3.6, 3.6, 11, 18), cylM(xc, FLOOR + 5.5, zc), BODY);
-          S.geo(new THREE.CylinderGeometry(3.75, 3.75, 1.4, 18), cylM(xc, FLOOR + 11.6, zc), CAPC);
-          if (drain) drainHose(V(xc - 1.4, FLOOR + 12.4, zc)); else over(x, z, level + 2.5, V(xc - 1.4, FLOOR + 12.4, zc));
-          // The spray bar: along the back just under the surface, a row of holes facing forward.
-          const xs = Math.max(-hw + 3, x - 14), xe = Math.min(hw - 3, x + 2), y = level - 1, zz = Math.max(back(xs, y), back(xe, y)) + 1.1;
-          S.geo(new THREE.CylinderGeometry(0.4, 0.4, xe - xs, 10), cylM((xs + xe) / 2, y, zz, 0, Math.PI / 2), PIPE);
-          for (let xx = xs + 1; xx < xe - 0.5; xx += 1.6) { S.geo(new THREE.CylinderGeometry(0.12, 0.12, 0.2, 6), cylM(xx, y, zz + 0.36, Math.PI / 2), SLOT); jet(V(xx, y, zz + 0.5), V(0, -0.1, 1), 0.18); }
-          over(xe, zz, y, V(xc + 1.4, FLOOR + 12.4, zc));
+        const f = fittings();
+        if (f) {
+          // The canister on the cabinet floor; intake (a foam pre-filter on it if set) and return through the tank floor.
+          const { box } = f;
+          S.geo(new THREE.CylinderGeometry(3.6, 3.6, 11, 18), cylM(box.x, FLOOR + 5.5, box.z), BODY);
+          S.geo(new THREE.CylinderGeometry(3.75, 3.75, 1.4, 18), cylM(box.x, FLOOR + 11.6, box.z), CAPC);
+          intake(f.x, f.z, E.prefilter);
+          ret(f.rx, f.rz);
+          under(f.x, f.z, V(box.x - 1.4, FLOOR + 12.4, box.z));
+          under(f.rx, f.rz, V(box.x + 1.4, FLOOR + 12.4, box.z));
         }
       }
     }
@@ -423,8 +381,6 @@ export class Plumbing {
           const a = (k / 12) * Math.PI * 2;
           S.geo(new THREE.BoxGeometry(0.22, Math.max(0.5, ph - 1), 0.14), new THREE.Matrix4().compose(V(x + Math.cos(a) * 2.13, (ph - 1) / 2 + 0.3, z + Math.sin(a) * 2.13), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT);
         }
-        // The hidden tubing: from the tower up behind the background to the top (the waterfall feed).
-        S.tube(new THREE.CatmullRomCurve3([V(x, g + 1.9, z), V(x, g + 3, z - 1.5), V(x - sx * 1.5, Math.min(TANK.h - 2, g + 10), back(x, g + 10) + 0.3)]).getSpacedPoints(16), 0.32, HOSE);
         break;
       }
     }
@@ -432,6 +388,6 @@ export class Plumbing {
 
   dispose() {
     this.group.removeFromParent();
-    this.mesh.geometry.dispose(); this.spill.geometry.dispose();
+    this.mesh.geometry.dispose(); this.jets.geometry.dispose();
   }
 }

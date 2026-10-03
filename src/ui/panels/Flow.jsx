@@ -45,8 +45,8 @@ function chainFrom(L, B, startKey) {
   return rows;
 }
 
-// The filter's own loop: main pool -> (overflow drain) -> filter -> back to the main pool, cleaned.
-function FilterLoop({ E, drain }) {
+// The filter's own loop: its pump pulls the main pool's water in, through the filter, and pushes it back cleaned.
+function FilterLoop({ E }) {
   const F = filterOf(E), clog = filterClog(E), ext = (E.filterKind ?? 'sponge') !== 'matten';
   const where = ext ? 'in the cabinet' : 'in the pool';
   return (
@@ -57,9 +57,9 @@ function FilterLoop({ E, drain }) {
       </h4>
       <div class="fl-chain-row">
         <div class="fl-node sump">Main pool</div>
-        <div class="fl-arrow"><b>{lph(E.filter ? E.filterLph ?? 0 : 0)}</b>{ext ? (drain ? 'overflow drain' : 'intake') : 'through the foam'}</div>
+        <div class="fl-arrow"><b>{lph(E.filter ? E.filterLph ?? 0 : 0)}</b>{ext ? 'intake' : 'through the foam'}</div>
         <div class={'fl-node' + (clog > 0.6 ? ' bad' : '')}>{F.name}{clog > 0.15 ? ` · ${Math.round(clog * 100)}% clogged` : ''}</div>
-        <div class="fl-arrow"><b>{lph(E.filter ? E.filterLph ?? 0 : 0)}</b>cleaned</div>
+        <div class="fl-arrow"><b>{lph(E.filter ? E.filterLph ?? 0 : 0)}</b>{ext ? 'return' : 'cleaned'}</div>
         <div class="fl-node sump">Main pool</div>
       </div>
       <small>Its own pump pushes the water through the media, which keep the particles and the bacteria. {E.filter ? (clog > 0.6 ? 'Rinse it soon (Care > Water).' : '') : 'Switched off: nothing is filtered.'}</small>
@@ -111,7 +111,7 @@ export function FlowPanel() {
           </div>
         </div>
 
-        <FilterLoop E={W.env} drain={!!W.plumbing?.weir} />
+        <FilterLoop E={W.env} />
 
         {H.outlets.length === 0 ? <p class="note">No outlets yet. Use the Water tool to place one on the ground or the background: the pump sends water there, over the hardscape, and it runs back down.</p> : null}
         {H.outlets.map((o, i) => {
