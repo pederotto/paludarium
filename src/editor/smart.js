@@ -209,7 +209,7 @@ export class SmartPlacer {
     const T = this.T, W = this.W, sp = this.spacing();
     const floating = PLANTS[id].habitat === 'floating';
     let h = hit;
-    const crowded = (q) => W.plants.near(q.point, sp);
+    const crowded = (q) => W.plants.near(q.point, sp) || W.plants.crowdingAt(id, q.point, { surface: q.surface === 'wall' ? 'wall' : 'terrain' });
     if (crowded(h)) {
       if (!nudge || h.surface === 'wall') return 'Too close to another plant: give it some room.';
       const spot = freeSpot(h.point.x, h.point.z, (x, z) => { const q = this.hitFor(id, x, z); return !crowded(q) && !W.plants.canPlace(id, q, W); }, { seed: seedOf(h.point.x, h.point.z, this.n++), step: sp });

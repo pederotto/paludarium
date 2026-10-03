@@ -270,7 +270,7 @@ export class World {
     // Plants.
     const put = (id, n, test, opt = {}) => {
       for (let k = 0; k < n; k++) {
-        const p = this.randomSpot(test, 400, r);
+        const p = this.randomSpot((x, y, z, s) => test(x, y, z, s) && !this.plants.crowdingAt(id, new THREE.Vector3(x, y, z)), 400, r);
         if (p) this.plants.add(id, p, { normal: T.normalAt(p.x, p.z), grown: 0.75 + r() * 0.25, rot: r() * 6.28, ...opt });
       }
     };

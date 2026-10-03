@@ -225,6 +225,7 @@ class Gen {
     const point = V3(x, y, z);
     const normal = T.normalAt(x, z);
     if (W.plants.canPlace(id, { point, surface: 'terrain', normal }, W)) return null;
+    if (W.plants.crowdingAt(id, point, { scale: o.scale ?? 1.1 })) return null;     // not inside another plant
     if (sp.habitat === 'floating') point.y = W.water.surfaceAt(x, z, 0.2);
     const nv = W.plants.variants[id] ?? 1;
     const p = W.plants.add(id, point, { normal, grown: o.grown ?? this.rand(0.8, 1), rot: this.r() * 6.283, scale: o.scale ?? this.rand(0.8, 1.25), variant: Math.floor(this.r() * nv) % nv });
@@ -239,6 +240,7 @@ class Gen {
     const normal = V3(-gx, -gy, 1).normalize();
     const point = V3(x, y, z + 0.2);
     if (W.plants.canPlace(id, { point, surface: 'wall', normal }, W)) return null;
+    if (W.plants.crowdingAt(id, point, { scale: o.scale ?? 1, surface: 'wall' })) return null;
     const nv = W.plants.variants[id] ?? 1;
     const p = W.plants.add(id, point, { surface: 'wall', normal, grown: o.grown ?? this.rand(0.8, 1), rot: this.r() * 6.283, scale: o.scale ?? this.rand(0.8, 1.2), variant: Math.floor(this.r() * nv) % nv });
     if (p) { this.counts.plants++; this.counts.wall++; }

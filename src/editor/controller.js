@@ -15,10 +15,11 @@ import { PIECES } from '../sim/decor.js';
 import { hasGenetics } from '../sim/genetics.js';
 import { morphName } from '../content/morphs.js';
 import { TANK } from '../sim/tank.js';
+import { clamp } from '../util/math.js';
 import { kitById, kitCounts, kitReach } from '../content/kits.js';
 import { buildKit, kitReady, kitScale, kitSeed, mirrorSpec, placeSpec } from '../sim/kits.js';
 import { SmartPlacer } from './smart.js';
-import { EXPLORER_HINTS } from '../app/modes.js';
+import { EXPLORER_HINTS, freeSpot } from '../app/modes.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const BRUSH_TOOLS = ['sculpt', 'paint'];
@@ -300,6 +301,7 @@ export class ToolController {
     const dir = this.camera.position.clone().sub(p).normalize();
     if (dir.y < 0.05) dir.y = 0.05;
     dir.normalize();
+    dir.copy(this.clearView(p, d, dir).dir);
     const c = this.controls;
     c.minDistance = 3;
     c.setLookAt(p.x + dir.x * d, p.y + dir.y * d, p.z + dir.z * d, p.x, p.y, p.z, true);
@@ -308,9 +310,65 @@ export class ToolController {
     if (sel.kind === 'animal') this.follow(sel.obj);
   }
 
+  // Seen from `dir` (unit, from p toward the camera) at distance d, is p hidden? A bank, a rock or the background may stand in
+  // between, or leaves may cover it. Returns the first direction (swinging round sideways, then higher or lower) with a clear
+  // view of the ground and the fewest plants in the way, or the clearest one: { dir, cost } (cost 0: a clear view). A plant
+  // is a column of half its reach round its stem, as tall as it stands: rough, but leaves and blades are what hide an animal.
+  clearView(p, d, dir) {
+    const rig = this.game.rig, Y = new THREE.Vector3(0, 1, 0), P = this.W?.plants;
+    const cols = (P?.list ?? []).filter((q) => q.surface !== 'wall' && Math.hypot(q.pos.x - p.x, q.pos.z - p.z) < d + q.reach)
+      .map((q) => ({ x: q.pos.x, z: q.pos.z, y0: q.pos.y, y1: q.pos.y + P.heightOf(q), r: q.reach * (0.3 + 0.7 * q.grown) * 0.5 }));
+    const leafy = (t) => {
+      let n = 0;
+      for (const c of cols) {
+        for (let s = 1.5; s < d; s += 0.8) {
+          const x = p.x + t.x * s, y = p.y + t.y * s, z = p.z + t.z * s;
+          if (y > c.y0 && y < c.y1 && (x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r) { n++; break; }
+        }
+      }
+      return n;
+    };
+    const cost = (t) => { const cl = rig.clearance(p, t, d); return (cl >= d * 0.95 ? 0 : 100 + (d - cl)) + leafy(t); };
+    let best = dir.clone(), bestC = cost(dir);
+    if (bestC > 0) {
+      search: for (const up of [0, 0.35, 0.7, -0.15]) for (const turn of [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35, 2, -2]) {
+        const t = dir.clone().applyAxisAngle(Y, turn);
+        t.y = clamp(t.y + up, 0.05, 0.95);
+        t.normalize();
+        const c = cost(t);
+        if (c < bestC) { best = t; bestC = c; }
+        if (c === 0) break search;
+      }
+    }
+    return { dir: best, cost: bestC };
+  }
+
   // Keep the camera on a moving animal.
   follow(obj) {
     S.following.value = obj ?? null;
+    this._fol = { blocked: 0, check: 0, wait: 1.2 };      // the zoom-in flight first
+  }
+
+  // One frame of following: the target slides after the animal; a few times a second the view is checked, and if a bank, a
+  // rock or leaves have hidden the animal for half a second the camera swings round to a clear side (not while the player is
+  // turning the camera, nor for two seconds after).
+  followFrame(a, dt) {
+    const c = this.controls, rig = this.game.rig;
+    const p = new THREE.Vector3(a.pos.x, a.pos.y + Math.min(1.5, (SPECIES[a.sp]?.size ?? 1) * 0.25), a.pos.z);
+    c.moveTo(p.x, p.y, p.z, true);
+    const F = this._fol ??= { blocked: 0, check: 0, wait: 0 };
+    F.wait -= dt; F.check -= dt;
+    if (F.check > 0) return;
+    F.check = 0.25;
+    if (rig.handling || performance.now() - (rig.handledAt ?? -1e9) < 2000 || F.wait > 0) { F.blocked = 0; return; }
+    const cam = c.getPosition(new THREE.Vector3()), d = Math.max(4, cam.distanceTo(p));
+    const dir = cam.sub(p).normalize();
+    const v = this.clearView(p, d, dir);
+    if (v.dir.angleTo(dir) < 0.05) { F.blocked = 0; return; }
+    F.blocked += 0.25;
+    if (F.blocked < 0.5) return;
+    F.blocked = 0; F.wait = 1.5;          // let the swing finish before judging again
+    c.setLookAt(p.x + v.dir.x * d, p.y + v.dir.y * d, p.z + v.dir.z * d, p.x, p.y, p.z, true);
   }
 
   hover() {
@@ -407,7 +465,7 @@ export class ToolController {
   // Continuous brush while the button is held.
   frame(dt) {
     const fol = S.following.value;
-    if (fol && !fol.dead && fol.pos) this.controls.moveTo(fol.pos.x, fol.pos.y, fol.pos.z, true);
+    if (fol && !fol.dead && fol.pos) this.followFrame(fol, dt);
     else if (fol) S.following.value = null;
     this.frameMarker();
     this.frameKeys(dt);
@@ -459,8 +517,18 @@ export class ToolController {
       case 'plant': {
         const id = this.sub.plant;
         const floating = PLANTS[id].habitat === 'floating';
-        const hit = this.pick(floating ? ['terrain', 'wall', 'water'] : ['terrain', 'wall']);
+        let hit = this.pick(floating ? ['terrain', 'wall', 'water'] : ['terrain', 'wall']);
         if (!hit) return;
+        // Clicked into another plant: plant it beside that one instead (on the ground), or say there is no room (on the wall).
+        const surf = hit.surface === 'wall' ? 'wall' : 'terrain';
+        if (W.plants.crowdingAt(id, hit.point, { surface: surf })) {
+          const spot = surf === 'wall' ? null : freeSpot(hit.point.x, hit.point.z, (x, z) => {
+            const q = this.smart.hitFor(id, x, z);
+            return !W.plants.crowdingAt(id, q.point) && !W.plants.canPlace(id, q, W);
+          }, { seed: Math.round(hit.point.x * 31 + hit.point.z * 17), step: 1.6, tries: 40 });
+          if (!spot) { toast('Too close to another plant: give it some room.', 'bad'); return; }
+          hit = this.smart.hitFor(id, spot.x, spot.z);
+        }
         const err = W.plants.canPlace(id, hit, W);
         if (err) { toast(err, 'bad'); return; }
         const buyErr = this.charge('plant', id);
