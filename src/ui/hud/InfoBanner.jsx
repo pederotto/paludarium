@@ -16,7 +16,7 @@ import { describe, hasGenetics } from '../../sim/genetics.js';
 import { morphInfo, morphName } from '../../content/morphs.js';
 import { MorphDot, Stars } from '../GeneBits.jsx';
 
-const v = new THREE.Vector3();
+const v = new THREE.Vector3(), v2 = new THREE.Vector3();
 
 function Meter({ label, value, tone }) {
   return (
@@ -64,21 +64,46 @@ export function InfoBanner() {
   const live = S.live.value;
   const ref = useRef();
 
-  // Keep the card next to the thing it describes: project its position to the screen every frame.
+  // Keep the card next to the thing it describes: project its position to the screen every frame. The card takes the first
+  // side (right, left, above, below) where it leaves the subject uncovered, and keeps that side while it still fits, so it
+  // does not hop about. It used to sit up and to the right and be pushed back by the screen margins, which on a followed
+  // animal (always in the middle of the view) put it right over the animal.
   useEffect(() => {
     if (!sel) return undefined;
     const g = ctx.game;
+    let side = null;
     const place = () => {
       const el = ref.current;
       if (!el) return;
       if (S.compact.value) { el.style.transform = 'none'; return; }
       const f = ctx.tools.focusOf(sel);
-      v.copy(f.p).project(g.camera);
       const W = innerWidth, H = innerHeight, r = el.getBoundingClientRect();
-      let x = (v.x * 0.5 + 0.5) * W + 26, y = (-v.y * 0.5 + 0.5) * H - r.height - 14;
+      v.copy(f.p).project(g.camera);
       const behind = v.z > 1;
-      x = Math.max(96, Math.min(W - r.width - 316, x));
-      y = Math.max(64, Math.min(H - r.height - 70, y));
+      const sx = (v.x * 0.5 + 0.5) * W, sy = (-v.y * 0.5 + 0.5) * H;
+      // The subject's size on screen: a point one body radius to the side of it.
+      const rad = sel.kind === 'animal' ? Math.max(1, (SPECIES[sel.obj.sp]?.size ?? 2) * 0.6) : sel.kind === 'plant' ? Math.max(2, (sel.obj.reach ?? 4) * 0.4) : 3;
+      v2.setFromMatrixColumn(g.camera.matrixWorld, 0).multiplyScalar(rad).add(f.p).project(g.camera);
+      const R = Math.min(Math.max(W, H) * 0.3, Math.max(18, Math.hypot((v2.x * 0.5 + 0.5) * W - sx, (-v2.y * 0.5 + 0.5) * H - sy))) + 10;
+      const x0 = 96, x1 = Math.max(x0, W - r.width - 316), y0 = 64, y1 = Math.max(y0, H - r.height - 70);
+      const cand = {
+        right: [sx + R + 14, sy - r.height * 0.5],
+        left: [sx - R - 14 - r.width, sy - r.height * 0.5],
+        above: [sx - r.width * 0.5, sy - R - 14 - r.height],
+        below: [sx - r.width * 0.5, sy + R + 14],
+      };
+      const fit = (k) => {
+        const x = Math.max(x0, Math.min(x1, cand[k][0])), y = Math.max(y0, Math.min(y1, cand[k][1]));
+        const ox = Math.max(0, Math.min(x + r.width, sx + R) - Math.max(x, sx - R)), oy = Math.max(0, Math.min(y + r.height, sy + R) - Math.max(y, sy - R));
+        return { x, y, over: ox * oy };
+      };
+      let pick = side && fit(side).over === 0 ? side : null;
+      if (!pick) {
+        let best = Infinity;
+        for (const k of ['right', 'left', 'above', 'below']) { const o = fit(k).over; if (o < best) { best = o; pick = k; } if (o === 0) break; }
+      }
+      side = pick;
+      const { x, y } = fit(pick);
       el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
       el.style.opacity = behind ? '0' : '1';
     };

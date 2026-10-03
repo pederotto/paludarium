@@ -70,6 +70,9 @@ export class Game {
   // Builds a tank of the given kind and fills it. `layout`: 'empty', 'starter'
   // (only the standard tank has one); `save`: a saved world object to load instead. `showcase`: it is the title
   // screen's tank (see restartTank).
+  // The room around the tank (cabinet, floor): shown on the title screen, hidden in play, where the camera stays with the tank.
+  setRoom(on) { this.room = on; this.stage?.setRoom(on); }
+
   async loadTank(id, { layout = 'empty', save = null, showcase = false } = {}) {
     const same = TANKS[id] ?? TANKS.standard;
     if (this.world && this.showcase && this.tankId === same.id && same.id !== 'custom') return this.restartTank(same, layout, save);
@@ -82,6 +85,7 @@ export class Game {
     this.tankId = spec.id;
     this.stage = new Stage(this.scene);
     this.stage.fitScreen(this.camera.aspect);
+    this.stage.setRoom(this.room ?? true);
     this.worldRoot = new THREE.Group();
     this.worldRoot.name = 'world';
     this.scene.add(this.worldRoot);
@@ -210,6 +214,8 @@ export class Game {
       this.stage.setDaylight(light, E.lampWarmth, E.moonlight);
     }
     this.rig.update(dt);
+    // In play, a camera above the tank looks in from the top: the lid and the LED bar would fill the view (the light stays).
+    this.stage?.setOverhead(this.room === false && this.camera.position.y > TANK.h + 1);
     // The governor looks at the frames before this one is drawn, so a change of resolution is drawn in the same frame and the
     // canvas is never presented blank. A time-lapse makes frames slow for reasons that are not the GPU: not measured.
     const lapse = !!this.lapse;

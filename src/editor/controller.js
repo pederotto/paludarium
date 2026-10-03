@@ -16,6 +16,7 @@ import { hasGenetics } from '../sim/genetics.js';
 import { morphName } from '../content/morphs.js';
 import { TANK } from '../sim/tank.js';
 import { clamp } from '../util/math.js';
+import { U } from '../render/uniforms.js';
 import { kitById, kitCounts, kitReach } from '../content/kits.js';
 import { buildKit, kitReady, kitScale, kitSeed, mirrorSpec, placeSpec } from '../sim/kits.js';
 import { SmartPlacer } from './smart.js';
@@ -146,7 +147,8 @@ export class ToolController {
     c.mouseButtons.left = editing ? A.NONE : A.ROTATE;
     c.mouseButtons.right = editing ? (pan ? A.TRUCK : A.ROTATE) : A.TRUCK;
     c.mouseButtons.middle = A.TRUCK;
-    c.mouseButtons.wheel = A.DOLLY;
+    c.mouseButtons.wheel = A.NONE;            // the rig's own wheel (CameraRig.wheel): trackpad pinch and swipe done right
+    this.game.rig.wheelOn = true;
     c.touches.one = editing ? A.NONE : A.TOUCH_ROTATE;
     // Smart placement: one finger places, two fingers pinch and orbit, three pan.
     const smart = editing && this.smart?.on;
@@ -328,7 +330,8 @@ export class ToolController {
       }
       return n;
     };
-    const cost = (t) => { const cl = rig.clearance(p, t, d); return (cl >= d * 0.95 ? 0 : 100 + (d - cl)) + leafy(t); };
+    // Only directions inside the compartment's turn and tilt range (CameraRig.zones): the camera never swings behind the tank.
+    const cost = (t) => { if (rig.allows && !rig.allows(t)) return Infinity; const cl = rig.clearance(p, t, d); return (cl >= d * 0.95 ? 0 : 100 + (d - cl)) + leafy(t); };
     let best = dir.clone(), bestC = cost(dir);
     if (bestC > 0) {
       search: for (const up of [0, 0.35, 0.7, -0.15]) for (const turn of [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35, 2, -2]) {
@@ -356,6 +359,8 @@ export class ToolController {
     const c = this.controls, rig = this.game.rig;
     const p = new THREE.Vector3(a.pos.x, a.pos.y + Math.min(1.5, (SPECIES[a.sp]?.size ?? 1) * 0.25), a.pos.z);
     c.moveTo(p.x, p.y, p.z, true);
+    // Leaves between the lens and the animal dissolve (plantMaterial): a tube a little wider than the animal.
+    U.focus.value.set(p.x, p.y, p.z, Math.max(2.5, (SPECIES[a.sp]?.size ?? 2) * 0.9));
     const F = this._fol ??= { blocked: 0, check: 0, wait: 0 };
     F.wait -= dt; F.check -= dt;
     if (F.check > 0) return;
@@ -467,6 +472,7 @@ export class ToolController {
     const fol = S.following.value;
     if (fol && !fol.dead && fol.pos) this.followFrame(fol, dt);
     else if (fol) S.following.value = null;
+    if (!S.following.value && U.focus.value.w) U.focus.value.w = 0;
     this.frameMarker();
     this.frameKeys(dt);
     if (S.piece.value) this.box.update();

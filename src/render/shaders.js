@@ -5,7 +5,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, vec3, float, positionWorld, time, mix, smoothstep, clamp, exp, max, min, attribute, sin, cos,
   instanceIndex, positionLocal, dot, vec2, saturate, instanceColor, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
-  mrt, packNormalToRGB,
+  mrt, packNormalToRGB, screenCoordinate, fract, step,
 } from 'three/tsl';
 import { noise3 } from './noise3.js';
 import { TEX } from './assets.js';
@@ -192,12 +192,23 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
   m.userData.foliage = true;
   if (FOLIAGE.mrt) m.mrtNode = mrt({ normal: vec4(packNormalToRGB(normalView), 0) });
   let base = vec3(1);
+  // Leaves right in front of the lens dissolve (a screen-space dither, so no sorting and no blending): zooming into a clump
+  // or orbiting low through the grass looks through the blades instead of filling the view with one blurred leaf. Shadow
+  // maps are drawn without the opacity node (three's Renderer._getShadowNodes), so the leaves' shadows stay whole.
+  const ign = fract(fract(screenCoordinate.x.mul(0.06711056).add(screenCoordinate.y.mul(0.00583715))).mul(52.9829189));
+  // While an animal is followed (U.focus), leaves on the line from the lens to it dissolve too, so it stays in view inside
+  // a clump.
+  const seg = U.focus.xyz.sub(cameraPosition), segLen = seg.length();
+  const along = clamp(dot(positionWorld.sub(cameraPosition), seg).div(max(segLen.mul(segLen), 1e-4)), 0, 1);
+  const offLine = positionWorld.distance(cameraPosition.add(seg.mul(along)));
+  const veil = smoothstep(U.focus.w, U.focus.w.mul(0.55), offLine).mul(smoothstep(0.97, 0.85, along)).mul(step(0.01, U.focus.w));
+  const keep = step(ign, smoothstep(1.5, 3.2, positionWorld.distance(cameraPosition)).mul(float(1).sub(veil)));
   if (map) {
     const tx = texture(map, uv());
     base = tx.rgb;
-    m.opacityNode = tx.a;
-    m.alphaTest = 0.45;
-  }
+    m.opacityNode = tx.a.mul(keep);
+  } else m.opacityNode = keep;
+  m.alphaTest = 0.45;
   if (normalMap) m.normalMap = normalMap;
   const sw = attribute('sway', 'float');
   const phase = float(instanceIndex).mul(1.618);

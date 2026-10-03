@@ -109,6 +109,7 @@ export class Stage {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, 1.2, 5), new THREE.MeshStandardNodeMaterial({ color: 0x1b1d20, roughness: 0.4, metalness: 0.6 }));
     bar.position.set(0, h + 3.5, -d * 0.09);
     root.add(bar);
+    this.parts.bar = bar;
     const glowMat = new THREE.MeshBasicNodeMaterial({ color: 0xfff6e5 });
     const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.78, 0.2, 4), glowMat);
     glow.position.set(0, h + 2.85, -d * 0.09);
@@ -162,7 +163,19 @@ export class Stage {
     if (floor) floor.position.y = k < 1 ? -0.8 - 70 * k - 0.3 : -71;
   }
 
-  setLid(on) { if (this.parts.lid) this.parts.lid.visible = on; }
+  setLid(on) { this.lidOn = on; if (this.parts.lid) this.parts.lid.visible = on && !this.overhead; }
+
+  setRoom(on) { for (const k of ['cab', 'floor']) if (this.parts[k]) this.parts[k].visible = on; }
+
+  // Seen from above in play: no lid, no lamp housing in the way (the lid's state lives in the world; setLid shows it again).
+  setOverhead(on) {
+    if (this.overhead === on) return;
+    this.overhead = on;
+    const { bar, glow, lid } = this.parts;
+    if (bar) bar.visible = !on;
+    if (glow) glow.visible = !on;
+    if (lid) lid.visible = !on && this.lidOn !== false;
+  }
 
   // Day and night: `light` is the schedule (0 … 1) times the lamp's power;
   // `warmth` (0 cool white … 1 warm) tints the LED; `moon` allows night light.

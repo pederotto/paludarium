@@ -200,7 +200,8 @@ export class Director {
 
   enterPlay() {
     this.game.rig.stopOrbit();
-    this.game.rig.view('front', true);
+    this.game.setRoom(false);
+    this.game.rig.setZone('tank', true);
     ctx.tools?.setTool('view');
     S.screen.value = 'play';
     this.publish();
@@ -230,6 +231,7 @@ export class Director {
     S.lens.value = 'off'; S.selection.value = null; S.following.value = null; S.coach.value = null; S.smartBar.value = null; S.pairing.value = null;
     S.modal.value = null; S.modalArg.value = null; S.hub.value = null; S.right.value = false;
     S.tankTitle.value = null;
+    g.rig.freeZone(); g.setRoom(true);
     await g.loadTank('standard', { layout: 'starter', showcase: true });
     g.rig.startOrbit(0.04);
     g.rig.view('hero', false);

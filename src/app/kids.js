@@ -495,6 +495,7 @@ export async function goHome() {
   leave();
   S.photo.value = false; S.timelapse.value = null; g.lapse = 0;
   S.tankTitle.value = null;
+  g.rig.freeZone(); g.setRoom(true);
   await g.loadTank('standard', { layout: 'starter' });
   g.rig.startOrbit(0.04);
   g.rig.view('hero', false);

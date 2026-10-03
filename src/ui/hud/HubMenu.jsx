@@ -82,7 +82,7 @@ function CameraItems() {
   return (
     <>
       <div class="hm-views" role="group" aria-label="Camera views">
-        {['front', 'top', 'left', 'right', 'close'].map((v) => <button key={v} class="chip" title={`${v} view`} data-hub="camera" onClick={go(() => g.rig.view(v))}>{v[0].toUpperCase() + v.slice(1)}</button>)}
+        {[['tank', 'Tank', 'The whole tank'], ['bottom', 'Bottom', 'Substrate and water, level with the glass'], ['back', 'Back', 'The background and what grows on it'], ['top', 'Top', 'Looking down into the tank']].map(([v, l, t]) => <button key={v} class={'chip' + (g.rig.zone === v ? ' on' : '')} title={t} data-hub="camera" onClick={go(() => { ctx.tools?.follow?.(null); g.rig.setZone(v); })}>{l}</button>)}
       </div>
       <div class="hm-row"><Icon name="lens" size={16} /><b>Lens</b><small>See humidity, light, flow and more</small></div>
       <div class="hm-chips" role="group" aria-label="Lens">
