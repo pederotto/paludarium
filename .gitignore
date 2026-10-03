@@ -4,3 +4,14 @@ test-output/
 .DS_Store
 .vite/
 metrics/
+
+# Secrets stay on this machine (docs/SECURITY.md). .env.example is the committed template.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*

@@ -50,12 +50,13 @@ Textures, resized to 256–512 px by `tools/import-seedthree.cjs`:
 
 Code: the rock shapes in `src/sim/decor.js` (welded, noise-displaced icosahedra with triplanar rock textures) are adapted from SeedThree's `src/core/rocks.js`.
 
-SeedThree's MIT license text:
+The MIT license text of CAUSTIC//VOLUME and SeedThree (Paludarium's own licence is in `LICENSE`; it does not change these):
 
 ```
 MIT License
 
-Copyright (c) 2026 SkyeShark
+Copyright (c) 2026 Scottie (CAUSTIC//VOLUME)
+Copyright (c) 2026 SkyeShark (SeedThree)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

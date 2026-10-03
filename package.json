@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
+    "postbuild": "node tools/check-secrets.mjs --dist",
     "preview": "vite preview --host",
+    "prepare": "node tools/check-secrets.mjs --install",
+    "secrets": "node tools/check-secrets.mjs",
     "test:unit": "node --test tests/*.test.mjs",
     "shot": "node tools/shot.mjs",
     "bench": "node tools/bench.mjs",
@@ -17,7 +20,7 @@
     "metrics:run": "node tools/metrics-run.mjs",
     "metrics:report": "node tools/metrics-report.mjs"
   },
-  "license": "MIT",
+  "license": "UNLICENSED",
   "private": true,
   "type": "module",
   "dependencies": {

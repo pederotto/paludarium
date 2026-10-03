@@ -1,7 +1,7 @@
 <!-- Written 2026-10-01 by a read-only audit agent against branch arch/optimize, with numbers from the metrics recorder (docs/METRICS.md). It is the plan for the "step up the game" phase: plants first (variety, visual decay, life cycles, roots), then animals. Decisions already taken are in HANDOFF.md. -->
 # Plants and animals audit for the "step up the game" phase
 
-Branch arch/optimize, repo `/Users/rubykim/Documents/paludarium master/paludarium`. Read-only audit: nothing in
+Branch arch/optimize, repo `paludarium`. Read-only audit: nothing in
 the repo was edited, no browser, build or server was started. Paths are repo-relative.
 
 Evidence labels. **Verified** = read in the code, or produced by a command I ran (pure Node, niced, under 10 s in

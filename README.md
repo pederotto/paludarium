@@ -74,7 +74,11 @@ The plan for water physics, erosion, structure, humus and decay, game modes, mor
 
 ## Credits
 
-See [CREDITS.md](CREDITS.md). Rocks, roots and ferns are CC0 photoscans from Poly Haven; textures and the rock generator come from SeedThree; the ripple, caustics and meshing ideas from CAUSTIC//VOLUME. MIT licensed.
+See [CREDITS.md](CREDITS.md). Rocks, roots and ferns are CC0 photoscans from Poly Haven; textures and the rock generator come from SeedThree; the ripple, caustics and meshing ideas from CAUSTIC//VOLUME. Those parts keep their own licences.
+
+## Licence
+
+Paludarium itself is not open source: all rights reserved (see [LICENSE](LICENSE)). You are welcome to read the code here and to play the game; copying or reusing it needs permission.
 
 ## Adding art
 
