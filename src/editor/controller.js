@@ -17,6 +17,7 @@ import { morphName } from '../content/morphs.js';
 import { TANK } from '../sim/tank.js';
 import { clamp } from '../util/math.js';
 import { U } from '../render/uniforms.js';
+import { nextLayer } from '../render/layers.js';
 import { kitById, kitCounts, kitReach } from '../content/kits.js';
 import { buildKit, kitReady, kitScale, kitSeed, mirrorSpec, placeSpec } from '../sim/kits.js';
 import { SmartPlacer } from './smart.js';
@@ -179,9 +180,10 @@ export class ToolController {
     const W = this.W;
     this.ray.setFromCamera(this.mouse, this.camera);
     const objs = [];
-    if (kinds.includes('terrain')) objs.push(W.terrain.mesh, ...W.decor.meshes);
+    const rocks = S.layer.value === 'bottom' ? [] : W.decor.meshes;   // the Bottom layer leaves the hardscape out
+    if (kinds.includes('terrain')) objs.push(W.terrain.mesh, ...rocks);
     if (kinds.includes('wall')) objs.push(W.wall.mesh);
-    if (kinds.includes('water') && !kinds.includes('terrain')) objs.push(W.terrain.mesh, ...W.decor.meshes);
+    if (kinds.includes('water') && !kinds.includes('terrain')) objs.push(W.terrain.mesh, ...rocks);
     const hits = this.ray.intersectObjects(objs, false);
     if (!hits.length) return null;
     const hit = hits[0];
@@ -251,13 +253,14 @@ export class ToolController {
   tap() {
     const W = this.W;
     this.ray.setFromCamera(this.mouse, this.camera);
-    const a = W.animals.pick(this.ray.ray, 2.2);
+    const bare = S.layer.value === 'bottom';   // nothing living is drawn in the Bottom layer
+    const a = bare ? null : W.animals.pick(this.ray.ray, 2.2);
     const hit = this.pick(['terrain', 'wall', 'water']);
     if (hit?.surface === 'water' && !a) W.fx?.addDrop(hit.point.x, hit.point.z, -9, 1.1);
     if (a && S.pairing.value) { this.finishPairing(a); return; }
     if (a) { this.select({ kind: 'animal', obj: a }); return; }
     if (hit) {
-      const plant = W.plants.near(hit.point, 4);
+      const plant = bare ? null : W.plants.near(hit.point, 4);
       if (plant) { this.select({ kind: 'plant', obj: plant }); return; }
       const piece = hit.object && W.decor.pieceAt(hit.object);
       if (piece) { this.select({ kind: 'piece', obj: piece }); return; }
@@ -869,6 +872,7 @@ export class ToolController {
       else if (k === 'f') this.focus();
       else if (k === 'h') { S.left.value = !S.left.value; S.right.value = !S.right.value; }
       else if (k === 'l') S.lens.value = nextLens(S.lens.value);
+      else if (k === 'v') S.layer.value = nextLayer(S.layer.value);
       else if (/^[0-9]$/.test(k)) { const t = TOOLS.find((t) => t.key === k); if (t) this.setTool(t.id); }
       else this.keys.add(k);
     });

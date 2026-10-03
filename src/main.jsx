@@ -97,6 +97,7 @@ window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.modal.va
 window.addEventListener('beforeunload', () => { director.save?.().catch(() => {}); });
 
 effect(() => { game.lens?.set(S.lens.value); });
+effect(() => { game.layers?.set(S.kids.value ? 'surface' : S.layer.value); });
 effect(() => { game.setPhoto(S.photo.value); });
 render(<App />, document.getElementById('ui'));
 ctx.relayout = bindLayout(game);

@@ -6,6 +6,23 @@ import { S, openModal } from '../store.js';
 import { Dock } from './Dock.jsx';
 import { HintToast } from './Toasts.jsx';
 import { lensLegend, qualityMetric, QUALITY_METRICS } from '../../render/lens.js';
+import { VIEW_LAYERS } from '../../render/layers.js';
+
+// Which view layer is on, when it is not the plain Surface view, with a way back.
+function LayerChip() {
+  const l = S.layer.value;
+  if (l === 'surface' || S.kids.value) return null;
+  const v = VIEW_LAYERS[l];
+  return (
+    <div class="legend2 glass" title={v.blurb} data-testid="layer-chip">
+      <div class="lg-row">
+        <Icon name="layers" size={14} /><b>{v.name}</b>
+        <button class="chip" onClick={() => { S.layer.value = 'surface'; }} title="Back to the Surface view (V cycles)" aria-label="Surface view"><Icon name="x" size={11} /></button>
+      </div>
+      <small class="lg-blurb">{v.blurb}</small>
+    </div>
+  );
+}
 
 function LensLegend() {
   const lens = S.lens.value;
@@ -50,6 +67,7 @@ export function Bottom() {
     <>
       <div class="hud-stack">
         <HintToast />
+        <LayerChip />
         <LensLegend />
         <CommissionChip />
       </div>

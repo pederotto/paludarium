@@ -19,6 +19,7 @@ import { Lens } from '../render/lens.js';
 import { updateAirflow } from '../render/airflow.js';
 import { Plumbing } from '../render/plumbing.js';
 import { SoilSide } from '../render/soilside.js';
+import { ViewLayers } from '../render/layers.js';
 import { S } from '../ui/store.js';
 
 export class Game {
@@ -55,6 +56,9 @@ export class Game {
     this.camera = this.rig.camera;
     this.controls = this.rig.controls;
     this.rig.collideWith(() => this.world);
+    // Surface, X-ray or Bottom layer (render/layers.js); every new tank gets the current one.
+    this.layers = new ViewLayers(this);
+    this.events.on('tank', () => this.layers.apply());
     window.addEventListener('resize', () => this.resize());
     return this;
   }
@@ -209,6 +213,7 @@ export class Game {
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
       this.lens?.update(dt);
+      this.layers.update(dt);
       const E = W.env, light = Math.max(E.bright(), this.lapse ? 0.34 : 0);   // a time-lapse keeps nights readable
       U.daylight.value = Math.min(1, light);
       this.stage.setDaylight(light, E.lampWarmth, E.moonlight);

@@ -128,8 +128,8 @@ export class Field {
   }
 
   // weightsTo for every vertex at once, straight on the two vec3 arrays. `flipRows`: the wall's plane runs its rows top to bottom.
-  weightsAll(W0, W1, flipRows = false) {
-    const { cols, rows, mat, stamped } = this;
+  weightsAll(W0, W1, flipRows = false, bare = false) {
+    const { cols, rows, mat } = this, stamped = bare ? null : this.stamped;
     for (let j = 0; j < rows; j++) {
       const row = (flipRows ? rows - 1 - j : j) * cols;
       for (let i = 0, n = j * cols; i < cols; i++, n++) {
@@ -245,6 +245,7 @@ export class Terrain {
     this.mesh.userData.surface = 'terrain';
     scene.add(this.mesh);
     this.stamps = [];
+    this.bare = false;
     this.flatDefault();
   }
 
@@ -273,6 +274,15 @@ export class Terrain {
     f.dirty = true;
   }
 
+  // Draw the ground without the hardscape stamped on it (the Bottom view layer, render/layers.js). Only the mesh changes:
+  // the water, the animals and the tools still see `h`.
+  setBare(on) {
+    if (this.bare === on) return;
+    this.bare = on;
+    this.field.dirty = true;
+    this.update();
+  }
+
   heightAt(x, z) { return this.field.sample(x, z); }
   baseAt(x, z) { return this.field.sample(x, z, this.field.base); }
 
@@ -294,9 +304,9 @@ export class Terrain {
       }
       this._laidOut = true;
     }
-    const h = f.h;
+    const h = this.bare ? f.base : f.h;
     for (let n = 0; n < h.length; n++) P[n * 3 + 1] = h[n];
-    f.weightsAll(W0, W1);
+    f.weightsAll(W0, W1, false, this.bare);
     normalsFromIndexed(P, geo.index.array, geo.attributes.normal.array);
     geo.attributes.position.needsUpdate = true;
     geo.attributes.normal.needsUpdate = true;

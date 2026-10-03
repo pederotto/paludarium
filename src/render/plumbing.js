@@ -9,10 +9,12 @@
 // ground a little under its surface, so they vanish into the substrate and rocks and show only where they run through
 // open air: up the background wall, and at the pump. Water in the hoses is a highlight that travels along them while the
 // pump runs; the overflow shows a thin falling sheet when there is bypass flow. Hidden in photo mode and Kids mode, and
-// with Care > Water > Show equipment off.
+// with Care > Water > Show equipment off, unless a view layer that shows the build is on (render/layers.js): then the same
+// geometry is drawn a second time, glowing, only where something covers it (the `ghost`, depth test reversed), so hoses
+// buried in the substrate and run behind rocks show through.
 
 import * as THREE from 'three/webgpu';
-import { attribute, uniform, time, sin, smoothstep, vec3, float, positionLocal } from 'three/tsl';
+import { attribute, uniform, time, sin, smoothstep, vec3, float, positionLocal, mix, abs, dot, normalView } from 'three/tsl';
 import { creatureMaterial } from './shaders.js';
 import { TANK } from '../sim/tank.js';
 
@@ -108,6 +110,21 @@ export class Plumbing {
     this.spill.visible = false; this.spill.frustumCulled = false; this.spill.name = 'weir-spill';
     this.group.add(this.spill);
     this.sig = ''; this.t = 1e9; this.weir = null;
+    this.layer = 'surface';      // render/layers.js
+    this.ghost = null;           // made the first time the build is shown
+  }
+
+  makeGhost() {
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthFunc: THREE.GreaterDepth });
+    const along = attribute('along', 'float');
+    const band = smoothstep(0.55, 1.0, sin(along.mul(0.55).sub(time.mul(5.5))).mul(0.5).add(0.5)).mul(this.run);
+    const rim = float(1).sub(abs(dot(normalView, vec3(0, 0, 1))));
+    m.colorNode = mix(attribute('color', 'vec3'), vec3(0.35, 0.85, 1.0), 0.7).add(vec3(0.25, 0.55, 0.6).mul(band));
+    m.opacityNode = rim.mul(0.45).add(0.3);
+    const g = new THREE.Mesh(this.mesh.geometry, m);
+    g.frustumCulled = false; g.renderOrder = 3; g.name = 'plumbing-xray';   // before the water (5), whose depth would hide all that is merely under it
+    this.group.add(g);
+    return g;
   }
 
   // Where the pump sits (same cell as the marker in render/water.js).
@@ -126,9 +143,12 @@ export class Plumbing {
   update(dt) {
     const W = this.world, H = W.water.hydro;
     const poolOk = H.resVol > 2 && H.level > 0.5;
-    const vis = this.show && poolOk && !(this.hidden?.());
+    const build = this.layer !== 'surface';
+    const vis = (this.show || build) && poolOk && !(this.hidden?.());
     this.group.visible = vis;
     if (!vis) return;
+    if (build && !this.ghost) this.ghost = this.makeGhost();
+    if (this.ghost) this.ghost.visible = build;
     this.t += dt;
     if (this.t > 1.6) {
       this.t = 0;
@@ -234,6 +254,7 @@ export class Plumbing {
     this.filterGear(S, px, pz);
     const old = this.mesh.geometry;
     this.mesh.geometry = S.build();
+    if (this.ghost) this.ghost.geometry = this.mesh.geometry;
     old.dispose();
   }
 

@@ -6,6 +6,7 @@ import { S, openModal, hudRules } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { startTimelapse } from '../../app/timelapse.js';
 import { LENSES } from '../../editor/controller.js';
+import { VIEW_LAYERS, LAYER_ORDER } from '../../render/layers.js';
 
 export const HUBS = [
   { id: 'tank', label: 'Tank', icon: 'heart' },
@@ -83,6 +84,10 @@ function CameraItems() {
     <>
       <div class="hm-views" role="group" aria-label="Camera views">
         {[['tank', 'Tank', 'The whole tank'], ['bottom', 'Bottom', 'Substrate and water, level with the glass'], ['back', 'Back', 'The background and what grows on it'], ['top', 'Top', 'Looking down into the tank']].map(([v, l, t]) => <button key={v} class={'chip' + (g.rig.zone === v ? ' on' : '')} title={t} data-hub="camera" onClick={go(() => { ctx.tools?.follow?.(null); g.rig.setZone(v); })}>{l}</button>)}
+      </div>
+      <div class="hm-row"><Icon name="layers" size={16} /><b>Layers</b><small>See through to the build (V)</small></div>
+      <div class="hm-chips" role="group" aria-label="View layer">
+        {LAYER_ORDER.map((l) => <button key={l} class={'chip' + (S.layer.value === l ? ' on' : '')} title={VIEW_LAYERS[l].blurb} data-hub="camera" onClick={() => { S.layer.value = l; }}>{VIEW_LAYERS[l].name}</button>)}
       </div>
       <div class="hm-row"><Icon name="lens" size={16} /><b>Lens</b><small>See humidity, light, flow and more</small></div>
       <div class="hm-chips" role="group" aria-label="Lens">
