@@ -51,8 +51,57 @@ commission. New biotope features: `hardwater`, `softwater`, `stillwater`, `uvb`,
   `preset-look.mjs` (pictures), `tools/bodycheck.mjs <id>` (mesh triangles and rig sanity).
 - Sunfish model: `tools/bake-texcolors.mjs` then `tools/bake-sunfish.mjs` then `npm run import-creatures`.
 
+## Second pass (2026-10-02 evening)
+What the first pass listed as not built or simplified, now in:
+
+- **Food** (`content/foods.js`, `sim/animals.js` feed/food, `app/actions.js` Care.feed/feeders, Care > Feeding): prepared
+  foods are items in the water with a kind: flakes (float, sink slowly), pellets (sink at once), bloodworms (a thawed cube
+  breaks into wriggling worms). `flake` in a diet stands for all three (`dietOf`); the pygmy sunfish lists only `bloodworm`
+  (the auto-feeder drops freeze-dried bloodworms for fish like it). Live feeders are species with `feeder: true`: crickets,
+  dubia roaches, earthworms (dig in, `crew`), waxworms; bought by the cup and let go near the animals that eat them, never
+  bred, never counted as losses, no refuge (all catchable). Diets updated (skink, toad, fire salamander, newts, gecko, reed
+  frog). The Feeding tab lists who in the tank eats what; the Field guide shows real food names. Concept card `feeding`.
+- **Seashore springtails** (`springsea`): walk the water's surface film and the wet shore (crawl medium `surface`), graze
+  the new **surface film** (`Env.film`: grows on still water with detritus, broken by current, halves gas exchange when
+  thick, `film` grazers clean it). Frog and fish food.
+- **False bottom as real water** (`content/equipment.js plenumState`, `Env.plenumH`): the egg-crate height is a setting
+  (set to just over the water when the false bottom is first fitted; Care > Foundation slider with the water line's
+  distance to the mesh). Water over the mesh: `mud`, the land soaks up (climate soil waterlogged, `drainEff` 0, plants
+  "waterlogged roots", a journal warning once a day). Water far under it: the plenum's filter bed counts only as far as it
+  is wet.
+- **Substrates** (`SUBSTRATES`: topsoil, ABG mix, coco coir, coir under sphagnum): drainage and mould food; **black foam
+  background** (`Env.backdrop`, a uniform in the wall shader, `U.backdrop`).
+- **The build through the glass** (`render/soilside.js`): one mesh of strips inside the front and side glass from the floor
+  to the ground, one material, layers from uniforms: LECA balls with water in the bottom, or the egg-crate with bio-rings and
+  the plenum's water at its true distance under the mesh, the fibreglass mesh, the substrate's grains, bark, charcoal,
+  fibres or sphagnum, the litter, mud when flooded. Drawn as a cut-away scaled to the ground at the glass (generated tanks
+  slope down to ~4 cm at the front).
+- **Filter hardware** (`render/plumbing.js filterGear`, same merged mesh and material as the pump): sponge filter with
+  air-lift and airline, corner foam block across a back corner with its lift tube, canister intake (strainer or foam
+  pre-filter) and spray bar with hoses over the rim, the false bottom's slotted PVC pump tower with tubing up the back.
+- **Pieces**: `bamboopole` (upright or leaning), `floatlog` (rides the water level: `Decor.settle`/`refloat`), `pebbles`
+  (smooth river pebbles, stamped: a gentle textured slope). **Plants**: `fissidens`, `rotala` (stem plant, pink tips);
+  monstera leaves with real holes, anubias with stalks and oval leaves, java moss as branching strands (`shapedLeaf`).
+- **Tank-shape rules**: species `minL` (litres), `minH` (cm), `land` share against `World.landShare()`; mild stress
+  (`Sim.tankRules`) and a Tank line in the Field guide with this tank's numbers.
+- **Marbled newt** body (`BODIES.marbled`, `salamanders.js`): the paddle-tail frame slimmer and longer, green blotches in a
+  black lace, orange back stripe, newt rig.
+- **Reed frogs** perch on plants, wood, cork, roots, stumps, bamboo poles, floating logs (ray-cast tops) and the glass
+  (belly to the glass, head up); each frog has a habit (`perchLike`); they wade or swim to the foot of a climb; `perch.left`
+  says why one came down (dusk, hunting, hungry).
+- **UVB and the warm spot are local**: `Climate.uvbAt` (the tube beside the basking lamp, 60% of the width, leaves shade it,
+  fades with depth), averaged per animal over three days (`a.uvAvg`); the warm spot counts only if the animal spends about an
+  hour a day at its basking temperature (`a.baskAvg`).
+- **Isopods walk in**: a heavy crawler that cannot swim (`drowns`) can lose its footing on a steep bank (a drop of over 6 mm
+  a centimetre ahead), or be pushed in; in the water it walks the bottom to a slope or a ramp of rock, wood or bark and climbs
+  out (`Animals.sunkCrawl`), or drowns.
+
+Checks: `tests/caresheet.test.mjs` (foods, plenum, substrates, rows), `tools/steps/caresheet2.mjs` (a day with every food,
+the pieces and plants, flood test, pictures), `tools/steps/perch.mjs`, `tools/steps/isopod-bank.mjs`,
+`tools/steps/soil-look.mjs`. gen-check: streambank, reedpool, matano, everglades, suriname, starter jar: 10 days, no deaths.
+
 ## Not done
-- A marbled newt body (the salamander session owns `salamanders.js`).
-- Visible filter hardware (a foam block in the corner, the pump tower and egg-crate at the glass), a cut-away of the plenum.
-- Monstera leaves have no holes (the procedural blade has none); java moss and anubias are simple procedural shapes.
-- Not measured with the metrics tool on the Windows laptop; the lazy plant meshes should make loading cheaper, unmeasured.
+- Not measured with the metrics tool on the Windows laptop: the soil profile adds one material (a dozen hash lookups per
+  fragment on a strip at the glass) and the feeders four small species meshes, built when first fed.
+- Feeders are not dusted or gut-loaded in the sim (calcium is not modelled); crickets do not bite sleeping animals.
+- The UVB tube has no visible fixture of its own; the soil profile is not drawn on the back glass (the background is there).

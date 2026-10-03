@@ -6,7 +6,7 @@ import { Sheet } from './Sheet.jsx';
 import { Icon } from '../icons.jsx';
 import { RangeBar, WIDGETS } from './widgets.jsx';
 import { ctx } from '../../app/ctx.js';
-import { SPECIES } from '../../sim/animals.js';
+import { SPECIES, dietOf, isItem, ITEMS } from '../../sim/animals.js';
 import { PLANTS } from '../../sim/plants.js';
 import { ANIMAL_INFO } from '../../content/species-info.js';
 import { PLANT_INFO } from '../../content/plant-info.js';
@@ -94,6 +94,17 @@ function ConceptPage({ id, pick }) {
   );
 }
 
+// Tank size and land share from the keeper's sheet, against the tank you have.
+function TankRule({ sp, tank }) {
+  if (!sp.minL && !sp.minH && sp.land == null) return null;
+  const bad = (b) => ({ color: b ? '#b04a2a' : 'inherit' });
+  const bits = [];
+  if (sp.minL) bits.push(<span key="l">at least <b>{sp.minL} litres</b>{tank ? <span style={bad(tank.litres < sp.minL * 0.8)}> (this one: {tank.litres})</span> : null}</span>);
+  if (sp.minH) bits.push(<span key="h"><b>{sp.minH} cm</b> tall or more{tank ? <span style={bad(tank.h < sp.minH * 0.85)}> (this one: {tank.h})</span> : null}</span>);
+  if (sp.land != null) bits.push(<span key="s">about <b>{Math.round(sp.land * 100)}% land</b>{tank?.land != null ? <span style={bad(Math.abs(tank.land - sp.land) > 0.3)}> (this one: {Math.round(tank.land * 100)}%)</span> : null}</span>);
+  return <p style={{ fontSize: 12.5 }}><b>Tank:</b> {bits.flatMap((b, i) => (i ? [', ', b] : [b]))}.</p>;
+}
+
 function AnimalPage({ id, pick }) {
   const sp = SPECIES[id], info = ANIMAL_INFO[id];
   const live = S.live.value;
@@ -120,7 +131,8 @@ function AnimalPage({ id, pick }) {
       <h3>What it needs</h3>
       <RangeBar label="Temperature" unit=" °C" lo={sp.temp[0]} hi={sp.temp[1]} now={e.temp} domain={[10, 34]} dec={1} />
       {sp.humidity && !aquatic ? <RangeBar label="Humidity" unit="%" lo={sp.humidity} hi={100} now={e.humidity} domain={[30, 100]} /> : null}
-      <p style={{ fontSize: 12.5 }}><b>Eats:</b> {sp.eats.join(', ') || 'nothing'}. <b>Lives:</b> up to {Math.round(sp.lifeDays / 365 * 10) / 10} years. {sp.breed ? <b>Breeds on its own.</b> : null}</p>
+      <TankRule sp={sp} tank={live?.tank} />
+      <p style={{ fontSize: 12.5 }}><b>Eats:</b> {dietOf(sp).map((f) => (isItem(f) ? ITEMS[f].name : SPECIES[f] ? SPECIES[f].name.toLowerCase() : f)).join(', ') || 'nothing'}. <b>Lives:</b> up to {Math.round(sp.lifeDays / 365 * 10) / 10} years. {sp.breed ? <b>Breeds on its own.</b> : null}</p>
       {n ? <p style={{ fontSize: 12.5 }}>In your tank now: <b>{n.n}</b>, average health <b>{Math.round(n.hp * 100)}%</b>.</p> : null}
       {info ? (
         <>

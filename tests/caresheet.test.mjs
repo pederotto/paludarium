@@ -15,7 +15,7 @@ import { PRESETS } from '../src/content/presets.js';
 import { BODIES } from '../src/render/creatures/bodies/index.js';
 
 const seq = (seed = 1) => () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-const NEW = ['cpd', 'pygmy', 'blueshrimp', 'panther', 'skink', 'bumblebee', 'reedfrog', 'marbled', 'purpleiso', 'pandaking', 'springpink'];
+const NEW = ['cpd', 'pygmy', 'blueshrimp', 'panther', 'skink', 'bumblebee', 'reedfrog', 'marbled', 'purpleiso', 'pandaking', 'springpink', 'springsea', 'cricket', 'dubia', 'earthworm', 'waxworm'];
 
 // --- Crocodile skink ---------------------------------------------------------------------------------------------------
 const day = (o = {}) => ({ t: 0, dt: 0.2, dtMin: 0.2, x: 0, z: 0, depth: -1, wetGround: 0.5, light: 1, rain: 0, rh: 88, temp: 25, cover: 0.2, hunger: 0.2, threat: null, home: { x: 6, z: 0 }, shore: { x: -10, z: 0, d: 10 }, warm: { x: 0, z: 8, d: 8, temp: 29 }, ...o });
@@ -138,7 +138,7 @@ test('every new species has a habitat rule, a shop row, a field guide entry and 
     const lesson = ANIMAL_INFO[id].lesson;
     assert.ok(!lesson || CONCEPTS[lesson], `${id}: lesson card ${lesson}`);
   }
-  for (const id of ['cpd', 'pygmy', 'blueshrimp', 'panther', 'skink', 'bumblebee', 'reedfrog', 'purpleiso', 'pandaking', 'springpink']) assert.ok(BODIES[id], `${id}: body`);
+  for (const id of ['cpd', 'pygmy', 'blueshrimp', 'panther', 'skink', 'bumblebee', 'reedfrog', 'marbled', 'purpleiso', 'pandaking', 'springpink', 'springsea', 'cricket', 'dubia', 'earthworm', 'waxworm']) assert.ok(BODIES[id], `${id}: body`);
 });
 
 test('every new preset has its biotope, and every biotope animal exists', () => {
@@ -148,4 +148,38 @@ test('every new preset has its biotope, and every biotope animal exists', () => 
     assert.ok(b, `${id}: biotope`);
     for (const a of b.animals) assert.ok(HABITAT[a], `${id}: ${a}`);
   }
+});
+
+// --- Food, the false bottom, substrates, pieces (2026-10, second pass) ------------------------------------------------
+import { ITEMS, isItem, dietOf, eatsItem } from '../src/content/foods.js';
+import { plenumState, SUBSTRATES, SUBSTRATE_ORDER, substrateOf } from '../src/content/equipment.js';
+import { PIECES as PIECE_ROWS, PLANTS as PLANT_ROWS } from '../src/content/economy.js';
+import { PLANT_INFO } from '../src/content/plant-info.js';
+
+test('flake stands for every prepared food; a fussy eater lists only what it takes', () => {
+  const fish = { eats: ['flake', 'detritus'] }, pygmy = { eats: ['bloodworm', 'shrimp'] };
+  assert.deepEqual(dietOf(fish), ['flake', 'pellet', 'bloodworm', 'detritus']);
+  assert.ok(eatsItem(fish, { kind: 'pellet' }) && eatsItem(fish, {}), 'an item with no kind is a flake');
+  assert.ok(eatsItem(pygmy, { kind: 'bloodworm' }) && !eatsItem(pygmy, { kind: 'flake' }) && !eatsItem(pygmy, { kind: 'pellet' }));
+  for (const k of Object.keys(ITEMS)) assert.ok(isItem(k) && ITEMS[k].sink[0] < ITEMS[k].sink[1] && ITEMS[k].min > 0, k);
+  assert.ok(ITEMS.pellet.sink[0] > ITEMS.flake.sink[1], 'pellets sink faster than flakes');
+  assert.ok(!isItem('cricket') && !isItem('detritus'));
+});
+
+test('the false bottom: water just under the mesh is right, over it is mud, far under it the bed runs dry', () => {
+  const E = { drainage: 1, plenumH: 10 };
+  assert.equal(plenumState(E, 9).state, 'good');
+  assert.equal(plenumState(E, 10.6).state, 'mud');
+  assert.equal(plenumState(E, 4).state, 'low');
+  assert.ok(plenumState(E, 4).filled < 0.5);
+  assert.equal(plenumState({ drainage: 0.6, plenumH: 10 }, 12), null, 'only a false bottom has a plenum');
+  assert.equal(plenumState({ drainage: 1, plenumH: 0 }, 12), null, 'not fitted yet');
+});
+
+test('substrates, new pieces and new plants have their rows', () => {
+  for (const id of SUBSTRATE_ORDER) assert.ok(SUBSTRATES[id] && Math.abs(SUBSTRATES[id].drain) < 1 && SUBSTRATES[id].mould > 0, id);
+  assert.ok(SUBSTRATES.abg.drain > SUBSTRATES.soil.drain && SUBSTRATES.coir.drain < SUBSTRATES.soil.drain);
+  assert.equal(substrateOf({}), SUBSTRATES.soil);
+  for (const id of ['bamboopole', 'floatlog', 'pebbles']) assert.ok(PIECE_ROWS[id], id);
+  for (const id of ['fissidens', 'rotala']) assert.ok(PLANT_ROWS[id] && PLANT_INFO[id], id);
 });

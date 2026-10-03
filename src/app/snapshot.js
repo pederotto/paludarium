@@ -27,7 +27,7 @@ export function snapshot(game) {
   return {
     t: performance.now(),
     clock: { day: E.day + 1, time: E.clock, light: E.light(), bright: E.bright(), photoperiod: E.photoperiod },
-    tank: { id: TANK.id, name: TANK.name, w: TANK.w, d: TANK.d, h: TANK.h, litres: Math.round(tankLitres()), closed: TANK.closed },
+    tank: { id: TANK.id, name: TANK.name, w: TANK.w, d: TANK.d, h: TANK.h, litres: Math.round(tankLitres()), closed: TANK.closed, land: W.landShare() },
     env: {
       temp: E.temp, humidity: E.humidity, ammonia: E.ammonia, nitrite: E.nitrite, nitrate: E.nitrate, oxygen: E.oxygen, cycle: E.cycle,
       algae: E.algae, diatoms: E.diatoms, detritus: E.detritus, mold: E.mold, soil: E.soil, condense: E.condense, drainage: E.drainage,

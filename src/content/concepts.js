@@ -39,6 +39,22 @@ export const CONCEPTS = {
     ],
     related: ['nitrogen-cycle', 'drainage', 'bioactive'],
   },
+  feeding: {
+    title: 'Feeding: flakes, worms and crickets', icon: 'bowl',
+    blurb: 'What each animal eats, and why the size and the timing matter.',
+    sections: [
+      { p: ['Fish and shrimp take prepared food: flakes float and sink slowly for the mid-water fish, pellets sink at once for bottom fish, crabs and newts, and frozen or freeze-dried bloodworms tempt fussy eaters such as the pygmy sunfish.'] },
+      { p: ['Frogs, toads, skinks, geckos and salamanders only strike at food that moves. They live on feeder insects bred for them: fruit flies and springtails for the smallest frogs, crickets and dubia roaches for skinks, geckos and toads, earthworms for newts and salamanders, and fatty waxworms as a treat.'] },
+      { h: 'The keeper\'s rules', ul: [
+        'Size: a feeder no longer than the gap between the animal\'s eyes.',
+        'Gut-load and dust: feed the insects well first and roll them in calcium powder, because an insect alone is poor in calcium.',
+        'Little and often: what is not eaten in ten minutes rots (prepared food) or hides and lives on (crickets, roaches, worms).',
+      ] },
+      { fact: 'An earthworm is close to a complete food for a newt; a waxworm is about a quarter fat.' },
+      { tryit: 'In Care > Feeding drop pellets or bloodworms, or a cup of crickets, and watch who comes for them.' },
+    ],
+    related: ['bioactive', 'nitrogen-cycle'],
+  },
   uvb: {
     title: 'Light you cannot see: UVB', icon: 'sun',
     blurb: 'Why a shy skink still needs a little ultraviolet.',

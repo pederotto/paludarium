@@ -70,4 +70,9 @@ export const HABITAT = {
   purpleiso: { noun: 'dwarf purple isopod', zone: 'land', maxDepth: 0.2, rhMin: 60, need: 'very damp soil on land' },
   pandaking: { noun: 'panda king isopod', zone: 'land', maxDepth: 0.2, rhMin: 55, need: 'damp ground on raised land, with ramps out of any water' },
   springpink: { noun: 'pink springtail', zone: 'land', maxDepth: 0.2, rhMin: 55, need: 'damp ground on land' },
+  springsea: { noun: 'seashore springtail', zone: 'shore', water: 4, maxDepth: Infinity, need: 'open water with a shoreline: it lives on the surface film' },
+  cricket: { noun: 'cricket', zone: 'land', maxDepth: 0.5, need: 'dry ground (it drowns in water)' },
+  dubia: { noun: 'dubia roach', zone: 'land', maxDepth: 0.5, need: 'dry ground with litter to hide in' },
+  earthworm: { noun: 'earthworm', zone: 'land', maxDepth: 0.5, need: 'damp soil to dig into' },
+  waxworm: { noun: 'waxworm', zone: 'land', maxDepth: 0.2, need: 'dry ground or a feeding dish' },
 };

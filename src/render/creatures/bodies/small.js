@@ -137,8 +137,9 @@ const legRig = (legs, x, y, z, dBody, amp) => {
 // Springtail (Collembola, ~0.25 cm): a cream-white segmented body, a rounded head with
 // dark eye spots, short antennae, six legs and the furcula folded under the abdomen.
 // ---------------------------------------------------------------------------------
-// Springtail colours: the tropical white (Folsomia candida, default) and the tropical pink (Pseudosinella sp.).
-const SPRING_PAL = { white: [0xf0e8d2, 0xd8d1bd, 0xe2d9c4, 0xcfc6ae], pink: [0xf2b8b0, 0xe0a49c, 0xeaaaa2, 0xd8968e] };
+// Springtail colours: the tropical white (Folsomia candida, default), the tropical pink (Pseudosinella sp.) and the blue-grey
+// seashore springtail of the water's surface film (Anurida maritima type).
+const SPRING_PAL = { white: [0xf0e8d2, 0xd8d1bd, 0xe2d9c4, 0xcfc6ae], pink: [0xf2b8b0, 0xe0a49c, 0xeaaaa2, 0xd8968e], sea: [0x5d6f8c, 0x4a5873, 0x55667f, 0x48566c] };
 function springtail(pal = 'white') {
   const SP = SPRING_PAL[pal];
   const Y0 = 0.055;
@@ -334,4 +335,144 @@ function flypupa() {
   };
 }
 
-export const SMALL = { snail, springtail: () => springtail(), springpink: () => springtail('pink'), fly, flylarva, flypupa };
+// ---------------------------------------------------------------------------------
+// Feeders (2026-10). Banded cricket (Gryllodes sigillatus, a ~1.4 cm feeder): a round head with a dark band between the eyes,
+// a boxy pronotum, a soft banded abdomen with two cerci, long antennae, and big jumping hind legs.
+// ---------------------------------------------------------------------------------
+function cricket() {
+  const legs = [
+    { id: 1, pts: (s) => [[s * 0.1, 0.17, 0.36], [s * 0.24, 0.2, 0.46], [s * 0.3, 0.02, 0.56]], radii: [0.045, 0.035, 0.028] },
+    { id: 3, pts: (s) => [[s * 0.12, 0.16, 0.18], [s * 0.3, 0.2, 0.16], [s * 0.38, 0.02, 0.1]], radii: [0.045, 0.035, 0.028] },
+    // The hind leg: a thick femur raised along the body, the tibia folded back down to the ground.
+    { id: 1, pts: (s) => [[s * 0.13, 0.15, 0.02], [s * 0.24, 0.34, -0.3], [s * 0.27, 0.12, -0.58], [s * 0.3, 0.02, -0.66]], radii: [0.075, 0.06, 0.03, 0.025] },
+  ].flatMap((l) => [-1, 1].map((s) => ({ id: s < 0 ? l.id : l.id + 1, pts: l.pts(s), radii: l.radii })));
+  const ants = [-1, 1].map((s) => ({ pts: [[s * 0.07, 0.3, 0.6], [s * 0.2, 0.42, 0.95], [s * 0.4, 0.4, 1.3], [s * 0.55, 0.3, 1.55]], radii: [0.032, 0.028, 0.025, 0.022] }));
+  const cerci = [-1, 1].map((s) => ({ pts: [[s * 0.05, 0.2, -0.55], [s * 0.12, 0.22, -0.85]], radii: [0.026, 0.018] }));
+  const headD = (x, y, z) => ell(x, y - 0.22, z - 0.5, 0.15, 0.16, 0.13);
+  const eyeD = (x, y, z) => Math.hypot(Math.abs(x) - 0.12, y - 0.29, z - 0.53) - 0.05;
+  const thoD = (x, y, z) => ell(x, y - 0.22, z - 0.3, 0.17, 0.14, 0.14);
+  const abdD = (x, y, z) => ell(x, y - 0.21, z + 0.15, 0.17 - Math.max(0, -z - 0.1) * 0.12, 0.15, 0.43);
+  const bodyD = (x, y, z) => smin(smin(smin(headD(x, y, z), eyeD(x, y, z), 0.02), thoD(x, y, z), 0.04), abdD(x, y, z), 0.05);
+  const limbD = (x, y, z) => {
+    let d = 1e9;
+    for (const l of legs) d = Math.min(d, chain([x, y, z], l.pts, l.radii)[0]);
+    for (const a of ants) d = Math.min(d, chain([x, y, z], a.pts, a.radii)[0]);
+    for (const c of cerci) d = Math.min(d, chain([x, y, z], c.pts, c.radii)[0]);
+    return d;
+  };
+  const TAN = C(0xb08752), DARK = C(0x3a2a1a), PALE = C(0xd2b282), LEG = C(0xa07a4a);
+  return {
+    sdf: (x, y, z) => smin(bodyD(x, y, z), limbD(x, y, z), 0.02),
+    lo: [-0.62, -0.03, -0.92], hi: [0.62, 0.5, 1.6], cell: 0.034, hiScale: 0.6,
+    color: (x, y, z) => {
+      const db = bodyD(x, y, z), dl = limbD(x, y, z);
+      if (dl < db - 0.004) return lerp3(LEG, DARK, smoothstep(0.7, 1.2, z) * 0.6);
+      if (eyeD(x, y, z) < headD(x, y, z) + 0.004) return C(0x16100c);
+      if (headD(x, y, z) < thoD(x, y, z)) return lerp3(TAN, DARK, smoothstep(0.06, 0.02, Math.abs(z - 0.55)) * smoothstep(0.3, 0.36, y) * 0.9);   // the band between the eyes
+      if (thoD(x, y, z) < abdD(x, y, z)) return lerp3(TAN, DARK, smoothstep(0.02, 0.1, Math.abs(x) - 0.06) * 0.5);
+      const f = fract((z + 0.6) / 0.11), top = smoothstep(0.24, 0.32, y);
+      return lerp3(lerp3(PALE, TAN, top), DARK, smoothstep(0.6, 0.85, f) * top * 0.75);
+    },
+    mat: (x, y, z) => (eyeD(x, y, z) < headD(x, y, z) ? M.GLOSS : M.CHITIN),
+    rig: (x, y, z) => { const [id, t] = legRig(legs, x, y, z, bodyD(x, y, z), 0.5); return [clamp01((0.6 - z) / 1.4), id, t]; },
+    finish: { rough: 0.5, coat: 0.35, coatRough: 0.3, grain: 0.6, bump: 0.01, tone: 0.02 },
+  };
+}
+
+// ---------------------------------------------------------------------------------
+// Dubia roach nymph (Blaptica dubia, ~1.5 cm): a flat, rounded, dark-brown oval of overlapping plates with pale edges, the
+// small head tucked under the front, short antennae and six short spiny legs.
+// ---------------------------------------------------------------------------------
+function dubia() {
+  const legs = sixLegs([
+    (s) => [[s * 0.22, 0.08, 0.38], [s * 0.42, 0.08, 0.5], [s * 0.5, 0.01, 0.6]],
+    (s) => [[s * 0.25, 0.08, 0.05], [s * 0.5, 0.08, 0.06], [s * 0.6, 0.01, 0.0]],
+    (s) => [[s * 0.22, 0.08, -0.3], [s * 0.46, 0.08, -0.48], [s * 0.54, 0.01, -0.66]],
+  ], [0.045, 0.035, 0.028]);
+  const ants = [-1, 1].map((s) => ({ pts: [[s * 0.06, 0.1, 0.72], [s * 0.2, 0.12, 0.95], [s * 0.34, 0.08, 1.1]], radii: [0.025, 0.02, 0.018] }));
+  const shellD = (x, y, z) => smax(ell(x, y - 0.1, z, 0.48, 0.17, 0.72), -y + 0.03, 0.03);
+  const headD = (x, y, z) => ell(x, y - 0.08, z - 0.66, 0.16, 0.08, 0.1);
+  const bodyD = (x, y, z) => smin(shellD(x, y, z), headD(x, y, z), 0.04);
+  const limbD = (x, y, z) => { let d = 1e9; for (const l of legs) d = Math.min(d, chain([x, y, z], l.pts, l.radii)[0]); for (const a of ants) d = Math.min(d, chain([x, y, z], a.pts, a.radii)[0]); return d; };
+  const BROWN = C(0x3b2416), EDGE = C(0x8a6440), BELLY = C(0x5b4030), LEG = C(0x6b4a30);
+  return {
+    sdf: (x, y, z) => smin(bodyD(x, y, z), limbD(x, y, z), 0.02),
+    lo: [-0.66, -0.03, -0.8], hi: [0.66, 0.32, 1.16], cell: 0.036, hiScale: 0.6,
+    color: (x, y, z) => {
+      if (limbD(x, y, z) < bodyD(x, y, z) - 0.004) return LEG;
+      if (headD(x, y, z) < shellD(x, y, z)) return C(0x2a1a10);
+      const f = fract((0.72 - z) / 0.16), plate = smoothstep(0.78, 0.95, f);
+      const rim = smoothstep(0.36, 0.47, Math.hypot(x / 1, z / 1.5));
+      let c = lerp3(BROWN, EDGE, Math.max(plate * 0.6, rim * 0.7));
+      return lerp3(c, BELLY, smoothstep(0.1, 0.04, y));
+    },
+    mat: () => M.CHITIN,
+    rig: (x, y, z) => { const [id, t] = legRig(legs, x, y, z, bodyD(x, y, z), 0.4); return [0, id, t]; },
+    finish: { rough: 0.35, coat: 0.6, coatRough: 0.15, grain: 0.6, bump: 0.01, tone: 0.02 },
+  };
+}
+
+// ---------------------------------------------------------------------------------
+// Earthworm (a red wiggler, Eisenia / Dendrobaena, ~5 cm): a long ringed tube, pointed at the head end, flattened at the tail,
+// red-brown on the back and paler below, with the swollen pale saddle (clitellum) a third of the way back.
+// ---------------------------------------------------------------------------------
+function earthworm() {
+  const H = 2.5, R = 0.11, Y0 = 0.1, NSEG = 90;
+  const profile = (z) => {
+    const t = clamp01((z + H) / (2 * H));                                   // 0 tail, 1 head
+    const env = Math.pow(Math.max(1 - (z / H) ** 2, 0), 0.35) * mix(0.8, 1, smoothstep(0, 0.4, t));
+    const saddle = smoothstep(0.08, 0.0, Math.abs(t - 0.7)) * 0.22;
+    const ring = 0.5 + 0.5 * Math.cos(TAU * t * NSEG);
+    return R * env * (1 + saddle) * (0.95 + 0.05 * ring);
+  };
+  const bodyD = (x, y, z) => smax((Math.hypot(x, (y - Y0) * 1.1) - profile(z)) * 0.85, Math.abs(z) - H, 0.03);
+  const RED = C(0x8e3b3a), PINK = C(0xc07a72), SADDLE = C(0xc98a72), DARK = C(0x5c2426);
+  return {
+    sdf: bodyD,
+    lo: [-0.2, -0.03, -2.6], hi: [0.2, 0.26, 2.6], cell: 0.04, hiScale: 0.6,
+    color: (x, y, z) => {
+      const t = clamp01((z + H) / (2 * H)), ring = 0.5 + 0.5 * Math.cos(TAU * t * NSEG);
+      let c = lerp3(PINK, RED, smoothstep(0.06, 0.16, y));
+      c = lerp3(c, DARK, smoothstep(0.75, 1.0, t) * smoothstep(0.12, 0.2, y) * 0.5);
+      c = lerp3(c, SADDLE, smoothstep(0.07, 0.0, Math.abs(t - 0.7)));
+      return mul3(c, 0.9 + 0.1 * ring);
+    },
+    mat: () => M.GLOSS,
+    rig: (x, y, z) => [clamp01((H - z) / (2 * H)), 0, 0],
+    finish: { rough: 0.35, coat: 0.8, coatRough: 0.15, grain: 0.4, bump: 0.004, tone: 0.02 },
+  };
+}
+
+// ---------------------------------------------------------------------------------
+// Waxworm (the larva of the wax moth, Galleria mellonella, ~2 cm): a plump cream caterpillar with a small brown head capsule,
+// a darker patch behind it, three pairs of tiny true legs and soft segment folds.
+// ---------------------------------------------------------------------------------
+function waxworm() {
+  const H = 1.0, R = 0.17, Y0 = 0.16, NSEG = 12;
+  const profile = (z) => {
+    const t = clamp01((z + H) / (2 * H));
+    const env = Math.pow(Math.max(1 - (z / H) ** 2, 0), 0.3) * mix(1, 0.75, smoothstep(0.75, 1, t));
+    return R * env * (0.93 + 0.07 * (0.5 + 0.5 * Math.cos(TAU * t * NSEG)));
+  };
+  const bodyD = (x, y, z) => smax((Math.hypot(x, (y - Y0) * 1.05) - profile(z)) * 0.85, -y + 0.01, 0.04);
+  const headD = (x, y, z) => ell(x, y - Y0 + 0.02, z - H + 0.02, 0.1, 0.09, 0.09);
+  const legD = (x, y, z) => { let d = 1e9; for (const k of [0, 1, 2]) for (const s of [-1, 1]) d = Math.min(d, cap([x, y, z], [s * 0.09, 0.07, 0.72 - k * 0.1], [s * 0.11, 0.015, 0.74 - k * 0.1], 0.03, 0.02)[0]); return d; };
+  const sdf = (x, y, z) => smin(smin(bodyD(x, y, z), headD(x, y, z), 0.03), legD(x, y, z), 0.02);
+  const CREAM = C(0xeadcb8), FOLD = C(0xcdb98e), HEAD = C(0x5a3a20), SHIELD = C(0x9a7a50);
+  return {
+    sdf,
+    lo: [-0.24, -0.02, -1.08], hi: [0.24, 0.38, 1.1], cell: 0.034, hiScale: 0.6,
+    color: (x, y, z) => {
+      if (headD(x, y, z) < bodyD(x, y, z)) return HEAD;
+      if (legD(x, y, z) < bodyD(x, y, z) - 0.004) return SHIELD;
+      const t = clamp01((z + H) / (2 * H)), fold = 0.5 + 0.5 * Math.cos(TAU * t * NSEG);
+      let c = lerp3(FOLD, CREAM, 0.4 + 0.6 * fold);
+      return lerp3(c, SHIELD, smoothstep(0.86, 0.92, t) * smoothstep(0.2, 0.28, y) * 0.8);
+    },
+    mat: () => M.SKIN,
+    rig: (x, y, z) => [clamp01((H - z) / (2 * H)), 0, 0],
+    finish: { rough: 0.5, coat: 0.45, coatRough: 0.25, grain: 0.5, bump: 0.004, tone: 0.01 },
+  };
+}
+
+export const SMALL = { snail, springtail: () => springtail(), springpink: () => springtail('pink'), springsea: () => springtail('sea'), fly, flylarva, flypupa, cricket, dubia, earthworm, waxworm };

@@ -18,7 +18,7 @@ export const NODE = { GROUND: 0, SUMP: 1, EXT: 2, OUT0: 3, OUTS: 12, BODY0: 15, 
 const WET_STREAM = 0.12;   // cm of water that makes a stream cell
 const CHEM = ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'temp', 'co2', 'ph', 'gh'];
 // Hardscape that leaches tannins (softens and acidifies the water a little) or minerals (hardens it).
-const TANNIN = { wood: 1, roots: 1, stump: 0.6, cork: 0.5, bamboo: 0.2 }, MINERAL = { boulder: 0.25, spire: 0.15, cliff: 0.3, slate: 0.35 };
+const TANNIN = { wood: 1, roots: 1, stump: 0.6, cork: 0.5, bamboopole: 0.15, floatlog: 0.8 }, MINERAL = { boulder: 0.25, spire: 0.15, cliff: 0.3, slate: 0.35, pebbles: 0.1 };
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function makeBody(uid, kind, name) {
@@ -408,7 +408,8 @@ export class WaterBodies {
     const nitRef = Math.max(1, list.reduce((s, b) => s + b.nitrate * Vb(b), 0) / Vtot);
     // Filter, plenum and the water the tank is topped up with (content/equipment.js).
     const F = filterOf(E), src = sourceOf(E);
-    const plenum = E.drainage >= 1 ? 0.3 : E.drainage > 0 ? 0.1 : 0;      // the false bottom's bio-rings are one big filter bed
+    // The false bottom's bio-rings are one big filter bed, as far as they are under water.
+    const plenum = E.drainage >= 1 ? 0.3 * (E.plenum ? clamp(E.plenum.filled * 1.3, 0.25, 1) : 1) : E.drainage > 0 ? 0.1 : 0;
     let tannin = 0, mineral = 0;
     for (const p of W.decor?.pieces ?? []) { tannin += TANNIN[p.type] ?? 0; mineral += MINERAL[p.type] ?? 0; }
     const pumpTurn = H.pump?.running ? (H.pump.lph ?? 0) / Math.max(1, sump.vol) : 0;   // tank volumes an hour
@@ -430,7 +431,7 @@ export class WaterBodies {
       // --- Oxygen: shallow water breathes quickly; falls, the filter (in the
       // sump), plants by day and a stream's churn add; fish and heat take away.
       const depth = Math.max(1, b.depth || 6);
-      const aer = clamp(8 / depth, 0.5, 2.5);
+      const aer = clamp(8 / depth, 0.5, 2.5) * (1 - 0.5 * (E.film ?? 0));    // a surface film slows gas exchange
       const oT = 5.2 + Math.min(4, b.falls) * fallK * 0.9 + (b === sump && E.filter ? F.oxygen : b.kind === 'stream' ? 1.2 : 0.3) + E.fan * 0.4 + E.rain * 0.5
         + (light - 0.4) * b.plantUse * 0.02 * Math.sqrt(100 / V) - b.fishLoad * 0.8 / V - Math.max(0, b.temp - 24) * 0.12;
       b.oxygen = clamp(lerp(b.oxygen, oT, clamp(d * 0.01 * aer, 0, 1)), 0.5, 10);

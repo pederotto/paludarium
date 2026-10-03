@@ -36,6 +36,46 @@ function blade(b, { dir, len, width, droop = 0.4, segs = 5, color, tip, twist = 
   b.ribbon(pts, widths, sides, { color: (t) => c0.clone().lerp(c1, t) });
 }
 
+// A flat leaf with a real outline (and holes): `outline(t)` is the half-width at t (0 base … 1 tip) as a fraction of
+// `width`; `holes` are [t, u, length, width] ellipses in leaf space (u: -0.5 … 0.5 across). The leaf runs from `base`
+// along `dir` and droops toward the tip; the midrib is darker. Used for the monstera's split leaves and the anubias.
+function shapedLeaf(b, { base = V(0, 0, 0), dir, len, width, droop = 0.2, outline, holes = [], color, tip, rib = null, n = 14, cup = 0 }) {
+  const shape = new THREE.Shape();
+  const pts = [];
+  for (let i = 0; i <= n; i++) { const t = i / n; pts.push([outline(t) * width, t * len]); }
+  shape.moveTo(0, 0);
+  for (const [u, v] of pts) shape.lineTo(u, v);
+  for (let i = n; i >= 0; i--) shape.lineTo(-pts[i][0], pts[i][1]);
+  for (const [t, u, hl, hw] of holes) {
+    const h = new THREE.Path(), cx = u * width, cy = t * len;
+    for (let k = 0; k <= 10; k++) { const a = (k / 10) * Math.PI * 2; const x = cx + Math.cos(a) * hw * width * 0.5, y = cy + Math.sin(a) * hl * len * 0.5; if (k === 0) h.moveTo(x, y); else h.lineTo(x, y); }
+    shape.holes.push(h);
+  }
+  const g = new THREE.ShapeGeometry(shape, 1);
+  const d = dir.clone().normalize();
+  let side = new THREE.Vector3().crossVectors(V(0, 1, 0), d);
+  if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+  side.normalize();
+  const up = new THREE.Vector3().crossVectors(d, side).normalize();
+  const pa = g.attributes.position;
+  for (let i = 0; i < pa.count; i++) {
+    const u = pa.getX(i), v = pa.getY(i), t = v / len;
+    const p = base.clone().addScaledVector(d, v).addScaledVector(side, u);
+    p.y -= droop * len * t * t;
+    p.addScaledVector(up, cup * (u / width) * (u / width) * width);       // edges curl up a little
+    pa.setXYZ(i, p.x, p.y, p.z);
+  }
+  const c0 = new THREE.Color(color), c1 = new THREE.Color(tip ?? color), cr = rib != null ? new THREE.Color(rib) : null;
+  b.add(g, {
+    color: (lv) => {
+      const t = clamp(lv.clone().sub(base).dot(d) / len, 0, 1), c = c0.clone().lerp(c1, t);
+      if (cr) { const u = Math.abs(lv.clone().sub(base).dot(side)) / width; if (u < 0.05) c.lerp(cr, 0.6 * (1 - u / 0.05)); }
+      return c;
+    },
+    sway: (v) => clamp(v.distanceTo(base) / len, 0, 1),
+  });
+}
+
 // Leaf-card geometry for the SeedThree textures. Each card is a small grid
 // laid over the texture: `pivot` is the uv of the stem base, `tip` the uv of
 // the far end. The card runs from the base along `out`, rising at `elev`
@@ -312,12 +352,18 @@ export const PLANTS = {
     name: 'Anubias', habitat: 'emergent', humidity: [60, 100], light: 0.15, nutrients: 0.4, size: 6,
     note: 'Tough, slow, dark-leaved: on wood or stone in the water or at the edge, where fire-bellied toads rest on its leaves.',
     build() {
-      // A creeping rhizome with stiff, broad, glossy leaves on short stalks.
+      // A creeping green rhizome along the wood, stiff stalks, and broad oval leaves with a pale midrib, held up and out.
       const b = new Builder();
       const r = rng(41);
+      b.ribbon([V(-1.4, 0.15, 0), V(0, 0.2, 0.05), V(1.4, 0.15, -0.05)], [0.4, 0.45, 0.35], V(0, 0, 1), { color: 0x4a6a2c, sway: () => 0 });
+      b.ribbon([V(-1.4, 0.15, 0), V(0, 0.2, 0.05), V(1.4, 0.15, -0.05)], [0.4, 0.45, 0.35], V(0, 1, 0), { color: 0x3e5e26, sway: () => 0 });
+      const oval = (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.06 + t * 0.97)), 0.75) * 0.5 * (1 - 0.15 * t);
       for (let k = 0; k < 7; k++) {
-        const a = (k / 7) * Math.PI * 2 + r() * 0.4, x = (k - 3) * 0.35;
-        blade(b, { base: V(x, 0, 0), dir: V(Math.cos(a) * 0.9, 0.9 + r() * 0.5, Math.sin(a) * 0.9), len: 3.6 + r() * 1.4, width: 2.0, droop: 0.12, segs: 4, color: 0x1d4a1c, tip: 0x2e6a26, twist: 0.2 });
+        const a = (k / 7) * Math.PI * 2 + r() * 0.4, x = (k - 3) * 0.4;
+        const out = V(Math.cos(a) * 0.9, 0.9 + r() * 0.6, Math.sin(a) * 0.9).normalize();
+        const stalk = 1 + r() * 0.8, tipP = V(x, 0.2, 0).addScaledVector(out, stalk);
+        b.ribbon([V(x, 0.2, 0), tipP], [0.16, 0.12], V(1, 0, 0), { color: 0x3a6026 });
+        shapedLeaf(b, { base: tipP, dir: V(out.x, out.y * 0.45, out.z), len: 3.2 + r() * 1.3, width: 1.9 + r() * 0.4, droop: 0.15, outline: oval, color: 0x1b471b, tip: 0x2b6324, rib: 0x5e8a3e, cup: 0.25 });
       }
       return b.build();
     },
@@ -327,12 +373,25 @@ export const PLANTS = {
     name: 'Java moss', habitat: 'emergent', humidity: [65, 100], light: 0.15, nutrients: 0.3, size: 4,
     note: 'Fine, tangled moss for wood, stone and the water\'s edge: cover for fry and shrimp, grazing for both.',
     build() {
-      // A low mound of fine, branching strands.
+      // A low, tangled mound: wiry strands that wander out and branch irregularly, each clothed in tiny leaves (drawn as a
+      // fuzz of short flat scales), darker and browner at the base, fresh green at the tips.
       const b = new Builder();
       const r = rng(43);
-      for (let k = 0; k < 60; k++) {
-        const a = r() * Math.PI * 2, d = r() * 1.4;
-        blade(b, { base: V(Math.cos(a) * d, 0, Math.sin(a) * d), dir: V(Math.cos(a) * 1.4, 0.5 + r() * 0.6, Math.sin(a) * 1.4), len: 1.2 + r() * 1.2, width: 0.18, droop: 0.35, segs: 3, color: 0x2a5a1e, tip: 0x5a8a2e, twist: r() });
+      const strand = (p0, dir, len, depth) => {
+        const segs = 4, pts = [p0.clone()];
+        let p = p0.clone(), d = dir.clone();
+        for (let i = 1; i <= segs; i++) {
+          d.add(V((r() - 0.5) * 0.7, (r() - 0.6) * 0.4, (r() - 0.5) * 0.7)).normalize();
+          p = p.clone().addScaledVector(d, len / segs);
+          pts.push(p);
+        }
+        const sides = pts.map((_, i) => V(Math.cos(i * 1.7 + depth), 0.3, Math.sin(i * 1.7 + depth)).normalize());
+        b.ribbon(pts, pts.map((_, i) => 0.34 - i * 0.04), sides, { color: (t) => new THREE.Color(0x24461a).lerp(new THREE.Color(0x5f9a34), t * (0.6 + depth * 0.3)) });
+        if (depth < 2) for (let k = 0; k < 2; k++) { const i = 1 + Math.floor(r() * (segs - 1)); strand(pts[i], d.clone().add(V((r() - 0.5) * 1.6, 0.2, (r() - 0.5) * 1.6)).normalize(), len * 0.55, depth + 1); }
+      };
+      for (let k = 0; k < 34; k++) {
+        const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 1.5;
+        strand(V(Math.cos(a) * d, 0.05, Math.sin(a) * d), V(Math.cos(a) * 1.2, 0.35 + r() * 0.6, Math.sin(a) * 1.2).normalize(), 1.4 + r() * 1.2, 0);
       }
       return b.build();
     },
@@ -342,17 +401,74 @@ export const PLANTS = {
     name: 'Monstera vine', habitat: 'wall|land', humidity: [60, 100], light: 0.35, size: 1,
     note: 'Monstera adansonii: a climbing aroid with big broad leaves; reed frogs sit on them. Climbs the background.', wallTilt: 0.4,
     build() {
-      // A climbing stem with big, broad, heart-shaped leaves held out flat on stalks.
+      // A climbing stem with big ovate leaves on stalks, each with the swiss-cheese holes of Monstera adansonii: two rows of
+      // long oval windows either side of the midrib (fewer on the young leaves low down, none on the first).
       const b = new Builder();
       const r = rng(47);
+      const ovate = (t) => 0.5 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.04 + t * 0.98)), 0.7) * (1 + 0.25 * Math.max(0, 0.3 - t)) * (1 - 0.35 * t * t);
       for (let k = 0; k < 6; k++) {
         const y = 0.5 + k * 1.6, a = k * 2.4 + r() * 0.5;
-        blade(b, { base: V(0, y, 0), dir: V(Math.cos(a), 0.25, Math.sin(a)), len: 3.6 + r() * 1.0, width: 3.6, droop: 0.18, segs: 4, color: 0x2f6a24, tip: 0x4c8a34, twist: 0.1 });
+        const out = V(Math.cos(a), 0.25, Math.sin(a)).normalize(), stalk = 0.8 + r() * 0.4, at = V(0, y, 0).addScaledVector(out, stalk);
+        b.ribbon([V(0, y, 0), at], [0.18, 0.14], V(0, 1, 0), { color: 0x3a6026 });
+        const holes = [];
+        const nh = k === 0 ? 0 : Math.min(4, 1 + k);
+        for (let h = 0; h < nh; h++) {
+          const t = 0.22 + (h / Math.max(1, nh - 1)) * 0.5 * (nh > 1 ? 1 : 0) + (nh === 1 ? 0.25 : 0);
+          for (const sd of [-1, 1]) holes.push([t + (r() - 0.5) * 0.05, sd * (0.17 + r() * 0.05), 0.11 + r() * 0.04, 0.12 + r() * 0.04]);
+        }
+        shapedLeaf(b, { base: at, dir: V(out.x, 0.2, out.z), len: 4.2 + r() * 1.2 + k * 0.15, width: 3.4 + k * 0.1, droop: 0.22, outline: ovate, holes, color: 0x2a6322, tip: 0x45862f, rib: 0x6a9a48, n: 16, cup: 0.12 });
       }
       blade(b, { base: V(0, 0, 0), dir: V(0, 1, 0.1), len: 10, width: 0.25, droop: 0, segs: 4, color: 0x3a5a22, tip: 0x4a6a2a });
       return b.build();
     },
     material: { amp: 0.25, speed: 0.6 },
+  },
+  fissidens: {
+    name: 'Fissidens moss', habitat: 'aquatic', light: 0.15, nutrients: 0.3, size: 3,
+    note: 'A tiny feathery moss for wood and stone under water: slow, dense, a cushion of fronds shrimp graze.',
+    build() {
+      // A dense cushion of short, flat, feather-like fronds (a stem with two ranks of small leaves), standing up and out.
+      const b = new Builder();
+      const r = rng(53);
+      for (let k = 0; k < 40; k++) {
+        const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 1.6;
+        const base = V(Math.cos(a) * d, 0, Math.sin(a) * d);
+        const dir = V(Math.cos(a) * (0.3 + d * 0.3), 1, Math.sin(a) * (0.3 + d * 0.3)).normalize();
+        const len = 0.8 + r() * 0.9, side = new THREE.Vector3().crossVectors(V(0, 1, 0), dir).normalize();
+        if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+        const tipP = base.clone().addScaledVector(dir, len);
+        b.ribbon([base, tipP], [0.08, 0.05], side, { color: 0x2e5a22 });
+        for (let i = 1; i <= 6; i++) {
+          const t = i / 7, p = base.clone().addScaledVector(dir, len * t), ll = 0.42 * (1 - t * 0.6);
+          for (const sd of [-1, 1]) blade(b, { base: p, dir: side.clone().multiplyScalar(sd).addScaledVector(dir, 0.8), len: ll, width: 0.2, droop: 0.05, segs: 1, color: 0x2f6a24, tip: 0x5a9a38 });
+        }
+      }
+      return b.build();
+    },
+    material: { amp: 0.15, underwaterAmp: 0.8, speed: 0.8 },
+  },
+  rotala: {
+    name: 'Rotala (stem plant)', habitat: 'aquatic', light: 0.55, nutrients: 1.4, size: 14,
+    note: 'Rotala rotundifolia: a bunch of fast stems with small paired round leaves, the tips blushing pink in strong light. Trim and replant the tops.',
+    build() {
+      // Seven stems rising and bending a little, with pairs of small round leaves at every node, crossed at right angles,
+      // green below and rose-pink at the tips.
+      const b = new Builder();
+      const r = rng(59);
+      for (let k = 0; k < 7; k++) {
+        const x = (r() - 0.5) * 1.8, z = (r() - 0.5) * 1.8, h = 9 + r() * 7, bd = r() * Math.PI * 2, bend = 0.6 + r() * 1.2;
+        const nodes = Math.round(h / 0.75), pts = [];
+        for (let i = 0; i <= nodes; i++) { const t = i / nodes; pts.push(V(x + Math.cos(bd) * bend * t * t, h * t, z + Math.sin(bd) * bend * t * t)); }
+        b.ribbon(pts, pts.map(() => 0.12), V(1, 0, 0), { color: (t) => new THREE.Color(0x6a5a2e).lerp(new THREE.Color(0xb05a6a), t * t) });
+        for (let i = 1; i <= nodes; i++) {
+          const t = i / nodes, p = pts[i], ll = 0.55 + 0.25 * Math.sin(Math.PI * t), a = i * Math.PI / 2 + r() * 0.3;
+          const c0 = new THREE.Color(0x3f8a2e).lerp(new THREE.Color(0xd77a86), Math.max(0, t - 0.55) * 2.2), c1 = c0.clone().lerp(new THREE.Color(0xe6a0a8), t * 0.4);
+          for (const sd of [-1, 1]) blade(b, { base: p, dir: V(Math.cos(a) * sd, 0.55 + t * 0.5, Math.sin(a) * sd), len: ll, width: ll * 0.75, droop: 0.15, segs: 2, color: c0, tip: c1 });
+        }
+      }
+      return b.build();
+    },
+    material: { amp: 0.3, underwaterAmp: 1.6, speed: 0.8 },
   },
   frogbit: {
     name: 'Frogbit', habitat: 'floating', light: 0.5, nutrients: 0.8, size: 4,
@@ -398,7 +514,7 @@ const SPREAD = {
   weed: [0.15, 5, 30], grass: [0.08, 4, 30], fernph: [0.03, 8, 16], fern: [0.03, 7, 14], bilberry: [0.02, 6, 8],
   pothos: [0.08, 6, 20], bromeliad: [0.02, 6, 10], cattail: [0.04, 5, 10], bamboo: [0.03, 6, 8],
   vallisneria: [0.12, 5, 40], sword: [0.02, 8, 6], javafern: [0.05, 4, 16], frogbit: [0.35, 5, 40], lily: [0.03, 9, 6],
-  anubias: [0.02, 4, 10], javamoss: [0.12, 4, 40], monstera: [0.04, 8, 10],
+  anubias: [0.02, 4, 10], javamoss: [0.12, 4, 40], monstera: [0.04, 8, 10], fissidens: [0.05, 3, 30], rotala: [0.1, 4, 24],
 };
 
 export class Plants {
@@ -638,7 +754,7 @@ export class Plants {
         if (p.surface !== 'wall') {
           const soil = C.soilAt(p.pos.x, p.pos.z);
           if (soil < (sp.soilMin ?? 0.22)) { ok = Math.min(ok, 0.35 + soil * 2); p.why.push('soil too dry'); }
-          if (env.soil > 0.9 && env.drainage < 0.3 && !sp.bog && soil > 0.9) { ok = Math.min(ok, 0.5); p.why.push('waterlogged roots (no drainage)'); }
+          if (env.soil > 0.9 && (env.drainEff ?? env.drainage) < 0.3 && !sp.bog && soil > 0.9) { ok = Math.min(ok, 0.5); p.why.push(env.plenum?.state === 'mud' ? 'waterlogged roots (water over the false bottom)' : 'waterlogged roots (no drainage)'); }
           if (humus) {
             // Rich, humus-fed soil boosts growth and is slowly used up; bare soil only slows things a little.
             const f = humus.fertilityAt(p.pos.x, p.pos.z);

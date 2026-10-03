@@ -18,6 +18,7 @@ export const U = {
   creatureWater: uniform(0.3), // 0 … 1: how much of the water's colour absorption animals get (1 = same as the sand)
   plantWater: uniform(0.42),   // 0 … 1: how much of the water's colour absorption plants get (1 = same as the sand); tuned by eye
   rockMoss: uniform(1),         // 0 bare … 1 mossy: how far moss has grown over the hardscape
+  backdrop: uniform(0),         // 0 the painted relief … 1 black expanding foam dusted with coir (Env.backdrop)
 };
 
 // The ground's chemistry for the soil shader (sim/humus.js writes it): R humus, G leaf litter, B fertility,

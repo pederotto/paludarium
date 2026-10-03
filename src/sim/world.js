@@ -51,6 +51,19 @@ export class World {
     return this.water.surfaceAt(p.x, p.z) > this.terrain.heightAt(p.x, p.z);
   }
 
+  // The share of the floor that is dry land (0 … 1), for species' `land` (cached until the ground or the water changes).
+  landShare() {
+    const key = `${this.water.hydro.groundVer}|${this.water.level}|${TANK.w}`;
+    if (key === this._landKey) return this._land;
+    let n = 0, dry = 0;
+    for (let i = 0; i < 40; i++) for (let j = 0; j < 20; j++) {
+      const x = ((i + 0.5) / 40 - 0.5) * TANK.w, z = ((j + 0.5) / 20 - 0.5) * TANK.d;
+      n++; if (!(this.water.surfaceAt(x, z) > this.terrain.heightAt(x, z) + 0.2)) dry++;
+    }
+    this._landKey = key; this._land = dry / n;
+    return this._land;
+  }
+
   // Fraction of visible surface covered with moss (cached; updated on paint).
   mossFraction() { return this._moss; }
   updateMoss() {
@@ -85,6 +98,7 @@ export class World {
 
   setWaterLevel(y) {
     this.water.setLevel(y);
+    this.decor.refloat();
     this.plants.onWaterChanged(this);
     this.decor.scatterMoss();
   }

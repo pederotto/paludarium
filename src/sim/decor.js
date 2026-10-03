@@ -44,6 +44,12 @@ export const PIECES = {
   // (the occupancy grid keeps an arch's inside free) and count them as cover.
   cork: { name: 'Cork bark tube', procedural: true, size: 16, stamp: false, moss: 0.2 },
   slate: { name: 'Slate slab', procedural: true, size: 18, stamp: false, moss: 0.15 },
+  // A bamboo pole for reed frogs to perch on (upright or leaning), and a log that floats at the water line (`float`: it rides
+  // the water level and rests on the bottom only where the water is too shallow to hold it).
+  bamboopole: { name: 'Bamboo pole', procedural: true, size: 40, stamp: false, moss: 0.05 },
+  floatlog: { name: 'Floating log', procedural: true, size: 22, stamp: false, moss: 0.25, float: true },
+  // Smooth river pebbles: a low patch that makes a gentle, textured slope out of the water (bumblebee toads, isopods).
+  pebbles: { name: 'River pebbles', procedural: true, size: 14, stamp: true, moss: 0.05 },
 };
 
 export { TINTS, PROC, rollLook };
@@ -125,6 +131,68 @@ function slateGeo(r, { thick = 0.08, n = 16 } = {}) {
     pos.setXYZ(i, x * k, y > 0 ? top : 0, z * k * 0.8);
   }
   g.computeVertexNormals();
+  g.computeBoundingBox();
+  return g;
+}
+
+// A bamboo pole: a thin cane of internodes with a raised ring and a darker band at every node, its foot at the origin, height 1.
+// `lean` tilts it (radians, toward +x) so the same pole can stand or lean by turning it.
+function bambooGeo(r, { lean = 0, rad = 0.032, nodes = 6 } = {}) {
+  const g = new THREE.CylinderGeometry(rad, rad * 1.08, 1, 14, 60, false);
+  g.translate(0, 0.5, 0);
+  const pos = g.attributes.position, col = new Float32Array(pos.count * 3);
+  const ph = r() * 0.4, cBody = new THREE.Color(0xb8a55c), cDry = new THREE.Color(0xa08a4a), cNode = new THREE.Color(0x6e5a2c), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const u = y * nodes + ph, f = u - Math.floor(u), node = Math.exp(-(((f < 0.5 ? f : f - 1) / 0.035) ** 2));
+    const k = 1 + node * 0.12;
+    pos.setXYZ(i, x * k + Math.sin(lean) * y, y * Math.cos(lean), z * k);
+    c.copy(cBody).lerp(cDry, 0.5 + 0.5 * Math.sin(y * 13 + ph * 9)).lerp(cNode, node * 0.8);
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  g.translate(-(g.boundingBox.min.x + g.boundingBox.max.x) / 2, 0, 0);
+  g.computeBoundingBox();
+  return g;
+}
+
+// A patch of smooth, water-worn pebbles: flattened, rounded stones packed into a low mound (width 1, base at y = 0).
+function pebblesGeo(r, { n = 26, spread = 0.42 } = {}) {
+  const list = [];
+  for (let k = 0; k < n; k++) {
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * spread, rad = 0.05 + r() * 0.07;
+    const g = new THREE.IcosahedronGeometry(1, 2);
+    g.scale(rad * (1 + r() * 0.5), rad * (0.4 + r() * 0.2), rad * (0.8 + r() * 0.4));
+    g.rotateY(r() * Math.PI);
+    g.translate(Math.cos(a) * d, rad * 0.25 * (1 - d / spread) + rad * 0.15, Math.sin(a) * d);
+    list.push(g);
+  }
+  const g = mergeVertices(mergeGeos(list));
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  g.translate(0, -g.boundingBox.min.y, 0);
+  g.computeBoundingBox();
+  return g;
+}
+
+// A log to float: a lumpy bark cylinder along x with broken ends, length 1, base at y = 0.
+function logGeo(r, { rad = 0.12, bend = 0 } = {}) {
+  const g = new THREE.CylinderGeometry(rad, rad, 1, 20, 16, false);
+  g.rotateZ(Math.PI / 2);
+  const lobes = Array.from({ length: 4 }, () => ({ k: 2 + Math.floor(r() * 5), ph: r() * 6.28, a: 0.05 + r() * 0.08 }));
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), a = Math.atan2(z, y);
+    let k = 1;
+    for (const l of lobes) k += l.a * Math.sin(l.k * a + l.ph + x * 4);
+    k *= 1 - 0.25 * Math.max(0, Math.abs(x) - 0.42) / 0.08 * (0.5 + 0.5 * Math.sin(a * 3 + lobes[0].ph));   // ragged ends
+    pos.setXYZ(i, x, y * k + bend * (0.25 - x * x), z * k);
+  }
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  g.translate(0, -g.boundingBox.min.y, 0);
   g.computeBoundingBox();
   return g;
 }
@@ -340,6 +408,31 @@ export class Decor {
       return part(geometry, (tint) => sm(tint ?? slateTint), 'slate' + i);
     });
 
+    // Bamboo poles (upright, leaning, steep) and floating logs (bark of the stump scan).
+    const r8 = R(1409), bambooMats = new Map();
+    const bambooMat = (tint) => {
+      const k = tint ? tint.join() : '';
+      if (!bambooMats.has(k)) bambooMats.set(k, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.42, color: tint ? new THREE.Color(...tint) : 0xffffff }));
+      return bambooMats.get(k);
+    };
+    P.bamboopole = [{ lean: 0.08 }, { lean: 0.4 }, { lean: 0.7, nodes: 5 }].map((o, i) => {
+      const geometry = bambooGeo(r8, o);
+      geometry.computeBoundingSphere(); geometry.computeBoundsTree();
+      return part(geometry, bambooMat, 'bamboopole' + i);
+    });
+    P.floatlog = [{ rad: 0.12 }, { rad: 0.1, bend: 0.06 }, { rad: 0.14, bend: -0.04 }].map((o, i) => {
+      const geometry = logGeo(r8, o);
+      geometry.computeBoundingSphere(); geometry.computeBoundsTree();
+      return { ...part(geometry, stumpSrc.make, 'floatlog' + i), src: stumpSrc.src };
+    });
+
+    const r9 = R(1511);
+    P.pebbles = [{ n: 26 }, { n: 34, spread: 0.46 }, { n: 18, spread: 0.36 }].map((o, i) => {
+      const geometry = pebblesGeo(r9, o);
+      geometry.computeBoundingSphere(); geometry.computeBoundsTree();
+      return part(geometry, (tint) => sm(tint ?? [0.72, 0.7, 0.66]), 'pebbles' + i);
+    });
+
     // Scanned shapes bent, sheared and rippled into new silhouettes.
     const derive = (type, count, seed, fn) => {
       const base = P[type][0], rr = R(seed);
@@ -450,8 +543,21 @@ export class Decor {
     let g = Infinity;
     for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) g = Math.min(g, T.heightAt(cx + dx * fr, cz + dz * fr));
     m.position.y = g - box.min.y - sink * (box.max.y - box.min.y);
+    // A floating log rides the water with about 45% of it under, unless the water there is too shallow to float it.
+    if (PIECES[piece.type].float) {
+      const lvl = this.world.water?.level ?? -Infinity, h = box.max.y - box.min.y, fy = lvl - box.min.y - 0.45 * h;
+      if (fy > m.position.y) m.position.y = fy;
+    }
     m.updateMatrixWorld(true);
     if (own) piece.stamp = own;
+  }
+
+  // The water level changed: floating pieces rise or sink with it.
+  refloat() {
+    let moved = false;
+    for (const p of this.pieces) if (PIECES[p.type].float) { this.settle(p, 0); moved = true; }
+    if (moved) this.occupancyVersion++;     // not stamped: only the animals' occupancy grid needs to know
+    return moved;
   }
 
   // How far the piece hangs over the ground under it (cm): its bottom minus the highest ground (or

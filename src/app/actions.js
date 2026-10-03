@@ -4,11 +4,43 @@
 
 import * as THREE from 'three/webgpu';
 import { sourceOf } from '../content/equipment.js';
+import { SPECIES, dietOf } from '../sim/animals.js';
+
+// Live feeders by the cup (sim/animals.js `feeder` species): how many, and where they go.
+export const FEEDERS = {
+  cricket: { n: 8, label: 'Crickets', where: 'dry' },
+  dubia: { n: 5, label: 'Dubia roaches', where: 'dry' },
+  earthworm: { n: 5, label: 'Earthworms', where: 'damp' },
+  waxworm: { n: 4, label: 'Waxworms', where: 'dry' },
+};
+
+// Who in the tank eats a food (species ids with animals present).
+export function eatersOf(game, food) {
+  const A = game.world.animals;
+  return Object.keys(SPECIES).filter((id) => A.count(id) > 0 && SPECIES[id].kind !== 'egg' && dietOf(SPECIES[id]).includes(food));
+}
 
 export const Care = {
-  feed(game) {
-    const n = game.world.animals.feed();
-    return n ? 'Fish food scattered on the water.' : 'No open water to feed.';
+  feed(game, kind = 'flake') {
+    const n = game.world.animals.feed(kind);
+    if (!n) return 'No open water to feed.';
+    return kind === 'pellet' ? 'Pellets dropped: they sink straight to the bottom.' : kind === 'bloodworm' ? 'A cube of bloodworms thaws and the worms drift down.' : 'Fish food scattered on the water.';
+  },
+  // A cup of live feeders, let go near the animals that eat them (on dry land, or damp soil for worms).
+  feeders(game, id) {
+    const W = game.world, F = FEEDERS[id];
+    if (!F) return '';
+    const eaters = eatersOf(game, id).flatMap((e) => W.animals.by[e]).filter((a) => a.pos.y >= W.terrain.heightAt(a.pos.x, a.pos.z) - 0.5);
+    const near = eaters.length ? eaters[Math.floor(Math.random() * eaters.length)].pos : null;
+    const land = (x, y, z, s) => s === -Infinity && (!near || Math.hypot(x - near.x, z - near.z) < 14) && (F.where !== 'damp' || W.climate.sample(W.climate.humus, x, z) > 0.05 || W.nearWater({ x, y, z }, 10));
+    let n = 0;
+    for (let k = 0; k < F.n; k++) {
+      const p = W.randomSpot(land) ?? W.randomSpot((x, y, z, s) => s === -Infinity);
+      if (p && W.animals.add(id, p, { age: 1440, hunger: 0.2 })) n++;
+    }
+    if (!n) return 'No dry land to put them on.';
+    W.log(`Fed ${n} ${SPECIES[id].name.toLowerCase()}.`);
+    return eaters.length ? `${n} ${F.label.toLowerCase()} let go near the ${SPECIES[eaters[0].sp].name.toLowerCase()}.` : `${n} ${F.label.toLowerCase()} added, but nothing here eats them: they will hide and live on.`;
   },
   flies(game) {
     const W = game.world;

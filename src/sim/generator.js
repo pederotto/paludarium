@@ -1024,7 +1024,7 @@ function settleAndPrune(g) {
     if (a.onWall) continue;
     const ground = W.terrain.heightAt(a.pos.x, a.pos.z), surf = W.water.surfaceAt(a.pos.x, a.pos.z);
     const wet = surf > ground + 0.3;
-    if ((sp.kind === 'frog' || sp.kind === 'crawlLand' || sp.kind === 'gecko') && wet) W.animals.remove(a, 'moved');
+    if ((sp.kind === 'frog' || (sp.kind === 'crawlLand' && !sp.surface) || sp.kind === 'gecko') && wet) W.animals.remove(a, 'moved');
     if ((sp.kind === 'swim' || sp.kind === 'crawlWater') && !(surf - ground > 1.3)) W.animals.remove(a, 'moved');
   }
   g.pruned = pruned;

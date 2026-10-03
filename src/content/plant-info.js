@@ -90,6 +90,20 @@ export const PLANT_INFO = {
     care: ['Tie it to rock or wood. Shade is fine.'],
     lesson: 'photoperiod',
   },
+  fissidens: {
+    sci: 'Fissidens fontanus', region: 'North America (and relatives worldwide)',
+    role: 'Dense cover and grazing for shrimp under water',
+    facts: ['Each frond is a flat feather: the leaves sit in two rows, folded and clasping the stem.', 'Unlike java moss it hardly drifts: it grows slowly into a tight cushion that holds onto wood and stone.'],
+    care: ['Low light and soft, clean water; tie it to wood or stone.', 'Slow: weeks before it fills in, months to cover a branch.'],
+    lesson: 'bioactive',
+  },
+  rotala: {
+    sci: 'Rotala rotundifolia', region: 'South and South-East Asia',
+    role: 'Fast nitrate uptake; a background bush',
+    facts: ['A stem plant: it grows at the tips and is propagated by cutting the tops off and pushing them into the substrate.', 'Under strong light it makes red pigments (anthocyanins) at the tips, so a bright tank turns it pink.'],
+    care: ['Bright light and nutrients; trim often, it races to the surface.', 'Above water it grows on as a creeping emersed form.'],
+    lesson: 'nitrogen-cycle',
+  },
   anubias: {
     sci: 'Anubias barteri', region: 'West and Central Africa',
     role: 'Tough, low-light plant for wood, stone and the water\'s edge',

@@ -20,6 +20,9 @@
 import { TANK, MAT, NMAT } from './tank.js';
 import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../util/math.js';
+import { SUBSTRATES } from '../content/equipment.js';
+
+const SUB_DRAIN = Object.fromEntries(Object.entries(SUBSTRATES).map(([k, v]) => [k, v.drain]));
 
 const CELL = 3;
 
@@ -75,6 +78,18 @@ export class Climate {
     return this.sample(this.temp, x, z) + (top * top - 0.2) * 2 * E.lampPower * E.light();
   }
   lightAt(x, z) { return this.sample(this.light, x, z); }
+  // UV index at a point while the lamps are on (multiply by Env.light() for now). The low UVB tube hangs beside the basking
+  // lamp (or in the middle) and spans 60% of the tank's width; leaves shade it and it fades with the distance from the lid,
+  // so a skink has to come out under it to get any.
+  uvbAt(x, y, z) {
+    const E = this.world.env;
+    if (!(E.uvb > 0)) return 0;
+    const cx = this.world.equipment?.pos.basking?.x ?? 0, half = TANK.w * 0.3;
+    const along = 1 - clamp((Math.abs(x - cx) - half) / 8, 0, 1);                   // full under the tube, fading past its ends
+    const shade = 1 - Math.min(0.85, Math.min(1, this.sample(this.f.canopy, x, z)) * 0.85);
+    const near = clamp(1.3 - (TANK.h - y) / TANK.h, 0.3, 1);
+    return E.uvb * 4 * Math.max(0, along) * shade * near;
+  }
   soilAt(x, z) { return this.sample(this.soil, x, z); }
 
   // --- Reading the tank into feature maps ---------------------------------
@@ -155,6 +170,7 @@ export class Climate {
       const edge = 1 - 0.28 * Math.pow(Math.abs((i + 0.5) / this.nx - 0.5) * 2, 2);
       ls[c] = lampP * edge * (1 - Math.min(0.6, F.canopy[c])) * (1 + F.bask[c] * 0.6);
     }
+    const mud = E.plenum?.state === 'mud';
     for (let c = 0; c < n; c++) {
       // Dry air pulls dry spots further down; a fan flattens the differences.
       const mix = 1 - fan * 0.65;
@@ -168,10 +184,11 @@ export class Climate {
       const wet = F.water[c] > 0.3 ? 1 : 0;
       const nearWater = Math.min(1, F.water[c] * 3 + F.spray[c] * 0.6);
       const input = raining * 1.4 + E.mist * 0.5 + nearWater * 0.55 + (E.humidity / 100) * 0.12;
-      const dry = 0.25 + E.drainage * 1.5 + fan * 0.5 + Math.max(0, E.temp - 22) * 0.04 + light * 0.25 * (1 - E.humidity / 100) + (TANK.closed ? -0.1 : 0);
+      const dry = 0.25 + (E.drainEff ?? E.drainage) * 1.5 + (SUB_DRAIN[E.substrate] ?? 0) + fan * 0.5 + Math.max(0, E.temp - 22) * 0.04 + light * 0.25 * (1 - E.humidity / 100) + (TANK.closed ? -0.1 : 0);
       const s = this.soil[c];
       let d = (input * (1 - s) * 1.6 - dry * s * 0.9) * dt / 1440;
-      this.soil[c] = wet ? Math.max(s, 0.95) : clamp(s + d, 0, 1);
+      // A flooded false bottom (water over its mesh): the land above soaks it up from below.
+      this.soil[c] = wet || mud ? Math.max(s, 0.95) : clamp(s + d, 0, 1);
     }
     // A little mixing between neighbours, so features bleed into their surroundings.
     for (const map of [this.hum, this.temp, this.light, this.soil]) this.blur(map);

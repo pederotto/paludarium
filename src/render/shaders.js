@@ -112,6 +112,13 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
     const litterCol = mix(vec3(0.30, 0.17, 0.07), vec3(0.17, 0.10, 0.05), nz2);
     base = mix(base, litterCol, patches.mul(smoothstep(0.03, 0.2, g.g)).mul(0.62).mul(dryLand).mul(float(1).sub(ws[4].mul(0.6))));
   }
+  if (!perVertexWater) {
+    // The background as black expanding foam sealed with silicone and dusted with coir: lumpy, near-black, flecked brown.
+    // Moss painted on it stays (keepers glue moss onto foam); a uniform, so switching costs no shader build.
+    const lump = noise3(pw.mul(0.32)).mul(0.5).add(0.5), fleck = noise3(pw.mul(3.1)).mul(0.5).add(0.5);
+    const foam = mix(vec3(0.018, 0.017, 0.016), vec3(0.075, 0.05, 0.032), smoothstep(0.55, 0.85, fleck)).mul(lump.mul(0.7).add(0.6));
+    base = mix(base, foam, U.backdrop.mul(float(1).sub(ws[4].mul(0.8))));
+  }
   // A wet band just above the water line reads darker and glossier.
   const above = pw.y.sub(surf);
   const wetBand = smoothstep(1.8, 0.0, above).mul(smoothstep(-0.3, 0.1, above)).mul(0.4);

@@ -45,6 +45,12 @@ export const ANIMALS = {
   // Cleanup crew and live food: sold as cultures, so cheap per animal.
   springtail: { name: 'Springtails', price: 0.3, rank: 1, batch: 20, source: 'captive', sellable: false, adult: 5, group: 'Insects' },
   springpink: { name: 'Pink springtails', price: 0.4, rank: 2, batch: 20, source: 'captive', sellable: false, adult: 6, group: 'Insects' },
+  springsea: { name: 'Seashore springtails', price: 0.4, rank: 2, batch: 20, source: 'captive', sellable: false, adult: 6, group: 'Insects' },
+  // Feeders: bought by the cup to be eaten (Care panel, Feeding tab); they do not breed in the tank.
+  cricket: { name: 'Crickets', price: 0.25, rank: 2, batch: 8, source: 'captive', sellable: false, adult: 1, group: 'Insects' },
+  dubia: { name: 'Dubia roaches', price: 0.4, rank: 3, batch: 5, source: 'captive', sellable: false, adult: 1, group: 'Insects' },
+  earthworm: { name: 'Earthworms', price: 0.3, rank: 2, batch: 5, source: 'captive', sellable: false, adult: 1, group: 'Insects' },
+  waxworm: { name: 'Waxworms', price: 0.3, rank: 2, batch: 4, source: 'captive', sellable: false, adult: 1, group: 'Insects' },
   purpleiso: { name: 'Dwarf purple isopods', price: 0.8, rank: 2, batch: 10, source: 'captive', sellable: false, adult: 14, group: 'Crustaceans' },
   pandaking: { name: 'Panda king isopods', price: 6, rank: 5, batch: 4, resale: 0.5, source: 'captive', adult: 45, group: 'Crustaceans' },
   isopod: { name: 'Dwarf white isopods', price: 0.7, rank: 1, batch: 10, source: 'captive', sellable: false, adult: 12, group: 'Crustaceans' },
@@ -116,6 +122,8 @@ export const PLANTS = {
   bromeliad: { name: 'Bromeliad', price: 22, rank: 4 },
   javamoss: { name: 'Java moss', price: 4, rank: 1 },
   anubias: { name: 'Anubias', price: 9, rank: 2 },
+  fissidens: { name: 'Fissidens moss', price: 6, rank: 2 },
+  rotala: { name: 'Rotala (stem plant)', price: 5, rank: 2 },
   monstera: { name: 'Monstera vine', price: 16, rank: 4 },
 };
 
@@ -131,6 +139,9 @@ export const PIECES = {
   cliff: { name: 'Cliff face', price: 18, rank: 4 },
   cork: { name: 'Cork bark tube', price: 7, rank: 1 },
   slate: { name: 'Slate slab', price: 6, rank: 2 },
+  bamboopole: { name: 'Bamboo pole', price: 4, rank: 2 },
+  floatlog: { name: 'Floating log', price: 9, rank: 3 },
+  pebbles: { name: 'River pebbles', price: 3, rank: 1 },
 };
 
 export const ECON = { animal: ANIMALS, plant: PLANTS, piece: PIECES };

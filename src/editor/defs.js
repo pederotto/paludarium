@@ -38,4 +38,4 @@ export const MIRROR_WATER = ['channel', 'basin', 'bank', 'outlet'];
 
 export const SCULPT_OPS = [['raise', 'Raise'], ['lower', 'Lower'], ['smooth', 'Smooth'], ['flatten', 'Flatten']];
 
-export const BATCH = { neon: 6, cardinal: 6, ember: 8, cory: 3, loach: 2, guppy: 3, shrimp: 5, isopod: 10, springtail: 20, fly: 10, cpd: 6, pygmy: 3, blueshrimp: 5, purpleiso: 10, springpink: 20, pandaking: 4 };
+export const BATCH = { neon: 6, cardinal: 6, ember: 8, cory: 3, loach: 2, guppy: 3, shrimp: 5, isopod: 10, springtail: 20, fly: 10, cpd: 6, pygmy: 3, blueshrimp: 5, purpleiso: 10, springpink: 20, pandaking: 4, springsea: 20, cricket: 8, dubia: 5, earthworm: 5, waxworm: 4 };

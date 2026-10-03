@@ -521,6 +521,7 @@ export function axolotlBody(morph = 'leucistic') {
 
 export const SALAMANDERS = {
   newt: () => newtBody(),
+  marbled: () => marbledBody(),
   axolotl: () => axolotlBody('leucistic'),
   gecko: () => geckoBody(),
 };
@@ -670,6 +671,72 @@ function newtBody() {
   const def = { sdf, lo: [-2.6, -0.25, -6.5], hi: [2.6, 1.8, 4.9], color, mat, rig, finish: {
     rough: 0.66, coat: 0.05, coatRough: 0.55, grain: 11, bump: 0.7, tone: 0.045, flutter: 0.02,
     eyes: [eyeSpec(eyes[1], { pupil: [0.42, 0.42], inner: C(0xb07a26), outer: C(0x4a2a10), rim: C(0x040302), limb: C(0x1c1208), seed: 7 })],
+  } };
+  return lodDef(def, 0.09, 0.5, st);
+}
+
+// ==================================================================================================
+// MARBLED NEWT  (Triturus marmoratus, about 14 cm)
+// The paddle-tail's frame made slimmer and longer. Velvety moss-green laced with a black net, a fine pale speckle, a dark
+// belly dusted with white dots, and the female's orange stripe down the spine and tail top (drawn on every animal: most of a
+// sexed group are females). Small dark eyes with a coppery ring.
+// ==================================================================================================
+
+function marbledBody() {
+  const st = { hi: false };
+  const S = newtShape(st);
+  const { loft, legs, eyes, mouthY, sdf } = S;
+  const KX = 1.14, KY = 1.06, KZ = 0.9;                             // narrower, a little lower, longer
+  const cs = { green: C(0x4f6a26), moss: C(0x6c8432), black: C(0x0d0e0a), belly: C(0x24221d), dot: C(0xd8d8cc), stripe: C(0xe0782a), eye: C(0x050403), ring: C(0x9a6a2e), lip: C(0x15110c) };
+  const zS = 4.6, zT = -6.2, sc = [0, 0, 0, 0];
+  let last = null, lx = NaN, ly = NaN, lz = NaN;
+  const analyze = (x, y, z) => {
+    if (x === lx && y === ly && z === lz) return last;
+    lx = x; ly = y; lz = z;
+    const a = { kind: 'body', leg: 0, legT: 0, eye: null };
+    for (const e of eyes) {
+      const rx = x - e.c[0], ry = y - e.c[1], rz = z - e.c[2], dd = Math.hypot(rx, ry, rz);
+      if (dd < e.r + 0.03) {
+        const c = (rx * e.axis[0] + ry * e.axis[1] + rz * e.axis[2]) / (dd || 1);
+        if (c > 0.15) { a.kind = 'eye'; a.eye = { c }; return (last = a); }
+      }
+    }
+    const L = legAt(legs, x, y, z, loft.d(x, y, z));
+    if (L) { a.kind = 'limb'; a.leg = L.id; a.legT = L.t; }
+    return (last = a);
+  };
+  // The black net: everywhere far from the cell points (cells() is the distance to the nearest), so green blotches sit in a
+  // black lace, wobbled so it reads as marbling rather than a honeycomb.
+  const net = (x, y, z) => { const c = cells(x * 0.9, y * 0.9, z * 0.7, 1.4); return sm(0.4, 0.56, c + (vnoise(x * 2.6, y * 2.6, z * 2.6) - 0.5) * 0.25); };
+  const color0 = (x, y, z) => {
+    const a = analyze(x, y, z);
+    if (a.kind === 'eye') {
+      const th = Math.acos(Math.min(1, a.eye.c));
+      return lerp3(cs.eye, lerp3(cs.ring, cs.eye, sm(0.35, 0.75, th)), sm(1.0, 0.7, th) * 0.8 + 0.1);
+    }
+    const n = net(x, y, z);
+    if (a.kind === 'limb') return lerp3(lerp3(cs.green, cs.moss, vnoise(x * 4, y * 4, z * 4)), cs.black, n * 0.85);
+    loft.sect(z, sc);
+    const yy = y - sc[0], v = yy / (yy >= 0 ? sc[2] : sc[3]);
+    let col = lerp3(cs.green, cs.moss, vnoise(x * 1.7, y * 1.7, z * 1.7) * 0.7);
+    col = lerp3(col, cs.black, n * 0.9);
+    col = lerp3(col, cs.dot, sm(0.86, 0.94, vnoise(x * 9, y * 9, z * 9)) * 0.45);                   // fine pale speckle
+    const belly = sm(-0.35, -0.7, v);
+    col = lerp3(col, lerp3(cs.belly, cs.dot, sm(0.8, 0.9, vnoise(x * 7, y * 7, z * 7)) * 0.8), belly);
+    // The orange vertebral stripe from the neck to the tail tip.
+    const sx = Math.abs(x) / Math.max(0.05, sc[1]);
+    col = lerp3(col, cs.stripe, sm(0.2, 0.08, sx) * sm(0.7, 0.9, v) * sm(3.4, 2.6, z) * 0.95);
+    if (z > 2.6) {
+      const e = y - mouthY(z);
+      col = lerp3(col, cs.lip, Math.exp(-(e * e) / 0.003) * sm(2.6, 3.1, z) * 0.85);
+    }
+    return mul3(col, 0.92 + 0.14 * vnoise(x * 5, y * 5, z * 5));
+  };
+  const color = (x, y, z) => color0(x * KX, y * KY, z * KZ);
+  const rig = (x, y, z) => { const a = analyze(x * KX, y * KY, z * KZ); return [clamp01((zS - z * KZ) / (zS - zT)), a.leg, a.legT]; };
+  const def = { sdf: (x, y, z) => sdf(x * KX, y * KY, z * KZ) * 0.88, lo: [-2.6 / KX, -0.25, -6.5 / KZ], hi: [2.6 / KX, 1.8 / KY, 4.9 / KZ], color, mat: () => M.SKIN, rig, finish: {
+    rough: 0.72, coat: 0.03, coatRough: 0.6, grain: 13, bump: 0.55, tone: 0.04, flutter: 0.02,
+    eyes: [eyeSpec({ ...eyes[1], c: [eyes[1].c[0] / KX, eyes[1].c[1] / KY, eyes[1].c[2] / KZ] }, { pupil: [0.42, 0.42], inner: C(0xb07a3a), outer: C(0x5a3010), rim: C(0x040302), limb: C(0x1c1208), seed: 11 })],
   } };
   return lodDef(def, 0.09, 0.5, st);
 }

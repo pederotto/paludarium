@@ -6,8 +6,9 @@ import { S, toast, openModal } from '../store.js';
 import { Sheet } from './Sheet.jsx';
 import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
-import { Care } from '../../app/actions.js';
-import { GEAR, FILTERS, WATER_SOURCES } from '../../content/equipment.js';
+import { Care, FEEDERS, eatersOf } from '../../app/actions.js';
+import { SPECIES } from '../../sim/animals.js';
+import { GEAR, FILTERS, WATER_SOURCES, SUBSTRATES, SUBSTRATE_ORDER, plenumState } from '../../content/equipment.js';
 import { TANK } from '../../sim/tank.js';
 
 const TABS = [['lights', 'Lights', 'sun'], ['climate', 'Climate', 'thermo'], ['rain', 'Rain', 'rain'], ['water', 'Water', 'drop'], ['feeding', 'Feeding', 'bowl'], ['foundation', 'Foundation', 'layers']];
@@ -26,6 +27,37 @@ function Slider({ label, value, min, max, step, set, fmt, disabled }) {
 }
 function Toggle({ label, on, set, disabled, title }) {
   return <button class={'chip' + (on ? ' on' : '')} disabled={disabled} title={title} onClick={() => { set(!on); refresh(); }}>{label}</button>;
+}
+
+// Who in the tank eats what: one line per species that is here.
+const FOOD_NAMES = { flake: 'flakes', pellet: 'pellets', bloodworm: 'bloodworms', fly: 'fruit flies', springtail: 'springtails', springpink: 'springtails', springsea: 'springtails', isopod: 'isopods', cricket: 'crickets', dubia: 'dubia', earthworm: 'earthworms', waxworm: 'waxworms', shrimp: 'shrimp', snail: 'snails', tadpole: 'tadpoles' };
+function FeedingGuide() {
+  const A = ctx.game.world.animals;
+  const rows = Object.keys(SPECIES).filter((id) => A.count(id) > 0 && !SPECIES[id].feeder && SPECIES[id].kind !== 'egg' && SPECIES[id].eats.some((f) => FOOD_NAMES[f]));
+  if (!rows.length) return null;
+  return (
+    <div class="note" style={{ margin: '6px 0' }}>
+      {rows.map((id) => {
+        const foods = [...new Set((SPECIES[id].eats.includes('flake') ? ['flake', 'pellet', 'bloodworm', ...SPECIES[id].eats] : SPECIES[id].eats).map((f) => FOOD_NAMES[f]).filter(Boolean))];
+        return <div key={id}><b>{SPECIES[id].name}</b>: {foods.join(', ')}</div>;
+      })}
+    </div>
+  );
+}
+
+// The false bottom's egg-crate height against the water line (content/equipment.js plenumState).
+function PlenumControls({ E }) {
+  const level = ctx.game.world.water.level;
+  const pl = plenumState(E, level);
+  const msg = !pl ? '' : pl.state === 'mud' ? `The water is ${pl.rel.toFixed(1)} cm over the mesh: the land soaks it up and turns to mud. Raise the egg-crate or lower the water.`
+    : pl.state === 'low' ? `The water line is ${(-pl.rel).toFixed(1)} cm under the mesh: most of the plenum is dry, and so is its filter bed.`
+      : `The water line is ${(-pl.rel).toFixed(1)} cm under the mesh: right.`;
+  return (
+    <>
+      <Slider label="Egg-crate height" value={E.plenumH || Math.round(level + 1)} min={2} max={Math.max(6, Math.round(TANK.h * 0.5))} step={0.5} set={(v) => { E.plenumH = v; }} fmt={(v) => v.toFixed(1) + ' cm'} />
+      <p class="note" style={pl?.state === 'mud' ? { color: '#e0805a' } : null}>{msg}</p>
+    </>
+  );
 }
 
 // A control that needs gear: shows a lock note instead when it is not fitted.
@@ -129,7 +161,14 @@ export function CarePanel() {
         </>
       ) : tab === 'feeding' ? (
         <>
-          <div class="chips"><button class="btn sm" onClick={() => { toast(Care.feed(ctx.game)); refresh(); }}><Icon name="bowl" size={14} /> Feed fish</button><button class="btn sm" onClick={() => { toast(Care.flies(ctx.game)); refresh(); }}><Icon name="bug" size={14} /> Add fruit flies</button></div>
+          <div class="chips"><button class="btn sm" onClick={() => { toast(Care.feed(ctx.game)); refresh(); }}><Icon name="bowl" size={14} /> Flakes</button><button class="btn sm" onClick={() => { toast(Care.feed(ctx.game, 'pellet')); refresh(); }} title="Sink at once: for bottom fish, crabs, newts and axolotls">Pellets</button><button class="btn sm" onClick={() => { toast(Care.feed(ctx.game, 'bloodworm')); refresh(); }} title="Frozen bloodworms: almost every fish takes them, and fussy eaters too">Bloodworms</button></div>
+          <div class="chips"><button class="btn sm" onClick={() => { toast(Care.flies(ctx.game)); refresh(); }}><Icon name="bug" size={14} /> Fruit flies</button>
+            {Object.entries(FEEDERS).map(([id, F]) => {
+              const who = eatersOf(ctx.game, id);
+              return <button key={id} class={'btn sm' + (who.length ? '' : ' ghost')} title={who.length ? `Eaten by: ${who.map((w) => SPECIES[w].name).join(', ')}` : 'Nothing in this tank eats these'} onClick={() => { toast(Care.feeders(ctx.game, id)); refresh(); }}>{F.label}</button>;
+            })}
+          </div>
+          <FeedingGuide />
           <Gated gear="autofeeder"><Toggle label="Auto-feeder" on={E.autoFeed} set={(v) => { E.autoFeed = v; }} /></Gated>
           <Gated gear="flyCulture"><Toggle label="Fruit fly culture" on={E.culture} set={(v) => { E.culture = v; }} /></Gated>
           <p class="note">Feed little. Uneaten food rots into ammonia: the most common way to ruin a tank.</p>
@@ -149,6 +188,12 @@ export function CarePanel() {
               );
             })}
           </div>
+          {E.drainage >= 1 ? <PlenumControls E={E} /> : null}
+          <label class="row" style={{ gap: 8, alignItems: 'center', marginTop: 8 }}><span style={{ width: 110 }}>Substrate</span>
+            <select value={E.substrate ?? 'soil'} onChange={(ev) => { E.substrate = ev.currentTarget.value; refresh(); }}>{SUBSTRATE_ORDER.map((id) => <option key={id} value={id}>{SUBSTRATES[id].name}</option>)}</select>
+          </label>
+          <p class="note">{SUBSTRATES[E.substrate ?? 'soil'].blurb} You can see the layers through the glass.</p>
+          <div class="chips"><span style={{ width: 110 }}>Background</span><Toggle label="Natural relief" on={E.backdrop !== 'foam'} set={() => { E.backdrop = 'natural'; }} /><Toggle label="Black foam" on={E.backdrop === 'foam'} set={() => { E.backdrop = 'foam'; }} title="Expanding foam carved and sealed, dusted with coco coir: the classic vivarium background. Moss can be glued onto it." /></div>
         </>
       )}
     </Sheet>

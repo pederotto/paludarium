@@ -21,6 +21,7 @@ export class Env {
     this.cycle = 0.15;          // nitrifying bacteria, 0 (new tank) … 1 (mature)
     this.detritus = 3;          // grams of decaying matter
     this.biofilm = 0.4;         // 0 … 1, algae/biofilm on surfaces
+    this.film = 0;              // 0 … 1, protein skin on the water's surface (sim.js)
     this.mist = 0;              // recent misting, decays
     this.lightAvg = 0.5;        // 24 h average light
     // Settings.
@@ -55,6 +56,10 @@ export class Env {
     this.rainUntil = -1;        // minute the current shower ends
     this.rainProgram = [];      // [{ at, len }]: minute of day and minutes long
     this.drainage = 0;          // 0 none · 0.6 drainage layer · 1 false bottom
+    this.plenumH = 0;           // the false bottom's mesh over the glass floor, cm (0: set to just over the water when first fitted)
+    this.substrate = 'soil';    // content/equipment.js SUBSTRATES
+    this.backdrop = 'natural';  // the background's finish: 'natural' (painted relief) or 'foam' (black expanding foam with coir)
+    this.drainEff = null;       // drainage as it works right now (0 when the false bottom is flooded); set by the sim
     this.mediaBio = 0.4;        // filter biomedia, 0 … 1: more surface, more bacteria
     this.filterKind = 'sponge'; // sponge | matten | canister (content/equipment.js FILTERS)
     this.prefilter = false;     // a sponge over the canister intake (shrimp- and fry-safe)
@@ -84,7 +89,7 @@ export class Env {
   static KEYS = ['minute', 'temp', 'humidity', 'ammonia', 'nitrite', 'nitrate', 'oxygen', 'cycle', 'detritus', 'biofilm', 'lights', 'heater',
     'setpoint', 'lid', 'filter', 'room', 'roomHumidity', 'autoFeed', 'lastFed', 'culture', 'lastCulture', 'algae', 'diatoms', 'rockMoss', 'tankDays',
     'lampPower', 'lampWarmth', 'moonlight', 'fan', 'fogger', 'basking', 'rainProgram', 'drainage', 'mediaBio', 'soil', 'mold', 'season',
-    'lightsOn', 'lightsOff', 'chill', 'coolSet', 'filterKind', 'prefilter', 'waterSource', 'ph', 'gh', 'uvb'];
+    'lightsOn', 'lightsOff', 'chill', 'coolSet', 'filterKind', 'prefilter', 'waterSource', 'ph', 'gh', 'uvb', 'film', 'plenumH', 'substrate', 'backdrop'];
 
   serialize() { return Object.fromEntries(Env.KEYS.map((k) => [k, this[k]])); }
   load(o = {}) {

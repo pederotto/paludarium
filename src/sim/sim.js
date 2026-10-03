@@ -9,7 +9,7 @@
 // air, fish need clean water, and everyone needs food.
 
 import * as THREE from 'three/webgpu';
-import { SPECIES, FOOD_VALUE, one } from './animals.js';
+import { SPECIES, FOOD_VALUE, one, dietOf, isItem, eatsItem } from './animals.js';
 import { Ecology } from './ecology.js';
 import { Env } from './env.js';
 import { Climate } from './climate.js';
@@ -18,9 +18,9 @@ import { FruitView } from '../render/fruit.js';
 import { U } from '../render/uniforms.js';
 import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../util/math.js';
-import { TANK } from './tank.js';
+import { TANK, tankLitres } from './tank.js';
 import { HABITAT } from '../content/habitats.js';
-import { filterOf } from '../content/equipment.js';
+import { filterOf, plenumState, substrateOf } from '../content/equipment.js';
 import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from './genetics.js';
 import { morphName, morphRarity } from '../content/morphs.js';
 
@@ -113,6 +113,19 @@ export class Sim {
     E.cycle = clamp(E.cycle + d / (1440 * 16) * (E.ammonia > 0.02 || E.nitrite > 0.02 ? 1 : 0.1), 0, 1);
     // Biofilm grows with light and nutrients; grazers eat it.
     E.biofilm = clamp(E.biofilm + d * 0.0004 * light * clamp(E.nitrate / 10, 0.2, 1.5), 0, 1);
+    // The false bottom: fitted, its mesh sits just over the water; water over the mesh floods the land (mud), a plenum run
+    // dry loses most of its filter bed (waterbodies.js).
+    if (E.drainage >= 1 && !(E.plenumH > 0)) E.plenumH = Math.round((W.water.level + 1) * 2) / 2;
+    const pl = plenumState(E, W.water.level);
+    E.plenum = pl;
+    E.drainEff = pl?.state === 'mud' ? 0 : E.drainage;
+    if (pl?.state === 'mud' && E.day !== E._mudLogged) { E._mudLogged = E.day; W.log('The water is over the false bottom\'s mesh: the soil above is soaking it up and turning to mud. Lower the water or raise the egg-crate.', 'warn'); }
+    // Surface film: a skin of protein and oil on still water (rotting food, detritus). It slows the oxygen the water takes up
+    // (waterbodies.js). Current at the surface breaks it; seashore springtails (`film`) graze it off.
+    let grazers = 0;
+    for (const id in SPECIES) if (SPECIES[id].film) grazers += W.animals.count(id) * SPECIES[id].film;
+    const flowNow = E.filter ? E.flow ?? 0.1 : 0;
+    E.film = clamp((E.film ?? 0) + d * (0.00012 * clamp(E.detritus / 4, 0, 2) - 0.0005 * flowNow - grazers * 0.000012 - (E.film ?? 0) * 0.0002), 0, 1);
 
     // --- Plants ------------------------------------------------------
     const pout = W.plants.step(d, E, W);
@@ -127,6 +140,9 @@ export class Sim {
       E.lastFed = E.day;
       const fish = Object.keys(SPECIES).some((id) => SPECIES[id].kind === 'swim' && SPECIES[id].eats.includes('flake') && W.animals.count(id) > 0);
       if (fish && W.animals.feed()) W.log('Auto-feeder dropped food.');
+      // Fish that refuse flakes (the pygmy sunfish) get freeze-dried bloodworms from the second chamber.
+      const picky = Object.keys(SPECIES).some((id) => SPECIES[id].kind === 'swim' && !SPECIES[id].eats.includes('flake') && SPECIES[id].eats.includes('bloodworm') && W.animals.count(id) > 0);
+      if (picky && W.animals.feed('bloodworm')) W.log('Auto-feeder dropped freeze-dried bloodworms.');
     }
     // Fruit fly culture: a few flies hatch every other day, if anyone eats them.
     if (E.culture && E.day - E.lastCulture >= 2 && E.minute % 1440 >= 660) {
@@ -174,10 +190,20 @@ export class Sim {
       if (sp.flow != null && fl > sp.flow + 0.12) { st += (fl - sp.flow - 0.12) * 0.5 + 0.02; why.push('current too strong'); }
     }
     // Without UVB the trouble (soft bones) builds over weeks; without a warm spot, digestion slows over days.
-    a.noUvb = sp.uvb && E.uvb * 4 < sp.uvb * 0.5 ? (a.noUvb ?? 0) + d : Math.max(0, (a.noUvb ?? 0) - d * 2);
-    if (a.noUvb > 1440 * 14) { st += 0.06; why.push('no UVB light (weak bones)'); } else if (a.noUvb > 1440) why.push('no UVB light');
-    a.noBask = sp.bask && this.warmSpot < sp.bask - 1.5 ? (a.noBask ?? 0) + d : Math.max(0, (a.noBask ?? 0) - d * 2);
-    if (a.noBask > 1440 * 3) { st += 0.04; why.push('no warm spot to bask'); }
+    // Both are what the animal itself gets where it sits, averaged over days: UVB under the tube and out of the leaves' shade
+    // (Climate.uvbAt), warmth an hour or more a day at its warm-spot temperature.
+    if (sp.uvb) {
+      const ix = E.uvb > 0 ? W.climate.uvbAt(a.pos.x, a.pos.y, a.pos.z) * E.light() : 0;
+      a.uvb = ix;
+      a.uvAvg = lerp(a.uvAvg ?? sp.uvb * 0.1, ix, clamp(d / (1440 * 3), 0, 1));
+    }
+    a.noUvb = sp.uvb && a.uvAvg < sp.uvb * 0.06 ? (a.noUvb ?? 0) + d : Math.max(0, (a.noUvb ?? 0) - d * 2);
+    const uvWhy = E.uvb > 0 ? 'not getting UVB (the tube is out of reach or shaded)' : 'no UVB light';
+    if (a.noUvb > 1440 * 14) { st += 0.06; why.push(uvWhy + ': weak bones'); } else if (a.noUvb > 1440) why.push(uvWhy);
+    if (sp.bask) a.baskAvg = lerp(a.baskAvg ?? 0.1, (a.lt ?? E.temp) >= sp.bask - 1.5 ? 1 : 0, clamp(d / (1440 * 2), 0, 1));
+    a.noBask = sp.bask && a.baskAvg < 1 / 48 ? (a.noBask ?? 0) + d : Math.max(0, (a.noBask ?? 0) - d * 2);
+    if (a.noBask > 1440 * 3) { st += 0.04; why.push(this.warmSpot < sp.bask - 1.5 ? 'no warm spot to bask' : 'not basking (the warm spot is out of reach)'); }
+    st += this.tankRules(a, sp, why);
     if (sp.flock) {
       const n = W.animals.count(a.sp);
       if (n < sp.flock[0] && sp.flock[0] > 1) { st += 0.06 * (1 - n / sp.flock[0]); why.push(`lonely: keep ${sp.flock[0]} or more`); }
@@ -190,13 +216,24 @@ export class Sim {
     // Poor swimmers drown in water deeper than they can stand in (content/habitats.js maxDepth) when they cannot get out.
     if (sp.drowns) {
       const maxD = HABITAT[a.sp]?.maxDepth ?? 1;
-      if (surf - g > maxD + 0.3 && surf > a.pos.y) { a.under = (a.under ?? 0) + d; if (a.under > 15) { st += 4; why.push('drowning: the water is too deep'); } }
+      if (surf - g > maxD + 0.3 && surf > a.pos.y && !a.sunk?.exit) { a.under = (a.under ?? 0) + d; if (a.under > 15) { st += 4; why.push('drowning: the water is too deep'); } }
       else a.under = 0;
-      // Isopods near open water now and then fall in; with a ramp of rock, wood or bark at the edge they climb out.
-      if (sp.kind === 'crawlLand' && Math.random() < d / (1440 * 25) && W.nearWater(a.pos, 1.5)) {
-        const ramp = W.animals.occ.count && [0, 1, 2, 3].some((k) => W.animals.occ.solidAt(a.pos.x + Math.cos(k * 1.57) * 1.5, W.water.level - 0.3, a.pos.z + Math.sin(k * 1.57) * 1.5));
-        if (!ramp) { a.health = -1; why.unshift('drowned: fell into the water with no ramp out'); }
-      }
+      // Isopods tumble in at steep banks as they walk (Animals.slipsIn) and climb out by a slope or a ramp of rock, wood or
+      // bark; one with no way out stays under and drowns.
+      if (a.sunk && a.under > 15) why.unshift('drowned: fell in at a steep bank with no ramp out');
+    }
+    return st;
+  }
+
+  // The tank's shape against the keeper's sheet: litres and height (minL, minH) and the share of land (land). Mild: a cramped
+  // or mostly-wrong tank is a slow stress, not a killer.
+  tankRules(a, sp, why) {
+    let st = 0;
+    if (sp.minL && tankLitres() < sp.minL * 0.8) { st += 0.03; why.push(`tank too small (wants ${sp.minL} litres or more)`); }
+    if (sp.minH && TANK.h < sp.minH * 0.85) { st += 0.02; why.push(`tank too low (wants ${sp.minH} cm of height to climb)`); }
+    if (sp.land != null) {
+      const share = this.world.landShare(), off = share - sp.land;
+      if (Math.abs(off) > 0.3) { st += 0.02; why.push(off > 0 ? `too little water (wants about ${Math.round((1 - sp.land) * 100)}%)` : `too little land (wants about ${Math.round(sp.land * 100)}%)`); }
     }
     return st;
   }
@@ -206,7 +243,7 @@ export class Sim {
   mould(d) {
     const W = this.world, E = this.env;
     const stale = clamp((E.humidity - 90) / 8, 0, 1) * (1 - E.fan) * (E.lid || TANK.closed ? 1 : 0.5);
-    const food = clamp(E.detritus / 8, 0, 1) * 0.7 + clamp((E.soil - 0.8) * 5, 0, 1) * 0.6;
+    const food = clamp(E.detritus / 8, 0, 1) * 0.7 + clamp((E.soil - 0.8) * 5, 0, 1) * 0.6 * substrateOf(E).mould;
     let crew = 0;
     for (const id in SPECIES) if (SPECIES[id].crew) crew += W.animals.count(id) * SPECIES[id].crew;   // isopods 1, springtails 0.25 … (animals.js `crew`)
     crew /= 40;
@@ -243,30 +280,30 @@ export class Sim {
         // At high speed fish may not reach the flakes on screen before they
         // rot, so hungry fish also find food here, a bite at a time.
         if (sp.kind === 'swim' && a.hunger > 0.3 && Math.random() < d / 20) {
-          const f = W.animals.food.find((f) => !f.eaten && (!f.settled || sp.band === 'bottom'));
-          if (f) { f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); }
+          const f = W.animals.food.find((f) => !f.eaten && (!f.settled || sp.band === 'bottom') && eatsItem(sp, f));
+          if (f) { f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE[f.kind ?? 'flake']); }
         }
         // Hunters (frogs, newts, axolotls, geckos) also find prey here, so
         // they eat at any simulation speed. The chance grows with how much
         // prey there is.
         if (['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink'].includes(sp.kind) && a.hunger > 0.3) {
-          for (const pid of sp.eats) {
-            const prey = pid === 'flake' ? W.animals.food.filter((f) => !f.eaten) : W.animals.by[pid] ?? [];
-            // Refuge: moss and litter hide the last few of any prey species.
-            const hidden = pid === 'flake' ? 0 : 6 + Math.round(W.mossFraction() * 20);
+          for (const pid of dietOf(sp)) {
+            const prey = isItem(pid) ? W.animals.food.filter((f) => !f.eaten && (f.kind ?? 'flake') === pid) : W.animals.by[pid] ?? [];
+            // Refuge: moss and litter hide the last few of any prey species (not a cup of feeders, which do not breed).
+            const hidden = isItem(pid) || SPECIES[pid]?.feeder ? 0 : 6 + Math.round(W.mossFraction() * 20);
             if (prey.length <= hidden || Math.random() > (d / 420) * Math.min(1, (prey.length - hidden) / 10)) continue;
             // The meal is due. The animal hunts a prey near it (animals.js: stalk, strike, swallow) and eats when it
             // strikes; if it cannot by the deadline (always at high speed) it eats at once, as it always did.
             if (W.animals.order(a, pid)) break;
             const p = prey[Math.floor(Math.random() * prey.length)];
-            if (pid === 'flake') p.eaten = true; else W.animals.remove(p, `eaten by a ${one(a.sp)}`);
+            if (isItem(pid)) p.eaten = true; else W.animals.remove(p, `eaten by a ${one(a.sp)}`);
             a.hunger = Math.max(0, a.hunger - (FOOD_VALUE[pid] ?? 0.1));
             break;
           }
         }
-        if (sp.eats.includes('flake') && sp.kind !== 'swim') {
+        if (sp.kind !== 'swim' && dietOf(sp).some(isItem)) {
           for (const f of W.animals.food) {
-            if (!f.eaten && f.settled && f.pos.distanceTo(a.pos) < 3) { f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); break; }
+            if (!f.eaten && f.settled && eatsItem(sp, f) && f.pos.distanceTo(a.pos) < 3) { f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE[f.kind ?? 'flake']); break; }
           }
         }
       }
@@ -339,7 +376,7 @@ export class Sim {
       }
       const life = sp.lifeDays * 1440;
       // Explorer mode (modes.js): each animal is pulled back from the brink once, with a warning in the journal.
-      if (a.health <= 0 && a.age <= life && W.realism?.mercy && !a._mercy && a.sp !== 'fly' && a.sp !== 'springtail') {
+      if (a.health <= 0 && a.age <= life && W.realism?.mercy && !a._mercy && a.sp !== 'fly' && a.sp !== 'springtail' && !sp.feeder) {
         a._mercy = 1; a.health = 0.2;
         W.log(`A ${one(a.sp)} was close to death (${why[0] ?? 'poor health'}) and has just recovered. Fix that soon.`, 'warn');
       }
@@ -347,10 +384,10 @@ export class Sim {
         const cause = a.health <= 0 ? (why[0] ?? 'poor health') : 'old age';
         W.animals.remove(a, cause);
         // Only real losses count for goals and the vacation report: live-food species and old age are the normal cycle.
-        if (cause !== 'old age' && a.sp !== 'fly' && a.sp !== 'springtail' && a.sp !== 'flylarva' && a.sp !== 'flypupa') { W.stats.deaths++; W.stats.lastDeathMinute = E.minute; }
+        if (cause !== 'old age' && a.sp !== 'fly' && a.sp !== 'springtail' && a.sp !== 'flylarva' && a.sp !== 'flypupa' && !sp.feeder) { W.stats.deaths++; W.stats.lastDeathMinute = E.minute; }
         E.detritus += sp.size * (sp.kind === 'swim' || sp.kind === 'frog' || sp.kind === 'toad' ? 0.6 : 0.08);
         W.humus?.drop(a.pos.x, a.pos.z, sp.size * 0.2, true);   // a dead animal on land becomes litter
-        if (a.sp === 'flylarva' || a.sp === 'flypupa') continue;   // the normal toll of a boom and bust
+        if (a.sp === 'flylarva' || a.sp === 'flypupa' || sp.feeder) continue;   // the normal toll of a boom and bust, uneaten feeders
         if (sp.cap < 60 || Math.random() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
         continue;
       }

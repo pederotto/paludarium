@@ -19,6 +19,7 @@ import { TANK } from '../sim/tank.js';
 const HOSE_R = 0.38;
 const HOSE = new THREE.Color(0x2e3b41), CLIP = new THREE.Color(0xa6aeb2), BODY = new THREE.Color(0x242b30), CAPC = new THREE.Color(0x39444b);
 const GRILL = new THREE.Color(0x86979c), SLOT = new THREE.Color(0x151a1d), PIPE = new THREE.Color(0xc9ccc6), RIM = new THREE.Color(0xe4e6e0), INNER = new THREE.Color(0x101517);
+const FOAM = new THREE.Color(0x27333e), FOAM2 = new THREE.Color(0x34424e), CLEAR = new THREE.Color(0x9fb4b8), PVC = new THREE.Color(0xe8e8e2);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -118,7 +119,8 @@ export class Plumbing {
   signature() {
     const W = this.world, H = W.water.hydro;
     const [px, pz] = this.pumpXZ();
-    return [px.toFixed(1), pz.toFixed(1), Math.round(H.level * 2), H.groundVer, H.outlets.map((o) => `${o.pos.x.toFixed(1)},${o.pos.y.toFixed(1)},${o.pos.z.toFixed(1)},${o.wall ? 1 : 0}`).join(';')].join('|');
+    const E = W.env;
+    return [px.toFixed(1), pz.toFixed(1), Math.round(H.level * 2), H.groundVer, E.filter ? E.filterKind : 'off', E.prefilter ? 1 : 0, E.drainage, E.plenumH, TANK.w, H.outlets.map((o) => `${o.pos.x.toFixed(1)},${o.pos.y.toFixed(1)},${o.pos.z.toFixed(1)},${o.wall ? 1 : 0}`).join(';')].join('|');
   }
 
   update(dt) {
@@ -229,9 +231,100 @@ export class Plumbing {
       this.spill.position.y = top - this.spill.scale.y / 2 - 0.05;
       break;
     }
+    this.filterGear(S, px, pz);
     const old = this.mesh.geometry;
     this.mesh.geometry = S.build();
     old.dispose();
+  }
+
+  // The filter (Care > Water) and the false bottom's pump tower, so the build that changes the water is there to see.
+  //   sponge   a ribbed foam cylinder on a weighted base, its air-lift tube rising out of the water, an airline over the back
+  //   matten   a wall of coarse foam across a back corner of the pool, a lift tube behind it spilling over the top
+  //   canister intake pipe down into the pool (strainer basket, or a foam pre-filter over it), a spray bar along the back,
+  //            both hoses over the back rim
+  //   false bottom: a slotted PVC access tower standing in a back corner of the land, down to the plenum
+  filterGear(S, px, pz) {
+    const W = this.world, E = W.env, T = W.terrain, wall = W.wall, level = W.water.hydro.level;
+    const hw = TANK.w / 2, back = (x, y) => wall.zAt(x, y);
+    const pool = (x, z) => W.water.inMainPool(x, z) && level - T.heightAt(x, z) > 2;
+    // A point in the pool well away from the pump, back if possible.
+    const spot = (cands) => cands.find(([x, z]) => Math.abs(x) < hw - 2 && pool(x, z) && Math.hypot(x - px, z - pz) > 6) ?? null;
+    const zb = (x) => back(x, level) + 2.5;
+    const corners = [[-hw + 4, zb(-hw + 4)], [hw - 4, zb(hw - 4)], [px - 9, pz - 2], [px + 9, pz - 2], [px, pz + 8]];
+    const over = (x, z0, y0) => {                                         // a hose from (x, y0, z0) up and over the back rim
+      const zr = -TANK.d / 2 + 0.6, pts = [];
+      for (let k = 0; k <= 10; k++) { const t = k / 10; pts.push(V(x, y0 + (TANK.h + 1.5 - y0) * smooth(0, 0.7, t), z0 + (zr - z0) * smooth(0.5, 1, t))); }
+      pts.push(V(x, TANK.h + 2.2, zr - 1.5), V(x, TANK.h - 3, zr - 2.4));
+      S.tube(new THREE.CatmullRomCurve3(pts).getSpacedPoints(24), 0.32, HOSE);
+    };
+    if (E.filter) {
+      const kind = E.filterKind ?? 'sponge';
+      if (kind === 'sponge') {
+        const c = spot(corners);
+        if (c) {
+          const [x, z] = c, g = T.heightAt(x, z), hS = Math.min(4, level - g - 0.6);
+          S.geo(new THREE.CylinderGeometry(1.9, 1.9, 0.5, 16), cylM(x, g + 0.25, z), BODY);
+          for (let k = 0; k < 4; k++) S.geo(new THREE.CylinderGeometry(1.45 - (k % 2) * 0.12, 1.45 - (k % 2) * 0.12, hS / 4, 14), cylM(x, g + 0.5 + hS * (k + 0.5) / 4, z), k % 2 ? FOAM2 : FOAM);
+          S.geo(new THREE.CylinderGeometry(0.42, 0.42, level + 2 - g - hS, 10, 1, true), cylM(x, (g + hS + level + 2) / 2, z), CLEAR);
+          S.geo(new THREE.CylinderGeometry(0.55, 0.42, 0.6, 10), cylM(x, level + 2.2, z), CAPC);
+          over(x, z, level + 2.4);
+        }
+      } else if (kind === 'matten') {
+        // Across whichever back corner holds pool water; the foam stands from the bottom to just over the surface.
+        for (const sx of [-1, 1]) {
+          const cx = sx * (hw - 3.5), cz = zb(cx) + 1;
+          if (!pool(cx, cz)) continue;
+          const g = Math.min(T.heightAt(cx, cz), level - 2), hgt = level - g + 1.2;
+          const a = V(sx * hw, 0, back(sx * hw, level) + 8.5), b = V(sx * (hw - 8.5), 0, back(sx * (hw - 8.5), level));
+          const mid = a.clone().add(b).multiplyScalar(0.5), len = a.distanceTo(b), ang = Math.atan2(b.z - a.z, b.x - a.x);
+          const q = new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -ang);
+          // Coarse foam: two shades in vertical bands read as a block of open-cell foam.
+          for (let k = 0; k < 6; k++) {
+            const t = (k + 0.5) / 6, p = a.clone().lerp(b, t);
+            S.geo(new THREE.BoxGeometry(len / 6 + 0.02, hgt, 1.6 + (k % 2) * 0.1), new THREE.Matrix4().compose(V(p.x, g + hgt / 2, p.z), q, V(1, 1, 1)), k % 2 ? FOAM2 : FOAM);
+          }
+          // The lift tube behind the foam and its spout over the top.
+          const tb = mid.clone().add(V(sx * 2.6, 0, -2.2));
+          S.geo(new THREE.CylinderGeometry(0.5, 0.5, hgt + 1.5, 10, 1, true), cylM(tb.x, g + (hgt + 1.5) / 2, tb.z), CLEAR);
+          S.geo(new THREE.CylinderGeometry(0.42, 0.42, 3.2, 10), cylM(tb.x - sx * 1.3, g + hgt + 1.2, tb.z + 1.2, Math.PI / 2 * 0.6, sx * Math.PI / 2 * 0.6), CLEAR);
+          break;
+        }
+      } else if (kind === 'canister') {
+        const c = spot(corners);
+        if (c) {
+          const [x, z] = c, g = T.heightAt(x, z);
+          S.geo(new THREE.CylinderGeometry(0.45, 0.45, level + 2.5 - (g + 2), 10, 1, true), cylM(x, (level + 2.5 + g + 2) / 2, z), PIPE);
+          if (E.prefilter) S.geo(new THREE.CylinderGeometry(1.25, 1.25, 3.2, 14), cylM(x, g + 2.4, z), FOAM);
+          else {
+            S.geo(new THREE.CylinderGeometry(0.9, 0.9, 2.6, 12, 1, true), cylM(x, g + 2.3, z), GRILL);
+            for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2; S.geo(new THREE.BoxGeometry(0.16, 2.1, 0.12), new THREE.Matrix4().compose(V(x + Math.cos(a) * 0.93, g + 2.3, z + Math.sin(a) * 0.93), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT); }
+          }
+          over(x, z, level + 2.5);
+          // The spray bar: along the back just under the surface, a row of holes facing forward.
+          const xs = Math.max(-hw + 3, x - 14), xe = Math.min(hw - 3, x + 2), y = level - 1, zz = Math.max(back(xs, y), back(xe, y)) + 1.1;
+          S.geo(new THREE.CylinderGeometry(0.4, 0.4, xe - xs, 10), cylM((xs + xe) / 2, y, zz, 0, Math.PI / 2), PIPE);
+          for (let xx = xs + 1; xx < xe - 0.5; xx += 1.6) S.geo(new THREE.CylinderGeometry(0.12, 0.12, 0.2, 6), cylM(xx, y, zz + 0.36, Math.PI / 2), SLOT);
+          over(xe, zz, y);
+        }
+      }
+    }
+    // The false bottom's pump tower: in the back corner of the land, slots down where the plenum is.
+    if (E.drainage >= 1) {
+      const ph = E.plenumH || level + 1;
+      for (const sx of [1, -1]) {
+        const x = sx * (hw - 3.2), z = back(x, ph + 4) + 3.2, g = T.heightAt(x, z);
+        if (pool(x, z) || g < ph + 1) continue;
+        S.geo(new THREE.CylinderGeometry(2.1, 2.1, g + 1.6, 16, 1, true), cylM(x, (g + 1.6) / 2, z), PVC);
+        S.geo(new THREE.CylinderGeometry(2.25, 2.25, 0.5, 16), cylM(x, g + 1.7, z), CAPC);
+        for (let k = 0; k < 12; k++) {
+          const a = (k / 12) * Math.PI * 2;
+          S.geo(new THREE.BoxGeometry(0.22, Math.max(0.5, ph - 1), 0.14), new THREE.Matrix4().compose(V(x + Math.cos(a) * 2.13, (ph - 1) / 2 + 0.3, z + Math.sin(a) * 2.13), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT);
+        }
+        // The hidden tubing: from the tower up behind the background to the top (the waterfall feed).
+        S.tube(new THREE.CatmullRomCurve3([V(x, g + 1.9, z), V(x, g + 3, z - 1.5), V(x - sx * 1.5, Math.min(TANK.h - 2, g + 10), back(x, g + 10) + 0.3)]).getSpacedPoints(16), 0.32, HOSE);
+        break;
+      }
+    }
   }
 
   dispose() {

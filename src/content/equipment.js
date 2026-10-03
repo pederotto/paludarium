@@ -153,3 +153,23 @@ export const WATER_SOURCES = {
   hard: { name: 'Hard lake water', ph: 8.2, gh: 14, blurb: 'Hard and alkaline, like the rift lakes of Sulawesi: for panther crabs.' },
 };
 export const sourceOf = (E) => WATER_SOURCES[E.waterSource] ?? WATER_SOURCES.tap;
+
+// The substrate the land is built of (Care > Foundation). drain: added to how fast wet soil dries (sim/climate.js), mould:
+// times the food mould finds in wet soil (sim.js), color: the soil profile seen through the glass (render/soilside.js, by index).
+export const SUBSTRATES = {
+  soil: { name: 'Topsoil and peat', drain: 0, mould: 1, blurb: 'Cheap and rich, but it packs down and sours when kept wet.' },
+  abg: { name: 'ABG mix', drain: 0.35, mould: 0.7, blurb: 'Fir bark, tree-fern fibre, charcoal, peat and sphagnum: open, airy and slow to rot. The standard for vivariums.' },
+  coir: { name: 'Coco coir', drain: -0.15, mould: 1.1, blurb: 'Coconut husk fibre: holds a lot of water and stays damp; mixes well with bark.' },
+  sphagnum: { name: 'Coir under sphagnum moss', drain: -0.25, mould: 0.85, blurb: 'Coir with a top layer of living sphagnum: holds water and humidity like a sponge, and resists mould.' },
+};
+export const SUBSTRATE_ORDER = ['soil', 'abg', 'coir', 'sphagnum'];
+export const substrateOf = (E) => SUBSTRATES[E.substrate] ?? SUBSTRATES.soil;
+
+// The false bottom's water (Env.plenumH is the height of the mesh over the glass floor, cm; the plenum's water is the pool's
+// water, so its line is the pool's level). 'mud': the water is over the mesh and the land soaks it up; 'low': the plenum is
+// mostly dry, its filter bed out of the water; 'good': just under the mesh.
+export function plenumState(E, level) {
+  if (!(E.drainage >= 1) || !(E.plenumH > 0)) return null;
+  const rel = level - E.plenumH;
+  return { rel, state: rel > 0.3 ? 'mud' : rel < -4 ? 'low' : 'good', filled: Math.max(0, Math.min(1, level / E.plenumH)) };
+}

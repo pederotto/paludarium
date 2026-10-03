@@ -19,12 +19,17 @@ import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
+import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
 
 const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
 const TAU = Math.PI * 2;
 const _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion();
+const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0);
+// Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
+const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog']);
+const GLASS_N = { front: V(0, 0, -1), left: V(1, 0, 0), right: V(-1, 0, 0) };
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
 const RADIUS = { skink: 0.6, swim: 0.38, crawlWater: 0.4, crawlLand: 0.3, crab: 0.6, fly: 0.2, frog: 0.85, toad: 0.8, newt: 0.7, axolotl: 0.75, gecko: 0.7 };
 const STRENGTH = { skink: 1, swim: 1, frog: 1, toad: 1, newt: 1, axolotl: 1, gecko: 1, crab: 0.8, crawlWater: 0.6, crawlLand: 0.6, fly: 0.3 };
@@ -148,7 +153,8 @@ function frogGeo({ back, belly, spots = null, eye = 0x111111, size = 1 }) {
 //   tank that should be land (0 … 1, a hint only); flock: [fewest, most] of its kind that keep it well (lonely below, crowded
 //   above); territorial: males fight (two adult males in one tank stress each other); crew: how much it cleans as a
 //   bioactive crew member (1 = a dwarf isopod; mould and litter); drowns: it cannot swim and drowns in water deeper than its
-//   habitat maxDepth (content/habitats.js) with no way out.
+//   habitat maxDepth (content/habitats.js) with no way out; minL / minH: the smallest tank (litres) and height (cm) it is kept
+//   in (Sim.tankRules: a cramped animal is mildly stressed, and the Field guide shows it against this tank).
 const sdfBody = (k) => () => BODIES[k]();
 
 export const SPECIES = {
@@ -220,7 +226,7 @@ export const SPECIES = {
   },
   dartfrog: {
     name: 'Blue dart frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.4, speed: 1,
-    temp: [20, 27], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva'], cap: 8, breed: 0.05, adultDays: 25,
+    temp: [20, 27], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva', 'springsea'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 5, days: 10, into: 'tadpole', where: 'shallow' },
     body: sdfBody('dartfrog'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35, swimLevel: 0 },
     note: 'Terrestrial. Needs high humidity and live insects. Lays eggs by shallow water.',
@@ -234,7 +240,7 @@ export const SPECIES = {
   },
   toad: {
     name: 'Fire-bellied toad', scale: 1, group: 'Amphibians', kind: 'toad', size: 1.9, speed: 1.2,
-    temp: [18, 26], humidity: 60, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'shrimp', 'flylarva'], cap: 6, breed: 0.04, adultDays: 30,
+    minL: 60, temp: [18, 26], humidity: 60, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'shrimp', 'flylarva', 'cricket', 'earthworm', 'waxworm', 'bloodworm'], cap: 6, breed: 0.04, adultDays: 30,
     eggs: { n: 8, days: 7, into: 'tadpole', where: 'water' },
     ph: [6.8, 7.6], land: 0.5, flock: [3, 6],
     body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
@@ -242,27 +248,27 @@ export const SPECIES = {
   },
   newt: {
     name: 'Paddle-tail newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.6, speed: 2,
-    temp: [15, 24], humidity: 60, hungerHours: 200, lifeDays: 3000, eats: ['springtail', 'fly', 'isopod', 'flake', 'tadpole', 'flylarva'], cap: 8, breed: 0.03, adultDays: 30,
+    temp: [15, 24], humidity: 60, hungerHours: 200, lifeDays: 3000, eats: ['springtail', 'fly', 'isopod', 'flake', 'tadpole', 'flylarva', 'earthworm'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 6, days: 8, into: 'tadpole', where: 'water' },
     body: sdfBody('newt'), anim: { amp: 0.85, wave: 1.25, lift: 0.3, stride: 0.85, rig2: { neck: 0.26, s0: 0.04, s1: 0.31, neckY: 0.75, len: 10.8 } },
     note: 'A cool-stream newt. Wedges itself between rocks by day, walks the bottom at night with its head sweeping, swims in bursts, rises to gulp air, and on damp nights may wander the bank. Needs cool water (under 24 °C) and a hide.',
   },
   firesal: {
     name: 'Fire salamander', scale: 1, group: 'Amphibians', kind: 'newt', size: 2.4, speed: 1.6, landBias: 0.9,
-    temp: [8, 22], humidity: 70, hungerHours: 220, lifeDays: 7000, eats: ['springtail', 'fly', 'isopod', 'flylarva'], cap: 6, breed: 0, adultDays: 40,
+    minL: 60, temp: [8, 22], humidity: 70, hungerHours: 220, lifeDays: 7000, eats: ['springtail', 'fly', 'isopod', 'flylarva', 'earthworm', 'cricket', 'dubia', 'waxworm'], cap: 6, breed: 0, adultDays: 40,
     body: sdfBody('newt'), anim: { amp: 1.15, wave: 1.3, lift: 0.4, stride: 1.1, rig2: { neck: 0.27, s0: 0.04, s1: 0.31, neckY: 1.4, len: 18 } },
     note: 'A forest salamander of cool, damp woods (8–22 °C). Out on dark, damp nights and after rain; by day it sits in a hide (wood, a rock, leaf litter) and comes back to the same one. Creeps up on prey and freezes, dries out without damp ground or a shallow dish to soak in, and warns with its black and yellow-orange instead of running.',
   },
   axolotl: {
     name: 'Axolotl', scale: 1, group: 'Amphibians', kind: 'axolotl', size: 2.6, speed: 1.4,
-    temp: [14, 21], hungerHours: 260, lifeDays: 5000, eats: ['shrimp', 'flake', 'tadpole'], cap: 8, breed: 0.03, adultDays: 30,
+    minL: 80, temp: [14, 21], hungerHours: 260, lifeDays: 5000, eats: ['shrimp', 'flake', 'tadpole'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 4, days: 10, into: 'axolotl', where: 'water' },
     body: sdfBody('axolotl'), anim: { amp: 0.9, wave: 1.1, lift: 0.22, stride: 0.6, rig2: { neck: 0.27, s0: 0.05, s1: 0.31, neckY: 0.9, len: 12 } },
     note: 'Fully aquatic and needs cold water (14–21 °C): turn the heater down or it will suffer. Shuns bright light (give it a cave or shade), sits on the bottom with its gills fanning, rises now and then to gulp air, and finds food by smell. A pair lays eggs in the water; its colour genes make morphs.',
   },
   gecko: {
     name: 'Mourning gecko', scale: 1, group: 'Reptiles', kind: 'gecko', size: 1.4, speed: 4,
-    temp: [21, 29], humidity: 55, hungerHours: 150, lifeDays: 3500, eats: ['fly', 'springtail', 'flylarva'], cap: 10, breed: 0.04, adultDays: 25,
+    minH: 40, temp: [21, 29], humidity: 55, hungerHours: 150, lifeDays: 3500, eats: ['fly', 'springtail', 'flylarva', 'cricket', 'waxworm'], cap: 10, breed: 0.04, adultDays: 25,
     eggs: { n: 2, days: 12, into: 'gecko', where: 'wall' },
     body: sdfBody('gecko'), anim: { amp: 0.6, wave: 1.1, lift: 0.28, stride: 0.75, rig2: { neck: 0.24, s0: 0.04, s1: 0.28, neckY: 0.43, len: 9.5, tail0: 0.5, tailY: 0.34 } },
     note: 'Climbs the background and glass. Sleeps by day in a crevice, often with others, comes out at dusk, drinks droplets after rain or misting, stalks insects with its tail waving, and licks its own eyes clean. Females lay eggs without males.',
@@ -314,14 +320,14 @@ export const SPECIES = {
   // ---- From the keeper's care sheets (2026-10) -------------------------------------------------------------------
   cpd: {
     name: 'Celestial pearl danio', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 2.2, speed: 4,
-    temp: [22, 26], hungerHours: 110, lifeDays: 1100, eats: ['flake'], cap: 40, breed: 0.015, adultDays: 45,
+    minL: 30, temp: [22, 26], hungerHours: 110, lifeDays: 1100, eats: ['flake'], cap: 40, breed: 0.015, adultDays: 45,
     ph: [6.5, 7.5], gh: [5, 12], flow: 0.45, flock: [6, 40],
     body: sdfBody('cpd'), anim: { amp: 0.2, wave: 1.7 },
     note: 'A 2 cm pearl-spotted danio from Myanmar. Shy: keep 6 to 10 or more, with dense moss and roots and only a gentle current. Fry survive in thick moss.',
   },
   pygmy: {
     name: 'Everglades pygmy sunfish', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: false, size: 3, speed: 2,
-    temp: [18, 24], hungerHours: 100, lifeDays: 1100, eats: ['flake', 'shrimp'], cap: 12, breed: 0.01, adultDays: 60,
+    minL: 40, temp: [18, 24], hungerHours: 100, lifeDays: 1100, eats: ['bloodworm', 'shrimp'], cap: 12, breed: 0.01, adultDays: 60,
     ph: [6.5, 7.5], gh: [3, 12], flow: 0.15, territorial: true, flock: [1, 12],
     body: sdfBody('pygmy'), anim: { amp: 0.24, wave: 1.4 },
     note: 'A 3 cm micro-predator for the water under a land setup: still water, thick moss and stems. Males turn velvet black with electric-blue spangles and dance at each other: one male to two or three females. Eats live food and baby shrimp.',
@@ -335,7 +341,7 @@ export const SPECIES = {
   },
   panther: {
     name: 'Panther crab', group: 'Crustaceans', kind: 'crab', crabProfile: PANTHER, size: 2.4, speed: 3,
-    temp: [24, 28], humidity: 70, hungerHours: 220, lifeDays: 1500, eats: ['detritus', 'flake', 'shrimp', 'snail', 'springtail'], cap: 4, breed: 0,
+    minL: 100, temp: [24, 28], humidity: 70, hungerHours: 220, lifeDays: 1500, eats: ['detritus', 'flake', 'shrimp', 'snail', 'springtail'], cap: 4, breed: 0,
     ph: [7.5, 8.5], gh: [8, 15], land: 0.2, territorial: true, flock: [1, 2],
     anim: { lift: 0.3, stride: 0.47, legAxis: 'x', limb: 1 },
     body: () => (BODIES.panther ?? BODIES.crab)(),
@@ -343,7 +349,7 @@ export const SPECIES = {
   },
   skink: {
     name: 'Red-eyed crocodile skink', scale: 1, group: 'Reptiles', kind: 'skink', size: 3, speed: 3,
-    temp: [23, 27], humidity: 70, hungerHours: 260, lifeDays: 4000, eats: ['isopod', 'fly', 'flylarva', 'springtail', 'pandaking'], cap: 2, breed: 0.006, adultDays: 120,
+    minL: 100, temp: [23, 27], humidity: 70, hungerHours: 260, lifeDays: 4000, eats: ['isopod', 'fly', 'flylarva', 'springtail', 'pandaking', 'cricket', 'dubia', 'earthworm', 'waxworm'], cap: 2, breed: 0.006, adultDays: 120,
     eggs: { n: 1, days: 60, into: 'skink', where: 'land' },
     bask: 28.5, uvb: 2, land: 0.8, territorial: true, flock: [1, 2], ph: [6.5, 7.8],
     body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6 },
@@ -351,7 +357,7 @@ export const SPECIES = {
   },
   bumblebee: {
     name: 'Bumblebee toad', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.0, speed: 0.7,
-    temp: [20, 24], humidity: 70, hungerHours: 140, lifeDays: 3000, eats: ['springtail', 'flylarva', 'fly', 'isopod', 'springpink'], cap: 8, breed: 0.02, adultDays: 40,
+    minL: 40, temp: [20, 24], humidity: 70, hungerHours: 140, lifeDays: 3000, eats: ['springtail', 'flylarva', 'fly', 'isopod', 'springpink', 'springsea'], cap: 8, breed: 0.02, adultDays: 40,
     eggs: { n: 6, days: 6, into: 'tadpole', where: 'shallow' },
     land: 0.8, flock: [4, 8], drowns: true,
     body: sdfBody('bumblebee'), anim: { amp: 0, wave: 1, lift: 0.22, stride: 0.24 },
@@ -359,7 +365,7 @@ export const SPECIES = {
   },
   reedfrog: {
     name: 'Starry night reed frog', scale: 1, group: 'Amphibians', kind: 'frog', perch: true, size: 1.2, speed: 1,
-    temp: [24, 29], humidity: 70, hungerHours: 150, lifeDays: 2500, eats: ['fly', 'flylarva', 'springtail'], cap: 8, breed: 0.03, adultDays: 30,
+    minL: 60, minH: 45, temp: [24, 29], humidity: 70, hungerHours: 150, lifeDays: 2500, eats: ['fly', 'flylarva', 'springtail', 'cricket'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 8, days: 5, into: 'tadpole', where: 'water' },
     ph: [6.5, 7.5], land: 0.3, flock: [3, 8],
     body: sdfBody('reedfrog'), anim: { amp: 0, wave: 1, lift: 0.32, stride: 0.42 },
@@ -367,10 +373,10 @@ export const SPECIES = {
   },
   marbled: {
     name: 'Marbled newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.8, speed: 1.8,
-    temp: [14, 21], humidity: 75, hungerHours: 220, lifeDays: 5000, eats: ['flake', 'tadpole', 'springtail', 'isopod', 'flylarva', 'fly'], cap: 6, breed: 0.02, adultDays: 60,
+    minL: 60, temp: [14, 21], humidity: 75, hungerHours: 220, lifeDays: 5000, eats: ['flake', 'tadpole', 'springtail', 'isopod', 'flylarva', 'fly', 'earthworm', 'cricket'], cap: 6, breed: 0.02, adultDays: 60,
     eggs: { n: 6, days: 10, into: 'tadpole', where: 'water' },
     ph: [7, 7.5], flow: 0.2, land: 0.5, flock: [2, 4],
-    body: () => (BODIES.marbled ?? BODIES.newt)(), anim: { amp: 0.6, wave: 1.2, lift: 0.2, stride: 0.3 },
+    body: sdfBody('marbled'), anim: { amp: 0.85, wave: 1.25, lift: 0.3, stride: 0.9, rig2: { neck: 0.24, s0: 0.04, s1: 0.31, neckY: 0.7, len: 11.9 } },
     note: 'A European newt in velvet green laced with black, the females with an orange stripe down the back. Needs it cool: 15-21 °C, and suffers above 23 °C. Half water (10-15 cm, still, with a slate ramp) and half damp mossy land. One male to two or three females.',
   },
   purpleiso: {
@@ -390,6 +396,44 @@ export const SPECIES = {
     temp: [20, 28], humidity: 68, hungerHours: 100, lifeDays: 50, eats: ['detritus'], cap: 110, breed: 0.18, adultDays: 6, crew: 0.3,
     body: () => (BODIES.springpink ?? BODIES.springtail)(), note: 'Tropical pink springtails: a little bigger and slower to breed than the whites, eat mould and frog food all the same.',
   },
+  // Seashore springtails (Anurida maritima type): water-repellent, they walk on the surface film and graze its scum along the
+  // shoreline (they clean the film, `film`), and take to the water when disturbed. Frog and fish food.
+  springsea: {
+    name: 'Seashore springtails', group: 'Insects', kind: 'crawlLand', surface: true, hop: true, size: 1.5, speed: 0.8,
+    temp: [16, 28], humidity: 60, hungerHours: 100, lifeDays: 45, eats: ['detritus', 'biofilm'], cap: 140, breed: 0.22, adultDays: 6, crew: 0.15, film: 1,
+    body: () => (BODIES.springsea ?? BODIES.springtail)(), note: 'Blue-grey springtails that live on the water itself: they walk the surface film, graze the scum on it and the wet shoreline, and feed fish and frogs.',
+  },
+  // Feeders (2026-10): bought by the cup from the Care panel's Feeding tab (Care.feeders) for the animals that eat them. They
+  // do not breed in the tank and live days to weeks; whatever is not eaten hides (crickets, roaches) or digs in (earthworms,
+  // which work the soil like the crew). They never count as losses.
+  cricket: {
+    name: 'Crickets', group: 'Insects', kind: 'crawlLand', feeder: true, hop: true, size: 1, speed: 2.4,
+    crawlOpt: { restP: 0.55, rest: [2, 9], speed: 1 },
+    temp: [18, 32], humidity: 30, hungerHours: 120, lifeDays: 21, eats: ['detritus'], cap: 40, breed: 0, adultDays: 1,
+    body: () => BODIES.cricket(), anim: { lift: 0.12, stride: 0.3 },
+    note: 'Banded crickets, dusted with calcium: the staple for skinks, geckos, toads and salamanders. Feed a few at a time; the ones left over hide and chew on plants.',
+  },
+  dubia: {
+    name: 'Dubia roaches', group: 'Insects', kind: 'crawlLand', feeder: true, litterLover: true, size: 1, speed: 1.4,
+    crawlOpt: { restP: 0.6, rest: [3, 12], speed: 1 },
+    temp: [20, 34], humidity: 40, hungerHours: 200, lifeDays: 60, eats: ['detritus'], cap: 30, breed: 0, adultDays: 1,
+    body: () => BODIES.dubia(), anim: { lift: 0.06, stride: 0.2 },
+    note: 'Slow, soft, meaty roaches that cannot climb glass or fly: easy prey for a skink or a salamander. They dig into the litter if not eaten.',
+  },
+  earthworm: {
+    name: 'Earthworms', group: 'Insects', kind: 'crawlLand', feeder: true, litterLover: true, deep: true, size: 1, speed: 0.35,
+    crawlOpt: { restP: 0.5, rest: [3, 10], speed: 1 },
+    temp: [10, 26], humidity: 75, hungerHours: 300, lifeDays: 40, eats: ['detritus'], cap: 30, breed: 0, adultDays: 1, crew: 0.6,
+    body: () => BODIES.earthworm(), anim: { amp: 0.35, wave: 1.4, lift: 0, stride: 0 },
+    note: 'Red wigglers: the best whole food for newts, salamanders and toads. The ones not eaten dig into damp soil and turn litter into humus.',
+  },
+  waxworm: {
+    name: 'Waxworms', group: 'Insects', kind: 'crawlLand', feeder: true, size: 1, speed: 0.12,
+    crawlOpt: { restP: 0.5, rest: [2, 8], speed: 1 },
+    temp: [15, 32], humidity: 30, hungerHours: 1e9, lifeDays: 10, eats: [], cap: 20, breed: 0, adultDays: 1,
+    body: () => BODIES.waxworm(), anim: { amp: 0.6, wave: 1.6, lift: 0, stride: 0 },
+    note: 'Fat moth larvae: a treat, not a staple. Good for fattening a thin animal; too many make it fat.',
+  },
   tadpole: {
     name: 'Tadpoles', scale: 1, group: 'Amphibians', kind: 'swim', band: 'bottom', school: false, size: 1.2, speed: 1.6, young: true,
     temp: [16, 29], hungerHours: 90, lifeDays: 90, eats: ['biofilm', 'detritus', 'flake'], cap: 80, breed: 0, metamorphDays: 14,
@@ -403,10 +447,13 @@ export const SPECIES = {
   },
 };
 
-export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', flylarva: 'fruit fly maggot', flypupa: 'fruit fly pupa', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog', cpd: 'celestial pearl danio', pygmy: 'pygmy sunfish', blueshrimp: 'blue dream shrimp', panther: 'panther crab', skink: 'crocodile skink', bumblebee: 'bumblebee toad', reedfrog: 'starry night reed frog', marbled: 'marbled newt', purpleiso: 'dwarf purple isopod', pandaking: 'panda king isopod', springpink: 'pink springtail' };
-export const one = (id) => ONE[id] ?? SPECIES[id].name.toLowerCase();
+export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', flylarva: 'fruit fly maggot', flypupa: 'fruit fly pupa', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog', cpd: 'celestial pearl danio', pygmy: 'pygmy sunfish', blueshrimp: 'blue dream shrimp', panther: 'panther crab', skink: 'crocodile skink', bumblebee: 'bumblebee toad', reedfrog: 'starry night reed frog', marbled: 'marbled newt', purpleiso: 'dwarf purple isopod', pandaking: 'panda king isopod', springpink: 'pink springtail', springsea: 'seashore springtail', cricket: 'cricket', dubia: 'dubia roach', earthworm: 'earthworm', waxworm: 'waxworm', flake: 'flake', pellet: 'pellet', bloodworm: 'bloodworm' };
+export const one = (id) => ONE[id] ?? SPECIES[id]?.name.toLowerCase() ?? (isItem(id) ? id : String(id));
 
-export const FOOD_VALUE = { fly: 0.25, flylarva: 0.03, springtail: 0.07, springpink: 0.08, isopod: 0.12, pandaking: 0.3, shrimp: 0.35, blueshrimp: 0.35, snail: 0.3, flake: 0.3, tadpole: 0.2 };
+export const FOOD_VALUE = { fly: 0.25, flylarva: 0.03, springtail: 0.07, springpink: 0.08, springsea: 0.07, isopod: 0.12, pandaking: 0.3, shrimp: 0.35, blueshrimp: 0.35, snail: 0.3, flake: 0.3, pellet: 0.4, bloodworm: 0.12, tadpole: 0.2, cricket: 0.3, dubia: 0.4, earthworm: 0.45, waxworm: 0.35 };
+
+// Prepared foods (flakes, pellets, bloodworms) and who eats them: content/foods.js.
+export { ITEMS, isItem, dietOf, eatsItem };
 
 // ---------------------------------------------------------------------------
 
@@ -485,11 +532,23 @@ export class Animals {
       this.keys[id] = [];
     }
     this.upgradeModels().catch((e) => console.warn('creature models', e));
+    // Food in the water: one material for all three shapes (flake, pellet, bloodworm), coloured per instance.
     const fg = new THREE.IcosahedronGeometry(0.22, 0);
     fg.scale(1, 0.35, 1);
-    this.foodMesh = new THREE.InstancedMesh(fg, new THREE.MeshStandardNodeMaterial({ color: 0xc9772f, roughness: 0.8 }), 200);
-    this.foodMesh.count = 0; this.foodMesh.frustumCulled = false;
-    scene.add(this.foodMesh);
+    const pg = new THREE.IcosahedronGeometry(0.26, 1);
+    const wg = new THREE.CapsuleGeometry(0.06, 0.75, 2, 5);
+    wg.rotateX(Math.PI / 2);
+    const fm = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.75 });
+    this.foodMeshes = {};
+    for (const [k, geo] of [['flake', fg], ['pellet', pg], ['bloodworm', wg]]) {
+      const m = new THREE.InstancedMesh(geo, fm, 200);
+      const col = new THREE.Color(ITEMS[k].color);
+      for (let i = 0; i < 200; i++) m.setColorAt(i, col);
+      m.count = 0; m.frustumCulled = false;
+      scene.add(m);
+      this.foodMeshes[k] = m;
+    }
+    this.foodMesh = this.foodMeshes.flake;
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
     this._s = new THREE.Vector3();
@@ -611,7 +670,7 @@ export class Animals {
 
   // Moss and leaf litter hide the last few of any prey species.
   refuge() { return 6 + Math.round(this.world.mossFraction() * 20); }
-  catchable(pid) { return (this.by[pid]?.length ?? 0) > this.refuge(); }
+  catchable(pid) { return (this.by[pid]?.length ?? 0) > (SPECIES[pid]?.feeder ? 0 : this.refuge()); }
   count(id) { return this.by[id].length; }
 
   // How comfortable is this spot for the species (0 … 1)? Combines the local
@@ -644,6 +703,7 @@ export class Animals {
         if (depth < 1) return { error: `${sp.name} live under water.` };
         return { pos: V(x, ground, z) };
       case 'crawlLand':
+        if (sp.surface) return W.nearWater(V(x, ground, z), 3) || surf > ground ? { pos: V(x, Math.max(ground, surf), z) } : { error: `${sp.name} live on the water's surface and the wet shore.` };
         if (surf > ground) return { error: `${sp.name} live on land.` };
         return { pos: V(x, ground, z) };
       case 'crab':
@@ -716,7 +776,7 @@ export class Animals {
   }
 
   feed(kind = 'flake') {
-    const W = this.world;
+    const W = this.world, I = ITEMS[kind] ?? ITEMS.flake;
     const cand = [];
     for (let k = 0; k < 60; k++) {
       const x = (Math.random() - 0.5) * (TANK.w - 6), z = (Math.random() - 0.5) * (TANK.d - 6);
@@ -724,13 +784,18 @@ export class Animals {
     }
     if (!cand.length) return 0;
     const [cx, cz] = cand[Math.floor(Math.random() * cand.length)];
-    // Enough for everyone: about two flakes per fish.
+    // Enough for everyone: about two flakes (one pellet, a few worms) per animal that eats it in the water.
     let fish = 0;
-    for (const id in SPECIES) if (SPECIES[id].kind === 'swim' && SPECIES[id].eats.includes('flake')) fish += this.by[id].length;
-    const n = Math.max(10, Math.round(fish * 2));
+    for (const id in SPECIES) {
+      const sp = SPECIES[id];
+      if ((sp.kind === 'swim' || sp.kind === 'crawlWater' || sp.kind === 'crab' || sp.kind === 'newt' || sp.kind === 'axolotl') && dietOf(sp).includes(kind)) fish += this.by[id].length * (sp.kind === 'crawlWater' ? 0.2 : 1);
+    }
+    const n = Math.max(I.min, Math.round(fish * I.per));
+    // A cube of bloodworms thaws in one spot; flakes and pellets scatter.
+    const spread = kind === 'bloodworm' ? 4 : 10;
     for (let k = 0; k < n; k++) {
       if (this.food.length >= 190) break;
-      this.food.push({ pos: V(cx + (Math.random() - 0.5) * 10, W.water.level - 0.1, cz + (Math.random() - 0.5) * 8), sink: 0.15 + Math.random() * 0.3, age: 0, settled: false });
+      this.food.push({ kind, pos: V(cx + (Math.random() - 0.5) * spread, W.water.level - 0.1, cz + (Math.random() - 0.5) * spread * 0.8), sink: I.sink[0] + Math.random() * (I.sink[1] - I.sink[0]), float: I.float, age: 0, settled: false });
     }
     return n;
   }
@@ -751,7 +816,7 @@ export class Animals {
         switch (sp.kind) {
           case 'swim': this.swim(a, sp, arr, dt); break;
           case 'crawlWater': this.crawl(a, sp, dt, 'water'); break;
-          case 'crawlLand': if (!sp.sessile) this.crawl(a, sp, dt, 'land', sp.crawlOpt ?? null); break;
+          case 'crawlLand': if (!sp.sessile) this.crawl(a, sp, dt, sp.surface ? 'surface' : 'land', sp.crawlOpt ?? null); break;
           case 'crab': this.crab(a, sp, dt); break;
           case 'fly': this.fly(a, sp, dt); break;
           case 'frog':
@@ -788,7 +853,7 @@ export class Animals {
           const hx = TANK.w / 2 - 0.4, hz = TANK.d / 2 - 0.4;
           a.pos.x = clamp(a.pos.x, -hx, hx); a.pos.y = clamp(a.pos.y, 0, TANK.h - 0.5);
           if (!a.wallMode) a.pos.z = clamp(a.pos.z, -hz, hz);
-          if (a.onWall || a.hop || a.wallMode) continue;
+          if (a.onWall || a.hop || a.wallMode || (a.perch && a.perch.ph !== 'go')) continue;
           if (sp.kind !== 'swim' && sp.kind !== 'fly') { const g = T.heightAt(a.pos.x, a.pos.z); if (a.pos.y < g - 0.3) a.pos.y = g; }
           if (sp.kind !== 'swim' && sp.kind !== 'fly' && sp.kind !== 'egg' && !a.swimming) { const wz = W.wall.zAt(a.pos.x, T.heightAt(a.pos.x, a.pos.z) + 1) + 0.3; if (a.pos.z < wz) a.pos.z = wz; }
           if (this.insideSolid(a, sp)) this.relocate(a, sp, true, true);
@@ -799,8 +864,8 @@ export class Animals {
     for (const f of this.food) {
       const g = W.terrain.heightAt(f.pos.x, f.pos.z) + 0.1;
       if (f.pos.y > g) {
-        f.pos.y -= f.sink * dt * (f.age < 20 ? 0.15 : 1);
-        f.pos.x += Math.sin(this.t + f.sink * 40) * dt * 0.3;
+        f.pos.y -= f.sink * dt * (f.age < (f.float ?? 20) ? 0.15 : 1);
+        f.pos.x += Math.sin(this.t + f.sink * 40) * dt * (f.kind === 'pellet' ? 0.05 : 0.3);
       } else { f.pos.y = g; f.settled = true; }
       f.age += dt;
     }
@@ -872,7 +937,7 @@ export class Animals {
   // Per animal and tick: a body inside a solid cell is moved out; one that wants to move but has hardly moved
   // for several seconds backs off and picks a new target, and as a last resort jumps to the nearest free cell.
   keepFree(a, sp, dt) {
-    if (a.dead) return;
+    if (a.dead || (a.perch && a.perch.ph !== 'go')) return;          // a reed frog climbing, sitting on or leaving its perch
     // Ground that rose under a walker (a piece was dropped on it, erosion): stand on it again.
     if (sp.kind !== 'swim' && sp.kind !== 'fly' && !a.onWall && !a.hop && !a.wallMode) {
       const g = this.world.terrain.heightAt(a.pos.x, a.pos.z);
@@ -911,7 +976,8 @@ export class Animals {
   mediumOf(sp) {
     switch (sp.kind) {
       case 'crawlWater': case 'axolotl': return 'water';
-      case 'crawlLand': case 'frog': case 'toad': case 'gecko': return 'land';
+      case 'crawlLand': return sp.surface ? 'surface' : 'land';
+      case 'frog': case 'toad': case 'gecko': return 'land';
       default: return 'any';
     }
   }
@@ -1021,11 +1087,11 @@ export class Animals {
     if (a.nib) {
       a.nib.t -= dtS;
       if (a.nib.f.eaten) a.nib = null;
-      else if (a.nib.t <= 0) { a.nib.f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); a.ate = (a.ate ?? 0) + 1; a.nib = null; }
+      else if (a.nib.t <= 0) { a.nib.f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE[a.nib.f.kind ?? 'flake']); a.ate = (a.ate ?? 0) + 1; a.nib = null; }
     } else if (a.hunger > 0.25 && this.food.length && !ctl) {
       let best = null, bd = 30;
       for (const f of this.food) {
-        if (f.eaten) continue;
+        if (f.eaten || !eatsItem(sp, f)) continue;
         if (sp.band !== 'bottom' && f.settled) continue;
         const d = f.pos.distanceTo(a.pos);
         if (d < bd) { bd = d; best = f; }
@@ -1119,12 +1185,17 @@ export class Animals {
     if (this.avoid && z < W.wall.zAt(x, g + 1) + 0.4) return false;       // not into the background relief
     if (medium === 'water') return depth > 1;
     if (medium === 'land') return !(depth > -0.2);
+    // The water's surface film and the wet shore (seashore springtails): open water, or land within 3 cm of it.
+    if (medium === 'surface') return depth > 0.3 || W.nearWater(V(x, g, z), 3);
     return !(depth > maxDepth);
   }
 
   // opt: { rest: [min, max] s, restP: chance to pause instead of setting off, speed: multiplier } (salamanders potter and pause).
   crawl(a, sp, dt, medium, opt = null) {
     const W = this.world, T = W.terrain;
+    // In the water however it got there (a fall, a push in a crowd): a heavy crawler that cannot swim heads for a way out.
+    if (!a.sunk && sp.drowns && medium === 'land' && W.water.surfaceAt(a.pos.x, a.pos.z) > T.heightAt(a.pos.x, a.pos.z) + 0.3) a.sunk = { t: 0, exit: null, look: 0 };
+    if (a.sunk) { this.sunkCrawl(a, sp, dt); return; }
     a.timer -= dt;
     if (!a.target || a.timer <= 0) {
       if (a.state === 'walk' || Math.random() < (opt?.restP ?? 0.4)) {
@@ -1174,6 +1245,8 @@ export class Animals {
         }
         const want = Math.atan2(dirx, dirz) + (sp.kind === 'crab' ? Math.PI / 2 : 0);
         a.yaw = angLerp(a.yaw, want, Math.min(1, dt * 6));
+        // A heavy crawler that cannot swim, walking along a steep bank, now and then loses its footing and tumbles in.
+        if (sp.drowns && medium === 'land' && Math.random() < dt * 0.02 && this.slipsIn(a, a.pos.x + dirx, a.pos.z + dirz)) return;
       }
     }
     // Springtails pop into the air now and then.
@@ -1184,9 +1257,58 @@ export class Animals {
       lift = Math.sin(Math.min(1, a.hop.t) * Math.PI) * a.hop.h;
       if (a.hop.t >= 1) a.hop = null;
     }
-    a.pos.y = T.heightAt(a.pos.x, a.pos.z) + lift;
-    a.normal = T.normalAt(a.pos.x, a.pos.z);
+    const gy = T.heightAt(a.pos.x, a.pos.z), sy = medium === 'surface' ? W.water.surfaceAt(a.pos.x, a.pos.z) : -Infinity;
+    a.pos.y = Math.max(gy, sy) + lift;
+    a.normal = sy > gy ? UP : T.normalAt(a.pos.x, a.pos.z);
     a.grazing = a.state === 'rest' && !a.hop;     // head-down pauses (see vis)
+  }
+
+  // --- Heavy crawlers that cannot swim (panda king isopods) ----------------------------------------------------------
+  // At a steep bank (the ground drops more than a few millimetres into the water) the crawler can lose its footing and
+  // tumble in. True when it did.
+  slipsIn(a, nx, nz) {
+    const W = this.world, T = W.terrain;
+    // The bank a centimetre ahead: a drop of more than 6 mm into water is steep enough to tumble.
+    const dx = nx - a.pos.x, dz = nz - a.pos.z, dl = Math.hypot(dx, dz) || 1;
+    nx = a.pos.x + (dx / dl) * 1.2; nz = a.pos.z + (dz / dl) * 1.2;
+    const g0 = T.heightAt(a.pos.x, a.pos.z), g1 = T.heightAt(nx, nz), s1 = W.water.surfaceAt(nx, nz);
+    if (!(s1 > g1 + 0.2) || g0 - g1 < 0.6 || (this.avoid && this.occ.count && this.occ.solidAt(nx, g1 + 0.5, nz))) return false;
+    a.pos.x = nx; a.pos.z = nz; a.pos.y = g1;
+    a.sunk = { t: 0, exit: null, look: 0 };
+    a.target = null; a.state = 'walk';
+    return true;
+  }
+
+  // In the water: it walks the bottom toward the nearest way out it can climb (a slope of under a centimetre per step, or
+  // wood, rock or bark that reaches into the water). Without one it stays under and drowns (sim.js careStress).
+  sunkCrawl(a, sp, dt) {
+    const W = this.world, T = W.terrain, S = a.sunk;
+    S.t += dt; S.look -= dt;
+    if (S.look <= 0) {
+      S.look = 1.5;
+      S.exit = null;
+      let bd = 1e9;
+      for (let k = 0; k < 16; k++) {
+        const ang = (k / 16) * TAU;
+        let px = a.pos.x, pz = a.pos.z, gPrev = T.heightAt(px, pz);
+        for (let r = 0.5; r <= 6; r += 0.5) {
+          px = a.pos.x + Math.sin(ang) * r; pz = a.pos.z + Math.cos(ang) * r;
+          const g = T.heightAt(px, pz);
+          const ramp = this.occ.count && this.occ.solidAt(px, Math.min(g + 0.5, W.water.level - 0.2), pz);
+          if (g - gPrev > 0.5 && !ramp) break;                                  // a ledge it cannot climb
+          gPrev = g;
+          if (W.water.surfaceAt(px, pz) <= g && this.okFor('land', px, pz)) { if (r < bd) { bd = r; S.exit = V(px, 0, pz); } break; }
+        }
+      }
+    }
+    if (S.exit) {
+      const dx = S.exit.x - a.pos.x, dz = S.exit.z - a.pos.z, dist = Math.hypot(dx, dz);
+      const step = Math.min(dist, sp.speed * 0.6 * dt);
+      if (dist > 1e-3) { a.pos.x += (dx / dist) * step; a.pos.z += (dz / dist) * step; a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 4)); }
+      if (dist < 0.3) { a.sunk = null; a.under = 0; a.timer = 0; }
+    }
+    a.pos.y = T.heightAt(a.pos.x, a.pos.z);
+    a.normal = T.normalAt(a.pos.x, a.pos.z);
   }
 
   // --- Perching frogs (the starry night reed frog) --------------------------------------------------------------
@@ -1198,17 +1320,26 @@ export class Animals {
     const want = W.env.bright() > 0.25 && a.hunger < 0.6 && !a.swimming && !a.order && !a.hop;
     const P = a.perch;
     if (P) {
-      const plantGone = P.plant && !W.plants.list.includes(P.plant);
-      if (P.ph === 'sit' && (!want || plantGone)) { P.ph = 'down'; P.goal = V(P.top.x + Math.sin(a.yaw) * 1.5, 0, P.top.z + Math.cos(a.yaw) * 1.5); P.goal.y = T.heightAt(P.goal.x, P.goal.z); }
+      const plantGone = (P.plant && !W.plants.list.includes(P.plant)) || (P.piece && !W.decor.pieces.includes(P.piece));
+      if (P.ph === 'sit' && (!want || plantGone)) {
+        P.ph = 'down';
+        P.left = plantGone ? 'gone' : a.order ? 'hunting' : a.swimming ? 'swimming' : a.hop ? 'hop' : a.hunger >= 0.6 ? 'hungry' : 'dusk';
+        // Off the glass straight down to the foot of the climb; off a leaf or a branch a hop's length ahead.
+        P.goal = P.glassN ? P.base.clone() : V(P.top.x + Math.sin(a.yaw) * 1.5, 0, P.top.z + Math.cos(a.yaw) * 1.5);
+        if (!P.glassN) P.goal.y = T.heightAt(P.goal.x, P.goal.z);
+      }
       const goal = P.ph === 'go' ? P.base : P.ph === 'up' ? P.top : P.ph === 'down' ? P.goal : null;
       a.speedNow = 0; a.state = 'rest';
       if (goal) {
-        const dx = goal.x - a.pos.x, dy = goal.y - a.pos.y, dz = goal.z - a.pos.z, dist = Math.hypot(dx, dy, dz);
+        const dx = goal.x - a.pos.x, dy = P.ph === 'go' ? 0 : goal.y - a.pos.y, dz = goal.z - a.pos.z, dist = Math.hypot(dx, dy, dz);   // on the way there only the ground distance counts
         const speed = sp.speed * (P.ph === 'go' ? 2.2 : 1.4), step = Math.min(dist, speed * dt);
-        if (P.ph === 'go' && !this.okFor('land', a.pos.x + (dx / (dist || 1)) * step, a.pos.z + (dz / (dist || 1)) * step)) { a.perch = null; a.perchT = 6; return false; }
+        // On the way to the foot of the climb it walks, wades or swims (a reed pool is mostly water); only a rock, a root or
+        // the background in the way sends it back to frog().
+        if (P.ph === 'go' && !this.okFor('any', a.pos.x + (dx / (dist || 1)) * step, a.pos.z + (dz / (dist || 1)) * step, 99)) { a.perch = null; a.perchT = 6; return false; }
         if (dist > 1e-3) { a.pos.x += (dx / dist) * step; a.pos.y += (dy / dist) * step; a.pos.z += (dz / dist) * step; }
-        if (P.ph === 'go') a.pos.y = T.heightAt(a.pos.x, a.pos.z);
-        if (Math.hypot(dx, dz) > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
+        if (P.ph === 'go') a.pos.y = Math.max(T.heightAt(a.pos.x, a.pos.z), W.water.surfaceAt(a.pos.x, a.pos.z) - 0.3);
+        if (P.glassN && P.ph !== 'go') a.yaw = P.glassYaw + (P.ph === 'down' ? Math.PI : 0);   // on the glass: head up, or head first coming down
+        else if (Math.hypot(dx, dz) > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
         a.pitch = P.ph === 'up' ? -1.1 : P.ph === 'down' ? 0.9 : 0;          // nose up climbing, head first coming down
         a.speedNow = step / Math.max(1e-4, dt); a.state = 'walk';
         if (dist - step < 0.05) {
@@ -1218,10 +1349,11 @@ export class Animals {
         }
       } else {
         a.pos.copy(P.top); a.pitch = 0;
-        a.crouch = 0.6;                                                    // pressed flat on the leaf
-        if (Math.random() < dt * 0.05) a.yaw += (Math.random() - 0.5) * 0.6;   // shuffles round now and then
+        a.crouch = 0.6;                                                    // pressed flat on the leaf, the wood or the glass
+        if (P.glassN) { if (Math.random() < dt * 0.03) a.yaw = P.glassYaw + (Math.random() - 0.5) * 0.9; }
+        else if (Math.random() < dt * 0.05) a.yaw += (Math.random() - 0.5) * 0.6;   // shuffles round now and then
       }
-      a.normal = UP;
+      a.normal = P.glassN && P.ph !== 'go' ? P.glassN : UP;
       return true;
     }
     if (!want) return false;
@@ -1232,7 +1364,9 @@ export class Animals {
     if (!top) return false;
     // The foot of the climb: under the perch, but in front of the background (wall plants hang on it).
     const bz = Math.max(top.p.z, W.wall.zAt(top.p.x, T.heightAt(top.p.x, top.p.z) + 1) + 0.8);
-    a.perch = { ph: 'go', top: top.p, plant: top.plant, base: V(top.p.x, T.heightAt(top.p.x, bz), bz) };
+    const base = top.base ?? V(top.p.x, 0, bz);
+    base.y = Math.max(T.heightAt(base.x, base.z), W.water.surfaceAt(base.x, base.z) - 0.3);   // at the surface if the foot is under water
+    a.perch = { ph: 'go', top: top.p, plant: top.plant ?? null, piece: top.piece ?? null, glassN: top.glassN ?? null, glassYaw: top.glassYaw ?? 0, base };
     a.fs = null;
     return true;
   }
@@ -1240,6 +1374,9 @@ export class Animals {
   // The best perch within reach: the top of a tall plant (or a wall plant), better high and over or near water, not taken.
   perchSpot(a) {
     const W = this.world, T = W.terrain;
+    // Each frog has a favourite kind of perch (leaves, wood and bamboo, or the glass), as real ones settle into habits.
+    const like = (a.perchLike ??= ['plant', 'plant', 'piece', 'glass'][Math.floor(Math.random() * 4)]);
+    const fav = (k) => (k === like ? 8 : 0);
     const H = { fernph: 10, weed: 6, fern: 8, bilberry: 9, grass: 6, bromeliad: 7, pothos: 4, cattail: 18, bamboo: 14, monstera: 12 };
     let best = null, bs = -1e9;
     const list = W.plants.list;
@@ -1253,8 +1390,52 @@ export class Animals {
       if (Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1) continue;
       if ((this.by[a.sp] ?? []).some((b) => b !== a && b.perch && b.perch.top.distanceTo(top) < 2.5)) continue;
       const wet = W.nearWater(V(top.x, T.heightAt(top.x, top.z), top.z), 12) ? 6 : 0;
-      const sc = (top.y - T.heightAt(top.x, top.z)) + wet - d * 0.25 + Math.random() * 2;
+      const sc = Math.min(20, top.y - T.heightAt(top.x, top.z)) + wet - d * 0.25 + Math.random() * 6 + fav('plant');   // high is good, up to a point
       if (sc > bs) { bs = sc; best = { p: top, plant: p }; }
+    }
+    const taken = (top) => (this.by[a.sp] ?? []).some((b) => b !== a && b.perch && b.perch.top.distanceTo(top) < 2.5);
+    // Wood, cork, roots, a stump, a bamboo pole or a floating log: the highest point of its top surface (found by dropping a
+    // ray on it at a few points of its footprint).
+    for (const pc of W.decor?.pieces ?? []) {
+      if (!PERCH_PIECES.has(pc.type)) continue;
+      const m = pc.mesh;
+      _box.setFromObject(m);
+      const cx = (_box.min.x + _box.max.x) / 2, cz = (_box.min.z + _box.max.z) / 2;
+      if (Math.hypot(cx - a.pos.x, cz - a.pos.z) > 45) continue;
+      let top = null;
+      for (let k = 0; k < 5; k++) {
+        const px = lerp(_box.min.x, _box.max.x, 0.2 + Math.random() * 0.6), pz = lerp(_box.min.z, _box.max.z, 0.2 + Math.random() * 0.6);
+        _ray.set(_t.set(px, _box.max.y + 2, pz), DOWN);
+        const hit = _ray.intersectObject(m, false)[0];
+        if (hit && (!top || hit.point.y > top.y)) top = V(hit.point.x, hit.point.y + 0.35, hit.point.z);
+      }
+      if (!top || Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1 || taken(top)) continue;
+      const gy = T.heightAt(top.x, top.z), over = W.water.surfaceAt(top.x, top.z) > gy;
+      if (top.y - gy < 2) continue;
+      const sc = Math.min(20, top.y - gy) + (over || W.nearWater(V(top.x, gy, top.z), 12) ? 6 : 0) - Math.hypot(top.x - a.pos.x, top.z - a.pos.z) * 0.25 + Math.random() * 6 + fav('piece');
+      if (sc > bs) {
+        // The climb starts just outside the piece's footprint on the frog's side (on the ground, or swimming up to a log).
+        const cx2 = (_box.min.x + _box.max.x) / 2, cz2 = (_box.min.z + _box.max.z) / 2;
+        let dx = a.pos.x - cx2, dz = a.pos.z - cz2;
+        const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+        const rx = (_box.max.x - _box.min.x) / 2 + 1, rz = (_box.max.z - _box.min.z) / 2 + 1, k = Math.min(rx / Math.max(1e-3, Math.abs(dx)), rz / Math.max(1e-3, Math.abs(dz)));
+        const bx = clamp(cx2 + dx * k, -TANK.w / 2 + 1.5, TANK.w / 2 - 1.5), bz = clamp(cz2 + dz * k, -TANK.d / 2 + 1.5, TANK.d / 2 - 1.5);
+        if (this.okFor('any', bx, bz, 99)) { bs = sc; best = { p: top, piece: pc, base: V(bx, 0, bz) }; }
+      }
+    }
+    // The glass: front or side, above the water or the bank, where a reed frog sits pressed flat by day.
+    for (let k = 0; k < 4; k++) {
+      const side = k === 0 || k === 1 ? 0 : k === 2 ? 1 : -1;
+      let x, z, n, yaw;
+      if (side === 0) { x = clamp(a.pos.x + (Math.random() - 0.5) * 30, -TANK.w / 2 + 3, TANK.w / 2 - 3); z = TANK.d / 2 - 0.7; n = GLASS_N.front; yaw = 0; }
+      else { x = side * (TANK.w / 2 - 0.7); z = clamp(a.pos.z + (Math.random() - 0.5) * 16, -TANK.d / 2 + 4, TANK.d / 2 - 3); n = side > 0 ? GLASS_N.right : GLASS_N.left; yaw = side * Math.PI / 2; }
+      const bx = x + n.x * 1.2, bz = z + n.z * 1.2;                       // the foot of the climb, a little in from the glass
+      if (!this.okFor('any', bx, bz, 99)) continue;
+      const gy = T.heightAt(bx, bz), y = Math.min(TANK.h - 4, Math.max(gy, W.water.level) + 5 + Math.random() * 14);
+      const top = V(x, y, z);
+      if (y - gy < 4 || taken(top)) continue;
+      const sc = Math.min(20, y - gy) + (W.nearWater(V(bx, gy, bz), 12) ? 5 : 0) - Math.hypot(x - a.pos.x, z - a.pos.z) * 0.25 + Math.random() * 6 - 2 + fav('glass');
+      if (sc > bs) { bs = sc; best = { p: top, base: V(bx, Math.max(gy, W.water.surfaceAt(bx, bz) - 0.3), bz), glassN: n, glassYaw: yaw }; }
     }
     return best;
   }
@@ -1395,7 +1576,7 @@ export class Animals {
     const it = (a.ci = crabThink(m, sense, Math.random, P));
     if (it.say) W.log(it.say, 'warn');
     if (it.eat && food) {
-      if (food.pid === 'flake') { food.p.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE.flake); }
+      if (isItem(food.pid)) { food.p.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE[food.pid]); }
       else this.consume(a, sp, food.pid, food.p);
     }
     if (it.drown) { a.health = Math.max(0, a.health - dtMin / 120); if (a.health <= 0) { this.remove(a, 'drowned: it could not climb out of the water'); return; } }
@@ -1542,11 +1723,12 @@ export class Animals {
   crabFood(a, x, z, sp = SPECIES.crab, P = CRAB) {
     let best = null, bd = P.smell;
     const look = (pid, list, ok) => { for (const p of list ?? []) { if (!ok(p) || !this.validPrey(p, a)) continue; const d = Math.hypot(p.pos.x - x, p.pos.z - z); if (d < bd && Math.abs(p.pos.y - a.pos.y) < 3) { bd = d; best = { pid, p, d }; } } };
-    look('flake', this.food, (f) => f.settled && !f.eaten);
+    for (const k of Object.keys(ITEMS)) if (dietOf(sp).includes(k)) look(k, this.food, (f) => f.settled && !f.eaten && (f.kind ?? 'flake') === k);
     look('springtail', this.by.springtail, () => true);
     look('fly', this.by.fly, (f) => f.state === 'rest');
     // Other live food on its list (a panther crab takes shrimp and snails off the bottom).
     for (const pid of sp.eats) if (pid !== 'springtail' && pid !== 'fly' && SPECIES[pid] && pid !== a.sp) look(pid, this.by[pid], () => true);
+    if (sp.eats.includes('flake') || sp.eats.includes('pellet')) for (const k of ['earthworm', 'cricket']) if (this.by[k]?.length) look(k, this.by[k], () => true);
     return best;
   }
 
@@ -1886,7 +2068,7 @@ export class Animals {
   validPrey(p, a) { return !!p && !p.dead && !p.eaten && (!p.taken || p.takenBy === a); }
 
   huntable(a, sp, pid, p) {
-    const water = pid === 'flake' || pid === 'tadpole' || pid === 'shrimp' || pid === 'blueshrimp' || pid === 'cpd';
+    const water = isItem(pid) || pid === 'tadpole' || pid === 'shrimp' || pid === 'blueshrimp' || pid === 'cpd';
     switch (sp.kind) {
       case 'frog': case 'toad': return !water && !a.swimming;
       case 'newt': return water === !!a.swimming;
@@ -1898,10 +2080,11 @@ export class Animals {
   }
 
   nearestPrey(a, sp, pid, maxD, any = false) {
-    const list = pid === 'flake' ? this.food : this.by[pid];
+    const item = isItem(pid), list = item ? this.food : this.by[pid];
     if (!list) return null;
     let best = null, bd = maxD;
     for (const p of list) {
+      if (item && (p.kind ?? 'flake') !== pid) continue;
       if (!this.validPrey(p, a) || (!any && !this.huntable(a, sp, pid, p))) continue;
       const d = Math.hypot(p.pos.x - a.pos.x, p.pos.y - a.pos.y, p.pos.z - a.pos.z);
       if (d < bd) { bd = d; best = p; }
@@ -1929,9 +2112,9 @@ export class Animals {
   }
 
   consume(a, sp, pid, p) {
-    if (pid === 'flake') p.eaten = true; else this.remove(p, `eaten by a ${one(a.sp)}`);
+    if (isItem(pid)) p.eaten = true; else this.remove(p, `eaten by a ${one(a.sp)}`);
     a.hunger = Math.max(0, a.hunger - (FOOD_VALUE[pid] ?? 0.1));
-    if (Math.random() < 0.3) this.world.log(`A ${one(a.sp)} caught ${pid === 'flake' ? 'a flake' : 'a ' + one(pid)}.`, 'eat');
+    if (Math.random() < 0.3) this.world.log(`A ${one(a.sp)} ${isItem(pid) ? 'took ' + (pid === 'bloodworm' ? 'a bloodworm' : pid === 'pellet' ? 'a pellet' : 'a flake') : 'caught a ' + one(pid)}.`, 'eat');
   }
 
   fwdOf(a, out) {
@@ -1957,8 +2140,8 @@ export class Animals {
       if (a.scanT > 0) return;
       a.scanT = 0.8 + Math.random() * 0.8;
       const reach = this.reachOf(a, sp);
-      for (const pid of sp.eats) {
-        if (pid !== 'flake' && !this.catchable(pid)) continue;
+      for (const pid of dietOf(sp)) {
+        if (!isItem(pid) && !this.catchable(pid)) continue;
         const p = this.nearestPrey(a, sp, pid, reach * 1.3);
         if (p) { o = a.order = this.newOrder(pid, p); break; }
       }
@@ -2605,8 +2788,8 @@ export class Animals {
     if (o && !a.st && this.validPrey(o.target, a)) { p = o.target; pid = o.pid; mine = true; }
     else if (a.hunger > 0.3 && !a.st) {
       let bd = Math.max(P.smell, P.sight);
-      for (const id of sp.eats) {
-        if (id !== 'flake' && !this.catchable(id)) continue;
+      for (const id of dietOf(sp)) {
+        if (!isItem(id) && !this.catchable(id)) continue;
         const q = this.nearestPrey(a, sp, id, bd);
         if (q) { const d = a.pos.distanceTo(q.pos); if (d < bd) { bd = d; p = q; pid = id; } }
       }
@@ -2657,8 +2840,8 @@ export class Animals {
         // A species with a swimming-pose model draws that one (level already, legs out); the others get the pose from the rig.
         const poseMesh = frogish && a.swimming && !a.hop ? this.meshFor(id, null, 'swim') : null;
         const sw = frogish && a.swimming && !a.hop ? frogSwimPose(frac(a.kick ?? 0), { floating: a.floating ? 1 : 0, level: poseMesh ? 0 : an.swimLevel ?? 0.28, t: this.t + a.phase }) : null;
-        if (a.wallMode) {
-          // On the background: belly to the wall, heading within its plane.
+        if (a.wallMode || (a.perch?.glassN && a.perch.ph !== 'go')) {
+          // On the background (or a reed frog on the glass): belly to the wall, heading within its plane.
           q.setFromUnitVectors(UP, a.normal);
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
         } else if (a.normal && !swimming && !a.hop && sp.kind !== 'fly') {
@@ -2758,17 +2941,18 @@ export class Animals {
     // Build one fine mesh per frame at most, and only for species the camera is close to.
     for (const cm of Object.values(this.meshes)) if (cm.wants && cm.canRefine) { cm.refine(); cm.wants = false; break; }
     this.food = this.food.filter((f) => !f.eaten);
-    let k = 0;
-    const fq = new THREE.Quaternion();
+    const fq = this._q, FM = this.foodMeshes, cnt = { flake: 0, pellet: 0, bloodworm: 0 };
     for (const f of this.food) {
-      if (k >= 200) break;
-      fq.setFromEuler(e.set(0, f.sink * 30, 0));
+      const kind = f.kind ?? 'flake', k = cnt[kind];
+      if (k >= 200) continue;
+      // Bloodworms keep wriggling, on the way down and on the bottom.
+      const w = kind === 'bloodworm' ? Math.sin(this.t * 7 + f.sink * 90) : 0;
+      fq.setFromEuler(e.set(w * 0.5, f.sink * 30 + w * 0.6, kind === 'bloodworm' ? Math.cos(this.t * 5 + f.sink * 50) * 0.5 : 0));
       this._m.compose(f.pos, fq, this._s.set(1, 1, 1));
-      const m = this._m;
-      this.foodMesh.setMatrixAt(k++, m);
+      FM[kind].setMatrixAt(k, this._m);
+      cnt[kind] = k + 1;
     }
-    this.foodMesh.count = k;
-    this.foodMesh.instanceMatrix.needsUpdate = true;
+    for (const kind in FM) { FM[kind].count = cnt[kind]; FM[kind].instanceMatrix.needsUpdate = true; }
   }
 
   // Nearest animal to a ray (for the inspect tool).
