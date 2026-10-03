@@ -24,7 +24,7 @@ export const CONCEPTS = {
     sections: [
       { p: ['A paludarium\'s water is shallow and collects everything that runs off the land. A filter here is mostly a home for the bacteria of the nitrogen cycle, so surface area matters more than force.'] },
       { h: 'Three kinds', ul: [
-        'A corner foam filter (Mattenfilter): a block of coarse foam walls off a corner, with a small pump or air-lift behind it. No suction, so baby shrimp and tadpoles are safe; a huge surface for bacteria.',
+        'A corner foam filter (Mattenfilter): a block of coarse foam walls off a corner, with a small pump behind it. No suction, so baby shrimp and tadpoles are safe; a huge surface for bacteria.',
         'A canister: lots of media outside the tank, through bulkheads or hidden behind the background. The most capacity and current, but its intake needs a sponge over it.',
         'A false bottom (plenum): an egg-crate floor on PVC legs under the land, covered with fibreglass mesh. The water under it, full of bio-rings or clay pebbles, is one big filter bed.',
       ] },

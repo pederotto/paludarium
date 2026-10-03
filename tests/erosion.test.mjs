@@ -208,3 +208,22 @@ test('drift() is the largest change since the last commit', () => {
   E.markCommitted();
   assert.equal(E.drift(), 0);
 });
+
+test('a running filter takes silt out of the main pool, and keeps what it took', () => {
+  const left = (filterK) => {
+    const { H, E } = makeWorld();
+    run(H, E, 30);
+    let c = -1;
+    for (let n = 0; n < H.N; n++) if (H.res[n] && H.level - H.f.h[n] > 5) { c = n; break; }
+    E.s[c] += 0.4;                       // a puff of mud in the main pool
+    const v1 = E.volume();
+    E.filterK = filterK;
+    for (let k = 0; k < 20; k++) { E.run(0.2, 2); H.rebuild(true); }
+    return { s: sum(E.s) * E.area, caught: E.caught, drift: E.volume() + E.caught - v1, v1 };
+  };
+  const off = left(0), on = left(0.05);
+  assert.equal(off.caught, 0, 'no filter, nothing caught');
+  assert.ok(on.caught > 0.01, `the filter caught ${on.caught.toFixed(3)} cm3`);
+  assert.ok(on.s < off.s * 0.8, `less silt left in the water: ${on.s.toFixed(4)} vs ${off.s.toFixed(4)} cm3`);
+  assert.ok(Math.abs(on.drift) < 1e-3 * on.v1, `soil in the bed, the water and the filter is conserved (${on.drift.toFixed(4)})`);
+});

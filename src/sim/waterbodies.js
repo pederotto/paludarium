@@ -11,7 +11,7 @@
 // it under Node. Species and plant tables are handed in by sim.js.
 
 import { clamp, lerp } from '../util/math.js';
-import { filterOf, sourceOf } from '../content/equipment.js';
+import { filterOf, filterEff, filterClog, sourceOf } from '../content/equipment.js';
 
 export const NODE = { GROUND: 0, SUMP: 1, EXT: 2, OUT0: 3, OUTS: 12, BODY0: 15, BODIES: 48, TRANSIT: 63, MAX: 64 };
 
@@ -356,6 +356,8 @@ export class WaterBodies {
       else if (b.inLph < 0.5 && b.outLph < 0.5 && vol > 0.3) out.push({ level: 'info', text: `${b.name} is still water: nothing flows through it, so its chemistry will drift on its own.`, node: b.key });
     }
     if (P.running && pondFlow > 15 && ret < 0.25 * pondFlow && allFull && H.outlets.length) out.push({ level: 'bad', text: `No return path: ${f1(pondFlow)} L/h leaves the outlets but only ${f1(ret)} L/h gets back to the main pool. Dig a channel from the lowest pond down to it.` });
+    const E = this.world.env;
+    if (E?.filter && filterClog(E) > 0.6) out.push({ level: filterClog(E) > 0.85 ? 'bad' : 'warn', text: `The ${filterOf(E).name.toLowerCase()} is clogging with the dirt it caught: it passes ${Math.round(filterEff(E) * 100)}% of its flow. Rinse it in old tank water (Care > Water).` });
     if (H.intakeNote && ledger.t - H.intakeNote.at < 30) out.push({ level: 'info', text: H.intakeNote.text });
     return out;
   }
@@ -407,7 +409,7 @@ export class WaterBodies {
     let raw = 0, rawV = 0;
     const nitRef = Math.max(1, list.reduce((s, b) => s + b.nitrate * Vb(b), 0) / Vtot);
     // Filter, plenum and the water the tank is topped up with (content/equipment.js).
-    const F = filterOf(E), src = sourceOf(E);
+    const F = filterOf(E), src = sourceOf(E), fEff = filterEff(E);   // a clogged filter passes less water
     // The false bottom's bio-rings are one big filter bed, as far as they are under water.
     const plenum = E.drainage >= 1 ? 0.3 * (E.plenum ? clamp(E.plenum.filled * 1.3, 0.25, 1) : 1) : E.drainage > 0 ? 0.1 : 0;
     let tannin = 0, mineral = 0;
@@ -416,7 +418,7 @@ export class WaterBodies {
     for (const b of list) {
       const V = Vb(b);
       // Every wet surface carries some bacteria (0.6); the filter's media only while it runs.
-      const media = b === sump ? 0.6 + (E.filter ? Math.min(E.mediaBio, F.mediaMax) * 0.9 : 0) + plenum : 0.6;
+      const media = b === sump ? 0.6 + (E.filter ? Math.min(E.mediaBio, F.mediaMax) * 0.9 * (0.4 + 0.6 * fEff) : 0) + plenum : 0.6;
       // --- Nitrogen cycle
       const rot = rotting * V / Vtot;
       b.ammonia += ((b.waste + shared * V / Vtot + rot) * d * 0.25) / V;
@@ -433,7 +435,7 @@ export class WaterBodies {
       // sump), plants by day and a stream's churn add; fish and heat take away.
       const depth = Math.max(1, b.depth || 6);
       const aer = clamp(8 / depth, 0.5, 2.5) * (1 - 0.5 * (E.film ?? 0));    // a surface film slows gas exchange
-      const oT = 5.2 + Math.min(4, b.falls) * fallK * 0.9 + (b === sump && E.filter ? F.oxygen : b.kind === 'stream' ? 1.2 : 0.3) + E.fan * 0.4 + E.rain * 0.5
+      const oT = 5.2 + Math.min(4, b.falls) * fallK * 0.9 + (b === sump && E.filter ? F.oxygen * (0.4 + 0.6 * fEff) : b.kind === 'stream' ? 1.2 : 0.3) + E.fan * 0.4 + E.rain * 0.5
         + (light - 0.4) * b.plantUse * 0.02 * Math.sqrt(100 / V) - b.fishLoad * 0.8 / V - Math.max(0, b.temp - 24) * 0.12;
       b.oxygen = clamp(lerp(b.oxygen, oT, clamp(d * 0.01 * aer, 0, 1)), 0.5, 10);
       // --- Temperature: shallow water takes the warmth of the lamp, deep
@@ -452,7 +454,7 @@ export class WaterBodies {
         - Math.min(0.6, tannin * 0.12) * clamp(4 / Math.max(2, V), 0.3, 1) * (b.gh < 6 ? 1.4 : 1);
       b.ph = clamp(lerp(b.ph ?? src.ph, phT, clamp(d / 1440, 0, 1)), 4.5, 9.5);
       // --- Current: the filter and the pump turnover in the main pool, the run of water in streams and fed ponds.
-      b.flow = b === sump ? clamp((E.filter ? F.flow : 0) + Math.min(0.5, pumpTurn / 60), 0, 1) : b.kind === 'stream' ? 0.7 : clamp(b.inLph / Math.max(0.25, b.vol) / 10, 0, 1);
+      b.flow = b === sump ? clamp((E.filter ? F.flow * fEff : 0) + Math.min(0.5, pumpTurn / 60), 0, 1) : b.kind === 'stream' ? 0.7 : clamp(b.inLph / Math.max(0.25, b.vol) / 10, 0, 1);
       // --- Algae likes light, nutrients and shallows.
       const lampLight = C?.lightAt && b.n ? C.lightAt(b.cx, b.cz) / Math.max(0.2, E.lampPower) : 1;
       b.rawAlgae = clamp(lampLight, 0.15, 1.3) * (0.3 + 0.7 * b.nitrate / nitRef) * clamp(8 / depth, 0.5, 2) * (1 - 0.6 * b.turbidity);

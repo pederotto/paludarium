@@ -6,6 +6,7 @@
 import { S, toast } from '../store.js';
 import { Sheet } from './Sheet.jsx';
 import { ctx } from '../../app/ctx.js';
+import { filterOf, filterClog } from '../../content/equipment.js';
 import '../flow.css';
 
 const refresh = () => { S.live.value = { ...S.live.value }; };
@@ -42,6 +43,28 @@ function chainFrom(L, B, startKey) {
     seen.add(l.to); key = l.to;
   }
   return rows;
+}
+
+// The filter's own loop: main pool -> (overflow drain) -> filter -> back to the main pool, cleaned.
+function FilterLoop({ E, drain }) {
+  const F = filterOf(E), clog = filterClog(E), ext = (E.filterKind ?? 'sponge') !== 'matten';
+  const where = ext ? 'in the cabinet' : 'in the pool';
+  return (
+    <div class="fl-chain">
+      <h4 style={{ margin: 0, fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+        <span>Filter <span class="tag">{F.name.toLowerCase()} {where}</span></span>
+        <b>{E.filter ? lph(E.filterLph ?? 0) : 'off'}</b>
+      </h4>
+      <div class="fl-chain-row">
+        <div class="fl-node sump">Main pool</div>
+        <div class="fl-arrow"><b>{lph(E.filter ? E.filterLph ?? 0 : 0)}</b>{ext ? (drain ? 'overflow drain' : 'intake') : 'through the foam'}</div>
+        <div class={'fl-node' + (clog > 0.6 ? ' bad' : '')}>{F.name}{clog > 0.15 ? ` · ${Math.round(clog * 100)}% clogged` : ''}</div>
+        <div class="fl-arrow"><b>{lph(E.filter ? E.filterLph ?? 0 : 0)}</b>cleaned</div>
+        <div class="fl-node sump">Main pool</div>
+      </div>
+      <small>Its own pump pushes the water through the media, which keep the particles and the bacteria. {E.filter ? (clog > 0.6 ? 'Rinse it soon (Care > Water).' : '') : 'Switched off: nothing is filtered.'}</small>
+    </div>
+  );
 }
 
 export function FlowPanel() {
@@ -87,6 +110,8 @@ export function FlowPanel() {
             {L.evapLph > 0.01 ? <small>Evaporation {L.evapLph.toFixed(2)} L/h{L.topUpLph > 0.01 ? `, topped up ${L.topUpLph.toFixed(2)} L/h` : ''}.</small> : null}
           </div>
         </div>
+
+        <FilterLoop E={W.env} drain={!!W.plumbing?.weir} />
 
         {H.outlets.length === 0 ? <p class="note">No outlets yet. Use the Water tool to place one on the ground or the background: the pump sends water there, over the hardscape, and it runs back down.</p> : null}
         {H.outlets.map((o, i) => {

@@ -83,6 +83,15 @@ export const Care = {
     game.world.log('Changed 40% of the water.');
     return 'Changed 40% of the water.';
   },
+  // Rinsing the filter in a bucket of old tank water (tap water would kill the bacteria) takes the dirt it caught out of the tank.
+  rinseFilter(game) {
+    const E = game.world.env;
+    if (!E.filter) return 'The filter is switched off.';
+    const had = E.filterDirt;
+    E.filterDirt *= 0.05;
+    game.world.log('Rinsed the filter in old tank water.');
+    return had > 0.05 ? 'Rinsed the filter in old tank water: the dirt it caught is gone, the bacteria stay, and it runs at full flow again.' : 'The filter was clean already.';
+  },
   wipe(game) {
     game.world.env.wipe = 1;
     return 'Wiped the glass clear.';

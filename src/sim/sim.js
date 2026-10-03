@@ -20,7 +20,7 @@ import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../util/math.js';
 import { TANK, tankLitres } from './tank.js';
 import { HABITAT } from '../content/habitats.js';
-import { filterOf, plenumState, substrateOf } from '../content/equipment.js';
+import { filterOf, filterClog, filterEff, plenumState, substrateOf } from '../content/equipment.js';
 import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from './genetics.js';
 import { morphName, morphRarity } from '../content/morphs.js';
 
@@ -105,8 +105,23 @@ export class Sim {
     // sim/waterbodies.js: fish waste and plant uptake in the body they are in,
     // mixing along the pump's flows. env holds the volume-weighted mean.
     // Uneaten food and detritus in water rot into ammonia.
-    const rotting = E.detritus * 0.0004 * (0.5 + waterFrac);
-    E.detritus = Math.max(0, E.detritus - rotting * d * 0.4);
+    // The filter: its own pump pushes the main pool's water through the media, which keep a share of the particles: the
+    // detritus floating in it here, the silt the water carries in erosion.js (filterK). What it keeps clogs it, a little more
+    // every day it runs (fish waste, biofilm), until it is rinsed (Care > Water); the dirt in it still rots into the water.
+    const F = filterOf(E), eff = filterEff(E);
+    E.filterLph = F.lph * eff;
+    const poolL = Math.max(1, W.water.hydro.resVol / 1000);
+    const passed = 1 - Math.exp(-E.filterLph / 60 * d / poolL);
+    const caught = E.detritus * 0.02 * passed * F.catch;
+    E.detritus -= caught;
+    const ero = W.water.erosion;
+    if (ero) { E.filterDirt += (ero.caught ?? 0); ero.caught = 0; ero.filterK = E.filterLph / 3600 / poolL * F.catch; }
+    E.filterDirt += caught + (E.filter ? F.hold / 60 * d / 1440 : 0);
+    const inFilter = E.filterDirt * 0.00005;   // the dirt in the media rots slowly (a sponge needs a rinse every two or three weeks)
+    E.filterDirt = Math.max(0, E.filterDirt - inFilter * d * 0.4);
+    if (E.filter && filterClog(E) > 0.8 && E.day !== E._clogLogged) { E._clogLogged = E.day; W.log(`The ${F.name.toLowerCase()} is clogged: it passes only ${Math.round(eff * 100)}% of its flow. Rinse it in old tank water (Care > Water).`, 'warn'); }
+    const rotting = E.detritus * 0.0004 * (0.5 + waterFrac) + inFilter;
+    E.detritus = Math.max(0, E.detritus - (rotting - inFilter) * d * 0.4);
     W.water.bodies.chemistry(d, { SPECIES, PLANTS, light, rotting, waterFrac });
     // Bacteria colonise a new tank over two to three weeks when they have
     // ammonia to eat, and hardly at all without it.

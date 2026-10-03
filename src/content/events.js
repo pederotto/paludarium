@@ -14,11 +14,11 @@ export const EVENTS = [
   },
   {
     id: 'power-cut', title: 'Power cut', weight: 1.4, duration: 0.3, concept: 'feedback-control', kind: 'bad',
-    text: 'The power is off. The heater, lights, pump and fan stopped, and the temperature is slowly falling.',
+    text: 'The power is off. The heater, lights, pumps, filter and fan stopped, and the temperature is slowly falling.',
     fix: 'Nothing to do but wait; a tank with good insulation, a closed lid and a stable population rides it out. Next time, plan a backup.',
     canStart: (m) => m.tankDays > 20,
-    start: (W) => { const E = W.env; E._pc = { heater: E.heater, lights: E.lights, pump: W.water.hydro.pump.on, fan: E.fan }; E.heater = false; E.lights = 'off'; W.water.hydro.pump.on = false; E.fan = 0; },
-    end: (W) => { const E = W.env, s = E._pc; if (!s) return; E.heater = s.heater; E.lights = s.lights; W.water.hydro.pump.on = s.pump; E.fan = s.fan; delete E._pc; },
+    start: (W) => { const E = W.env; E._pc = { heater: E.heater, lights: E.lights, pump: W.water.hydro.pump.on, fan: E.fan, filter: E.filter }; E.heater = false; E.lights = 'off'; W.water.hydro.pump.on = false; E.fan = 0; E.filter = false; },
+    end: (W) => { const E = W.env, s = E._pc; if (!s) return; E.heater = s.heater; E.lights = s.lights; W.water.hydro.pump.on = s.pump; E.fan = s.fan; E.filter = s.filter ?? true; delete E._pc; },
   },
   {
     id: 'springtail-boom', title: 'Springtail boom', weight: 1.6, duration: 0.1, concept: 'carrying-capacity', kind: 'good',

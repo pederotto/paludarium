@@ -63,6 +63,8 @@ export class Env {
     this.mediaBio = 0.4;        // filter biomedia, 0 … 1: more surface, more bacteria
     this.filterKind = 'sponge'; // sponge | matten | canister (content/equipment.js FILTERS)
     this.prefilter = false;     // a sponge over the canister intake (shrimp- and fry-safe)
+    this.filterDirt = 0;        // dirt the filter has caught (detritus units): it clogs it until rinsed (sim.js)
+    this.filterLph = 0;         // water its pump is moving now (L/h)
     this.waterSource = 'tap';   // content/equipment.js WATER_SOURCES: what the tank is filled and changed with
     this.ph = 7.4; this.gh = 9; // volume-weighted means of the water bodies (sim/waterbodies.js)
     this.flow = 0.1;            // current in the main pool, 0 still … 1 strong
@@ -89,7 +91,7 @@ export class Env {
   static KEYS = ['minute', 'temp', 'humidity', 'ammonia', 'nitrite', 'nitrate', 'oxygen', 'cycle', 'detritus', 'biofilm', 'lights', 'heater',
     'setpoint', 'lid', 'filter', 'room', 'roomHumidity', 'autoFeed', 'lastFed', 'culture', 'lastCulture', 'algae', 'diatoms', 'rockMoss', 'tankDays',
     'lampPower', 'lampWarmth', 'moonlight', 'fan', 'fogger', 'basking', 'rainProgram', 'drainage', 'mediaBio', 'soil', 'mold', 'season',
-    'lightsOn', 'lightsOff', 'chill', 'coolSet', 'filterKind', 'prefilter', 'waterSource', 'ph', 'gh', 'uvb', 'film', 'plenumH', 'substrate', 'backdrop'];
+    'lightsOn', 'lightsOff', 'chill', 'coolSet', 'filterKind', 'prefilter', 'filterDirt', 'waterSource', 'ph', 'gh', 'uvb', 'film', 'plenumH', 'substrate', 'backdrop'];
 
   serialize() { return Object.fromEntries(Env.KEYS.map((k) => [k, this[k]])); }
   load(o = {}) {

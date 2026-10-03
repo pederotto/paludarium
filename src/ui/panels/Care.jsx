@@ -8,7 +8,7 @@ import { Icon } from '../icons.jsx';
 import { ctx } from '../../app/ctx.js';
 import { Care, FEEDERS, eatersOf } from '../../app/actions.js';
 import { SPECIES } from '../../sim/animals.js';
-import { GEAR, FILTERS, WATER_SOURCES, SUBSTRATES, SUBSTRATE_ORDER, plenumState } from '../../content/equipment.js';
+import { GEAR, FILTERS, filterClog, filterEff, WATER_SOURCES, SUBSTRATES, SUBSTRATE_ORDER, plenumState } from '../../content/equipment.js';
 import { TANK } from '../../sim/tank.js';
 
 const TABS = [['lights', 'Lights', 'sun'], ['climate', 'Climate', 'thermo'], ['rain', 'Rain', 'rain'], ['water', 'Water', 'drop'], ['feeding', 'Feeding', 'bowl'], ['foundation', 'Foundation', 'layers']];
@@ -70,6 +70,17 @@ function Gated({ gear, children }) {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Icon name="lock" size={15} /><b>{g.name}</b></div>
       <p>{g.blurb}</p>
       <div class="foot"><span class="price">{info?.locked ? `Rank ${info.level}` : `¤${g.price}`}</span><button class="btn sm" onClick={() => openModal('studio', 'shop')}>Open shop</button></div>
+    </div>
+  );
+}
+
+// The filter's own pump and how clogged its media are, with the rinse that clears them.
+function FilterState({ E }) {
+  const clog = filterClog(E), F = FILTERS[E.filterKind] ?? FILTERS.sponge;
+  return (
+    <div class="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span class="note" style={{ margin: 0, flex: '1 1 260px' }}>Its pump moves <b>{Math.round(E.filterLph ?? F.lph * filterEff(E))} L/h</b> through the media{clog > 0.15 ? <>, <span style={{ color: clog > 0.6 ? 'var(--coral)' : 'var(--amber)' }}>{Math.round(clog * 100)}% clogged</span></> : ', clean'}.</span>
+      <button class={'btn sm' + (clog > 0.6 ? ' primary' : '')} onClick={() => { toast(Care.rinseFilter(ctx.game)); refresh(); }} title="Rinse the media in a bucket of old tank water: tap water would kill the bacteria">Rinse the filter</button>
     </div>
   );
 }
@@ -137,6 +148,7 @@ export function CarePanel() {
           <div class="chips"><button class="btn sm" onClick={() => { toast(Care.waterChange(ctx.game)); refresh(); }}><Icon name="flask" size={14} /> Change 40% of the water</button><button class="btn sm" onClick={() => { toast(Care.scrubAlgae(ctx.game)); refresh(); }}>Scrub algae</button></div>
           <div class="chips"><button class="btn sm primary" onClick={() => openModal('flow')}><Icon name="drop" size={14} /> Flow balance: pump, valves and ponds</button></div>
           <Toggle label="Filter running" on={E.filter} set={(v) => { E.filter = v; }} />
+          {E.filter ? <FilterState E={E} /> : null}
           <div class="cols">
             {Object.entries(FILTERS).map(([id, F]) => {
               const owned = eq.has(F.gear);
@@ -156,7 +168,7 @@ export function CarePanel() {
           <p class="note">{WATER_SOURCES[E.waterSource]?.blurb} Water changes bring the tank toward it.</p>
           <Toggle label="Show equipment" on={ctx.game.world.plumbing?.show !== false} set={(v) => { if (ctx.game.world.plumbing) ctx.game.world.plumbing.show = v; }} title="Draw the pump, its hoses and the overflow pipe" />
           <Slider label="Filter media" value={E.mediaBio} min={0.2} max={(FILTERS[E.filterKind] ?? FILTERS.sponge).mediaMax} step={0.05} set={(v) => { E.mediaBio = v; }} fmt={(v) => Math.round(v * 100) + '%'} />
-          <p class="note">A filter is mostly a home for nitrifying bacteria: more media, more capacity. A false bottom full of bio-rings adds a filter bed under the land.</p>
+          <p class="note">A filter's own pump pushes the water through its media: the media trap the particles, and the bacteria living in them turn ammonia into nitrate. More media, more capacity; the trapped dirt clogs it until you rinse it. A false bottom full of bio-rings adds a filter bed under the land.</p>
           <div class="chips"><button class="chip" onClick={() => { toast(Care.ammonia(ctx.game)); refresh(); }}>Dose ammonia (fishless cycle)</button><button class="chip" onClick={() => { toast(Care.fertilise(ctx.game)); refresh(); }}>Fertilise</button></div>
         </>
       ) : tab === 'feeding' ? (

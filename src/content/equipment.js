@@ -69,12 +69,12 @@ export const GEAR = {
   // --- Water ----------------------------------------------------------------
   filterSponge: {
     id: 'filterSponge', group: 'Water', name: 'Sponge filter', level: 2, price: 25, icon: 'filter', owned: true,
-    blurb: 'A foam sponge that bacteria grow in, driven by an air stone.',
-    teach: 'A filter mostly does not filter: it is a home for nitrifying bacteria. The more surface it has, the more ammonia they can process.',
+    blurb: 'A sponge in a box outside the tank: its pump pulls water from the pool through the sponge and sends it back clean.',
+    teach: 'A filter does two jobs: the sponge traps the particles, and the bacteria living in it turn ammonia into nitrate. The more surface, the more of both. Rinse it in old tank water when it clogs: tap water would kill the bacteria.',
   },
   filterMatten: {
     id: 'filterMatten', group: 'Water', name: 'Corner foam filter (Mattenfilter)', level: 3, price: 40, icon: 'filter',
-    blurb: 'A thick block of coarse foam walls off a back corner of the water; a small air-lift or pump behind it pulls water slowly through the whole face.',
+    blurb: 'A thick block of coarse foam walls off a back corner of the water; a small pump behind it pulls water slowly through the whole face.',
     teach: 'With a huge face and a slow flow there is no suction anywhere: baby shrimp, tadpoles and tiny fish cannot be pulled in, and the foam is a vast home for nitrifying bacteria. Moss grows over it and hides it.',
   },
   filterCanister: {
@@ -135,15 +135,21 @@ export const ACTUATORS = {
   chiller: { name: 'Cooling', gear: 'chiller', on: 1, off: 0, key: 'chill' },
 };
 
-// Filters: what each kind of filter does to the water. mediaMax caps the "Filter media" slider, flow is the current it adds to
-// the main pool (0 still … 1 strong), oxygen is how much it lifts the pool's oxygen target, suction is how many baby shrimp and
-// fry its intake takes (a pre-filter sponge on the intake cuts it to almost nothing).
+// Filters: what each kind of filter does to the water. Every filter has its own small pump (not the main pump that feeds the
+// outlets) that pushes the main pool's water through the media and back out clean. mediaMax caps the "Filter media" slider,
+// flow is the current it adds to the main pool (0 still … 1 strong), oxygen is how much it lifts the pool's oxygen target,
+// suction is how many baby shrimp and fry its intake takes (a pre-filter sponge on the intake cuts it to almost nothing).
+// lph is the water its pump moves (litres an hour, clean), catch the share of the particles in that water the media keeps,
+// hold how much dirt (detritus units) it takes before it is clogged solid (sim.js).
 export const FILTERS = {
-  sponge: { gear: 'filterSponge', name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, blurb: 'Air-driven foam: gentle, shrimp-safe, small capacity.' },
-  matten: { gear: 'filterMatten', name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, blurb: 'A wall of coarse foam: no suction, a huge bacterial surface, almost no current.' },
-  canister: { gear: 'filterCanister', name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, blurb: 'Most media and the strongest flow; put a sponge over the intake for shrimp and fry.' },
+  sponge: { gear: 'filterSponge', name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, lph: 120, catch: 0.5, hold: 24, blurb: 'A sponge in an external box, a strainer on its intake: gentle, shrimp-safe, small capacity; needs a rinse every few weeks.' },
+  matten: { gear: 'filterMatten', name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, lph: 150, catch: 0.45, hold: 60, blurb: 'A wall of coarse foam with a pump behind it: no suction, a huge surface, almost no current; goes months between rinses.' },
+  canister: { gear: 'filterCanister', name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.' },
 };
 export const filterOf = (E) => FILTERS[E.filterKind] ?? FILTERS.sponge;
+// How clogged the filter is (0 clean … 1 solid) and how much of its rated flow it still passes (0 when it is off).
+export const filterClog = (E) => Math.max(0, Math.min(1, (E.filterDirt ?? 0) / filterOf(E).hold));
+export const filterEff = (E) => (E.filter ? 1 - 0.75 * filterClog(E) : 0);
 
 // The water you fill and change with: it sets the hardness (GH, °dH) and pH the tank drifts back to.
 export const WATER_SOURCES = {

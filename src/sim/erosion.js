@@ -76,6 +76,8 @@ export class Erosion {
     this.volNode = new Float64Array(NN);
     this.depNode = new Float64Array(NN);
     this.turb = 0;                       // 0..1 mean cloudiness of all the water
+    this.filterK = 0;                    // share of the main pool's silt the filter takes out per second of flow (sim.js)
+    this.caught = 0;                     // silt it took (cm3), collected by sim.js
     this.stats = { eroded: 0, deposited: 0, slumped: 0, suspended: 0, runs: 0 };
     this.ev = [];
   }
@@ -328,11 +330,14 @@ export class Erosion {
         const sn = s[n];
         if (!(sn > 1e-9) || !res[n]) continue;
         const depth = Math.max(0.2, L - h[n]);
+        // The filter takes its share first: water it pumps comes back without the silt.
+        const kf = this.filterK > 0 ? 1 - Math.exp(-this.filterK * T) : 0;
+        if (kf > 0) { const c = sn * kf; s[n] = sn - c; this.caught += c * area; }
         const k = 1 - Math.exp(-ERO.Kpool * T / clamp(depth / 4, 0.3, 3));
-        let dp = sn * k;
+        let dp = s[n] * k;
         if (st && st[n]) dp = 0;
         if (B[n] + dp > maxH) dp = Math.max(0, maxH - B[n]);
-        if (dp > 0) { const nb2 = Math.fround(B[n] + dp), real = nb2 - B[n]; B[n] = nb2; s[n] = sn - real; cum[n] -= real; this.dT[n] += real; dep += real; this.depNode[NODE.SUMP] += real * area; }
+        if (dp > 0) { const nb2 = Math.fround(B[n] + dp), real = nb2 - B[n]; B[n] = nb2; s[n] -= real; cum[n] -= real; this.dT[n] += real; dep += real; this.depNode[NODE.SUMP] += real * area; }
       }
       // Remember where the pool's sediment is for the next run.
       let np = 0;
