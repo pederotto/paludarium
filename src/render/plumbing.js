@@ -264,9 +264,12 @@ export class Plumbing {
     const jet = (p, dir, r = 0.35) => { const d = dir.clone().normalize(), pts = []; for (let k = 0; k <= 8; k++) pts.push(p.clone().addScaledVector(d, k * 0.45)); J.tube(pts, r, CLEAR, 6); };
     // External filters stand on the floor of the cabinet under the tank (it spans y -0.8 … -70.8).
     const FLOOR = -70.8;
-    // A hose from a bulkhead in the tank floor at (x, z) straight down into the cabinet to the filter's fitting at `end`.
-    const under = (x, z, end) => {
+    // A hose between a bulkhead in the tank floor at (x, z) and the filter's fitting at `end`, in the cabinet below. The band
+    // of moving water runs from a tube's first point to its last, so the points go the way the water does: down from the
+    // intake to the filter, up from the filter to the return (both used to run down, so both hoses seemed to pull).
+    const under = (x, z, end, up = false) => {
       const pts = [V(x, 0.2, z), V(x, -3, z), V(x, -8, z), V(end.x, -16, end.z), end.clone()];
+      if (up) pts.reverse();
       S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(40), HOSE_R, HOSE);
     };
     // The intake: a pipe up from its bulkhead through the substrate, a strainer (or foam) on top, under the surface.
@@ -313,7 +316,7 @@ export class Plumbing {
           intake(f.x, f.z, false);
           ret(f.rx, f.rz);
           under(f.x, f.z, V(box.x - 2.5, yb + 5, box.z));
-          under(f.rx, f.rz, V(box.x + 2.5, yb + 5, box.z));
+          under(f.rx, f.rz, V(box.x + 2.5, yb + 5, box.z), true);
         }
       } else if (kind === 'matten') {
         // Across whichever back corner holds pool water; failing that, along a side glass where the pool reaches it. The
@@ -365,7 +368,7 @@ export class Plumbing {
           intake(f.x, f.z, E.prefilter);
           ret(f.rx, f.rz);
           under(f.x, f.z, V(box.x - 1.4, FLOOR + 12.4, box.z));
-          under(f.rx, f.rz, V(box.x + 1.4, FLOOR + 12.4, box.z));
+          under(f.rx, f.rz, V(box.x + 1.4, FLOOR + 12.4, box.z), true);
         }
       }
     }
