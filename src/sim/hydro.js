@@ -117,7 +117,11 @@ export class Hydro {
     this.groundVer++;
     this.displace(hp);
     this.guardIntake(oldRes, oldLevel, hp);
+    // A pump with no place of its own sits at the deepest point; once there is a pool, pin it there, or digging a deeper
+    // hole anywhere else would carry the pump (and the whole main pool) over to it.
+    if (!this.pump.intake && this.resVol > 50 && this.seed !== undefined) { const [x, z] = this.cellXZ(this.seed); this.pump.intake = { x, z }; }
     this.computeFlood();
+    this.absorbAtIntake();
     this.computeJumps();
     for (const o of this.outlets) this.placeOutlet(o);
     this.solveLevel();
@@ -240,6 +244,30 @@ export class Hydro {
       }
     }
     this.order = Uint32Array.from({ length: this.N }, (_, i) => i).sort((a, b) => fl[a] - fl[b]);
+  }
+
+  // The pump now stands in water that is not the main pool (it was moved into a pond, or back into a pool that became
+  // standing water while it was away): that body of water becomes the main pool. Only the flat water around the intake
+  // joins, not the streams and ponds that feed it from above.
+  absorbAtIntake() {
+    const s = this.seed, d = this.d, h = this.f.h, nb = this.nb, res = this.res;
+    if (res[s] || !(d[s] > WET)) return;
+    const top = h[s] + d[s];
+    const seen = new Uint8Array(this.N), stack = [s];
+    seen[s] = 1;
+    let v = 0;
+    while (stack.length) {
+      const c = stack.pop();
+      v += d[c] * this.area;
+      this.x(this.grp[c], NODE.SUMP, d[c] * this.area);
+      d[c] = 0;
+      for (let k = 0; k < 4; k++) {
+        const m = nb[c * 4 + k];
+        if (m < 0 || seen[m] || res[m] || !(d[m] > WET) || Math.abs(h[m] + d[m] - top) > 0.5) continue;
+        seen[m] = 1; stack.push(m);
+      }
+    }
+    this.resVol += v;
   }
 
   // Steep drops: water leaving cell n toward neighbour k falls to the foot

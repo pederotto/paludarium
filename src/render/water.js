@@ -243,7 +243,8 @@ export class Water {
     const H = this.hydro;
     const want = new Map();
     for (const f of H.falls) want.set('f' + f.key, f);
-    for (const o of H.outlets) if (o.wall && o.pts?.length > 2) want.set('o' + (o.id ??= ribbonId++), o);
+    // A spring on the background pours only while the pump sends it water (pump on, intake under water, valve open).
+    for (const o of H.outlets) if (o.wall && o.pts?.length > 2 && o.q > 0.5) want.set('o' + (o.id ??= ribbonId++), o);
     for (const [k, r] of this.ribbons) {
       const w = want.get(k);
       const qChanged = w && w.q !== undefined && Math.abs(w.q - r.q) > Math.max(3, r.q * 0.35);
@@ -289,7 +290,7 @@ export class Water {
   }
 
   outletRibbon(o) {
-    const q = Math.max(1, o.q ?? this.hydro.pump.rate * 1000 / 3600 / Math.max(1, this.hydro.outlets.length));
+    const q = Math.max(1, o.q);
     return this.makeRibbon(o.pts, new THREE.Vector3(1, 0, 0), 2.2, q, new THREE.Vector3(0, 0, 0.5));
   }
 
@@ -358,19 +359,29 @@ export class Water {
     this.outletGeo = new THREE.CylinderGeometry(0.55, 0.7, 1.4, 10);
     this.outletMat = dark;
     this.outletMeshes = [];
+    this.markerVis = { outlets: false, pump: false };   // set by the editor for the tool in use
     this.updateMarkers();
+  }
+
+  // Which markers the editor wants shown (the Water tool shows both, Erase the outlets); kept when they are rebuilt.
+  showMarkers(outlets, pump) {
+    this.markerVis = { outlets, pump };
+    this.pumpMesh.visible = pump;
+    for (const m of this.outletMeshes) m.visible = outlets;
   }
 
   updateMarkers() {
     const H = this.hydro;
     const [x, z] = H.cellXZ(H.seed ?? H.intakeCell());
     this.pumpMesh.position.set(x, this.terrain.heightAt(x, z) - 0.3, z);
+    this.pumpMesh.visible = this.markerVis.pump;
     for (const m of this.outletMeshes) this.scene.remove(m);
     this.outletMeshes = H.outlets.map((o) => {
       const m = new THREE.Mesh(this.outletGeo, this.outletMat);
       m.position.copy(o.pos);
       if (o.wall) { m.rotation.x = Math.PI / 2; m.position.z += 0.2; } else m.position.y -= 0.3;
       m.name = 'outlet';
+      m.visible = this.markerVis.outlets;
       m.userData.outlet = o;
       this.scene.add(m);
       return m;
@@ -561,6 +572,7 @@ export class Water {
     this.hydro.d.fill(0);
     this.hydro.flux.fill(0);
     this.hydro.pump.intake = null;
+    this.hydro.resVol = 0;   // an empty tank: the pump goes back to the deepest point (hydro.rebuild pins it only over water)
     this.hydro.rebuild();
     this.hydro.setLevel(0);
     this.hydro.d.fill(0);

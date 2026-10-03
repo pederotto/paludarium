@@ -124,7 +124,7 @@ export class Sim {
     // (waterbodies.js). Current at the surface breaks it; seashore springtails (`film`) graze it off.
     let grazers = 0;
     for (const id in SPECIES) if (SPECIES[id].film) grazers += W.animals.count(id) * SPECIES[id].film;
-    const flowNow = E.filter ? E.flow ?? 0.1 : 0;
+    const flowNow = E.flow ?? 0.1;   // the filter's current and the pump's turnover (waterbodies.js)
     E.film = clamp((E.film ?? 0) + d * (0.00012 * clamp(E.detritus / 4, 0, 2) - 0.0005 * flowNow - grazers * 0.000012 - (E.film ?? 0) * 0.0002), 0, 1);
 
     // --- Plants ------------------------------------------------------

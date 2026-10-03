@@ -247,15 +247,22 @@ export class Plumbing {
     const W = this.world, E = W.env, T = W.terrain, wall = W.wall, level = W.water.hydro.level;
     const hw = TANK.w / 2, back = (x, y) => wall.zAt(x, y);
     const pool = (x, z) => W.water.inMainPool(x, z) && level - T.heightAt(x, z) > 2;
+    const relaxY = (pts) => { for (let k = 1; k < pts.length - 1; k++) pts[k].y = Math.max(pts[k].y, (pts[k - 1].y + pts[k].y * 2 + pts[k + 1].y) / 4); };
     // A point in the pool well away from the pump, back if possible.
     const spot = (cands) => cands.find(([x, z]) => Math.abs(x) < hw - 2 && pool(x, z) && Math.hypot(x - px, z - pz) > 6) ?? null;
     const zb = (x) => back(x, level) + 2.5;
     const corners = [[-hw + 4, zb(-hw + 4)], [hw - 4, zb(hw - 4)], [px - 9, pz - 2], [px + 9, pz - 2], [px, pz + 8]];
-    const over = (x, z0, y0) => {                                         // a hose from (x, y0, z0) up and over the back rim
-      const zr = -TANK.d / 2 + 0.6, pts = [];
-      for (let k = 0; k <= 10; k++) { const t = k / 10; pts.push(V(x, y0 + (TANK.h + 1.5 - y0) * smooth(0, 0.7, t), z0 + (zr - z0) * smooth(0.5, 1, t))); }
-      pts.push(V(x, TANK.h + 2.2, zr - 1.5), V(x, TANK.h - 3, zr - 2.4));
-      S.tube(new THREE.CatmullRomCurve3(pts).getSpacedPoints(24), 0.32, HOSE);
+    // A hose from (x, y0, z0) to the background just over the water (riding over any land in between), up its face and over
+    // the back rim, as a keeper runs an airline or a canister hose.
+    const over = (x, z0, y0) => {
+      const zr = -TANK.d / 2 + 0.6, top = TANK.h + 1.5, pts = [V(x, y0, z0)];
+      const zw = back(x, y0) + 1.2, n = Math.max(2, Math.ceil(Math.abs(z0 - zw) / 1.5));
+      let y = y0;
+      for (let k = 1; k <= n; k++) { const z = z0 + (zw - z0) * (k / n); y = Math.max(y0, T.heightAt(x, z) + 0.5); pts.push(V(x, y, z)); }
+      for (y += 1.5; y < top - 1; y += 1.5) pts.push(V(x, y, back(x, y) + 1.2));
+      pts.push(V(x, top, Math.max(zr, back(x, top - 1) + 1)), V(x, TANK.h + 2.2, zr - 1.5), V(x, TANK.h - 3, zr - 2.4));
+      relaxY(pts);
+      S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(Math.max(24, Math.ceil(pts.length * 1.5))), 0.32, HOSE);
     };
     if (E.filter) {
       const kind = E.filterKind ?? 'sponge';
@@ -270,12 +277,27 @@ export class Plumbing {
           over(x, z, level + 2.4);
         }
       } else if (kind === 'matten') {
-        // Across whichever back corner holds pool water; the foam stands from the bottom to just over the surface.
+        // Across whichever back corner holds pool water; failing that, along a side glass where the pool reaches it. The
+        // foam stands from the bottom to just over the surface.
+        const segs = [];
         for (const sx of [-1, 1]) {
           const cx = sx * (hw - 3.5), cz = zb(cx) + 1;
-          if (!pool(cx, cz)) continue;
-          const g = Math.min(T.heightAt(cx, cz), level - 2), hgt = level - g + 1.2;
-          const a = V(sx * hw, 0, back(sx * hw, level) + 8.5), b = V(sx * (hw - 8.5), 0, back(sx * (hw - 8.5), level));
+          if (pool(cx, cz)) segs.push([sx, V(sx * hw, 0, back(sx * hw, level) + 8.5), V(sx * (hw - 8.5), 0, back(sx * (hw - 8.5), level))]);
+        }
+        for (const sx of [-1, 1]) {
+          const x = sx * (hw - 2.6);
+          let z1 = null, z2 = null;
+          for (let z = -TANK.d / 2 + 1; z < TANK.d / 2 - 1; z += 1) {
+            if (pool(x, z) && pool(x - sx * 1.6, z)) { if (z1 === null) z1 = z; z2 = z; if (z2 - z1 >= 14) break; } else if (z1 !== null) break;
+          }
+          if (z1 !== null && z2 - z1 >= 6) segs.push([sx, V(x, 0, z1), V(x, 0, z2)]);
+        }
+        const seg = segs[0];
+        if (seg) {
+          const [sx, a, b] = seg;
+          let g = level - 2;
+          for (let k = 0; k <= 4; k++) { const p = a.clone().lerp(b, k / 4); g = Math.min(g, T.heightAt(p.x, p.z)); }
+          const hgt = level - g + 1.2;
           const mid = a.clone().add(b).multiplyScalar(0.5), len = a.distanceTo(b), ang = Math.atan2(b.z - a.z, b.x - a.x);
           const q = new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -ang);
           // Coarse foam: two shades in vertical bands read as a block of open-cell foam.
@@ -283,11 +305,13 @@ export class Plumbing {
             const t = (k + 0.5) / 6, p = a.clone().lerp(b, t);
             S.geo(new THREE.BoxGeometry(len / 6 + 0.02, hgt, 1.6 + (k % 2) * 0.1), new THREE.Matrix4().compose(V(p.x, g + hgt / 2, p.z), q, V(1, 1, 1)), k % 2 ? FOAM2 : FOAM);
           }
-          // The lift tube behind the foam and its spout over the top.
-          const tb = mid.clone().add(V(sx * 2.6, 0, -2.2));
+          // The lift tube behind the foam (toward the glass) and its spout over the top.
+          const away = V(-(b.z - a.z), 0, b.x - a.x).normalize();
+          if (away.dot(V(sx, 0, 0)) < 0 && Math.abs(away.x) > 0.3) away.negate();
+          if (Math.abs(away.x) <= 0.3 && away.z > 0) away.negate();
+          const tb = mid.clone().addScaledVector(away, 1.6);
           S.geo(new THREE.CylinderGeometry(0.5, 0.5, hgt + 1.5, 10, 1, true), cylM(tb.x, g + (hgt + 1.5) / 2, tb.z), CLEAR);
-          S.geo(new THREE.CylinderGeometry(0.42, 0.42, 3.2, 10), cylM(tb.x - sx * 1.3, g + hgt + 1.2, tb.z + 1.2, Math.PI / 2 * 0.6, sx * Math.PI / 2 * 0.6), CLEAR);
-          break;
+          S.geo(new THREE.CylinderGeometry(0.42, 0.42, 3.2, 10), cylM(tb.x - away.x * 1.3, g + hgt + 1.2, tb.z - away.z * 1.3, Math.PI / 2 * 0.6 * -away.z, Math.PI / 2 * 0.6 * away.x), CLEAR);
         }
       } else if (kind === 'canister') {
         const c = spot(corners);

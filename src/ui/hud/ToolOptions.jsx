@@ -279,7 +279,7 @@ function Water() {
   const cur = WATER_TOOLS.find((t) => t[0] === sub.water);
   const total = H.total() / 1000, main = H.resVol / 1000;
   const pools = H.pools.reduce((s, p) => s + p.litres, 0);
-  const pump = !H.outlets.length ? 'no outlets yet' : !H.pump.on ? 'switched off' : H.pump.running ? `${H.pump.rate} L/h` : 'running dry! add water';
+  const pump = !H.outlets.length ? 'no outlets yet' : !H.pump.on ? 'switched off' : H.pump.running ? `${Math.round(H.pump.lph)} of ${H.pump.rate} L/h` : 'running dry! add water';
   void live;
   const full = hudRules().toolOptions === 'full';
   return (

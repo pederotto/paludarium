@@ -143,3 +143,51 @@ test('save and load keep valves and water', () => {
   assert.equal(H2.outlets[0].valve, 0.4);
   within(H2.total(), total, 0.01, 'loaded total');
 });
+
+// The editor's pump move (render/water.js setPump): a new intake, then the same amount of water.
+const movePump = (H, x, z) => { const tot = H.total(); H.pump.intake = { x, z }; H.rebuild(); H.resVol = Math.max(0, H.resVol + tot - H.total()); H.solveLevel(); H.updateMembership(); };
+
+test('moving the pump out of the pool and back brings the main pool back', () => {
+  const { H } = makeWorld();
+  run(H, 20);
+  const L0 = H.level, total = H.total();
+  movePump(H, 30, -18);                 // dry ground on the shelf: the pool is left behind as standing water
+  run(H, 2);
+  within(H.total(), total, 0.005, 'total with the pump on dry ground');
+  assert.ok(!H.pump.running, 'a pump on dry ground does not run');
+  movePump(H, 8, 12);
+  assert.ok(Math.abs(H.level - L0) < 0.3, `level comes back at once: ${L0.toFixed(2)} -> ${H.level.toFixed(2)}`);
+  run(H, 2);
+  within(H.total(), total, 0.005, 'total with the pump back');
+  assert.ok(Math.abs(H.level - L0) < 0.3, `level comes back: ${L0.toFixed(2)} -> ${H.level.toFixed(2)}`);
+  assert.ok(H.pump.running, 'pump runs again');
+});
+
+test('a pump moved into a pond takes that pond as its main pool', () => {
+  const { H } = makeWorld();
+  run(H, 90);
+  const pond = H.poolAt(-26, -15);
+  assert.ok(pond, 'the pond has filled');
+  const total = H.total(), pondL = pond.litres, pondLevel = pond.level;
+  H.setLevel(0.2);                      // drain the main pool first, as the editor asks
+  const t2 = H.total();
+  movePump(H, -26, -15);
+  within(H.total(), t2, 0.005, 'total after the move');
+  assert.ok(H.resVol / 1000 > pondL * 0.9, `the pond's ${pondL.toFixed(2)} L is the main pool now (${(H.resVol / 1000).toFixed(2)} L)`);
+  // (a little under the running pond's surface: without the inflow it settles to its lip)
+  assert.ok(H.level <= pondLevel + 0.1 && H.level > pondLevel - 1, `level is the pond's surface: ${H.level.toFixed(2)} vs ${pondLevel.toFixed(2)}`);
+  void total;
+});
+
+test('a pump with no place of its own stays put when a deeper hole is dug', () => {
+  const { H, f } = makeWorld();
+  H.pump.intake = null;
+  H.rebuild();
+  H.setLevel(10);
+  run(H, 5);
+  const seed = H.seed, L0 = H.level;
+  bump(f, 30, -15, 3, -14);             // a hole on the shelf, deeper than the pool floor
+  H.rebuild();
+  assert.equal(H.seed, seed, 'the pump did not jump into the new hole');
+  assert.ok(Math.abs(H.level - L0) < 0.5, 'the main pool kept its level');
+});

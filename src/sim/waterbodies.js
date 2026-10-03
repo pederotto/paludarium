@@ -415,7 +415,8 @@ export class WaterBodies {
     const pumpTurn = H.pump?.running ? (H.pump.lph ?? 0) / Math.max(1, sump.vol) : 0;   // tank volumes an hour
     for (const b of list) {
       const V = Vb(b);
-      const media = b === sump ? 0.6 + Math.min(E.mediaBio, F.mediaMax) * 0.9 + plenum : 0.6;
+      // Every wet surface carries some bacteria (0.6); the filter's media only while it runs.
+      const media = b === sump ? 0.6 + (E.filter ? Math.min(E.mediaBio, F.mediaMax) * 0.9 : 0) + plenum : 0.6;
       // --- Nitrogen cycle
       const rot = rotting * V / Vtot;
       b.ammonia += ((b.waste + shared * V / Vtot + rot) * d * 0.25) / V;

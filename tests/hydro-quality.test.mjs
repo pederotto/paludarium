@@ -76,3 +76,17 @@ test('ponds linked by the pump share their water', () => {
   assert.ok(Math.abs(deep.ammonia - B.sump.ammonia) < 0.1, 'a flushed pond stays close to the sump');
   assert.ok(env.ammonia >= 0 && env.oxygen > 0.5);
 });
+
+test('the filter media cleans the water only while the filter runs', () => {
+  const nitrified = (on) => {
+    const { H, env } = build();
+    env.filter = on;
+    const B = H.bodies, ctx = { SPECIES, PLANTS, light: 0.8, rotting: 0, waterFrac: 0.2 };
+    B.chemistry(0.01, ctx);
+    B.sump.ammonia = 1; B.sump.nitrite = 0;
+    B.chemistry(2, ctx);
+    return 1 - B.sump.ammonia;
+  };
+  const on = nitrified(true), off = nitrified(false);
+  assert.ok(off < on * 0.8, `ammonia turned over in 2 min: filter on ${on.toFixed(4)}, off ${off.toFixed(4)}`);
+});

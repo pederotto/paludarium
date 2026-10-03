@@ -117,8 +117,7 @@ export class ToolController {
     hint(this.smart?.on && EXPLORER_HINTS[id] ? EXPLORER_HINTS[id] : TOOLS.find((t) => t.id === id).hint);
     this.cursor.visible = false;
     if (W) {
-      W.water.outletMeshes.forEach((m) => { m.visible = id === 'water' || id === 'erase'; });
-      W.water.pumpMesh.visible = id === 'water';
+      W.water.showMarkers(id === 'water' || id === 'erase', id === 'water');
     }
   }
 
@@ -660,7 +659,6 @@ export class ToolController {
       toast('Still loading models…', 'bad');
       return;
     }
-    W.water.outletMeshes.forEach((m) => { m.visible = false; });
     W.groundChanged();
     W.log(`Placed a kit: ${kit.name}${mirror ? ' and its mirror image' : ''}.`);
     const c = this.game.career;
