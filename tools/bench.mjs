@@ -21,7 +21,7 @@ const MORPHS = {      // morph ids per species (docs/GENETICS_SPEC.md; the bodie
   dartfrog: ['cobalt_spotted', 'cobalt_clean', 'sky_spotted', 'sky_clean'],
   guppy: ['red', 'purple', 'blue', 'gold'],
   betta: ['red', 'purple', 'blue', 'cellophane'],
-  shrimp: ['wild', 'red', 'yellow', 'orange'],
+  shrimp: ['wild', 'red', 'yellow', 'orange', 'blue', 'green', 'chocolate', 'black', 'red_rili', 'blue_rili', 'black_rili'],
 };
 const sheets = [];    // species whose morphs are laid out as one sheet
 const ids = args.filter((a) => !a.startsWith('--')).flatMap((a) => {

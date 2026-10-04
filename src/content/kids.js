@@ -26,6 +26,7 @@ export const KID_ANIMALS = [
   { id: 'toad', n: 'Belly toad', p: 'toads', where: 'ground', c: '#e8a23a' },
   { id: 'newt', n: 'Newt', p: 'newts', where: 'water', c: '#8a7a58' },
   { id: 'firesal', n: 'Fire salamander', p: 'fire salamanders', where: 'ground', c: '#f49a0c' },
+  { id: 'redeye', n: 'Red-eyed tree frog', p: 'red-eyed tree frogs', where: 'plants', c: '#e8321a' },
   { id: 'axolotl', n: 'Axolotl', p: 'axolotls', where: 'water', c: '#f0a0b8' },
   { id: 'gecko', n: 'Gecko', p: 'geckos', where: 'wall', c: '#c2a04a' },
   { id: 'crab', n: 'Crab', p: 'crabs', where: 'ground', c: '#b8503c' },

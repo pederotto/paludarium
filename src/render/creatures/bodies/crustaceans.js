@@ -16,6 +16,7 @@
 // Legs beyond four share the nearest of the four leg ids, alternating so neighbours on one side are out of
 // phase (left: 1, 3, 1, 3 ... ; right: 2, 4, 2, 4 ...) and each leg is out of phase with the one opposite it.
 import { ell, smin, smax, vnoise, fbm, cells, C, lerp3, mul3, clamp01, M } from '../kit.js';
+import { MORPHS, shrimpPalette } from '../../../content/morphs.js';
 
 const PI = Math.PI, RAD = PI / 180;
 const { sqrt, abs, cos, sin, max, min } = Math;
@@ -100,8 +101,14 @@ const SHRIMP_MORPHS = {
 // Blue dream (a Neocaridina line bred for a deep blue): a separate species in the game, so it is not in SHRIMP_MORPHS (genes).
 const BLUE_DREAM = { base: 0x1a3fb8, dark: 0x0c2070, light: 0x3f78ee, pink: 0x8fb0e8, clear: 0xc8d8f4, clearAmt: 0.35, speck: null };
 
+// A line without its own entry above: from its palette (content/morphs.js).
+function paletteMorph(morph) {
+  const P = shrimpPalette(morph), mixHex = (a, b, t) => [16, 8, 0].reduce((o, sh) => o | Math.round(((a >> sh) & 255) * (1 - t) + ((b >> sh) & 255) * t) << sh, 0);
+  return { base: P.base, dark: P.deep, light: mixHex(P.base, 0xffffff, 0.25), pink: mixHex(P.base, P.glass, 0.6), clear: P.glass, clearAmt: P.rili ? 0.6 : 0.35, speck: null };
+}
+
 function shrimp(morph = 'red') {
-  const PAL = morph === 'blue' ? BLUE_DREAM : SHRIMP_MORPHS[morph] ?? SHRIMP_MORPHS.red;
+  const PAL = morph === 'blue' ? BLUE_DREAM : SHRIMP_MORPHS[morph] ?? (MORPHS.shrimp[morph] ? paletteMorph(morph) : SHRIMP_MORPHS.red);
   // Body axis: a planar curve in the yz plane, rows [z, y, half width, half height, segment, fraction].
   // Every abdominal segment starts a little smaller (hidden under the one before) and grows to its rim, then
   // steps down again: that is what makes the overlapping plates.
@@ -533,3 +540,6 @@ export const CRUSTACEANS = {
   blueshrimp: () => shrimp('blue'), panther: () => crab('panther'), purpleiso: () => isopod('purple'), pandaking: () => isopod('panda'),
 };
 for (const k of Object.keys(SHRIMP_MORPHS)) CRUSTACEANS[`shrimp:${k}`] = () => shrimp(k);
+// Every other colour line of the genetics (content/morphs.js) stands in with the procedural body in its line's colours until the
+// shrimp model has loaded (the model colours itself per line).
+for (const k of Object.keys(MORPHS.shrimp)) if (!CRUSTACEANS[`shrimp:${k}`]) CRUSTACEANS[`shrimp:${k}`] = () => shrimp(k);

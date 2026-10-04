@@ -155,11 +155,11 @@ test('a call bout and a toe tap stay in range and end at rest', () => {
 test('rig2Pack / rig2Unpack: zero is exact, values come back to within a step, and the floats stay exact in float32', async () => {
   const { rig2Pack, rig2Unpack } = await import('../src/util/gait.js');
   const z = rig2Unpack(...rig2Pack(0, 0, 1, 0, 0));
-  assert.equal(z.bend, 0); assert.equal(z.tail, 0); assert.equal(z.tailF, 1); assert.equal(z.dull, 0); assert.equal(z.piece, 0);
-  for (const [bend, tail, tf, du, pc] of [[0.5, -0.2, 0.1, 0.85, 0.55], [-0.8, 0.3, 0.85, 0.4, 0], [0.013, 0.26, 0.6, 0, 0.55]]) {
-    const [a, b] = rig2Pack(bend, tail, tf, du, pc);
-    assert.equal(Math.fround(a), a); assert.equal(Math.fround(b), b);
+  assert.equal(z.bend, 0); assert.equal(z.tail, 0); assert.equal(z.tailF, 1); assert.equal(z.dull, 0); assert.equal(z.piece, 0); assert.equal(z.lift, 0);
+  for (const [bend, tail, tf, du, pc, li] of [[0.5, -0.2, 0.1, 0.85, 0.55, 0.12], [-0.8, 0.3, 0.85, 0.4, 0, -0.3], [0.013, 0.26, 0.6, 0, 0.55, 0.3], [1, 0.5, 1, 1, 1, 0.3]]) {
+    const [a, b] = rig2Pack(bend, tail, tf, du, pc, li);
+    assert.equal(Math.fround(a), a); assert.equal(Math.fround(b), b); assert.ok(b < 2 ** 24);
     const u = rig2Unpack(a, b);
-    assert.ok(Math.abs(u.bend - bend) < 0.002 && Math.abs(u.tail - tail) < 0.001 && Math.abs(u.tailF - tf) < 0.01 && Math.abs(u.dull - du) < 0.01 && Math.abs(u.piece - pc) < 0.005);
+    assert.ok(Math.abs(u.bend - bend) < 0.002 && Math.abs(u.tail - tail) < 0.001 && Math.abs(u.tailF - tf) < 0.01 && Math.abs(u.dull - du) < 0.01 && Math.abs(u.piece - pc) < 0.005 && Math.abs(u.lift - li) < 0.011);
   }
 });

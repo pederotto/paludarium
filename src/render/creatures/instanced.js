@@ -27,7 +27,8 @@
 //             the spine fraction a dropped tail piece was cut at (0 for a whole animal). A gecko that dropped its tail has a blunt
 //             stump (`rig2.tail0`: the spine fraction of the vent; `tailY`: the height of the tail's axis); the dropped tail is another
 //             instance of the same mesh with the piece set, which shows only the part beyond the cut and thrashes about it. The dullness
-//             is a milky tint in the material before a shed.
+//             is a milky tint in the material before a shed. The tail's lift (rig2Pack) curves the tail up or down, so a body standing
+//             on a stone or a slope lays its tail along the ground instead of through it.
 //   legAxis   'x' for a sideways walker (crab): the gait swings feet along the body's x axis, in the direction given
 //             by the sign of anim.y (the body wave is not used).
 //   invert    (finish.invert = { antenna, wave, curl }) insects, isopods and shrimp. The packed bits a frog spends on breath,
@@ -36,7 +37,8 @@
 //             wings spread from folded; hop = the jumping hind legs and a springtail's furcula kicking out, or the body curling
 //             (`curl`: { z0, y0, len, flick }: a panda king isopod rolls into a ball, a shrimp flicks its tail under, about the
 //             belly line y0 at z0 over `len` cm). Leg ids beyond the four walking ones: 7 / 8 antennae, 9 wings, 10 swimmerets,
-//             11 / 12 jumping hind legs (walk with the tripod of 1 and 4 / 2 and 3), 13 furcula, 15 / 16 a shrimp's pincers.
+//             11 / 12 jumping hind legs (walk with the tripod of 1 and 4 / 2 and 3), 13 furcula, 14 a shrimp's eggs (shown while `spread`
+//             is up, folded to `invert.eggs` inside the abdomen otherwise), 15 / 16 a shrimp's pincers.
 //             `wave` (radians per spine length): legs step in a wave from tail to head, opposite sides half a cycle apart,
 //             instead of in diagonal pairs (seven pairs of isopod legs or five of a shrimp's walking in two groups shuffled).
 
@@ -98,7 +100,7 @@ export class CreatureMesh {
     this.iPos.setXYZW(i, pos.x, pos.y, pos.z, scale);
     this.iRot.setXYZW(i, quat.x, quat.y, quat.z, quat.w);
     this.iAnim.setXYZW(i, a0, a1, a2, a3);
-    if (this.iAnim2) { const [pa, pb] = rig2Pack(b2, b3, c0, c1, c2); this.iAnim2.setXYZW(i, b0, b1, pa, pb); }
+    if (this.iAnim2) { const [pa, pb] = rig2Pack(b2, b3, c0, c1, c2, c3); this.iAnim2.setXYZW(i, b0, b1, pa, pb); }
   }
 
   end() {
@@ -204,6 +206,8 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       const ttPiece = max(spine.sub(u2.piece), float(0)).div(max(float(1).sub(u2.piece), 0.05));
       const tt = select(piece, ttPiece, ttBody);
       p.x.addAssign(u2.tail.mul(len).mul(tt.mul(tt)));
+      // the tail curved up or down so it lies along the ground (Animals.tailLift): not for a dropped piece, which lies as it fell
+      p.y.addAssign(select(piece, float(0), u2.lift).mul(len).mul(ttBody.mul(ttBody)));
     }
     // Per-instance state, unpacked from anim.w (see packAnim).
     const n0 = floor(anim.w.mul(0.5));
@@ -271,6 +275,11 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       p.y.addAssign(ch.mul(feed).mul(pk.mul(0.5).add(0.1)));
       p.z.subAssign(ch.mul(feed).mul(pk.mul(0.3)));
       p.x.subAssign(sgn.mul(ch).mul(feed).mul(max(pk, 0)).mul(0.3));
+      // Eggs (14): a berried shrimp's clutch under the tail; folded to a point inside the abdomen (invert.eggs) unless `spread` is up.
+      if (inv.eggs) {
+        const eg = idIs(14);
+        p.assign(select(eg, vec3(0, inv.eggs.y, inv.eggs.z).add(p.sub(vec3(0, inv.eggs.y, inv.eggs.z)).mul(spread)), p));
+      }
       // Furcula (13): the springtail's spring snaps down and back as it jumps.
       const fur = idIs(13).select(legT, float(0));
       p.z.subAssign(fur.mul(hopv)); p.y.subAssign(fur.mul(hopv).mul(0.8));

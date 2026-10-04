@@ -37,10 +37,21 @@ export const MORPHS = {
     cellophane: M('Cellophane', 'Pale and see-through, like stained glass. Needs two cellophane genes.', 4),
   },
   shrimp: {
-    wild: M('Wild brown', 'Clear brownish shrimp, hard to spot in the plants.', 1),
-    red: M('Cherry red', 'The bright red pet shrimp everybody knows.', 1),
-    yellow: M('Yellow', 'A sunny yellow shrimp.', 2),
+    wild: M('Wild brown', 'Clear brownish shrimp with dark speckles, hard to spot in the plants: what the colour lines go back to.', 1),
+    red: M('Cherry red', 'The bright red pet shrimp everybody knows. Two red genes.', 1),
+    yellow: M('Yellow', 'A sunny yellow shrimp with a golden back. Two yellow genes.', 2),
     orange: M('Orange', 'Red and yellow genes together make a glowing orange.', 3),
+    blue: M('Blue', 'A deep blue shrimp. Two blue genes.', 2),
+    green: M('Green jade', 'Yellow and blue genes together make a jade green.', 3),
+    chocolate: M('Chocolate', 'Red and blue genes together make a dark chocolate brown.', 3),
+    black: M('Black rose', 'All three colour genes at once: nearly black, with a glassy shine.', 4),
+    red_rili: M('Red rili', 'Red at the head and tail with a clear band across the middle: one rili gene is enough.', 2),
+    yellow_rili: M('Yellow rili', 'Yellow with a clear band across the middle.', 3),
+    orange_rili: M('Orange rili', 'Orange with a clear band across the middle.', 4),
+    blue_rili: M('Blue rili', 'Blue with a clear band across the middle.', 3),
+    green_rili: M('Green rili', 'Jade green with a clear band across the middle.', 4),
+    chocolate_rili: M('Chocolate rili', 'Chocolate with a clear band across the middle.', 4),
+    black_rili: M('Carbon rili', 'Black with a clear band across the middle. Four genes have to line up.', 5),
   },
 };
 
@@ -65,6 +76,8 @@ export const LOCI_TEXT = {
   shrimp: [
     { name: 'Red gene', traits: { W: 'wild brown', r: 'red' } },
     { name: 'Yellow gene', traits: { Y: 'normal', y: 'yellow' } },
+    { name: 'Blue gene', traits: { B: 'normal', b: 'blue' } },
+    { name: 'Rili gene', traits: { L: 'rili (clear band)', l: 'solid' } },
   ],
 };
 
@@ -74,7 +87,26 @@ export const SWATCH = {
   dartfrog: { cobalt_spotted: '#2f55c8', cobalt_clean: '#2a48b0', sky_spotted: '#72bdee', sky_clean: '#9bd3f5' },
   guppy: { red: '#e04a3f', purple: '#8e5bc4', blue: '#3f7fe0', gold: '#ebc23d' },
   betta: { red: '#d8323a', purple: '#8a4fc0', blue: '#2f5fd0', cellophane: '#e8edf0' },
-  shrimp: { wild: '#9b8364', red: '#d8323a', yellow: '#eed23a', orange: '#f08a2c' },
+  shrimp: { wild: '#9b8364', red: '#d8323a', yellow: '#eed23a', orange: '#f08a2c', blue: '#2f5fd0', green: '#3f9a5a', chocolate: '#5a3424', black: '#1c1a22',
+    red_rili: '#e8868a', yellow_rili: '#f2e08a', orange_rili: '#f4b07a', blue_rili: '#8aa8e8', green_rili: '#8ac49a', chocolate_rili: '#9a7a6a', black_rili: '#6a6872' },
+};
+
+// How a dwarf shrimp's colour line is drawn (render/creatures/material.js `palette`): `base` the pigment on the flanks, `deep` the
+// pigment on the back, `glass` the unpigmented shell (clear, faintly tinted), as sRGB hex; a rili line (`_rili`) has the same colours
+// with the middle of the body cleared to glass.
+export const SHRIMP_PALETTE = {
+  wild: { base: 0x7d7255, deep: 0x3f3a26, glass: 0xd8dccc },
+  red: { base: 0xc0141c, deep: 0x7a0a12, glass: 0xf0c8c0 },
+  yellow: { base: 0xe8b00c, deep: 0xb07800, glass: 0xfff0c4 },
+  orange: { base: 0xec5a10, deep: 0xa83206, glass: 0xffdcc4 },
+  blue: { base: 0x1d44b8, deep: 0x0c1f6e, glass: 0xc8d6f2 },
+  green: { base: 0x2f8a3e, deep: 0x14502a, glass: 0xd2ecd4 },
+  chocolate: { base: 0x5a2c1a, deep: 0x2e140a, glass: 0xe0cfc4 },
+  black: { base: 0x1c1a24, deep: 0x08080c, glass: 0xc8ccd4 },
+};
+export const shrimpPalette = (morph = 'red') => {
+  const rili = /_rili$/.test(morph ?? '');
+  return { ...(SHRIMP_PALETTE[(morph ?? 'red').replace(/_rili$/, '')] ?? SHRIMP_PALETTE.red), rili };
 };
 export const swatch = (sp, morph) => SWATCH[sp]?.[morph] ?? '#999';
 

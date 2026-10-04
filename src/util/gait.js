@@ -180,14 +180,18 @@ export function unpackAnim(w) {
 // The second per-instance vector of a species with finish.rig2 is (head yaw, head pitch, A, B). WebGPU allows 8 vertex buffers a
 // pipeline and the creature meshes already use them, so the rest rides packed in two floats (each below 2^24, exact in float32):
 //   A = bend + 1024 * tail            bend -1 … 1 and tail -0.5 … 0.5 (fractions of the body length), 0 … 1022 steps each: 0 is exact
-//   B = tailLength * 63 + 64 * (dullness * 63 + 64 * piece * 127)    tail length 0 … 1, skin dullness 0 … 1, the tail piece's cut 0 … 1
+//   B = tailLength * 63 + 64 * (dullness * 63 + 64 * (piece * 127 + 128 * lift))    tail length 0 … 1, skin dullness 0 … 1, the tail
+//       piece's cut 0 … 1, and the tail's lift -0.3 … 0.3 (a fraction of the body length at the tip, in 30 steps: 0 is exact), which
+//       curves the tail up or down so it lies along the ground behind a body that stands on a slope or a stone
 // render/creatures/material.js rig2Unpack is the same arithmetic as a node graph.
-export function rig2Pack(bend, tail, tailF = 1, dull = 0, piece = 0) {
+export const LIFT_MAX = 0.3;
+export function rig2Pack(bend, tail, tailF = 1, dull = 0, piece = 0, lift = 0) {
   const q = (v, n) => Math.round(clamp01(v) * n);
-  return [q((bend + 1) / 2, 1022) + 1024 * q(tail + 0.5, 1022), q(tailF, 63) + 64 * (q(dull, 63) + 64 * q(piece, 127))];
+  return [q((bend + 1) / 2, 1022) + 1024 * q(tail + 0.5, 1022), q(tailF, 63) + 64 * (q(dull, 63) + 64 * (q(piece, 127) + 128 * q((lift + LIFT_MAX) / (2 * LIFT_MAX), 30)))];
 }
 export function rig2Unpack(a, b) {
   const tq = Math.floor(a / 1024), bq = a - tq * 1024;
-  const pq = Math.floor(b / 4096), r = b - pq * 4096, dq = Math.floor(r / 64), fq = r - dq * 64;
-  return { bend: (bq / 1022) * 2 - 1, tail: tq / 1022 - 0.5, tailF: fq / 63, dull: dq / 63, piece: pq / 127 };
+  const hq = Math.floor(b / 4096), r = b - hq * 4096, dq = Math.floor(r / 64), fq = r - dq * 64;
+  const lq = Math.floor(hq / 128), pq = hq - lq * 128;
+  return { bend: (bq / 1022) * 2 - 1, tail: tq / 1022 - 0.5, tailF: fq / 63, dull: dq / 63, piece: pq / 127, lift: (lq / 30) * 2 * LIFT_MAX - LIFT_MAX };
 }

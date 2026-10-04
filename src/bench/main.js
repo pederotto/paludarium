@@ -8,7 +8,7 @@
 // window.bench.setView(name) etc. drive it from tools/bench.mjs, which builds contact sheets.
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { SPECIES, createSpeciesMesh } from '../sim/animals.js';
+import { SPECIES, createSpeciesMesh, paletteFinish } from '../sim/animals.js';
 import { U } from '../render/uniforms.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { CreatureLOD } from '../render/creatures/instanced.js';
@@ -67,11 +67,12 @@ let lod = makeLod();
 if (q.get('src') === 'glb') {
   const man = await loadManifest();
   const key = q.has('body') ? `${id}.${q.get('body')}` : morph && man[`${id}:${morph}`] ? `${id}:${morph}` : id;      // &body=swim: a pose model ('<species>.swim' in the manifest)
+  const pal = man[key]?.palette ? { palette: paletteFinish(morph ?? man[key].paletteMorph ?? 'red', man[key]) } : {};   // a palette model coloured as the line
   const g = man[key] && await loadCreatureGLB(key, { legs: !q.has('body') && ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab'].includes(sp.kind), ...man[key] });
   if (g) {
     lod.lo.mesh.removeFromParent();
     const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
-    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, legAxis: sp.anim?.legAxis ?? 'z', limb: sp.anim?.limb ?? 1, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(man[key].finish ?? {}), ...(sp.anim?.rig2 ? { rig2: sp.anim.rig2 } : {}) }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
+    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, legAxis: sp.anim?.legAxis ?? 'z', limb: sp.anim?.limb ?? 1, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(man[key].finish ?? {}), ...pal, ...(sp.anim?.rig2 ? { rig2: sp.anim.rig2 } : {}) }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
     hiReady = true;
   } else console.warn('no GLB for', key);
 }

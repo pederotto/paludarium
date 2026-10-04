@@ -678,6 +678,25 @@ const heterixalus = (a) => {
   return headMarks(a, col, C(0x020202));
 };
 
+// Red-eyed tree frog (Agalychnis callidryas): only the stand-in until the scanned model has loaded (public/assets/creatures/
+// redeye.glb). Leaf green above, blue flanks with cream bars, orange hands and feet, a white belly, red eyes with a slit pupil.
+const callidryas = (a) => {
+  const { x, y, z } = a;
+  const eyeC = a.eye ? paintEye(a) : null;
+  if (eyeC) return eyeC;
+  const belly = bellyOf(a), limb = a.kind !== 'body';
+  let col = lerp3(C(0x5fb92c), C(0x8fd84a), wnoise(x, y, z, 3) * 0.5);
+  const side = sstep(0.35, -0.1, a.n[1]) * (1 - belly);
+  if (!limb) col = lerp3(col, lerp3(C(0x2a49a8), C(0xf0dc6a), sstep(0.6, 0.85, Math.abs(Math.sin(z * 7)))), side * 0.9);
+  else {
+    col = lerp3(col, C(0x3a40a4), sstep(0.3, -0.3, a.n[1]) * 0.8);
+    col = lerp3(col, C(0xf5901c), a.kind === 'hind' ? sstep(0.55, 0.68, a.t) : sstep(0.58, 0.7, a.t));
+  }
+  col = lerp3(col, C(0xf2f0e2), belly * 0.9);
+  return headMarks(a, col, C(0x2a3a14));
+};
+const EYE_CAL = { inner: C(0xf02810), outer: C(0xb01008), pupil: [0.16, 0.5] };
+
 // ---- The frogs ---------------------------------------------------------------------------------
 
 // A seated toad: flat and wide, short legs, blunt fingers, webbed hind feet, eyes up on the head.
@@ -721,6 +740,7 @@ export const FROGS = {
   auratus: () => frogDef({ size: 4.0, cell: 0.066, paint: auratus, eyePal: EYE_AUR, geo: scaleGeo(DART, { kx: 0.97, ky: 0.98, kz: 1.03, kr: 0.95 }) }),
   bumblebee: () => frogDef({ size: 2.8, cell: 0.052, paint: melanophryniscus, eyePal: EYE_MEL, legK: 0.85, geo: scaleGeo(TOAD, { kx: 0.86, ky: 1.05, kz: 1.02, kr: 0.9, ke: 0.9, kd: 0.6, hind: 0.8, fore: 0.9 }), finish: { rough: 0.6, coat: 0.12, coatRough: 0.5, grain: 10, bump: 0.04, grainAmt: 0.6, tone: 0.03 } }),
   reedfrog: () => { const g = scaleGeo(DART, { kx: 0.9, ky: 0.92, kz: 1.1, kr: 0.92, ke: 1.08, kd: 1.5, hind: 1.25, fore: 1.15 }); g.box = [2.05, g.box[1], g.box[2] * 1.08, g.box[3]]; return frogDef({ size: 3.0, cell: 0.056, paint: heterixalus, eyePal: EYE_HET, geo: g, finish: { rough: 0.3, coat: 0.6, coatRough: 0.12 } }); },
+  redeye: () => { const g = scaleGeo(DART, { kx: 0.92, ky: 0.88, kz: 1.12, kr: 1.1, ke: 1.3, kd: 1.6, hind: 1.4, fore: 1.3 }); g.box = [2.1, g.box[1], g.box[2] * 1.1, g.box[3]]; return frogDef({ size: 5.5, cell: 0.08, paint: callidryas, eyePal: EYE_CAL, geo: g, finish: { rough: 0.36, coat: 0.55, coatRough: 0.18 } }); },
   toad: () => frogDef({ size: 4.5, cell: 0.072, paint: bombina, eyePal: EYE_BOMB, geo: TOAD, finish: { rough: 0.55, coat: 0.18, coatRough: 0.45, grain: 10, bump: 0.05, grainAmt: 0.8, tone: 0.03 } }),
 };
 

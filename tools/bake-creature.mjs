@@ -24,6 +24,7 @@ import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer
 const OUT = 'public/assets/creatures';
 // rotY: degrees about y that turn the mesh's head towards +z. lengthCm: nose-to-tail length of the real animal.
 const FROG = { src: 'frog_mesh', rotY: -90, pre: 22000, rig: 'frog', legs: true, matId: 0, texture: 1024, aoReach: 0.35 };
+const SHRIMP = { src: 'shrimp_mesh', rotY: 90, lengthCm: 1.6, tris: [11000, 3200], rig: 'shrimp', rigLeg: 16, legs: true, matId: 7, texture: 512, aoReach: 0.1 };
 const JOBS = {
   // The frogs: one scan (frog_mesh, a sitting Dendrobates) decimated to 30k triangles, rigged (tools/rig/frog.mjs: limbs measured
   // along their length, so a folded hind leg moves at the foot), reshaped per species (tools/rig/warps.mjs) and painted into a
@@ -43,6 +44,17 @@ const JOBS = {
   // Vampire crab: carapace 2.1 cm wide (the procedural body's size, so the sim's spacing is unchanged), legs about 6 cm across.
   // matId 0 (skin) not 4 (chitin): the chitin id has a fixed clear coat that ignores finish and looked like plastic on the scan.
   crab: { src: 'crab_mesh', rotY: 0, shellWidthCm: 2.1, tris: [10000, 3200], paint: 'crab', rig: 'crab', legs: true, matId: 0, texture: 1024 },
+  // Red-eyed tree frog: its own scan (redeye_frog_mesh, standing alert with the limbs clear of the body and the toe discs spread),
+  // rigged like the other frogs and painted from the reference pictures (tools/paint/callidryas.mjs). 6.4 cm nose to toe tips
+  // as it stands (a female's body is about 6 cm, a male's 5).
+  redeye: { src: 'redeye_frog_mesh', rotY: 90, rig: 'frog', legs: true, matId: 0, texture: 1024, aoReach: 0.3, lengthCm: 6.4, tris: [10000, 5000], paint: 'callidryas' },
+  // Dwarf shrimp: one scan (shrimp_mesh, a Caridina-shaped shrimp standing on its legs), rigged by tools/rig/shrimp.mjs (pincers,
+  // walking legs, antennae and swimmerets; long antenna whips and the swimmerets are added as geometry) and painted per colour form
+  // into a 512 texture. Scaled by the body (rostrum to the base of the tail fan 1.6 cm, about 2 cm to the fan's tip: a grown female;
+  // the game draws males smaller), not by the whips. Leg ids go up to 16 (rigLeg).
+  // One file for every colour line: the texture is a pigment mask (tools/paint/shrimp.mjs maskTexel) that the game colours per line
+  // (`palette` in the manifest: the morphs of the species' genetics; blue dream is the same shrimp in blue).
+  shrimp: { ...SHRIMP, paint: 'shrimp#mask', palette: true },
   // `texture: 1024`: a painted UV texture instead of vertex colours (tools/rig/texture.mjs). The old "tan patches" were faces that
   // xatlas squashed to a point because the crab was unwrapped in metres; unwrap now rescales (see unwrap()).
 };
@@ -77,7 +89,7 @@ function simplified(pos, idx, targetTris) {
   return { pos: np, idx: out, from };
 }
 
-async function build(id, job, paint, level, geo, fullNormals, rig = null) {
+async function build(id, job, paint, level, geo, fullNormals, rig = null, spineZ = null) {
   const { pos, idx, from } = geo;
   const src = (i) => (from ? from[i] : i);
   const n = pos.length / 3;
@@ -114,7 +126,8 @@ async function build(id, job, paint, level, geo, fullNormals, rig = null) {
     .setMaterial(doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.6).setMetallicFactor(0));
   if (rig) {
     const r = new Float32Array(n * 4);
-    for (let i = 0; i < n; i++) { const j = src(i); r[i*4] = Math.max(0, Math.min(1, (z1 - pos[i*3+2]) / (z1 - z0))); r[i*4+1] = rig.leg[j] / 8; r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
+    const [sz0, sz1] = spineZ ?? [z0, z1];
+    for (let i = 0; i < n; i++) { const j = src(i); r[i*4] = Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
     prim.setAttribute('_RIG', doc.createAccessor().setType('VEC4').setArray(r).setBuffer(buf));
   }
   const mesh = doc.createMesh(id).addPrimitive(prim);
@@ -126,12 +139,13 @@ async function build(id, job, paint, level, geo, fullNormals, rig = null) {
 }
 
 // The textured variant of build(): positions, normals, UVs and the baked rig; the hi level embeds the colour texture.
-async function buildTextured(id, job, level, g, rig, image) {
+async function buildTextured(id, job, level, g, rig, image, spineZ = null) {
   const { pos, nor, uv, idx, from } = g, n = pos.length / 3;
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
   for (let i = 0; i < n; i++) { x0 = Math.min(x0, pos[i*3]); x1 = Math.max(x1, pos[i*3]); y0 = Math.min(y0, pos[i*3+1]); y1 = Math.max(y1, pos[i*3+1]); z0 = Math.min(z0, pos[i*3+2]); z1 = Math.max(z1, pos[i*3+2]); }
   const r = new Float32Array(n * 4);
-  for (let i = 0; i < n; i++) { const j = from[i]; r[i*4] = Math.max(0, Math.min(1, (z1 - pos[i*3+2]) / (z1 - z0))); r[i*4+1] = rig.leg[j] / 8; r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
+  const [sz0, sz1] = spineZ ?? [z0, z1];
+  for (let i = 0; i < n; i++) { const j = from[i]; r[i*4] = Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
   const doc = new Document();
   const buf = doc.createBuffer();
   const mat = doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.7).setMetallicFactor(0);
@@ -153,7 +167,7 @@ async function buildTextured(id, job, level, g, rig, image) {
   return { file, verts: n, tris: idx.length / 3, bytes: fs.statSync(file).size, size: [(x1 - x0) * 100, (y1 - y0) * 100, (z1 - z0) * 100] };
 }
 
-async function bakeTextured(id, job, pos, srcIdx, fullN, rig, eye = null) {
+async function bakeTextured(id, job, pos, srcIdx, fullN, rig, eye = null, spineZ = null) {
   const { unwrap, paintTexture, simplifyKeepingSeams, uvStats } = await import('./rig/texture.mjs');
   const texel = job.texelFn;
   const U = await unwrap(pos, srcIdx, job.texture);
@@ -181,13 +195,13 @@ async function bakeTextured(id, job, pos, srcIdx, fullN, rig, eye = null) {
   fs.mkdirSync('test-output/bake', { recursive: true });
   await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).png().toFile(`test-output/bake/${id.replace(':', '-')}_color.png`);
   console.log(`  texture ${job.texture}px painted in ${Date.now() - t0} ms, ${(webp.length / 1024) | 0} KB webp (preview test-output/bake/${id}_color.png)`);
-  const hi = await buildTextured(id, job, 'hi', { pos: P, nor: N, uv: U.uv, idx: U.idx, from: U.from }, rig, webp);
+  const hi = await buildTextured(id, job, 'hi', { pos: P, nor: N, uv: U.uv, idx: U.idx, from: U.from }, rig, webp, spineZ);
   const L = simplifyKeepingSeams(P, U.idx, job.tris[1], U.uv);
   const m = L.from.length, LP = new Float32Array(m * 3), LN = new Float32Array(m * 3), LU = new Float32Array(m * 2), LF = new Uint32Array(m);
   for (let i = 0; i < m; i++) { const j = L.from[i]; for (let k = 0; k < 3; k++) { LP[i*3+k] = P[j*3+k]; LN[i*3+k] = N[j*3+k]; } LU[i*2] = U.uv[j*2]; LU[i*2+1] = U.uv[j*2+1]; LF[i] = U.from[j]; }
   const sl = uvStats(LU, L.idx, LP, job.texture);
   console.log(`  lo uv: texel density p1 ${sl.p1} p5 ${sl.p5}, ${sl.squashed} faces under 10 %`);
-  const lo = await buildTextured(id, job, 'lo', { pos: LP, nor: LN, uv: LU, idx: L.idx, from: LF }, rig, null);
+  const lo = await buildTextured(id, job, 'lo', { pos: LP, nor: LN, uv: LU, idx: L.idx, from: LF }, rig, null, spineZ);
   return { hi, lo };
 }
 
@@ -213,7 +227,8 @@ for (const [id, job] of Object.entries(JOBS)) {
     if (job.pre) { const s = simplified(cache[ckey].pos, cache[ckey].idx, job.pre); cache[ckey] = { pos: s.pos, idx: s.idx }; }
   }
   // Orient, stand on the ground, centre, scale to the real length (metres).
-  const src = cache[ckey], pos = Float32Array.from(src.pos);
+  const src = cache[ckey];
+  let pos = Float32Array.from(src.pos), idx0 = src.idx;
   const a = job.rotY * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
   for (let i = 0; i < pos.length; i += 3) { const x = pos[i], z = pos[i + 2]; pos[i] = x * ca + z * sa; pos[i + 2] = -x * sa + z * ca; }
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, z0 = 1e9, z1 = -1e9;
@@ -224,16 +239,29 @@ for (const [id, job] of Object.entries(JOBS)) {
     // Segment and shade in the scan's own units (the thresholds are tuned to it), then scale by the shell.
     const { [`${job.rig}Rig`]: makeRig } = await import(`./rig/${job.rig}.mjs`);
     const { ambientOcclusion, normals: nrm } = await import('./rig/appendages.mjs');
-    rig = makeRig(pos, src.idx);
-    rig.ao = ambientOcclusion(pos, src.idx, nrm(pos, src.idx), { rays: 48, reach: job.aoReach ?? 0.3 });
+    rig = makeRig(pos, idx0);
+    // A rig may add geometry the scan lacks (a shrimp's antennae whips and swimmerets): appended here, with its rig data.
+    if (rig.extra) {
+      const X = rig.extra, n0 = pos.length / 3, P2 = new Float32Array(pos.length + X.pos.length), I2 = new Uint32Array(idx0.length + X.idx.length);
+      P2.set(pos); P2.set(X.pos, pos.length); I2.set(idx0); I2.set(X.idx, idx0.length);
+      const cat = (a, b, T) => { const o = new T(a.length + b.length); o.set(a); o.set(b, a.length); return o; };
+      rig.leg = cat(rig.leg, X.leg, Uint8Array); rig.legT = cat(rig.legT, X.legT, Float32Array); rig.part = [...rig.part, ...X.part];
+      pos = P2; idx0 = I2;
+      console.log(`  rig added ${X.pos.length / 3} vertices, ${X.idx.length / 3} triangles (from ${n0} vertices)`);
+    }
+    if (rig.counts) console.log('  rig', JSON.stringify(rig.counts));
+    rig.ao = ambientOcclusion(pos, idx0, nrm(pos, idx0), { rays: 48, reach: job.aoReach ?? 0.3 });
     const n = pos.length / 3;
     rig.eyeT ??= new Float32Array(n);
     const sh = rig.shell;
     if (sh) { k = (job.shellWidthCm / 100) / (sh.x1 - sh.x0); cx = (sh.x0 + sh.x1) / 2; cz = (sh.z0 + sh.z1) / 2; }
-    if (sh) rig.zf = new Float32Array(n);
-    for (let i = 0; sh && i < n; i++) {
-      rig.zf[i] = Math.max(0, Math.min(1, (pos[i*3+2] - sh.z0) / (sh.z1 - sh.z0)));
-      if (rig.part[i] !== 'eye') continue;
+    // `length`: the animal is measured by its body along z (a shrimp without its antennae), not by its bounding box.
+    if (rig.length) { const R = rig.length; k = (job.lengthCm / 100) / (R.z1 - R.z0); cx = (R.x0 + R.x1) / 2; cz = (R.z0 + R.z1) / 2; }
+    if (sh || rig.length) rig.zf = new Float32Array(n);
+    const zr = sh ?? rig.length;
+    for (let i = 0; zr && i < n; i++) {
+      rig.zf[i] = Math.max(0, Math.min(1, (pos[i*3+2] - zr.z0) / (zr.z1 - zr.z0)));
+      if (rig.part[i] !== 'eye' || !rig.eyes?.length) continue;
       const e = rig.eyes.reduce((b, e) => (Math.abs(e.c[0] - pos[i*3]) < Math.abs(b.c[0] - pos[i*3]) ? e : b));
       rig.eyeT[i] = Math.max(0, 1 - Math.hypot(pos[i*3] - e.c[0], pos[i*3+1] - e.c[1], pos[i*3+2] - e.c[2]) / (2.4 * e.r));
     }
@@ -245,6 +273,11 @@ for (const [id, job] of Object.entries(JOBS)) {
       eyesOut = { c: cm(e.c).map((v) => +v.toFixed(3)), r: +(e.r * k * 100).toFixed(3), axis: [stalk[0] / sl * 0.6 + 0.25, stalk[1] / sl * 0.6, stalk[2] / sl * 0.6 + 0.75] };
     }
   }
+  // (the rig's own extent along z, in cm of the baked frame: the spine runs over the body, not over the whips ahead of it)
+  const spineZ = rig?.length ? [(rig.length.z0 - cz) * k, (rig.length.z1 - cz) * k] : null;
+  const curlCm = rig?.curl ? { z0: +((rig.curl.z0 - cz) * k * 100).toFixed(3), y0: +((rig.curl.y0 - y0) * k * 100).toFixed(3), len: +(rig.curl.len * k * 100).toFixed(3) } : null;
+  if (curlCm) console.log('  tail flick pivot (cm)', JSON.stringify(curlCm));
+  if (rig?.eggs) console.log('  egg fold point (cm)', JSON.stringify({ y: +((rig.eggs.y - y0) * k * 100).toFixed(3), z: +((rig.eggs.z - cz) * k * 100).toFixed(3) }));
   for (let i = 0; i < pos.length; i += 3) { pos[i] = (pos[i] - cx) * k; pos[i + 1] = (pos[i + 1] - y0) * k; pos[i + 2] = (pos[i + 2] - cz) * k; }
   // `warp`: reshape one scan into a related species (a flatter toad, a slimmer, longer-legged reed frog), in metres of the baked
   // frame, per vertex with the rig: warp([x, y, z] in cm, { leg, legT, part }) -> [x, y, z] in cm. The eyes move with it.
@@ -264,10 +297,10 @@ for (const [id, job] of Object.entries(JOBS)) {
   if (extra.finish) extra.finish = { ...extra.finish, eyes: Array.isArray(extra.finish.eyes) ? extra.finish.eyes.map((e) => ({ ...e })) : extra.finish.eyes };
   if (eyesOut && typeof extra.finish?.eyes === 'function') extra.finish = { ...extra.finish, eyes: extra.finish.eyes(eyesOut) };
   if (warpEye && Array.isArray(extra.finish?.eyes)) for (const e of extra.finish.eyes) e.c = warpEye(e.c).map((v) => +v.toFixed(3));
-  const fullN = normals(pos, src.idx);
+  const fullN = normals(pos, idx0);
   const { hi, lo } = job.texture && rig
-    ? await bakeTextured(id, job, pos, src.idx, fullN, rig, extra.finish?.eyes?.[0] ?? null)
-    : { hi: await build(id, job, paint, 'hi', simplified(pos, src.idx, job.tris[0]), fullN, rig), lo: await build(id, job, paint, 'lo', simplified(pos, src.idx, job.tris[1]), fullN, rig) };
+    ? await bakeTextured(id, job, pos, idx0, fullN, rig, extra.finish?.eyes?.[0] ?? null, spineZ)
+    : { hi: await build(id, job, paint, 'hi', simplified(pos, idx0, job.tris[0]), fullN, rig, spineZ), lo: await build(id, job, paint, 'lo', simplified(pos, idx0, job.tris[1]), fullN, rig, spineZ) };
   if (process.argv.includes('--eyes')) {
     // Candidate eye bulges: clusters of the highest vertices on each side of the midline (cm).
     let ymax = -1e9; for (let i = 0; i < pos.length / 3; i++) ymax = Math.max(ymax, pos[i*3+1]);
@@ -280,10 +313,15 @@ for (const [id, job] of Object.entries(JOBS)) {
     }
     console.log('  eye candidates (mean of the 40 highest vertices per side, cm)', JSON.stringify(out));
   }
-  manifest[id] = { file: `${id.replace(':', '-')}.glb`, lo: `${id.replace(':', '-')}.lo.glb`, legs: job.legs, ...(job.rig ? { rig: 'baked' } : {}), tris: { hi: hi.tris, lo: lo.tris }, sizeCm: hi.size.map((v) => +v.toFixed(2)), ...extra };
+  manifest[id] = { file: `${id.replace(':', '-')}.glb`, lo: `${id.replace(':', '-')}.lo.glb`, legs: job.legs, ...(job.rig ? { rig: 'baked' } : {}), ...(job.rigLeg ? { rigLeg: job.rigLeg } : {}),
+    ...(job.palette ? { palette: true } : {}), ...(spineZ ? { bodyZ: spineZ.map((v) => +(v * 100).toFixed(3)) } : {}), tris: { hi: hi.tris, lo: lo.tris }, sizeCm: hi.size.map((v) => +v.toFixed(2)), ...extra };
   console.log(`${id}: hi ${hi.tris} tris ${(hi.bytes / 1024) | 0} KB, lo ${lo.tris} tris ${(lo.bytes / 1024) | 0} KB, ${hi.size.map((v) => v.toFixed(2)).join(' x ')} cm (x y z)`);
 }
 // Aliases: a morph whose look is the species' default draws the same files (no second copy; the game loads a file once).
 const ALIAS = { 'dartfrog:cobalt_spotted': 'dartfrog' };
+// The same model in a fixed colour line (a palette model drawn as one line: blue dream is a blue Neocaridina).
+const LINE = { blueshrimp: ['shrimp', 'blue'] };
+for (const [k, [v, line]] of Object.entries(LINE)) if (manifest[v]) manifest[k] = { ...manifest[v], paletteMorph: line };
+for (const k of ['shrimp:red', 'shrimp:wild', 'shrimp:yellow', 'shrimp:orange']) delete manifest[k];     // (per-line files before the palette)
 for (const [k, v] of Object.entries(ALIAS)) if (manifest[v]) manifest[k] = { ...manifest[v] };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));

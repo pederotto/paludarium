@@ -182,7 +182,7 @@ function drives(m, P, s, rnd) {
 // Switch to a mode (keeps the memory tidy).
 function go(m, mode, rnd) {
   if (m.mode === mode) return;
-  m.mode = mode; m.modeT = 0; m.moveLeft = 0; m.pauseLeft = 0; m.goal = null; m.freeze = 0; m.groomLeft = 0; m.gulpT = 0; m.drinkT = 0; m.hideT = 0;
+  m.mode = mode; m.modeT = 0; m.moveLeft = 0; m.pauseLeft = 0; m.goal = null; m.goalOk = false; m.aimed = false; m.freeze = 0; m.groomLeft = 0; m.gulpT = 0; m.drinkT = 0; m.hideT = 0;
   m.warnT = 0; m.sniff = 0;
   m.pauseLeft = rnd() * 0.8;
 }
@@ -389,11 +389,13 @@ function waterThink(m, P, s, d, it, rnd) {
 
   switch (m.mode) {
     case 'flee': {
-      // A burst of tail strokes to cover (or straight away from it), then it freezes.
-      const to = home ?? (s.threat ? away(s, s.threat, 14) : null);
-      it.goal = to; it.speed = P.dash; it.swim = true; it.calm = 1; it.bottom = true;
+      // A burst of tail strokes to cover (or away from it), then it freezes. The escape is chosen once, on the way in (animals.js
+      // swaps a spot it cannot reach, out of the water or behind a rock, for one it can, or for none: then it freezes where it is).
+      if (!m.aimed) { m.aimed = true; m.goal = home ?? (s.threat ? away(s, s.threat, 14) : null); m.goalOk = false; }
+      if (m.goal && dist2(here, m.goal) < 1.2) m.goal = null;
+      it.goal = m.goal; it.speed = m.goal ? P.dash : 0; it.swim = !!m.goal; it.calm = 1; it.bottom = true;
       if (s.threat) it.face = null;
-      Object.assign(tg, { gill: 0.9, bend: 0.05 * m.sideSign });
+      Object.assign(tg, { gill: 0.9, bend: m.goal ? 0.05 * m.sideSign : 0, headP: m.goal ? 0 : -0.06 });
       break;
     }
     case 'air': {

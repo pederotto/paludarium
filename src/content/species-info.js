@@ -84,6 +84,18 @@ export const ANIMAL_INFO = {
     care: ['A tall tank with 70% water and plenty of broad leaves, bamboo and branches above it.', '24–29 °C air, 70–85% humidity.', 'Keep 3 to 5; feed fruit flies and small crickets dusted with calcium and vitamins.'],
     lesson: 'parental-care',
   },
+  redeye: {
+    sci: 'Agalychnis callidryas', family: 'Phyllomedusidae', status: 'Least Concern', region: 'Southern Mexico to northern Colombia',
+    habitat: 'Lowland rainforest, in the trees and shrubs round ponds and slow streams.',
+    facts: [
+      'By day it sleeps glued to the underside of a leaf, legs folded over its blue sides and eyes shut behind a veined lid, almost invisible.',
+      'Woken, it snaps open its red eyes and flashes its blue flanks and orange feet: the surprise can make a predator hesitate.',
+      'It lays its eggs on a leaf over water; the tadpoles drop in when they hatch, and an egg shaken by a snake or a wasp can hatch early to escape.',
+      'Males call with a short "chack" at night, and shake the branch with their legs to warn off rivals.',
+    ],
+    care: ['A tall tank (60 cm and up) with broad-leaved plants, branches and a water area.', '22–28 °C by day, a little cooler at night; 70–90% humidity with an evening misting.', 'Keep 2 to 5; feed crickets, fruit flies and the odd waxworm, dusted with calcium.'],
+    lesson: 'parental-care',
+  },
   marbled: {
     sci: 'Triturus marmoratus', family: 'Salamandridae', status: 'Least Concern', region: 'Iberian Peninsula and western France',
     habitat: 'Ponds and slow water in spring; woods, hedges and stone walls the rest of the year.',

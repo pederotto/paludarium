@@ -26,6 +26,7 @@ import {
 import { noise3 } from '../noise3.js';
 import { wet } from '../shaders.js';
 import { U } from '../uniforms.js';
+import { LIFT_MAX } from '../../util/gait.js';
 
 const qrot = (q, v) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
 const is = (id, n) => abs(id.sub(n)).lessThan(0.5);
@@ -33,11 +34,13 @@ const is = (id, n) => abs(id.sub(n)).lessThan(0.5);
 // The second per-instance vector of the head-steering species (finish.rig2) is (head yaw, head pitch, A, B), where the animation
 // packs several small numbers into the floats A and B (WebGPU allows only 8 vertex buffers a pipeline, so there is no room for
 // another attribute): A = bend + 1024 * tail, each 0 … 1022 over -1 … 1 and -0.5 … 0.5 (so 0 is exact);
-// B = tailLength * 63 + 64 * (dullness * 63 + 64 * tailPiece * 127). `rig2Pack` (util/gait.js, CPU) and `rig2Unpack` (a node graph) are inverses.
+// B = tailLength * 63 + 64 * (dullness * 63 + 64 * (tailPiece * 127 + 128 * lift)). `rig2Pack` (util/gait.js, CPU) and `rig2Unpack` (a node
+// graph) are inverses.
 export const rig2Unpack = (a2) => {
   const tq = floor(a2.z.div(1024)), bq = a2.z.sub(tq.mul(1024));
-  const pq = floor(a2.w.div(4096)), r = a2.w.sub(pq.mul(4096)), dq = floor(r.div(64)), fq = r.sub(dq.mul(64));
-  return { bend: bq.div(1022).mul(2).sub(1), tail: tq.div(1022).sub(0.5), tailF: fq.div(63), dull: dq.div(63), piece: pq.div(127) };
+  const hq = floor(a2.w.div(4096)), r = a2.w.sub(hq.mul(4096)), dq = floor(r.div(64)), fq = r.sub(dq.mul(64));
+  const lq = floor(hq.div(128)), pq = hq.sub(lq.mul(128));
+  return { bend: bq.div(1022).mul(2).sub(1), tail: tq.div(1022).sub(0.5), tailF: fq.div(63), dull: dq.div(63), piece: pq.div(127), lift: lq.div(30).mul(2 * LIFT_MAX).sub(LIFT_MAX) };
 };
 
 // Default finish per species group; def.finish overrides any of it.
@@ -103,6 +106,21 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   const id = attribute('rig', 'vec4').w;
   // Procedural bodies paint per-vertex colour; scanned or generated models bring a texture.
   let base = map ? texture(map, uv()).rgb : attribute('color', 'vec3');
+  // A palette model (a dwarf shrimp: one texture for every colour line): the texture is a mask, R pigment density, G shading,
+  // B how far toward the deeper back colour; `finish.palette` colours it (base, deep, glass as linear colours, `clear` thinning the
+  // pigment for a glassier line, `rili` clearing a band across the middle of the body between riliZ[0] and riliZ[1] (cm, front and
+  // back)); the eggs (rig leg id 14) are yellow.
+  if (map && f.palette) {
+    const P = f.palette, t = texture(map, uv());
+    let pig = t.r;
+    if (P.clear) pig = pig.sub(P.clear * 0.5).div(1 - P.clear * 0.5).clamp(0, 1);
+    if (P.rili && P.riliZ) {
+      const z = attribute('position', 'vec3').z, [z0, z1] = P.riliZ;
+      pig = pig.mul(float(1).sub(smoothstep(z1 - 0.12, z1 + 0.06, z).mul(float(1).sub(smoothstep(z0 - 0.06, z0 + 0.12, z))).mul(0.94)));
+    }
+    base = mix(vec3(...P.glass), mix(vec3(...P.base), vec3(...P.deep), t.b), pig).mul(t.g);
+    if (P.egg) base = select(abs(attribute('rig', 'vec4').y.sub(14)).lessThan(0.5), vec3(...P.egg).mul(t.g.mul(0.5).add(0.5)), base);
+  }
   // Before a shed the skin goes dull and milky (finish.rig2 species; decoded in the vertex stage and passed on as a varying, because a
   // large packed float does not survive interpolation exactly).
   if (f.rig2) {

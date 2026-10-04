@@ -556,48 +556,70 @@ const spatter = (x, y, z, scale, thr) => {
 
 // ==================================================================================================
 // PADDLE-TAIL NEWT  (Pachytriton labiatus, about 11 cm)
-// Stocky and flat-headed, dark olive-brown above, orange-red blotches on the flanks and belly,
-// a deep laterally flattened tail. Walks on short legs, swims with the tail.
+// A stocky stream newt built for the bottom of cold, fast water: a broad, flat head with a rounded snout, small eyes set high
+// and lobes of the upper lip folding over the lower jaw at the corners of the mouth; a trunk wider than it is high; short,
+// fleshy limbs (four fingers, five toes, blunt and pad-less); and the paddle that names it: a tail as long as the trunk,
+// flattened from the sides into a deep blade with thin edges and a rounded end. The skin is smooth and slick, not warty.
+// Above it is dark chocolate brown with fine black dots and a few orange-red flecks along the sides of the back and tail;
+// below, bright orange-red marbled with black, the orange running out along the lower edge of the tail and under the limbs.
 // ==================================================================================================
 
 function newtShape(st) {
+  // The muscular core: head, trunk and the base and axis of the tail (rows [z, centre height, half width, upper and lower half
+  // height]). The deep paddle of the tail is a thin blade (Fin) blended onto it, so its edges are a millimetre thick.
   const loft = new Loft([
-    [-6.2, 0.66, 0.10, 0.36, 0.28],
-    [-5.5, 0.70, 0.16, 0.70, 0.44],
-    [-4.6, 0.72, 0.22, 0.98, 0.52],
-    [-3.6, 0.74, 0.32, 1.02, 0.54],
-    [-2.9, 0.75, 0.54, 0.90, 0.50],
-    [-2.2, 0.75, 0.76, 0.72, 0.47],
-    [-1.0, 0.76, 0.88, 0.60, 0.45],
-    [0.2, 0.76, 0.90, 0.60, 0.45],
-    [1.3, 0.76, 0.88, 0.58, 0.44],
-    [2.2, 0.72, 0.84, 0.52, 0.40],
-    [2.8, 0.64, 0.88, 0.46, 0.35],
-    [3.4, 0.60, 0.94, 0.42, 0.31],
-    [4.0, 0.58, 0.82, 0.36, 0.27],
-    [4.6, 0.55, 0.50, 0.28, 0.20],
-  ], { front: 0.75, back: 0.55 });
-
+    [-6.3, 0.56, 0.05, 0.12, 0.10],
+    [-5.6, 0.57, 0.09, 0.30, 0.22],
+    [-4.6, 0.58, 0.14, 0.40, 0.30],
+    [-3.6, 0.60, 0.23, 0.46, 0.34],
+    [-2.7, 0.62, 0.38, 0.50, 0.38],
+    [-1.9, 0.63, 0.58, 0.52, 0.42],
+    [-1.2, 0.64, 0.76, 0.54, 0.45],
+    [-0.2, 0.65, 0.86, 0.56, 0.47],
+    [0.9, 0.65, 0.87, 0.56, 0.46],
+    [1.8, 0.64, 0.81, 0.54, 0.44],
+    [2.5, 0.63, 0.71, 0.48, 0.40],
+    [3.1, 0.62, 0.78, 0.42, 0.37],
+    [3.7, 0.61, 0.72, 0.38, 0.33],
+    [4.2, 0.59, 0.59, 0.32, 0.28],
+    [4.7, 0.57, 0.41, 0.24, 0.21],
+  ], { front: 0.45, back: 0.3 });
+  // The paddle: [z, lower edge, upper edge, half thickness]; low over the hips, deepest two thirds of the way back, rounded off.
+  const blade = new Fin([
+    [-6.3, 0.44, 0.74, 0.05],
+    [-5.95, 0.22, 1.04, 0.05],
+    [-5.4, 0.12, 1.24, 0.05],
+    [-4.6, 0.09, 1.33, 0.055],
+    [-3.6, 0.1, 1.32, 0.06],
+    [-2.6, 0.16, 1.24, 0.065],
+    [-1.7, 0.28, 1.12, 0.07],
+  ]);
   const legs = [];
   for (const side of [-1, 1]) {
     for (const back of [false, true]) {
-      const pts = back ? [[0.62, 0.62, -1.9], [1.5, 0.42, -1.5], [1.72, 0.12, -2.1]] : [[0.62, 0.62, 1.7], [1.4, 0.42, 1.42], [1.62, 0.12, 1.98]];
-      const rads = back ? [0.34, 0.24, 0.17] : [0.31, 0.22, 0.16];
+      // Upper limb out sideways from the body, the lower one down to the ground, the hand or foot flat with the digits fanned
+      // forward and out (a sprawling stance, elbows and knees above the body's lower edge).
+      const pts = back ? [[0.6, 0.52, -1.3], [1.28, 0.48, -1.08], [1.48, 0.13, -1.38]] : [[0.58, 0.52, 1.85], [1.18, 0.48, 1.95], [1.36, 0.13, 2.13]];
+      const rads = back ? [0.34, 0.26, 0.185] : [0.3, 0.235, 0.17];
       const rods = new Rods();
       rods.chain(flipX(pts, side), rads, 0, 0.55);
-      const w = pts[2], fr = st.hi ? [0.065, 0.04] : [0.085, 0.06];
-      if (back) digits({ base: [w[0] + 0.02, 0.075, w[2] + 0.1], angles: [-38, -19, 0, 19, 38], lens: [0.45, 0.62, 0.72, 0.66, 0.48], r0: fr[0], r1: fr[1] }, side, rods, 0.55, 1);
-      else digits({ base: [w[0] + 0.02, 0.075, w[2] + 0.1], angles: [-30, -10, 10, 30], lens: [0.55, 0.72, 0.72, 0.52], r0: fr[0], r1: fr[1] }, side, rods, 0.55, 1);
-      const pad = [(w[0] + 0.02) * side, 0.07, w[2] + 0.05, 0, 1, back ? 0.23 : 0.2, 0.07, back ? 0.22 : 0.19, 0.6];
+      const w = pts[2], fr = st.hi ? [0.088, 0.066] : [0.1, 0.08];
+      if (back) digits({ base: [w[0] + 0.03, 0.075, w[2] + 0.08], angles: [-34, -12, 8, 28, 50], lens: [0.34, 0.54, 0.66, 0.58, 0.36], r0: fr[0], r1: fr[1], lift: 0.01 }, side, rods, 0.55, 1);
+      else digits({ base: [w[0] + 0.03, 0.075, w[2] + 0.08], angles: [-26, -4, 18, 42], lens: [0.36, 0.54, 0.58, 0.4], r0: fr[0], r1: fr[1], lift: 0.01 }, side, rods, 0.55, 1);
+      const pad = [(w[0] + 0.03) * side, 0.075, w[2] + 0.05, 0, 1, back ? 0.24 : 0.21, 0.075, back ? 0.23 : 0.2, 0.6];
       legs.push(new Limb(back ? (side < 0 ? 3 : 4) : side < 0 ? 1 : 2, rods, [pad]));
     }
   }
-  // Small dark eyes on the top of the broad head.
-  const eyes = [-1, 1].map((s) => makeEye(loft, 0.46 * s, 0, 3.7, 0.135, 0.4));
-  const mouth = new Table([[2.6, 0.56], [3.0, 0.52], [3.5, 0.5], [4.1, 0.5], [4.7, 0.5]], 0.02);
+  // Small eyes set high on the sides of the flat head.
+  const eyes = [-1, 1].map((s) => makeEye(loft, 0.5 * s, 0, 3.78, 0.15, 0.45));
+  // The labial lobes: a fold of the upper lip hanging over the lower jaw at each corner of the mouth.
+  const lobes = [-1, 1].map((s) => ({ c: [0.62 * s, 0.44, 3.0], r: [0.17, 0.13, 0.38] }));
+  const mouth = new Table([[2.75, 0.44], [3.2, 0.43], [3.8, 0.44], [4.3, 0.46], [4.75, 0.49]], 0.02);
   const parts = [];
-  for (const l of legs) parts.push({ near: (x, y, z) => l.near(x, y, z), d: (x, y, z) => l.d(x, y, z), k: 0.2 });
-  for (const e of eyes) parts.push({ near: sphereNear(e.c, e.r), d: (x, y, z) => Math.hypot(x - e.c[0], y - e.c[1], z - e.c[2]) - e.r, k: 0.05 });
+  for (const l of legs) parts.push({ near: (x, y, z) => l.near(x, y, z), d: (x, y, z) => l.d(x, y, z), k: 0.18 });
+  for (const e of eyes) parts.push({ near: sphereNear(e.c, e.r), d: (x, y, z) => Math.hypot(x - e.c[0], y - e.c[1], z - e.c[2]) - e.r, k: 0.06 });
+  for (const b of lobes) parts.push({ near: sphereNear(b.c, b.r[2]), d: (x, y, z) => ell(x - b.c[0], y - b.c[1], z - b.c[2], b.r[0], b.r[1], b.r[2]), k: 0.1 });
+  parts.push({ near: (x, y, z) => (z > -1.5 ? z + 1.5 : Math.max(0, Math.abs(x) - 0.4)), d: (x, y, z) => blade.d(x, y, z), k: 0.16 });
   const core = (x, y, z) => loft.d(x, y, z);
   const sdf = (x, y, z) => unite(core(x, y, z), x, y, z, parts);
   return { loft, legs, eyes, mouthY: (z) => mouth.v(0, z), sdf, core };
@@ -608,9 +630,10 @@ function newtBody() {
   const S = newtShape(st);
   const { loft, legs, eyes, mouthY, sdf } = S;
   const cs = {
-    back: C(0x44381f), dark: C(0x201a11), flank: C(0x54452a), orange: C(0xdb5a1e), belly: C(0xc94a19), lip: C(0x15110c), eye: C(0x050403), ring: C(0x7a6430), limb: C(0x3f3221),
+    back: C(0x33261a), dark: C(0x150f0a), flank: C(0x453221), belly: C(0xe2561c), belly2: C(0xc8401a), black: C(0x120d0a),
+    fleck: C(0xd64a1a), edge: C(0xe86a22), lip: C(0x120d09), eye: C(0x050403), ring: C(0x6a5224),
   };
-  const zS = 4.6, zT = -6.2, sc = [0, 0, 0, 0];
+  const zS = 4.7, zT = -6.3, sc = [0, 0, 0, 0];
   let last = null, lx = NaN, ly = NaN, lz = NaN;
   const analyze = (x, y, z) => {
     if (x === lx && y === ly && z === lz) return last;
@@ -628,6 +651,12 @@ function newtBody() {
     if (L) { a.kind = 'limb'; a.leg = L.id; a.legT = L.t; }
     return (last = a);
   };
+  // Sparse round flecks (cells noise): only the cells whose hash is high get one, so they are few and scattered.
+  const fleck = (x, y, z, scale, r) => {
+    const c = cells(x, y, z, scale);
+    const h = hash1(Math.floor(x * scale * 0.7) * 7.1 + Math.floor(y * scale * 0.7) * 13.3 + Math.floor(z * scale * 0.7) * 3.7);
+    return h > 0.55 ? sm(r + 0.05, r - 0.03, c) : 0;
+  };
   const color = (x, y, z) => {
     const a = analyze(x, y, z);
     if (a.kind === 'eye') {
@@ -636,43 +665,58 @@ function newtBody() {
       return lerp3(cs.eye, iris, sm(1.0, 0.7, th) * 0.8 + 0.1);
     }
     if (a.kind === 'limb') {
-      let col = lerp3(cs.limb, cs.flank, 0.4);
-      const b = spatter(x, y, z * 0.8, 2.3, 0.34);
-      col = lerp3(col, cs.orange, Math.max(b * 0.9, sm(0.55, 0.15, y) * 0.35));
-      return col;
+      // Brown on top, orange underneath and on the soles; the digits' tips paler.
+      // (the upper side of the limb is brown like the back; the orange of the belly shows underneath, on the palms and soles,
+      // and dusts the digits, whose tips are paler)
+      let col = lerp3(cs.back, cs.flank, 0.5);
+      const under = sm(0.3, 0.08, y) * 0.75 + sm(0.62, 0.95, a.legT) * 0.25;
+      col = lerp3(col, lerp3(cs.belly2, cs.flank, 0.35), under);
+      col = lerp3(col, cs.edge, sm(0.9, 1.0, a.legT) * 0.35);
+      col = lerp3(col, cs.dark, spatter(x * 2.6, y * 2.6, z * 2.6, 2.8, 0.16) * (1 - under) * 0.6);
+      return mul3(col, 0.94 + 0.12 * vnoise(x * 6, y * 6, z * 6));
     }
     loft.sect(z, sc);
-    const yy = y - sc[0], v = yy / (yy >= 0 ? sc[2] : sc[3]);
-    // olive-brown back, a paler brown flank, orange-red underside
-    let col = lerp3(cs.belly, cs.back, sm(-0.62, -0.2, v));
-    col = lerp3(col, cs.flank, sm(0.65, 0.1, v) * sm(-0.55, -0.15, v) * 0.35);
-    // orange-red flank blotches (also run along the tail sides)
-    const band = sm(-0.8, -0.3, v) * sm(0.62, 0.15, v);
-    col = lerp3(col, cs.orange, spatter(x, y, z * 0.75, 1.5, 0.36) * band * 0.95);
-    // dark blotches on the belly
-    col = lerp3(col, cs.dark, spatter(x, y, z * 0.8, 1.9, 0.3) * sm(-0.5, -0.85, v) * 0.9);
-    // dorsal: darker midline and a fine speckle
-    col = lerp3(col, cs.dark, sm(0.55, 0.95, v) * 0.35);
-    col = mul3(col, 0.92 + 0.16 * vnoise(x * 5, y * 5, z * 5));
-    if (z > 2.6) {
+    const yy = y - sc[0], v = yy / (yy >= 0 ? sc[2] : sc[3]);          // -1 the belly, 1 the back, beyond: the tail's blade
+    // Brown above, orange-red below, the line between them low on the flanks and wavering.
+    const edge = -0.38 + 0.18 * (vnoise(x * 1.3 + 4, y * 1.3, z * 1.1) - 0.5);
+    let col = lerp3(lerp3(cs.belly, cs.belly2, vnoise(x * 2, y * 2, z * 2)), cs.flank, sm(edge - 0.1, edge + 0.14, v));
+    col = lerp3(col, cs.back, sm(0.05, 0.65, v));
+    // Black marbling on the belly and throat.
+    // (vermiculation: the black follows the level lines of a noise field and pools into blotches where it is high)
+    const mf = fbm(x * 1.5 + 9, y * 1.5, z * 1.15);
+    const marb = Math.max(sm(0.055, 0.02, Math.abs(mf - 0.5)), sm(0.64, 0.7, mf));
+    col = lerp3(col, cs.black, marb * sm(edge - 0.06, edge - 0.3, v) * 0.92);
+    // Fine black dots over the back and sides.
+    col = lerp3(col, cs.dark, spatter(x * 2.2, y * 2.2, z * 2.2, 2.6, 0.17) * sm(edge, edge + 0.4, v) * 0.75);
+    // A few orange-red flecks along the sides of the back, and on the tail.
+    const fl = fleck(x, y, z, 2.1, 0.14) * sm(0.05, 0.3, v) * sm(0.85, 0.55, v) * sm(2.6, 1.8, z);
+    col = lerp3(col, cs.fleck, fl * 0.9);
+    // The tail: the orange of the belly runs back along the blade's lower edge; the upper edge darkest.
+    if (z < -1.4) {
+      const tailK = sm(-1.4, -2.4, z);
+      col = lerp3(col, cs.edge, sm(-0.75, -1.15, v) * tailK);
+      col = lerp3(col, cs.dark, sm(1.1, 1.8, v) * tailK * 0.5);
+    }
+    // The head: the lip line, the gular fold across the throat, the nostrils.
+    if (z > 2.4) {
       const e = y - mouthY(z);
-      col = lerp3(col, cs.lip, Math.exp(-(e * e) / 0.003) * sm(2.6, 3.1, z) * 0.85);
+      col = lerp3(col, cs.lip, Math.exp(-(e * e) / 0.0025) * sm(2.7, 3.0, z) * 0.85);
+      col = lerp3(col, cs.black, Math.exp(-((z - 2.62) ** 2) / 0.002) * sm(-0.2, -0.5, v) * 0.6);
       for (const s of [-1, 1]) {
-        const dn = Math.hypot(x - s * 0.16, y - (loft.top(0.16, 4.4) - 0.03), z - 4.4);
-        col = lerp3(col, cs.dark, sm(0.09, 0.03, dn) * 0.9);
+        const dn = Math.hypot(x - s * 0.17, y - (loft.top(0.17, 4.55) - 0.03), z - 4.55);
+        col = lerp3(col, cs.black, sm(0.07, 0.025, dn) * 0.95);
       }
     }
-    return col;
+    return mul3(col, 0.93 + 0.14 * vnoise(x * 5, y * 5, z * 5));
   };
   const mat = () => M.SKIN;
   const rig = (x, y, z) => { const a = analyze(x, y, z); return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT]; };
-  // Moist matte skin: no clear coat to speak of, a fine warty relief (grain per cm, bump is a normal tilt), and small
-  // dark eyes with a golden-brown iris and a catchlight.
-  const def = { sdf, lo: [-2.6, -0.25, -6.5], hi: [2.6, 1.8, 4.9], color, mat, rig, finish: {
-    rough: 0.66, coat: 0.05, coatRough: 0.55, grain: 11, bump: 0.7, tone: 0.045, flutter: 0.02,
-    eyes: [eyeSpec(eyes[1], { pupil: [0.42, 0.42], inner: C(0xb07a26), outer: C(0x4a2a10), rim: C(0x040302), limb: C(0x1c1208), seed: 7 })],
+  // Smooth, slick, wet skin (a faint grain, a clear coat), and small dark eyes with a gold-flecked iris.
+  const def = { sdf, lo: [-2.6, -0.25, -6.6], hi: [2.6, 1.8, 5.0], color, mat, rig, finish: {
+    rough: 0.46, coat: 0.3, coatRough: 0.24, grain: 9, bump: 0.12, tone: 0.04, flutter: 0.02,
+    eyes: [eyeSpec(eyes[1], { pupil: [0.4, 0.4], inner: C(0x9a7a30), outer: C(0x3a2410), rim: C(0x040302), limb: C(0x140d06), seed: 7 })],
   } };
-  return lodDef(def, 0.09, 0.5, st);
+  return lodDef(def, 0.08, 0.5, st);
 }
 
 // ==================================================================================================
@@ -688,7 +732,7 @@ function marbledBody() {
   const { loft, legs, eyes, mouthY, sdf } = S;
   const KX = 1.14, KY = 1.06, KZ = 0.9;                             // narrower, a little lower, longer
   const cs = { green: C(0x4f6a26), moss: C(0x6c8432), black: C(0x0d0e0a), belly: C(0x24221d), dot: C(0xd8d8cc), stripe: C(0xe0782a), eye: C(0x050403), ring: C(0x9a6a2e), lip: C(0x15110c) };
-  const zS = 4.6, zT = -6.2, sc = [0, 0, 0, 0];
+  const zS = 4.7, zT = -6.3, sc = [0, 0, 0, 0];
   let last = null, lx = NaN, ly = NaN, lz = NaN;
   const analyze = (x, y, z) => {
     if (x === lx && y === ly && z === lz) return last;

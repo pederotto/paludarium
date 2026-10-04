@@ -81,6 +81,7 @@ export const ANIMALS = {
   crab: { name: 'Vampire crab', price: 15, rank: 5, resale: 0.4, source: 'wild', adult: 10, group: 'Crustaceans' },
   bumblebee: { name: 'Bumblebee toad', price: 45, rank: 5, resale: 0.5, source: 'captive', adult: 40, group: 'Amphibians', frog: true },
   reedfrog: { name: 'Starry night reed frog', price: 40, rank: 6, resale: 0.5, source: 'captive', adult: 30, group: 'Amphibians', frog: true },
+  redeye: { name: 'Red-eyed tree frog', price: 55, rank: 7, resale: 0.5, source: 'captive', adult: 45, group: 'Amphibians', frog: true },
   marbled: { name: 'Marbled newt', price: 45, rank: 7, resale: 0.45, source: 'captive', adult: 60, group: 'Amphibians' },
   skink: { name: 'Red-eyed crocodile skink', price: 85, rank: 7, resale: 0.5, source: 'captive', adult: 120, group: 'Reptiles' },
   panther: { name: 'Panther crab', price: 35, rank: 6, resale: 0.45, source: 'wild', adult: 60, group: 'Crustaceans' },

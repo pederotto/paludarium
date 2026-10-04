@@ -6,21 +6,23 @@ import * as THREE from 'three/webgpu';
 import { Builder, PRIM } from '../render/geo.js';
 import { hash3, clamp, lerp, rng, closestOnSegments } from '../util/math.js';
 import { bodyFootprint } from '../util/body.js';
-import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows } from '../render/creatures.js';
+import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
-import { frogSwimPose, kickPeriod, kickSpeed, bob, frac, strideRate, hopLegs, callSac, toeTap } from '../util/gait.js';
+import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, bob, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
 import { SKINK, skinkMind, skinkThink } from './skink.js';
+import { SHRIMP, shrimpMind, shrimpThink, shrimpDoing } from './shrimp.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
 import { PLANTS } from './plants.js';
-import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf } from './genetics.js';
+import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf, morphList } from './genetics.js';
+import { shrimpPalette } from '../content/morphs.js';
 import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
 
 const C = (h) => new THREE.Color(h);
@@ -28,7 +30,7 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
 const TAU = Math.PI * 2;
 const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion();
-const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0);
+const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0), _gb = V(0, 0, 0);
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
 const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog']);
 const GLASS_N = { front: V(0, 0, -1), left: V(1, 0, 0), right: V(-1, 0, 0) };
@@ -190,7 +192,7 @@ export const SPECIES = {
     note: 'A lively bottom fish that loves company. Needs warm, clean water and hiding places.',
   },
   shrimp: {
-    name: 'Cherry shrimp', group: 'Crustaceans', kind: 'crawlWater', swims: true, flicks: true, size: 1.0, speed: 1.2,
+    name: 'Cherry shrimp', group: 'Crustaceans', kind: 'crawlWater', shrimp: true, swims: true, flicks: true, size: 1.0, speed: 1.2,
     temp: [18, 28], hungerHours: 200, lifeDays: 365, eats: ['detritus', 'biofilm', 'flake'], cap: 80, breed: 0.04, adultDays: 20,
     ph: [6.8, 8.0], gh: [6, 12], flow: 0.6, flock: [10, 80],
     anim: { lift: 0.06, stride: 0.1 },
@@ -257,7 +259,7 @@ export const SPECIES = {
     name: 'Paddle-tail newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.6, speed: 2,
     temp: [15, 24], humidity: 60, hungerHours: 200, lifeDays: 3000, eats: ['springtail', 'fly', 'isopod', 'flake', 'tadpole', 'flylarva', 'earthworm'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 6, days: 8, into: 'tadpole', where: 'water' },
-    body: sdfBody('newt'), anim: { amp: 0.85, wave: 1.25, lift: 0.3, stride: 0.85, rig2: { neck: 0.26, s0: 0.04, s1: 0.31, neckY: 0.75, len: 10.8 } },
+    body: sdfBody('newt'), anim: { amp: 0.85, wave: 1.25, lift: 0.3, stride: 0.85, rig2: { neck: 0.22, s0: 0.05, s1: 0.32, neckY: 0.64, len: 11 } },
     note: 'A cool-stream newt. Wedges itself between rocks by day, walks the bottom at night with its head sweeping, swims in bursts, rises to gulp air, and on damp nights may wander the bank. Needs cool water (under 24 °C) and a hide.',
   },
   firesal: {
@@ -340,7 +342,7 @@ export const SPECIES = {
     note: 'A 3 cm micro-predator for the water under a land setup: still water, thick moss and stems. Males turn velvet black with electric-blue spangles and dance at each other: one male to two or three females. Eats live food and baby shrimp.',
   },
   blueshrimp: {
-    name: 'Blue dream shrimp', group: 'Crustaceans', kind: 'crawlWater', swims: true, flicks: true, size: 1.0, speed: 1.2,
+    name: 'Blue dream shrimp', group: 'Crustaceans', kind: 'crawlWater', shrimp: true, swims: true, flicks: true, size: 1.0, speed: 1.2,
     temp: [20, 26], hungerHours: 200, lifeDays: 365, eats: ['detritus', 'biofilm', 'flake'], cap: 80, breed: 0.04, adultDays: 20,
     ph: [6.8, 8.0], gh: [6, 12], flow: 0.6, flock: [10, 80],
     anim: { lift: 0.06, stride: 0.1 },
@@ -377,6 +379,14 @@ export const SPECIES = {
     ph: [6.5, 7.5], land: 0.3, flock: [3, 8],
     body: sdfBody('reedfrog'), anim: { amp: 0, wave: 1, lift: 0.32, stride: 0.42 },
     note: 'A jet-black reed frog from Madagascar dotted with yellow-white stars and with orange legs. Sits by day high on broad leaves, bamboo and wood above the water, hunts flies at dusk. Wants a tall tank, 70% water, warm air (24-29 °C). Keep 3 to 5.',
+  },
+  redeye: {
+    name: 'Red-eyed tree frog', scale: 1, group: 'Amphibians', kind: 'frog', perch: true, size: 1.8, speed: 1.1,
+    minL: 60, minH: 60, temp: [22, 28], humidity: 75, hungerHours: 170, lifeDays: 3600, eats: ['fly', 'cricket', 'waxworm', 'dubia'], cap: 6, breed: 0.02, adultDays: 45,
+    eggs: { n: 30, days: 7, into: 'tadpole', where: 'water' },
+    ph: [6.5, 7.5], land: 0.4, flock: [2, 5],
+    body: sdfBody('redeye'), anim: { amp: 0, wave: 1, lift: 0.45, stride: 0.6, limb: 1.4 },
+    note: 'The red-eyed tree frog of Central American rainforests: leaf green, with blue-and-cream barred flanks and orange hands and feet that it hides when it sleeps. By day it sleeps stuck to a leaf, a stem or the glass, legs tucked in and eyes shut; at night it wakes, clambers about and hunts. Wants a tall tank with broad-leaved plants over water, 22-28 °C and damp air. Keep 2 to 5.',
   },
   marbled: {
     name: 'Marbled newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.8, speed: 1.8,
@@ -454,7 +464,7 @@ export const SPECIES = {
   },
 };
 
-export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', flylarva: 'fruit fly maggot', flypupa: 'fruit fly pupa', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog', cpd: 'celestial pearl danio', pygmy: 'pygmy sunfish', blueshrimp: 'blue dream shrimp', panther: 'panther crab', skink: 'crocodile skink', bumblebee: 'bumblebee toad', reedfrog: 'starry night reed frog', marbled: 'marbled newt', purpleiso: 'dwarf purple isopod', pandaking: 'panda king isopod', springpink: 'pink springtail', springsea: 'seashore springtail', cricket: 'cricket', dubia: 'dubia roach', earthworm: 'earthworm', waxworm: 'waxworm', flake: 'flake', pellet: 'pellet', bloodworm: 'bloodworm' };
+export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', flylarva: 'fruit fly maggot', flypupa: 'fruit fly pupa', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog', cpd: 'celestial pearl danio', pygmy: 'pygmy sunfish', blueshrimp: 'blue dream shrimp', panther: 'panther crab', skink: 'crocodile skink', bumblebee: 'bumblebee toad', reedfrog: 'starry night reed frog', redeye: 'red-eyed tree frog', marbled: 'marbled newt', purpleiso: 'dwarf purple isopod', pandaking: 'panda king isopod', springpink: 'pink springtail', springsea: 'seashore springtail', cricket: 'cricket', dubia: 'dubia roach', earthworm: 'earthworm', waxworm: 'waxworm', flake: 'flake', pellet: 'pellet', bloodworm: 'bloodworm' };
 export const one = (id) => ONE[id] ?? SPECIES[id]?.name.toLowerCase() ?? (isItem(id) ? id : String(id));
 
 export const FOOD_VALUE = { fly: 0.25, flylarva: 0.03, springtail: 0.07, springpink: 0.08, springsea: 0.07, isopod: 0.12, pandaking: 0.3, shrimp: 0.35, blueshrimp: 0.35, snail: 0.3, flake: 0.3, pellet: 0.4, bloodworm: 0.12, tadpole: 0.2, cricket: 0.3, dubia: 0.4, earthworm: 0.45, waxworm: 0.35 };
@@ -507,10 +517,21 @@ export async function modelBuilder(id, meta = null) {
   if (!g) return null;
   const a = sp.anim ?? {};
   const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
+  // A palette model (one file for every colour line: the dwarf shrimp) is coloured here for the line in its key ('shrimp:blue'), or
+  // the line the manifest fixes for a species (blue dream), or the species' default.
+  const palette = meta.palette ? paletteFinish(id.includes(':') ? id.split(':')[1] : meta.paletteMorph ?? 'red', meta) : null;
   return (scene, cap = sp.cap + 20) => new CreatureLOD(scene, g.lo, {
     cap, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(palette ? { palette } : {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
   });
+}
+
+// The colours of one dwarf-shrimp line for the palette shader (render/creatures/material.js): linear colours from content/morphs.js,
+// a glassier wild line, and for a rili line the clear band, from a third to three fifths of the body back from the rostrum (bodyZ).
+export function paletteFinish(morph, meta) {
+  const P = shrimpPalette(morph), lin = (h) => { const c = new THREE.Color().setHex(h); return [c.r, c.g, c.b]; };
+  const [z0, z1] = meta.bodyZ ?? [-0.8, 0.8], L = z1 - z0;
+  return { base: lin(P.base), deep: lin(P.deep), glass: lin(P.glass), egg: lin(0xd8b830), clear: morph === 'wild' ? 0.7 : 0, rili: P.rili, riliZ: [z1 - L * 0.32, z1 - L * 0.62] };
 }
 
 export class Animals {
@@ -536,6 +557,9 @@ export class Animals {
     this.tails = [];                // dropped gecko tails: { sp, pos, q, sc, age, phase, vy, yaw } (see draw)
     this.tongues = new Tongues(scene);
     this.contacts = new ContactShadows(scene);   // the dark spot where an animal meets the ground (render/creatures/contact.js)
+    this.shells = [];               // cast shrimp shells on the bottom: { sp, pos, yaw, roll, left, life } (sim/shrimp.js moult)
+    this.castShells = new CastShells(scene);
+    this.shrimpCalls = [];          // females that have just moulted ready to breed: { sp, x, z, t, id } (the males' search)
     for (const id of Object.keys(SPECIES)) {
       this.by[id] = [];
       this.keys[id] = [];
@@ -571,6 +595,12 @@ export class Animals {
       if (meta.pose) { const [b, p] = id.split('.'); (this.poseMeta[b] ??= {})[p] = { key: id, meta }; if (this.meshes[b]) this.ensurePose(b, p); continue; }
       if (SPECIES[id.split(':')[0]] && !meta.disabled) (this.modelMeta ??= {})[id] = meta;
       if (this.meshes[id]) this.loadModel(id);
+      // A palette model serves every colour line of its species (the genetics' morphs) from the one file.
+      if (meta.palette && !id.includes(':') && SPECIES[id] && hasGenetics(id)) for (const m of morphList(id)) {
+        const k = `${id}:${m}`;
+        this.modelMeta[k] ??= meta;
+        if (this.meshes[k]) this.loadModel(k);
+      }
     }
   }
 
@@ -831,7 +861,7 @@ export class Animals {
         if (a.st) { a.speedNow = 0; continue; }          // mid-strike: the strike moves it
         switch (sp.kind) {
           case 'swim': this.swim(a, sp, arr, dt); break;
-          case 'crawlWater': this.crawl(a, sp, dt, 'water'); break;
+          case 'crawlWater': if (sp.shrimp) this.shrimp(a, sp, dt); else this.crawl(a, sp, dt, 'water'); break;
           case 'crawlLand': if (!sp.sessile) this.crawl(a, sp, dt, sp.surface ? 'surface' : 'land', sp.crawlOpt ?? null); break;
           case 'crab': this.crab(a, sp, dt); break;
           case 'fly': this.fly(a, sp, dt); break;
@@ -897,6 +927,13 @@ export class Animals {
     const rt = (now - (this._rt ?? now)) / 1000;
     this._rt = now;
     this.tf = dt > 0 && rt > 0.004 && rt < 0.12 ? clamp(dt / rt, 1, 4) : 1;
+    // The camera's velocity in real time (cm/s, smoothed), for camThreat: a lens swooping in is a danger, one that sits or follows is not.
+    const cam = this.camera?.position;
+    if (cam && rt > 0.004 && rt < 0.25) {
+      const p = (this._camP ??= cam.clone()), v = (this.camVel ??= cam.clone().set(0, 0, 0)), k = Math.min(1, rt * 8);
+      v.x += ((cam.x - p.x) / rt - v.x) * k; v.y += ((cam.y - p.y) / rt - v.y) * k; v.z += ((cam.z - p.z) / rt - v.z) * k;
+      p.copy(cam);
+    } else if (cam) this._camP = cam.clone();
     if (!(dt > 0)) return;
     const E = this.world.env;
     this._wDt = (this._wDt ?? 0) + dt;
@@ -1302,18 +1339,174 @@ export class Animals {
     a.grazing = a.state === 'rest' && !a.hop;     // head-down pauses (see vis)
   }
 
+  // --- Dwarf shrimp ------------------------------------------------------------------------------------------------------
+  // The decisions are in sim/shrimp.js (pure); this senses for it and carries them out: walks and grazing shuffles on the bottom,
+  // swims (takeOff 'swim' to a chosen patch), the tail flick, eating at the food it crowds round, the moult and its cast shell, and
+  // a female's call that sends the males searching. The rig gets the pincers, swimmerets and antennae (invertPose).
+  shrimp(a, sp, dt) {
+    const W = this.world, T = W.terrain;
+    const m = (a.sm ??= shrimpMind(Math.random));
+    a.female ??= Math.random() < 0.55;
+    a.sizeK ??= a.female ? 0.95 + Math.random() * 0.1 : 0.76 + Math.random() * 0.08;     // males stay smaller and slimmer
+    if (a.hop?.kind && this.leap(a, sp, dt, 'water')) { a.sFeed = 0; a.sAnt = 1; a.sFan = a.hop?.kind === 'swim' ? 1 : 0; return; }
+    const x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z), depth = this.waterTop(x, z) - g;
+    const dtMin = dt * Math.min(this.warp ?? 1, 40);
+    // Slow senses every few seconds: cover here and the best cover near, how rich the grazing is.
+    a.ssT = (a.ssT ?? Math.random() * 2) - dt;
+    if (a.ssT <= 0) {
+      a.ssT = 2 + Math.random() * 2;
+      a.sCover = this.shrimpCover(x, z);
+      a.sRich = this.grazeRich(x, z);
+      a.sHide = a.sCover > 0.6 ? null : this.shrimpHide(a);
+      a.sMates = (this.by[a.sp] ?? []).some((b) => b !== a && !b.female && b.age / 1440 >= (sp.adultDays ?? 20));
+    }
+    // Food, a few times a second: settled food of its diet, and cast shells (they are eaten for their minerals).
+    a.sfT = (a.sfT ?? Math.random() * 0.4) - dt;
+    if (a.sfT <= 0) {
+      a.sfT = 0.3 + Math.random() * 0.3;
+      let best = null, bd = SHRIMP.smell;
+      for (const f of this.food) {
+        if (f.eaten || !f.settled || !eatsItem(sp, f)) continue;
+        const d = Math.hypot(f.pos.x - x, f.pos.z - z);
+        if (d < bd && Math.abs(f.pos.y - a.pos.y) < 4) { bd = d; best = { f, x: f.pos.x, z: f.pos.z, d, age: f.age ?? 99 }; }
+      }
+      if (!best && a.hunger > 0.3) for (const sh of this.shells) {
+        const d = Math.hypot(sh.pos.x - x, sh.pos.z - z);
+        if (d < Math.min(bd, 15)) { bd = d; best = { shell: sh, x: sh.pos.x, z: sh.pos.z, d, age: 999 }; }
+      }
+      a.sFood = best;
+      const dg = this.danger(a, sp);
+      a.sThreat = dg ? { x: dg.x, z: dg.z, d: Math.hypot(dg.x - x, dg.z - z) } : null;
+    } else if (a.sFood) a.sFood.d = Math.hypot(a.sFood.x - x, a.sFood.z - z);
+    // A female's call: the nearest recent one of this species, once per male per call.
+    let call = null;
+    if (!a.female && this.shrimpCalls.length) {
+      this.shrimpCalls = this.shrimpCalls.filter((c) => this.t - c.t < 30);
+      for (const c of this.shrimpCalls) if (c.sp === a.sp && c.id !== m.heard && Math.hypot(c.x - x, c.z - z) < 45) { call = c; m.heard = c.id; break; }
+    }
+    const sense = {
+      t: this.t, dt, dtMin, x, z, yaw: a.yaw ?? 0, adult: a.age / 1440 >= (sp.adultDays ?? 20), female: a.female, hunger: a.hunger,
+      food: a.sFood ? { x: a.sFood.x, z: a.sFood.z, d: a.sFood.d, age: a.sFood.age + (this.t - (a.sFood.t0 ??= this.t)) } : null,
+      threat: a.sThreat, cover: a.sCover ?? 0, hide: a.sHide ? { x: a.sHide.x, z: a.sHide.z, d: Math.hypot(a.sHide.x - x, a.sHide.z - z) } : null,
+      rich: a.sRich, spots: () => this.grazeSpots(a), call: call && { x: call.x, z: call.z, d: Math.hypot(call.x - x, call.z - z) },
+      mates: !!a.sMates, inWater: depth > 0.5,
+    };
+    const it = shrimpThink(m, sense);
+    a.sIt = it;
+    a.doing = shrimpDoing(it);
+    // Carry it out.
+    if (it.flick) { const away = Math.atan2(x - it.flick.x, z - it.flick.z); this.takeOff(a, sp, 'water', 'flick', away); a.yaw = away + Math.PI; }
+    else if (it.goal && it.swim && Math.hypot(it.goal.x - x, it.goal.z - z) > 4) {
+      if (!this.takeOff(a, sp, 'water', 'swim', null, it.goal)) { m.goal = null; m.left = Math.min(m.left ?? 9, 3); }
+    } else if (it.goal && it.speed > 0) this.shrimpWalk(a, it.goal, it.speed, dt, m);
+    else if (it.face) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - x, it.face.z - z), Math.min(1, dt * 3));
+    if (!a.hop) { a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.normal = T.normalAt(a.pos.x, a.pos.z); }
+    // Eating: every shrimp at a flake takes its share; the flake goes when it has been picked clean.
+    if (it.eating && a.sFood) {
+      const F = a.sFood;
+      if (F.f) { F.f.bites = (F.f.bites ?? 0) + dt; if (F.f.bites > ({ flake: 25, pellet: 70, bloodworm: 18 }[F.f.kind ?? 'flake'] ?? 25)) F.f.eaten = true; }
+      else if (F.shell) F.shell.left -= dt * 0.004;
+      a.hunger = Math.max(0, a.hunger - dt * 0.003);
+      if (F.f?.eaten || (F.shell && F.shell.left <= 0)) a.sFood = null;
+    }
+    if (it.moult) {
+      // The old shell stays where it was cast, on its side.
+      this.shells.push({ sp: a.sp, pos: a.pos.clone(), yaw: (a.yaw ?? 0) + (Math.random() - 0.5) * 0.6, roll: (Math.random() < 0.5 ? -1 : 1) * (1.2 + Math.random() * 0.35), left: 1, age: 0, life: 1440 * (1 + Math.random()) });
+      if (this.shells.length > 40) this.shells.shift();
+      if (Math.random() < 0.3) W.log(`A ${one(a.sp)} moulted: its old shell lies on the bottom.`, 'info');
+    }
+    if (it.call) { this.shrimpCalls.push({ sp: a.sp, x: a.pos.x, z: a.pos.z, t: this.t, id: a.id + ':' + Math.round(this.t) }); }
+    a.berried = it.berried > 0;
+    a.sFeed = it.feed; a.sFan = it.fan; a.sAnt = it.ant;
+    a.state = it.goal ? 'walk' : 'rest'; a.target = it.goal ? V(it.goal.x, 0, it.goal.z) : null;
+    a.grazing = it.feed > 0.3;
+  }
+
+  // A few steps toward a point on the bottom: turn first when it is well off the heading, slide round what is in the way, give the
+  // goal up when it cannot get on.
+  shrimpWalk(a, goal, speed, dt, m) {
+    const dx = goal.x - a.pos.x, dz = goal.z - a.pos.z, d = Math.hypot(dx, dz);
+    if (d < 0.05) return;
+    const want = Math.atan2(dx, dz), diff = ((want - (a.yaw ?? 0) + Math.PI) % TAU + TAU) % TAU - Math.PI;
+    a.yaw = (a.yaw ?? 0) + clamp(diff, -dt * 4, dt * 4);
+    const fwd = clamp(1 - Math.abs(diff) / 1.2, 0, 1), step = Math.min(d, speed * dt * fwd);
+    if (step <= 0) return;
+    let ux = Math.sin(a.yaw), uz = Math.cos(a.yaw);
+    const nx = a.pos.x + ux * step, nz = a.pos.z + uz * step;
+    if (this.okFor('water', nx, nz, 99, a.rad) && !this.bumps(a, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.sBlock = 0; return; }
+    const sd = a.side ?? 1;
+    for (const da of [0.8 * sd, -0.8 * sd, 1.6 * sd, -1.6 * sd]) {
+      ux = Math.sin(a.yaw + da); uz = Math.cos(a.yaw + da);
+      const sx = a.pos.x + ux * step, sz = a.pos.z + uz * step;
+      if (this.okFor('water', sx, sz, 99, a.rad) && !this.bumps(a, sx, sz)) { a.pos.x = sx; a.pos.z = sz; a.side = Math.sign(da); return; }
+    }
+    a.sBlock = (a.sBlock ?? 0) + dt;
+    if (a.sBlock > 1) { a.sBlock = 0; m.goal = null; m.pause = 1 + Math.random() * 2; }
+  }
+
+  // How much cover a spot on the bottom gives a shrimp: an overhang (wood, a ledge, a root), moss, or stems close round it.
+  shrimpCover(x, z) {
+    const T = this.world.terrain, g = T.heightAt(x, z);
+    let c = this.occ.count && this.occ.solidAt(x, g + 1.2, z) ? 0.9 : 0;
+    c += T.field.matAt(x, z, MAT.moss) * 0.7;
+    // (water plants: their stems and leaves; the plant cores leave the aquatic ones out, so the list is read here)
+    let n = 0;
+    for (const q of this.world.plants?.list ?? []) {
+      if (q.surface === 'wall' || Math.abs(q.pos.x - x) > 6 || Math.abs(q.pos.z - z) > 6) continue;
+      if (Math.hypot(q.pos.x - x, q.pos.z - z) < (q.reach ?? 3) * 0.35 * (0.4 + 0.6 * (q.grown ?? 1)) + 0.8 && q.pos.y < this.waterTop(q.pos.x, q.pos.z)) n++;
+    }
+    return Math.min(1, c + Math.min(0.6, n * 0.3));
+  }
+
+  // How good the grazing is: biofilm grows on everything that has been in the water a while, most on moss, wood, stone and leaves,
+  // least on bare sand.
+  grazeRich(x, z) {
+    const T = this.world.terrain, g = T.heightAt(x, z);
+    let r = 0.25 + T.field.matAt(x, z, MAT.moss) * 0.5;
+    if (this.occ.count && (this.occ.solidAt(x + 1.2, g + 0.6, z) || this.occ.solidAt(x - 1.2, g + 0.6, z) || this.occ.solidAt(x, g + 0.6, z + 1.2) || this.occ.solidAt(x, g + 0.6, z - 1.2))) r += 0.3;
+    if (T.field.matAt(x, z, MAT.sand) > 0.6) r -= 0.12;
+    return clamp(r, 0, 1);
+  }
+
+  // Patches a shrimp might move to: a ring of points 3 … 26 cm away under water, each with its richness.
+  grazeSpots(a) {
+    const out = [];
+    for (let k = 0; k < 10; k++) {
+      const ang = Math.random() * TAU, r = 3 + Math.random() * 23;
+      const x = a.pos.x + Math.sin(ang) * r, z = a.pos.z + Math.cos(ang) * r;
+      if (!this.okFor('water', x, z, 99, a.rad)) continue;
+      out.push({ x, z, d: r, rich: this.grazeRich(x, z) });
+    }
+    return out;
+  }
+
+  // The best cover within reach (for a moult, or after a fright).
+  shrimpHide(a) {
+    let best = null, bs = 0.35;
+    for (let k = 0; k < 14; k++) {
+      const ang = Math.random() * TAU, r = 1.5 + Math.random() * 18;
+      const x = a.pos.x + Math.sin(ang) * r, z = a.pos.z + Math.cos(ang) * r;
+      if (!this.okFor('water', x, z, 99, a.rad)) continue;
+      const sc = this.shrimpCover(x, z) - r * 0.012;
+      if (sc > bs) { bs = sc; best = { x, z }; }
+    }
+    return best;
+  }
+
   // --- Leaps, swims and startles (insects and crustaceans) ----------------------------------------------------------------
   // A move through the air or the water from where it stands to a spot it can land on, as one arc: `jump` (a springtail flips
   // over as it goes, a cricket kicks out its hind legs; util: the rig's hop channel), `flutter` (a flightless fruit fly hops a
   // few centimetres on buzzing wings), `swim` (a shrimp lifts off the bottom and paddles to another spot), `flick` (a shrimp
   // shoots backwards with its tail snapped under). Returns false when there is nowhere to land.
-  takeOff(a, sp, medium, kind, away = null) {
+  takeOff(a, sp, medium, kind, away = null, to = null) {
     const W = this.world, T = W.terrain, s = drawScale(a, sp);
     const R = { jump: sp.kind === 'fly' ? [2, 4] : sp.size >= 1 && !sp.surface && sp.speed > 1.5 ? [5, 12] : [1.5, 4.5], flutter: [2, 5], swim: [5, 14], flick: [2.5, 5] }[kind];
     for (let k = 0; k < 6; k++) {
-      const base = away ?? (a.target ? Math.atan2(a.target.x - a.pos.x, a.target.z - a.pos.z) : a.yaw ?? 0);
-      const ang = base + (Math.random() - 0.5) * (away != null ? 0.7 : k < 2 ? 0.8 : 2.4);
-      const d = (R[0] + Math.random() * (R[1] - R[0])) * (kind === 'swim' || kind === 'flick' ? 1 : Math.min(1.4, Math.max(0.7, s)));
+      const base = away ?? (to ? Math.atan2(to.x - a.pos.x, to.z - a.pos.z) : a.target ? Math.atan2(a.target.x - a.pos.x, a.target.z - a.pos.z) : a.yaw ?? 0);
+      // (a given destination: tried as it is first, then a little to either side and nearer or farther)
+      const ang = base + (to ? (k ? (Math.random() - 0.5) * 0.6 : 0) : (Math.random() - 0.5) * (away != null ? 0.7 : k < 2 ? 0.8 : 2.4));
+      const d = to ? Math.hypot(to.x - a.pos.x, to.z - a.pos.z) * (k ? 0.75 + Math.random() * 0.4 : 1)
+        : (R[0] + Math.random() * (R[1] - R[0])) * (kind === 'swim' || kind === 'flick' ? 1 : Math.min(1.4, Math.max(0.7, s)));
       const x1 = a.pos.x + Math.sin(ang) * d, z1 = a.pos.z + Math.cos(ang) * d;
       if (!this.okFor(medium, x1, z1, 5, a.rad) || this.bumps(a, x1, z1)) continue;
       const g1 = T.heightAt(x1, z1), y1 = medium === 'surface' ? Math.max(g1, W.water.surfaceAt(x1, z1)) : g1;
@@ -1383,8 +1576,8 @@ export class Animals {
   // The nearest danger to a small animal, or null: the camera within 7 cm (as the crabs feel it), or an animal that eats it
   // (or a fish, frog, newt or crab twice its size) within its own body length plus 3 cm, on its level.
   danger(a, sp) {
-    const cam = this.camera?.position;
-    if (cam && Math.hypot(cam.x - a.pos.x, cam.y - a.pos.y, cam.z - a.pos.z) < 7) return { x: cam.x, z: cam.z };
+    const ct = this.camThreat(a, 9);
+    if (ct) return ct;
     const reach = 3 + 2 * (a.rad ?? 0.4);
     let best = null, bd = reach;
     const visit = (b) => {
@@ -1397,6 +1590,20 @@ export class Animals {
     };
     this.near('land', a.pos.x, a.pos.y, a.pos.z, visit);
     return best;
+  }
+
+  // The camera as a danger: only when it swoops at the animal (closes in faster than about 10 cm/s within `range` cm). An animal
+  // that is watched, or followed, by a lens that keeps its distance carries on as it was: kept animals get used to the keeper, and
+  // one that bolted whenever it was looked at could never be watched. Returns { x, y, z, d } or null; d (cm) is the distance made
+  // shorter the faster the lens comes, so the usual `scareCm` rules apply to it.
+  camThreat(a, range = 22) {
+    const cam = this.camera?.position, v = this.camVel;
+    if (!cam || !v || a === this.watched) return null;
+    const dx = a.pos.x - cam.x, dy = a.pos.y - cam.y, dz = a.pos.z - cam.z, d = Math.hypot(dx, dy, dz);
+    if (d > range) return null;
+    const closing = (v.x * dx + v.y * dy + v.z * dz) / (d || 1);
+    if (closing < 10) return null;
+    return { x: cam.x, y: cam.y, z: cam.z, d: d * clamp(16 / closing, 0.3, 1) * 0.6 };
   }
 
   // --- Heavy crawlers that cannot swim (panda king isopods) ----------------------------------------------------------
@@ -1600,9 +1807,7 @@ export class Animals {
       }
       a.skWarm = warm;
     }
-    const cam = this.camera?.position;
-    let threat = null;
-    if (cam) { const d = Math.hypot(cam.x - x, cam.y - a.pos.y, cam.z - z); if (d < 20) threat = { x: cam.x, z: cam.z, d: (d - 7) * 0.6 }; }
+    let threat = this.camThreat(a, 20);
     for (const id of ['toad', 'panther', 'firesal', 'axolotl']) for (const b of this.by[id] ?? []) {
       const d = Math.hypot(b.pos.x - x, b.pos.z - z);
       if (d < SKINK.scareCm * 0.5 && (!threat || d < threat.d)) threat = { x: b.pos.x, z: b.pos.z, d };
@@ -1687,9 +1892,7 @@ export class Animals {
       if (P.aquatic && a.cbBank && Math.hypot(a.cbBank.x - x, a.cbBank.z - z) > 40) a.cbBank = null;   // too far to haul out to
     }
     const food = this.crabFood(a, x, z, sp, P);
-    const cam = this.camera?.position;
-    let threat = null;
-    if (cam) { const d = Math.hypot(cam.x - x, cam.y - a.pos.y, cam.z - z); if (d < 22) threat = { x: cam.x, z: cam.z, d: (d - 6) * 0.55 }; }
+    let threat = this.camThreat(a, 22);
     for (const id of ['leucomelas', 'dartfrog', 'auratus', 'toad', 'firesal', 'newt', 'axolotl', 'gecko']) for (const b of this.by[id] ?? []) {
       const d = Math.hypot(b.pos.x - x, b.pos.z - z);
       if (d < P.scareCm * sp.size && Math.abs(b.pos.y - a.pos.y) < 6 && (!threat || d < threat.d)) threat = { x: b.pos.x, z: b.pos.z, d };
@@ -2733,7 +2936,14 @@ export class Animals {
       u.wing = Math.max(0, u.wing - dtV * 2.5);
       spread = Math.sin(Math.PI * u.wing) * 0.7;
     }
-    if (sp.flicks && !H && !moving) feed = a.grazing ? 1 : 0.35;          // a shrimp picks at the bottom whenever it stands still
+    if (a.sm) {
+      // A dwarf shrimp (sim/shrimp.js): its mind says how hard the pincers pick, the swimmerets fan (a berried female over her eggs,
+      // and a little always) and the antennae work; the eggs show under the tail while she carries them.
+      if (!H) feed = a.sFeed ?? 0;
+      beat = Math.max(beat, (a.sFan ?? 0) * 0.45);
+      if (!H) ant = Math.max(a.curl ? 0 : 0.15, a.sAnt ?? ant);
+      spread = a.berried ? 1 : 0;
+    } else if (sp.flicks && !H && !moving) feed = a.grazing ? 1 : 0.35;          // a shrimp picks at the bottom whenever it stands still
     a.legCalm = (a.legCalm ?? 1) + ((a.stepping > 0 || H ? 0 : 1) - (a.legCalm ?? 1)) * Math.min(1, dtV * 7);
     return { hop, ant, beat, feed, spread, calm: a.legCalm, spin };
   }
@@ -2814,6 +3024,21 @@ export class Animals {
     if (axo && depth < 1.0 && !a.swimming) { a.stranded = true; a.pos.y = g + 0.3; a.pitch = Math.PI / 2 * Math.sin(this.t * 12 + a.phase) * 0.3; return; }
     a.stranded = false;
     const it = herpThink(m, sense);
+    // An escape the mind aimed at blindly (straight away from the danger) may be out of the water or behind a rock: swap it for one
+    // it can reach, or none (it freezes where it is). Checked once per flight.
+    if (m.mode === 'flee' && m.goal && !m.goalOk && !gecko) {
+      m.goalOk = true;
+      if (!(a.hh && m.goal.x === a.hh.x && m.goal.z === a.hh.z)) m.goal = this.herpEscape(a, sp, threat, depth > 0.3 ? 'water' : 'land');
+      it.goal = m.goal; if (!m.goal) { it.speed = 0; it.swim = false; }
+    }
+    // Not getting anywhere (a goal it cannot walk or swim to): give it up and pause, rather than tread on the spot.
+    if (it.goal && it.speed > 0.1 && (a.hmoved ?? 1) < 0.004 * Math.max(1, dt * 60)) a.hStuck = (a.hStuck ?? 0) + dt;
+    else a.hStuck = 0;
+    if (a.hStuck > 1.2) {
+      a.hStuck = 0; m.goal = null; m.moveLeft = 0; m.pauseLeft = 1 + Math.random() * 2;
+      if (m.mode === 'flee') m.fear = Math.min(m.fear, 0.3);
+      it.goal = null; it.speed = 0;
+    }
     if (it.say === 'warn' && Math.random() < 0.3) W.log(`A ${one(a.sp)} froze and showed its warning colours.`, 'info');
     a.hit = it;
     // Courtship partner (kept for the whole courtship), a mating, a birth, a dropped tail, a shed skin.
@@ -3104,10 +3329,9 @@ export class Animals {
 
   // The nearest big thing that looms: the camera right up at the glass, a larger animal in the same medium that is close and moving.
   herpThreat(a, sp, P, wall) {
-    const cam = this.camera?.position;
-    let t = null;
     const planar = (v) => ({ x: v.x, z: wall ? -v.y : v.z });
-    if (cam) { const d = Math.hypot(cam.x - a.pos.x, cam.y - a.pos.y, cam.z - a.pos.z); if (d < 22) t = { ...planar(cam), d: (d - 6) * 0.55 }; }
+    const ct = this.camThreat(a, 22);
+    let t = ct ? { ...planar(ct), d: ct.d } : null;
     for (const id of ['leucomelas', 'dartfrog', 'auratus', 'toad', 'crab', 'firesal', 'newt', 'axolotl', 'gecko']) {
       if (id === a.sp) continue;
       const osp = SPECIES[id];
@@ -3119,6 +3343,47 @@ export class Animals {
       }
     }
     return t;
+  }
+
+  // A long body standing on uneven ground (a slope, the edge of a stone, a bank): the footing plane carries the trunk, but the tail
+  // beyond the hind feet would run on in a straight line into the ground (or stick out over a drop) and the snout ahead of the fore
+  // feet into a bank. Returns { lift, head }: the tail's lift (rig2Pack: a fraction of the body length at the tip, the curve growing
+  // from the middle of the body) that lays it on the ground, never under it, and the head pitch (radians, nose up) that keeps the chin
+  // above it. Measured at three stations along the tail and one under the chin, in the drawn pose (q, pos, scale sc).
+  groundBend(id, pos, q, sc, rig2) {
+    const b = this.bodyOf(id);
+    if (!b || !rig2) return null;
+    const T = this.world.terrain, len = rig2.len, zS = b.zc + b.hlen, zT = b.zc - b.hlen;
+    const gap = (s, y) => { _gb.set(0, y, zS - s * (zS - zT)).multiplyScalar(sc).applyQuaternion(q).add(pos); return _gb.y - T.heightAt(_gb.x, _gb.z); };
+    let need = -Infinity, room = Infinity;
+    for (const s of [0.72, 0.86, 1]) {
+      const tt = (s - 0.5) * 2, k = tt * tt * len * sc, g = gap(s, 0.06 * (rig2.neckY ?? 0.7));
+      need = Math.max(need, -g / k); room = Math.min(room, g / k);
+    }
+    const lift = clamp(need > 0 ? need : -room * 0.85, -LIFT_MAX, LIFT_MAX);
+    const chin = gap(0.03, 0.3 * (rig2.neckY ?? 0.7)), arm = Math.max(0.5, (rig2.neck - 0.03) * len * sc);
+    return { lift, head: chin < 0 ? clamp(Math.atan2(-chin, arm), 0, 0.7) : 0 };
+  }
+
+  // A spot to flee to, 6 to 14 cm away from the danger and reachable in a straight line: through water at least 1.6 cm deep for a
+  // water animal, over ground it may walk on for a land one, and nothing solid on the way. The farthest of a few tries, or null.
+  herpEscape(a, sp, threat, medium) {
+    const W = this.world, T = W.terrain, x = a.pos.x, z = a.pos.z;
+    const away = threat ? Math.atan2(x - threat.x, z - threat.z) : (a.yaw ?? 0) + Math.PI;
+    const deep = (px, pz) => this.waterTop(px, pz) - T.heightAt(px, pz) >= 1.6;
+    const ok = (px, pz) => (medium === 'water' ? deep(px, pz) && this.okFor('water', px, pz, 99, a.rad) : this.okFor(medium, px, pz, a.sp === 'firesal' ? 0.6 : 99, a.rad))
+      && !(this.occ.count && this.occ.solidAt(px, T.heightAt(px, pz) + 0.8, pz));
+    let best = null, bs = -1e9;
+    for (let k = 0; k < 12; k++) {
+      const ang = away + (k < 6 ? (k - 2.5) * 0.28 : (Math.random() - 0.5) * 2.6), r = 6 + Math.random() * 8;
+      const gx = x + Math.sin(ang) * r, gz = z + Math.cos(ang) * r;
+      let fine = ok(gx, gz);
+      for (let i = 1; fine && i < 4; i++) fine = ok(x + (gx - x) * i / 4, z + (gz - z) * i / 4);
+      if (!fine) continue;
+      const sc = (threat ? Math.hypot(gx - threat.x, gz - threat.z) : r) + this.herpWaterCover(gx, gz) * 4 - Math.abs(ang - away) * 2;
+      if (sc > bs) { bs = sc; best = { x: gx, z: gz }; }
+    }
+    return best;
   }
 
   // Where the feet are: the ground under the fore and hind feet and under both flanks (from the species' mesh, as in
@@ -3191,7 +3456,7 @@ export class Animals {
         // Undulation: strong when swimming; walking salamanders, newts and geckos bend sideways in step with the legs.
         let amp = (an.amp ?? 0) * (swimming ? 0.6 + rel * 0.6 : walker ? Math.min(1, rel * 1.2) * 0.9 : rel * 0.35);
         if (a.stranded) amp = (an.amp ?? 0.3) * 2.5;
-        a.wph = (a.wph ?? a.phase) + dt * (swimming ? 5 + rel * 7 : 3 + rel * 4) * 2 * (a.herp ? 0.5 + (a.hgill ?? 0.3) * 1.4 : 1);
+        a.wph = (a.wph ?? a.phase) + dt * (swimming ? 5 + rel * 7 : 3 + rel * 4) * 2 * (a.herp ? 0.5 + (a.hgill ?? 0.3) * 1.4 : 1) * (a.sm ? 1 + 2.4 * (a.sFeed ?? 0) : 1);
         if (walker && !swimming && (a.speedNow ?? 0) > 0.05) a.wph = (a.gait ?? 0) + a.phase;
         // Legs: stretched out through the first part of a hop and tucked in
         // for the landing; a swimming frog kicks.
@@ -3202,15 +3467,25 @@ export class Animals {
         if (VIS.has(sp.kind) || sp.kind === 'crawlWater' || sp.kind === 'crawlLand' || sp.kind === 'crab' || sp.kind === 'fly') {
           const v = this.vis(a, sp, dt / this.tf);
           if (VIS.has(sp.kind) && !a.swimming) {
+            a.swimFold = 0;
             if (!a.hop) hop = Math.max(hop, v.hop, a.tapT > 0 ? toeTap(this.t + a.phase) : 0);
             // Legs work while it walks or turns; when it stops they settle planted (an unstopped gait left two feet in the air).
             a.legCalm = (a.legCalm ?? 1) + ((a.stepping > 0 || a.hop ? 0 : 1) - (a.legCalm ?? 1)) * Math.min(1, dt / this.tf * 7);
             if (a.herp) { v.throat = Math.max(v.throat, (a.hpump ?? 0) * 0.62); v.eye = Math.max(v.eye, a.heye ?? 0); }
+            // A perching frog asleep on its leaf by day: eyes shut (drawn down into the head), easing open as it wakes.
+            a.sleepEye = (a.sleepEye ?? 0) + ((a.perch?.ph === 'sit' ? 0.85 : 0) - (a.sleepEye ?? 0)) * Math.min(1, dt / this.tf * 2);
+            if (a.sleepEye > 0.01) v.eye = Math.max(v.eye, a.sleepEye);
             packed = packAnim(hop, v.breath, v.throat, v.eye, 0, a.legCalm);
             if (!a.hop) pos = _p.copy(a.pos).add(v.off); pos.y += v.y;
           } else if (VIS.has(sp.kind)) {
-            // A swimming frog or toad is in the stroke pose; other swimmers are as they were.
-            packed = sw ? packAnim(hop, v.breath, 0, v.eye, sw.pose, sw.calm) : packAnim(hop, v.breath, 0, v.eye);
+            // A swimming frog or toad is in the stroke pose; a swimming newt or axolotl folds its legs back along the body and drives
+            // with the tail (util/gait.js salamanderSwimPose: the forelegs laid back against the flanks, the hind legs trailing).
+            if (sw) packed = packAnim(hop, v.breath, 0, v.eye, sw.pose, sw.calm);
+            else if (sp.kind === 'newt' || sp.kind === 'axolotl') {
+              const ss = salamanderSwimPose(rel);
+              a.swimFold = Math.min(1, (a.swimFold ?? 0) + dt * 3);
+              packed = packAnim(ss.hop * a.swimFold, v.breath, 0, v.eye, ss.pose * a.swimFold, ss.calm);
+            } else packed = packAnim(hop, v.breath, 0, v.eye);
             if (sw) { pos = _p.copy(a.pos); pos.y += bob(this.t + a.phase, sp.size, frac(a.kick ?? 0), a.floating ? 0 : 1); }
           }
           if (!sw) {
@@ -3245,7 +3520,12 @@ export class Animals {
           // follows the wave (late) when swimming.
           const r = a.hr, lk = walker && !swimming ? Math.min(1, rel * 1.5) : 0;
           const hy = r[0] + 0.2 * lk * Math.sin((a.gait ?? 0) + 1) + (swimming ? 0.14 * Math.min(1, rel) * Math.sin(a.wph - 0.7) : 0);
-          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy, r[1], r[2], r[3], a.hm?.tailF ?? 1, a.hm?.dull ?? 0, 0, 0);
+          // On the ground the tail lies along it and the snout stays out of a bank ahead (groundBend); swimming, both straighten.
+          const gb = !swimming && !a.wallMode && !a.hop && !a.stranded ? this.groundBend(id, pos, q, sc, an.rig2) : null;
+          const kb = Math.min(1, dt * 7);
+          a.tLift = (a.tLift ?? 0) + ((gb ? gb.lift : 0) - (a.tLift ?? 0)) * kb;
+          a.hLift = (a.hLift ?? 0) + ((gb ? gb.head : 0) - (a.hLift ?? 0)) * kb;
+          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy, r[1] + a.hLift, r[2], r[3], a.hm?.tailF ?? 1, a.hm?.dull ?? 0, 0, a.tLift);
           if (a.dropNow) {
             // The tail has just come off: a piece of it stays where it was, falls and thrashes.
             a.dropNow = false;
@@ -3287,6 +3567,13 @@ export class Animals {
     }
     CS.end();
     void fix;
+    // Cast shrimp shells: they lie where they were left and crumble as they are picked at, gone in a day or two.
+    if (this.shells.length || this.castShells.meshes.size) {
+      const dm = Math.min(this.warp ?? 1, 40) * dt;
+      for (const sh of this.shells) { sh.age += dm; sh.left = Math.min(sh.left, 1 - sh.age / sh.life); }
+      this.shells = this.shells.filter((sh) => sh.left > 0);
+      this.castShells.draw(this.shells, (sp) => this.meshFor(sp)?.lo?.geometry ?? null);
+    }
     // Build one fine mesh per frame at most, and only for species the camera is close to.
     for (const cm of Object.values(this.meshes)) if (cm.wants && cm.canRefine) { cm.refine(); cm.wants = false; break; }
     this.food = this.food.filter((f) => !f.eaten);
@@ -3318,11 +3605,12 @@ export class Animals {
     for (const k of Object.keys(this.by)) this.by[k] = [];
     this.food = [];
     this.tails = [];
+    this.shells = []; this.shrimpCalls = [];
     this.draw();
   }
 
   serialize() {
-    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev']) }));
+    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK']) }));
   }
 }
 
@@ -3331,7 +3619,7 @@ const SPECIES_LOCI = (id) => lociOf(id).length;
 // The scale an animal is drawn at (its species' scale grown with age): the same number Animals.draw hands the rig.
 function drawScale(a, sp) {
   const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
-  return (sp.scale ?? sp.size) * grow;
+  return (sp.scale ?? sp.size) * grow * (a.sizeK ?? 1);
 }
 
 function pick(o, keys) {

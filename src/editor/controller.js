@@ -465,6 +465,8 @@ export class ToolController {
     const fol = S.following.value;
     if (fol && !fol.dead && fol.pos) this.followFrame(fol);
     else if (fol) S.following.value = null;
+    // The animal being watched does not take the lens for a predator (Animals.camThreat), even as the camera flies in to it.
+    if (this.W?.animals) this.W.animals.watched = S.following.value ?? null;
     if (!S.following.value && U.focus.value.w) U.focus.value.w = 0;
     this.frameMarker();
     this.frameKeys(dt);

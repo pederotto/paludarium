@@ -17,7 +17,11 @@ const SPEC = {
   dartfrog: (g) => (H(g[0], 'b') ? (H(g[1], 's') ? 'sky_clean' : 'sky_spotted') : (H(g[1], 's') ? 'cobalt_clean' : 'cobalt_spotted')),
   guppy: (g) => (H(g[1], 'g') ? 'gold' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
   betta: (g) => (H(g[1], 'x') ? 'cellophane' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
-  shrimp: (g) => (H(g[0], 'r') && H(g[1], 'y') ? 'orange' : H(g[0], 'r') ? 'red' : H(g[1], 'y') ? 'yellow' : 'wild'),
+  shrimp: (g) => {
+    const r = H(g[0], 'r'), y = H(g[1], 'y'), b = H(g[2], 'b'), rili = g[3] === 'LL' || g[3] === 'Ll';
+    const c = r && y && b ? 'black' : r && b ? 'chocolate' : y && b ? 'green' : r && y ? 'orange' : r ? 'red' : y ? 'yellow' : b ? 'blue' : 'wild';
+    return rili && c !== 'wild' ? c + '_rili' : c;
+  },
 };
 
 test('the five species have genetics, everything else does not', () => {
@@ -216,7 +220,7 @@ test('random founders follow the species allele frequencies', () => {
   near(freq('axolotl', 0, 'a'), 0.15, 0.012); near(freq('axolotl', 1, 'm'), 0.10, 0.012); near(freq('axolotl', 2, 'l'), 0.25, 0.012);
   near(freq('dartfrog', 0, 'b'), 0.2, 0.012); near(freq('dartfrog', 1, 's'), 0.25, 0.012);
   near(freq('guppy', 0, 'R'), 0.6, 0.012); near(freq('guppy', 1, 'g'), 0.1, 0.012);
-  near(freq('shrimp', 0, 'r'), 0.5, 0.012); near(freq('shrimp', 1, 'y'), 0.15, 0.012);
+  near(freq('shrimp', 0, 'r'), 0.5, 0.012); near(freq('shrimp', 1, 'y'), 0.15, 0.012); near(freq('shrimp', 2, 'b'), 0.12, 0.012); near(freq('shrimp', 3, 'l'), 0.97, 0.012);
   near(freq('betta', 1, 'x'), 0.1, 0.012);
 });
 
@@ -285,4 +289,12 @@ test('achievements and commissions read the genetics metrics', async () => {
   assert.ok(get('punnett').test({}, { genetics: { recessivesBred: 1 } }));
   assert.ok(get('rare-find').test({}, { genetics: { maxBredRarity: 4 } }) && !get('rare-find').test({}, { genetics: { maxBredRarity: 3 } }));
   assert.ok(get('surprise').test({}, { genetics: { mutations: 2 } }) && !get('surprise').test({}, {}));
+});
+
+test('shrimp: a genotype saved before the blue and rili genes still resolves and breeds (the missing genes read as the common allele)', () => {
+  assert.equal(morphOf('shrimp', ['rr', 'yy']), 'orange');
+  assert.equal(morphOf('shrimp', ['rr', 'YY', 'bb', 'Ll']), 'chocolate_rili');
+  assert.equal(morphOf('shrimp', ['rr', 'yy', 'bb', 'll']), 'black');
+  const kid = breed('shrimp', ['Wr', 'Yy'], ['rr', 'yy', 'Bb', 'll'], makeRng(3));
+  assert.equal(kid.length, 4);
 });

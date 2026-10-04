@@ -55,12 +55,19 @@ export const SPECIES_GENETICS = {
     morphs: ['red', 'purple', 'blue', 'cellophane'],
     resolve: (g) => (hom(g[1], 'x') ? 'cellophane' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
   },
+  // Dwarf shrimp (Neocaridina davidi), the hobby's simplified picture of its colour lines: three recessive pigment genes and a
+  // dominant pattern gene. Red, yellow and blue each need two copies; stacked they make orange (red + yellow), green jade
+  // (yellow + blue), chocolate (red + blue) and black (all three). The rili gene (one copy is enough) clears a band across the
+  // middle of a coloured shrimp. A shrimp with none of the pigments is the wild brown. (Saves from before the blue and rili genes
+  // have two genes: the missing ones read as the common allele, see `complete`.)
   shrimp: {
-    loci: [rec('W', 'r', 0.5), rec('Y', 'y', 0.15)],
-    morphs: ['wild', 'red', 'yellow', 'orange'],
+    loci: [rec('W', 'r', 0.5), rec('Y', 'y', 0.15), rec('B', 'b', 0.12), rec('L', 'l', 0.97)],
+    morphs: ['wild', 'red', 'yellow', 'orange', 'blue', 'green', 'chocolate', 'black',
+      'red_rili', 'yellow_rili', 'orange_rili', 'blue_rili', 'green_rili', 'chocolate_rili', 'black_rili'],
     resolve: (g) => {
-      const r = hom(g[0], 'r'), y = hom(g[1], 'y');
-      return r && y ? 'orange' : r ? 'red' : y ? 'yellow' : 'wild';
+      const r = hom(g[0], 'r'), y = hom(g[1], 'y'), b = !!g[2] && hom(g[2], 'b'), rili = !!g[3] && g[3][0] === 'L';
+      const c = r && y && b ? 'black' : r && b ? 'chocolate' : y && b ? 'green' : r && y ? 'orange' : r ? 'red' : y ? 'yellow' : b ? 'blue' : 'wild';
+      return rili && c !== 'wild' ? `${c}_rili` : c;
     },
   },
 };
@@ -84,7 +91,15 @@ function need(id) {
 
 export function morphOf(id, genes) {
   const sp = SPECIES_GENETICS[id];
-  return sp && genes ? sp.resolve(genes) : null;
+  return sp && genes ? sp.resolve(complete(id, genes)) : null;
+}
+
+// A genotype with every locus of the species: one written before a locus was added (an old save) gets the common allele there,
+// two copies of it (the dominant one where that is the common one).
+export function complete(id, genes) {
+  const sp = SPECIES_GENETICS[id];
+  if (!sp || !genes || genes.length >= sp.loci.length) return genes;
+  return sp.loci.map((locus, i) => genes[i] ?? (() => { const c = locus.freq >= 0.5 ? locus.freqAllele : other(locus, locus.freqAllele); return norm(locus, c, c); })());
 }
 
 // Every possible genotype of a species with its probability in a wild population (Hardy-Weinberg),
@@ -129,6 +144,7 @@ export function genotypeForMorph(id, morph, rng = Math.random) {
 // One child: a random allele from each parent at every locus, each flipping with probability `mutation`.
 export function breed(id, genesA, genesB, rng = Math.random, { mutation = config.mutation } = {}) {
   const sp = need(id);
+  genesA = complete(id, genesA); genesB = complete(id, genesB);
   return sp.loci.map((locus, i) => {
     let x = genesA[i][rng() < 0.5 ? 0 : 1];
     let y = genesB[i][rng() < 0.5 ? 0 : 1];
@@ -146,6 +162,7 @@ function gametes(g) {
 // Distribution of the child's genotype at one locus: { 'Aa': 0.5, ... }. Exact.
 export function locusOutcomes(id, i, genesA, genesB) {
   const locus = need(id).loci[i];
+  genesA = complete(id, genesA); genesB = complete(id, genesB);
   const out = {};
   for (const x of gametes(genesA[i])) for (const y of gametes(genesB[i])) {
     const k = norm(locus, x.allele, y.allele);
@@ -158,6 +175,7 @@ export function locusOutcomes(id, i, genesA, genesB) {
 // { name, rows: ['A','a'], cols: ['A','a'], grid: [['AA','Aa'],['Aa','aa']], cellP: 0.25, totals: { AA: .25, Aa: .5, aa: .25 } }
 export function punnett(id, i, genesA, genesB) {
   const sp = need(id), locus = sp.loci[i];
+  genesA = complete(id, genesA); genesB = complete(id, genesB);
   const two = (g) => [g[0], g[1]];
   const rows = two(genesA[i]), cols = two(genesB[i]);
   const grid = rows.map((r) => cols.map((c) => norm(locus, r, c)));
@@ -191,6 +209,7 @@ export function isSurprise(id, genesA, genesB, child) {
 // (both heterozygous), and looks different from both of them.
 export function recessiveFromCarriers(id, genesA, genesB, child) {
   const sp = need(id);
+  genesA = complete(id, genesA); genesB = complete(id, genesB); child = complete(id, child);
   const mc = sp.resolve(child);
   if (mc === sp.resolve(genesA) || mc === sp.resolve(genesB)) return false;
   return sp.loci.some((locus, i) => !locus.incomplete && genesA[i][0] !== genesA[i][1] && genesB[i][0] !== genesB[i][1] && hom(child[i], locus.alleles[1]));

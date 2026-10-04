@@ -12,7 +12,7 @@
 // materials "eye" or "fin"/"gill" to get the eye and membrane shading.
 //
 // A model baked with its rig (tools/bake-creature.mjs jobs with `rig`, e.g. the vampire crab: claws, eight legs) carries
-// it as a `_RIG` attribute: spine, leg / 8, legT, material id / 8, quantised to 0 … 1. It is used as it is.
+// it as a `_RIG` attribute: spine, leg / 8 (or / meta.rigLeg), legT, material id / 8, quantised to 0 … 1. It is used as it is.
 
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -75,11 +75,12 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
   return { geo, material: body };
 }
 
-// The baked rig (see the header): leg and material ids back to whole numbers.
-function bakedRig(geo) {
+// The baked rig (see the header): leg and material ids back to whole numbers. Leg ids are stored divided by 8, or by the manifest's
+// `rigLeg` for a rig with higher ids (a shrimp's pincers, 15 and 16).
+function bakedRig(geo, legDiv = 8) {
   const b = geo.attributes._rig, n = b.count, rig = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
-    rig[i * 4] = b.getX(i); rig[i * 4 + 1] = Math.round(b.getY(i) * 8); rig[i * 4 + 2] = b.getZ(i); rig[i * 4 + 3] = Math.round(b.getW(i) * 8);
+    rig[i * 4] = b.getX(i); rig[i * 4 + 1] = Math.round(b.getY(i) * legDiv); rig[i * 4 + 2] = b.getZ(i); rig[i * 4 + 3] = Math.round(b.getW(i) * 8);
   }
   geo.setAttribute('rig', new THREE.BufferAttribute(rig, 4));
   geo.deleteAttribute('_rig');
@@ -88,8 +89,8 @@ function bakedRig(geo) {
 }
 
 // Derive the animation rig from the shape (see the header).
-export function addRig(geo, { legs = false, xFrac = 0.32, yFrac = 0.62 } = {}) {
-  if (geo.attributes._rig) return bakedRig(geo);
+export function addRig(geo, { legs = false, xFrac = 0.32, yFrac = 0.62, rigLeg = 8 } = {}) {
+  if (geo.attributes._rig) return bakedRig(geo, rigLeg);
   const p = geo.attributes.position, n = p.count;
   const bb = geo.boundingBox;
   const zmin = bb.min.z, zmax = bb.max.z, zmid = (zmin + zmax) / 2;
@@ -116,7 +117,7 @@ export function addRig(geo, { legs = false, xFrac = 0.32, yFrac = 0.62 } = {}) {
 export async function loadCreatureGLB(id, meta) {
   try {
     const opt = { rotY: meta.rotY ?? 0, scale: meta.scale ?? 1 };
-    const rigOpt = { legs: !!meta.legs, xFrac: meta.xFrac, yFrac: meta.yFrac };
+    const rigOpt = { legs: !!meta.legs, xFrac: meta.xFrac, yFrac: meta.yFrac, rigLeg: meta.rigLeg ?? 8 };
     const hi = await geometryFrom(new URL(meta.file, base).href, opt);
     const lo = meta.lo ? await geometryFrom(new URL(meta.lo, base).href, opt) : hi;
     addRig(hi.geo, rigOpt);

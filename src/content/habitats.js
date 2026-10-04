@@ -65,6 +65,7 @@ export const HABITAT = {
   // A poor swimmer: water no deeper than 2-3 cm, gentle gravel slopes.
   bumblebee: { noun: 'bumblebee toad', zone: 'land', maxDepth: 2.5, rhMin: 55, tMax: 27, need: 'damp mossy ground; water no deeper than 2-3 cm (it drowns in deeper water)' },
   // Perches on leaves, bamboo and wood over water: 30% land (vertical), 70% water.
+  redeye: { noun: 'red-eyed tree frog', zone: 'shore', water: 30, maxDepth: 2, rhMin: 60, tMax: 30, need: 'a tall tank with broad-leaved plants, wood or bamboo above water to sleep on by day' },
   reedfrog: { noun: 'starry night reed frog', zone: 'shore', water: 30, maxDepth: 1.5, rhMin: 55, tMax: 31, need: 'plants, wood or bamboo to perch on above open water' },
   marbled: { noun: 'marbled newt', zone: 'shore', water: 8, maxDepth: Infinity, tMax: 23, need: 'cool, still water (10-15 cm) with a ramp, or damp land beside it' },
   purpleiso: { noun: 'dwarf purple isopod', zone: 'land', maxDepth: 0.2, rhMin: 60, need: 'very damp soil on land' },

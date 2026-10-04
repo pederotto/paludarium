@@ -60,7 +60,30 @@ leg cycle still follows the distance walked (`util/gait.js strideRate`), so plan
   and nostrils, thicker legs, wide toe pads with lamellae and small claws, a tail thick at the vent; fine granular skin at the close level;
   the mourning gecko's pattern (dorsolateral stripes from the nostril through the eye, irregular blotches, cream flecks, banded tail).
 * **Axolotl**: gills sweep back as fuller frills instead of upright twigs.
-* **Newt**, **fire salamander** (scan): unchanged.
+* **Paddle-tail newt** (2026-10-03, `bodies/salamanders.js newtShape`): rebuilt from *Pachytriton*: a stocky trunk wider than high, a
+  broad flat head with a rounded snout, small eyes set high and labial lobes over the corners of the mouth, short fleshy limbs in a
+  sprawl (belly near the ground), and the paddle: the tail is a thin blade (`Fin`, edges about 1 mm) blended onto a narrow muscular core,
+  deepest two thirds of the way back, rounded at the end. Smooth, slick skin (low grain and bump, a clear coat) instead of warts;
+  chocolate brown above with fine black dots and a few orange-red flecks, orange-red below with black vermiculation (level lines of a
+  noise field, not round spots), the orange running along the blade's lower edge. The marbled newt shares the frame.
+* **Fire salamander** (scan): unchanged.
+
+## Fixes (2026-10-03)
+
+* **The camera as a predator.** Every herp (and the skink, the crabs and the small animals' `danger`) treated the camera within about 20 cm
+  as a threat, so watching or following an animal made it flee: the newt went into `flee` and stayed there. Now `Animals.camThreat`: the
+  camera is a danger only when it swoops (closes in faster than about 10 cm/s), and never for the animal being followed (`Animals.watched`,
+  set by the editor from the follow state).
+* **Unreachable escapes.** `flee` aimed straight away from the danger, often out of the water or behind a rock, and re-aimed every step, so
+  the animal stood treading water. The escape is chosen once per flight and checked (`Animals.herpEscape`: reachable through water at
+  least 1.6 cm deep, or over walkable ground, nothing solid on the way), or there is none and it freezes. A goal it makes no progress on
+  for 1.2 s is given up (`a.hStuck`).
+* **Tail through the ground.** A long body standing on a slope or the edge of a stone ran its tail on in a straight line into the gravel.
+  The rig has a tail lift (`rig2Pack` lift, packed into the spare bits of B): `Animals.groundBend` measures the ground under three points of
+  the tail and under the chin in the drawn pose and curves the tail so it lies on the ground (never under it, hanging onto it over a drop),
+  and tips the head up when the snout would go into a bank.
+* **Swimming legs.** Newts and axolotls swam with their legs in the walking pose; now `salamanderSwimPose` (it existed for the bench only):
+  forelegs laid back along the flanks, hind legs trailing, eased in over a third of a second.
 
 ## Checking
 
