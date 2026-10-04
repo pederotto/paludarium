@@ -259,6 +259,7 @@ export class Gfx {
     const useAO = q.ao && !this.params.has('noao');
     U.surfaceDetail.value = this.quality === 'low' ? 0 : 1;           // rock relief and cracks (render/shaders.js substrateMaterial)
     SKIN.on = !this.params.has('noskin') && this.quality !== 'low' && !WEAK_GPU.test(this.gpu ?? '');   // skinned near vertebrates (render/creatures/skin.js)
+    SKIN.swim = !this.params.has('noskin');          // (a swimming frog's stroke, on every preset: a few instances at most)
     const bloomOn = q.bloom && !this.params.has('nobloom');
     this.pipeline?.dispose?.();
     // Foliage skips the AO darkening (see FOLIAGE in render/shaders.js); that needs the MRT, so only while there is one.

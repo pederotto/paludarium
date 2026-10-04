@@ -55,7 +55,7 @@ const SWIM_WAVE = 2.2;     // waves per body length x 2 of a swimming caudate (w
 import { PLANS } from '../../util/bodyplan.js';
 import { requestBody } from './meshpool.js';
 import { creatureMaterial, qrot, rig2Unpack } from './material.js';
-import { skeletonRig, poseBones, ROW_FLOATS } from './skeleton.js';
+import { skeletonRig, poseBones, poseStroke, ROW_FLOATS } from './skeleton.js';
 import { SKIN, boneData, boneTexture, rows, live, skinGeometry, skinVertex } from './skin.js';
 
 // anim.w carries the hop extension and, above it, the packed pose bits (packAnim, in util/gait.js, which says how).
@@ -115,15 +115,17 @@ export class CreatureMesh {
 
   begin() { this.n = 0; }
 
-  put(pos, quat, scale, a0 = 0, a1 = 0, a2 = 0, a3 = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0, c4 = 0) {
+  // `st`: the stroke of a swimming body (util/gait.js swimPose().stroke), for a mesh skinned by a `bind: 'swim'` skeleton.
+  put(pos, quat, scale, a0 = 0, a1 = 0, a2 = 0, a3 = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0, c4 = 0, st = null) {
     if (this.n >= this.cap) return;
     const i = this.n++;
     this.iPos.setXYZW(i, pos.x, pos.y, pos.z, scale);
     this.iRot.setXYZW(i, quat.x, quat.y, quat.z, quat.w);
     if (this.skinRig) {
       // the bones from the state the rig would have drawn (anim.y then carries the instance's row of the bone texture)
-      const u = unpackAnim(a3), row = this.row0 + i;
-      poseBones(this.skinRig, { phase: a2, tau: this.inY ? a1 : c4, hop: u.hop, calm: u.calm, pose: u.pose }, boneData, row * ROW_FLOATS);
+      const row = this.row0 + i;
+      if (this.skinRig.stroke) poseStroke(this.skinRig, st, boneData, row * ROW_FLOATS);
+      else { const u = unpackAnim(a3); poseBones(this.skinRig, { phase: a2, tau: this.inY ? a1 : c4, hop: u.hop, calm: u.calm, pose: u.pose }, boneData, row * ROW_FLOATS); }
       a1 = row;
     }
     this.iAnim.setXYZW(i, a0, a1, a2, a3);
@@ -520,12 +522,15 @@ export class CreatureLOD {
   // `d2` is the squared distance from the camera to the animal.
   // b0 … b3, c0 … c4: the second and third channels (finish.rig2: head yaw, head pitch, body bend, tail swing; tail length, skin dullness,
   // tail piece, tail lift, turning mix).
-  put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0, c4 = 0) {
+  // st: a swimming body's stroke (CreatureMesh.put).
+  put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0, c4 = 0, st = null) {
     const lo = this._lo;
     if (!lo) return;
+    const sk = this.skinned, stroke = !!sk?.skinRig?.stroke;
+    // (a swimming body is drawn by its stroke at any distance: without its bones it is a frozen pose sliding through the water)
+    if (stroke && SKIN.swim && sk.n < sk.skinCap) { sk.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3, c4, st); return; }
     if (d2 < this.near2) {
-      const sk = this.skinned;
-      if (sk && SKIN.on && sk.n < sk.skinCap) { sk.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3, c4); return; }
+      if (sk && !stroke && SKIN.on && sk.n < sk.skinCap) { sk.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3, c4, st); return; }
       if (this.hi) { this.hi.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3, c4); return; }
       this.wants = true;
     }
@@ -533,6 +538,8 @@ export class CreatureLOD {
   }
   end() { this._lo?.end(); this.hi?.end(); this.skinned?.end(); }
   get mesh() { return this._lo?.mesh; }
+  // a swimming body that is drawn by its stroke (a skeleton with `bind: 'swim'`, and bones allowed): it can be posed as a leap too
+  get strokes() { return !!this.skinned?.skinRig?.stroke && SKIN.swim; }
   // Takes the meshes out of the scene without freeing the (shared) geometry; anything still in flight is dropped.
   remove() { this.removed = true; this._lo?.mesh.removeFromParent(); this.hi?.mesh.removeFromParent(); this.skinned?.mesh.removeFromParent(); this.skinned?.releaseSkin(); }
   dispose() { this.removed = true; this._lo?.dispose(); this.hi?.dispose(); this.skinned?.dispose(); }

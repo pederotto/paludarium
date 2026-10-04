@@ -18,10 +18,13 @@
 //   limits   the knee / elbow and the heel / wrist are kept inside the plan's joint ranges; a target past them is not reached.
 //   muscles  the plan's muscle bellies swell (or thin) with their joint's flexion against the rest pose: a radial scale of the bone
 //            about its axis, so it costs nothing in the shader.
+// The swimming body (a skeleton with `bind: 'swim'`: the frog scanned mid-stroke, limbs apart, tools/bake-frogpose.mjs) is posed by
+// the stroke instead (poseStroke below): every limb bone pointed by the stroke's joint angles (util/gait.js strokeAngles, armAngles).
 // The body (pelvis, spine, head) stays as it rests: a frog's trunk is stiff (bodyplan.js anuran: 0.06 of bend), and breathing, the
 // throat and the eyes are the rig's, on the rest pose before the bones move it (render/creatures/instanced.js).
 
 import { PLANS, bendAngle } from '../../util/bodyplan.js';
+import { strokeAngles, armAngles } from '../../util/gait.js';
 
 export const ROW_TEXELS = 64;                  // texels in an instance's row of the bone texture (RGBA float each)
 export const BONE_TEXELS = 3;                  // a bone is an affine 3 x 4 matrix: three rows of [m0, m1, m2, t]
@@ -86,6 +89,20 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
   const head = B.map((b) => b.head), tail = B.map((b) => b.tail);
   const dir = B.map((b) => norm(sub(b.tail, b.head))), L = B.map((b) => len(sub(b.tail, b.head)));
   const parent = B.map((b) => (b.parent != null ? byName[b.parent] ?? -1 : -1));
+  if (skel.bind === 'swim') {
+    // The swimming body: each limb a chain of bones from its root, and for every bone the side of it that faces the frog's back as
+    // it was scanned (a bone keeps that side up as the stroke points it elsewhere, so a leg swings without twisting).
+    const limbs = [];
+    for (const [s, side] of [['L', -1], ['R', 1]]) {
+      for (const [hind, names] of [[true, ['thigh', 'shin', 'foot', 'toes']], [false, ['arm', 'forearm', 'hand']]]) {
+        const bones = names.map((k) => byName[k + s]);
+        if (bones.some((i) => i == null)) return null;
+        limbs.push({ side, hind, limb: B[bones[0]].limb, bones, u0: bones.map((b) => across(dir[b], UP)) });
+      }
+    }
+    return { n, B, byName, head, tail, dir, L, parent, limbs, muscles: musclesOf(plan, B, byName, parent, dir, L), plan, stroke: true,
+      limits: B.map((b) => plan.joints[b.name.replace(/[LR]$/, '')] ?? null) };
+  }
   // The trunk's line as baked (pelvis to head): a scanned frog sits nose up, so "behind the body" is down and back in the model.
   const tf = byName.pelvis != null && byName.head != null ? norm(sub(head[byName.head], head[byName.pelvis])) : [0, 0, 1];
   const ventral = norm([0, -tf[2], tf[1]]);
@@ -108,7 +125,12 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
         swimExt: norm(addv(addv(mul(tf, -1), mul(ventral, 0.12)), [s === 'L' ? -0.42 : 0.42, 0, 0])) });
     }
   }
-  // muscles: a belly on `bone` swells with the flexion of `joint` (the bend of that bone against its parent) against the rest pose
+  return { n, B, byName, head, tail, dir, L, parent, chains, muscles: musclesOf(plan, B, byName, parent, dir, L), plan, legLift, legStride, limb, turn, reach, ventral,
+    limits: B.map((b) => plan.joints[b.name.replace(/[LR]$/, '')] ?? null) };
+}
+
+// muscles: a belly on `bone` swells with the flexion of `joint` (the bend of that bone against its parent) against the rest pose
+function musclesOf(plan, B, byName, parent, dir, L) {
   const muscles = [];
   for (const m of plan.muscles) {
     if (!m.gain || !m.joint) continue;
@@ -123,8 +145,7 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
       muscles.push({ b, j, lim, flex0, k });
     }
   }
-  return { n, B, byName, head, tail, dir, L, parent, chains, muscles, plan, legLift, legStride, limb, turn, reach, ventral,
-    limits: B.map((b) => plan.joints[b.name.replace(/[LR]$/, '')] ?? null) };
+  return muscles;
 }
 
 // The foot's offset as the vertex rig draws the tip of a leg (render/creatures/instanced.js; util/turn.js footRig), and the turn's
@@ -214,6 +235,14 @@ export function poseBones(rig, st, out, o = 0, info = null) {
     for (const e of c.ends) { R[e] = Rend; H[e] = addv(E, mv(Rend, sub(head[e], c.E))); }
     if (info) info.tips[c.limb] = addv(E, mv(Rend, legT0));
   }
+  writeBones(rig, R, H, out, o);
+  return info;
+}
+
+// The bones' matrices packed for the GPU: 12 floats a bone (rows of [R | t], posed = R · rest + t) into `out` from `o`, each bone
+// turned by R[b] about its head, now at H[b]; the muscles swell first.
+function writeBones(rig, R, H, out, o) {
+  const { n, head, dir, muscles } = rig;
   // muscles: radial swell of a bone about its rest axis, S = I + k (I - d dᵀ), applied before the bone's rotation
   const S = new Array(n).fill(null);
   for (const m of muscles) {
@@ -231,6 +260,60 @@ export function poseBones(rig, st, out, o = 0, info = null) {
     out[p + 4] = M[3]; out[p + 5] = M[4]; out[p + 6] = M[5]; out[p + 7] = t[1];
     out[p + 8] = M[6]; out[p + 9] = M[7]; out[p + 10] = M[8]; out[p + 11] = t[2];
   }
+}
+
+// --- The swimming body's stroke ----------------------------------------------------------------------------------------------------
+const UP = [0, 1, 0], RAD = Math.PI / 180;
+// the unit vector across `d` nearest to `up`
+function across(d, up) {
+  const k = dot(up, d), v = [up[0] - d[0] * k, up[1] - d[1] * k, up[2] - d[2] * k];
+  return len(v) > 1e-6 ? norm(v) : norm(cross(d, [1, 0, 0]));
+}
+// A segment's direction from its two angles (util/gait.js HIND, degrees): `th` from straight back (-z) out to its side (x) and
+// round to straight forward (+z), `ph` its lift toward the back (+y).
+function segDir(th, ph, side) {
+  const c = Math.cos(ph * RAD);
+  return [side * Math.sin(th * RAD) * c, Math.sin(ph * RAD), -Math.cos(th * RAD) * c];
+}
+const _hind = new Float32Array(9), _fore = new Float32Array(6);
+// A frog between strokes, for a swimming body drawn without one: legs trailing, forelegs half out.
+export const GLIDING = { pL: 0.45, pR: 0.45, ampL: 1, ampR: 1, float: 0, scull: 0, arms: 0.35, push: 0 };
+
+// One instance of the swimming body (a rig from a `bind: 'swim'` skeleton) in the stroke `st` (util/gait.js swimPose().stroke:
+// { pL, pR (each hind leg's phase), ampL, ampR (how fully it kicks), float, scull, arms (0 laid back … 1 held out) }, or a leap's
+// { legA, armA }: the angles themselves): every limb
+// bone pointed by its joint angles from the limb's root outward, keeping its length and the side it turns to the frog's back.
+// Writes the bones like poseBones; `info` (if given) gets each limb's tip and the bend of every joint, for the tests.
+export function poseStroke(rig, st, out, o = 0, info = null) {
+  const { n, head, dir, L, limbs } = rig, s = st ?? GLIDING;
+  const R = new Array(n), H = new Array(n);
+  for (let b = 0; b < n; b++) { R[b] = I3(); H[b] = head[b]; }
+  if (info) { info.tips = {}; info.bend = {}; }
+  for (const c of limbs) {
+    const left = c.side < 0, k = c.bones.length;
+    let A;
+    if (c.hind && s.legA) A = s.legA;                 // (angles given outright: a leap, util/gait.js leapStroke)
+    else if (!c.hind && s.armA) A = s.armA;
+    else if (c.hind) {
+      A = strokeAngles(left ? s.pL : s.pR, _hind, 0, left ? s.ampL : s.ampR, s.float);
+      // (floating, the legs scull gently about their spread, one side then the other)
+      if (s.float > 0) { const w = s.float * (s.scull ?? 0) * (left ? 1 : -1) * 60; A[0] += w; A[1] += w * 0.6; A[2] -= w * 0.8; }
+    } else A = armAngles(s.arms, _fore, 0, s.float);
+    let J = head[c.bones[0]], dPrev = null;
+    for (let i = 0; i < k; i++) {
+      const b = c.bones[i], d1 = segDir(A[i], A[k + i], c.side);
+      let u1 = across(d1, UP);
+      // (the foot rolls about its own length: the web upright as it pushes, flat as it trails)
+      if (c.hind && i >= 2 && A[8]) u1 = mv(rotAxis(d1, A[8] * RAD * c.side), u1);
+      R[b] = frameRot(dir[b], c.u0[i], d1, u1);
+      H[b] = J;
+      J = addv(J, mul(d1, L[b]));
+      if (info && dPrev) info.bend[rig.B[b].name] = bendAngle(dPrev, d1);
+      dPrev = d1;
+    }
+    if (info) info.tips[c.limb] = J;
+  }
+  writeBones(rig, R, H, out, o);
   return info;
 }
 

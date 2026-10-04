@@ -46,7 +46,7 @@ const shotsById = {};
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
 page.on('pageerror', (e) => errors.push(String(e.message ?? e).slice(0, 300)));
 for (const id of ids) {
-  await page.goto(`${url}/bench.html?sp=${encodeURIComponent(id)}&src=${src}&lod=${lod}&water=${water}&size=${size}${wlOpt ? '&wl=' + wlOpt : ''}${body ? '&body=' + body : ''}${opt('query', '') ? '&' + opt('query', '') : ''}`, { waitUntil: 'load' });
+  await page.goto(`${url}/bench.html?sp=${encodeURIComponent(id)}&src=${src}&lod=${lod}&water=${water}&size=${size}${wlOpt ? '&wl=' + wlOpt : ''}${body ? '&body=' + body : ''}${opt('zoom', '') ? '&zoom=' + opt('zoom', '') : ''}${opt('back', '') ? '&back=' + opt('back', '') : ''}${opt('query', '') ? '&' + opt('query', '') : ''}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.bench?.ready, null, { timeout: 60000 }).catch(() => {});
   if (!(await page.evaluate(() => !!window.bench))) { console.log(id, 'FAILED to load\n' + errors.slice(0, 5).join('\n')); continue; }
   if (poseName) {

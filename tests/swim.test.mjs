@@ -1,8 +1,10 @@
 // The anuran swimming blueprint's motion layer (util/gait.js, util/bodyplan.js SWIM): a frog kicks and travels with the stroke.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { swimState, swimStep, swimPose, kickRate } from '../src/util/gait.js';
-import { SWIM, swimProfile } from '../src/util/bodyplan.js';
+import { swimState, swimStep, swimPose, kickRate, strokeAngles, armAngles, armOpen, legExtension, leapStroke, HIND, FORE, STROKE, STROKE_KEYS } from '../src/util/gait.js';
+import { SWIM, swimProfile, PLANS } from '../src/util/bodyplan.js';
+import { skeletonRig, poseStroke, applyBone, ROW_FLOATS } from '../src/render/creatures/skeleton.js';
+import fs from 'node:fs';
 
 const seeded = (s = 7) => () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 // Swims for `secs` at 30 ticks a second: distance, kicks, the speeds, the share of ticks with no stroke (resting between bursts).
@@ -48,22 +50,134 @@ test('swimming, the legs work: little of the time without a stroke', () => {
   }
 });
 
-test('the stroke: both legs snap out, trail straight through the glide, fold in the recovery; posture level, head up', () => {
+test('the stroke: the legs kick out, close and trail through the glide, draw up in the recovery; posture level, head up', () => {
   const prof = swimProfile('leucomelas'), at = (phase) => swimPose({ phase, rest: 0 }, prof);
-  assert.ok(at(0.02).hop < 0.4 && at(0.17).hop > 0.95 && at(0.4).hop === 1 && at(0.65).hop === 1 && at(0.9).hop < 0.4 && at(0.98).hop < 0.05);
-  // the legs are drawn up (a sitting frog's fold) only briefly before each thrust: under 15% of the stroke
+  assert.ok(at(0.01).hop < 0.1 && at(STROKE.thrust).hop > 0.75 && at(0.3).hop === 1 && at(0.55).hop === 1 && at(0.8).hop < 0.5 && at(0.99).hop < 0.05);
+  // the legs are drawn up (a sitting frog's fold) only briefly before each thrust: about a quarter of the stroke
   let folded = 0; for (let p = 0; p < 1; p += 0.001) if (at(p).hop < 0.3) folded++;
-  assert.ok(folded < 150, `${folded / 10}% of the stroke folded`);
+  assert.ok(folded < 260, `${folded / 10}% of the stroke folded`);
   for (let p = 0; p < 1; p += 0.05) {
     const s = at(p);
-    assert.ok(s.pose === 1 && s.calm === 1, 'forelegs back along the flanks, the walk off');
+    assert.ok(s.calm === 1 && s.stroke.ampL === 1 && s.stroke.ampR === 1 && s.stroke.pL === s.stroke.pR, 'both legs together, the walk off');
     assert.ok(s.pitch < prof.level && s.pitch > prof.level - 0.3, 'trunk flat with the nose a little up');
   }
+  // the forelegs are held out as it draws its legs up and laid back as it drives
+  assert.ok(at(0.95).stroke.arms > at(0.4).stroke.arms + 0.4);
+});
+
+test('the stroke as joint angles: cocked, a wide kick, legs together in the glide, a diamond in the recovery', () => {
+  const A = (p, amp = 1, fl = 0) => Array.from(strokeAngles(p, new Float32Array(9), 0, amp, fl));
+  // periodic and smooth: no joint jumps more than 12 degrees in a hundredth of a stroke
+  for (let c = 0; c < 9; c++) assert.ok(Math.abs(A(0)[c] - A(0.99999)[c]) < 0.1);
+  let worst = 0, prev = A(0);
+  for (let i = 1; i <= 400; i++) { const a = A(i / 400); for (let c = 0; c < 9; c++) worst = Math.max(worst, Math.abs(a[c] - prev[c])); prev = a; }
+  assert.ok(worst < 5, `largest step ${worst.toFixed(1)} degrees in 1/400 of a stroke`);
+  // it passes through its keys
+  for (const [t, k] of STROKE_KEYS) for (let c = 0; c < 9; c++) assert.ok(Math.abs(A(t % 1)[c] - HIND[t === 1 ? 'cock' : k][c]) < 0.6, `${k} channel ${c}`);
+  // cocked: thighs forward of straight out, the feet turned out; the kick drives the thigh back (proximal first: half way through
+  // the thrust the thigh has moved further than the foot); the glide: every segment within 15 degrees of straight back
+  const cock = A(0), mid = A(STROKE.thrust / 2), open = A(STROKE.thrust), glide = A(0.4), draw = A(0.74);
+  assert.ok(cock[0] > 110 && cock[2] > 80);
+  assert.ok(cock[0] - mid[0] > cock[2] - mid[2], 'the hip leads the ankle');
+  assert.ok(open[0] < 45 && open[0] > 25, 'legs straight in a V at the end of the thrust');
+  for (let c = 0; c < 4; c++) assert.ok(Math.abs(glide[c]) < 15, `glide: segment ${c} at ${glide[c].toFixed(0)}`);
+  assert.ok(draw[0] > 50 && draw[1] < -25, 'recovery: knees out, shins angled back in (a diamond from above)');
+  // a leg that kicks less stays nearer the floating posture; floating is the floating posture
+  for (let c = 0; c < 9; c++) { assert.ok(Math.abs(A(0.4, 0)[c] - HIND.float[c]) < 1e-3); assert.ok(Math.abs(A(0.1, 1, 1)[c] - HIND.float[c]) < 1e-3); }
+  assert.ok(legExtension(0) === 0 && legExtension(0.4) === 1);
+  // forelegs: laid back to held out
+  const F = (o, fl = 0) => Array.from(armAngles(o, new Float32Array(6), 0, fl));
+  assert.deepEqual(F(0), FORE.tuck); assert.deepEqual(F(1), FORE.spread); assert.deepEqual(F(0.3, 1), FORE.hang);
+  assert.ok(armOpen(0.95, 1, 0.3) === 1 && Math.abs(armOpen(0.4, 1, 0.3) - 0.3) < 1e-9);
+});
+
+test('pottering it kicks one leg after the other; turning, the inner leg trails', () => {
+  const prof = swimProfile('toad'), st = swimState(seeded());
+  for (let i = 0; i < 90; i++) swimStep(st, prof, { urgency: 0.2, bodyLen: 4.5, rnd: seeded(3) }, 1 / 30);
+  assert.ok(st.alt > 0.9);
+  const s = swimPose(st, prof).stroke;
+  assert.ok(Math.abs(s.pR - s.pL - 0.5) < 0.06, 'the legs half a stroke apart');
+  for (let i = 0; i < 90; i++) swimStep(st, prof, { urgency: 0.95, steer: 1, bodyLen: 4.5, rnd: seeded(3) }, 1 / 30);
+  const t = swimPose(st, prof).stroke;
+  assert.ok(st.alt < 0.1 && t.ampR < 0.4 && t.ampL > 0.9, 'turning toward +x: the +x leg trails, the other drives');
+  // slower when it potters than when it means to get somewhere
+  const fast = run('toad', { urgency: 0.95 }).d, slow = run('toad', { urgency: 0.2 }).d;
+  assert.ok(slow < fast * 0.6, `${slow.toFixed(0)} cm against ${fast.toFixed(0)} cm in 30 s`);
 });
 
 test('the fire-bellied toad rests floating, limbs spread, hardly moving', () => {
   const r = run('toad', { floating: true, secs: 20 });
   assert.ok(r.d < 2, `drifted ${r.d.toFixed(2)} cm`);
-  const s = swimPose({ phase: 3.3, rest: 0 }, swimProfile('toad'), { floating: true });
-  assert.ok(s.hop > 0.35 && s.hop < 0.75 && s.pose < 1);
+  const st = swimState(seeded());
+  for (let i = 0; i < 90; i++) swimStep(st, swimProfile('toad'), { floating: true, bodyLen: 4.5 }, 1 / 30);
+  const s = swimPose(st, swimProfile('toad'), { level: 0 });
+  assert.ok(st.fl > 0.95 && s.stroke.float > 0.95 && s.hop > 0.35 && s.hop < 0.75 && s.pose < 1);
+  assert.ok(s.pitch < -0.3, 'it hangs head up');
+});
+
+// The swimming body's skeleton, posed by the stroke (render/creatures/skeleton.js poseStroke).
+const man = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8'));
+test('every frog with a sitting skeleton has a swimming body with its own', () => {
+  for (const [id, m] of Object.entries(man)) {
+    if (m.skeleton?.bind === 'swim' || !m.skeleton || m.pose) continue;
+    const sw = man[`${id}.swim`] ?? man[`${id.split(':')[0]}.swim`];      // (a morph without its own swims in the species' one)
+    assert.ok(sw?.skeleton?.bind === 'swim' && sw.skeleton.bones.length === 17, `${id}.swim`);
+    assert.ok(skeletonRig(sw.skeleton)?.stroke, `${id}.swim rig`);
+  }
+});
+
+test('poseStroke: bones keep their length and stay in the joints\' ranges, the legs mirror, feet together but not through each other', () => {
+  const skel = man['leucomelas.swim'].skeleton, rig = skeletonRig(skel), row = new Float32Array(ROW_FLOATS);
+  const P = PLANS.anuran.joints, tipOf = (b, info) => info.tips[rig.B[b].limb];
+  const pt = (b, p) => applyBone(row, 0, b, p), d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  let closest = 9, widest = 0;
+  for (let i = 0; i < 100; i++) {
+    const p = i / 100, w = swimPose({ phase: p }, swimProfile('leucomelas'), { level: 0 }), info = poseStroke(rig, w.stroke, row, 0, {});
+    for (let b = 0; b < rig.n; b++) {
+      // rigid: a bone's ends stay its length apart, and a child starts where its parent ends (within the scan's own gaps)
+      assert.ok(Math.abs(d(pt(b, rig.head[b]), pt(b, rig.tail[b])) - rig.L[b]) < 1e-4, `${rig.B[b].name} length at ${p}`);
+      const pa = rig.parent[b];
+      if (pa >= 0 && rig.B[b].limb && rig.B[pa].limb) assert.ok(d(pt(b, rig.head[b]), pt(pa, rig.tail[pa])) < 1e-4, `${rig.B[b].name} joined to ${rig.B[pa].name} at ${p}`);
+    }
+    for (const [name, a] of Object.entries(info.bend)) { const lim = P[name.replace(/[LR]$/, '')]; assert.ok(a >= lim.min - 0.5 && a <= lim.max + 0.5, `${name} bent ${a.toFixed(0)} at ${p} (range ${lim.min}-${lim.max})`); }
+    // mirror: left and right toe tips at the same height and distance back, opposite sides
+    const L = info.tips[3], R = info.tips[4];
+    // (the scan's two legs are not quite the same length: within half a centimetre)
+    assert.ok(Math.abs(L[0] + R[0]) < 0.5 && Math.abs(L[1] - R[1]) < 0.5 && Math.abs(L[2] - R[2]) < 0.5, `mirror at ${p}`);
+    const gap = Math.min(pt(rig.byName.footR, rig.head[rig.byName.footR])[0] - pt(rig.byName.footL, rig.head[rig.byName.footL])[0], R[0] - L[0]);
+    closest = Math.min(closest, gap); widest = Math.max(widest, R[0] - L[0]);
+  }
+  const r = skel.bones.find((b) => b.name === 'footR').r;
+  assert.ok(closest > 2 * r * 0.8, `feet ${closest.toFixed(2)} cm apart at the closest (foot radius ${r})`);
+  assert.ok(widest > 4.5, `the kick spreads the feet ${widest.toFixed(1)} cm`);
+  // the glide: toes trail more than a trunk length behind the vent; a missing stroke is the glide
+  const vent = rig.head[rig.byName.pelvis][2], g = poseStroke(rig, null, row, 0, {});
+  assert.ok(vent - g.tips[4][2] > 3.5, `toes ${(vent - g.tips[4][2]).toFixed(1)} cm behind the vent`);
+});
+
+test('a leap, by the same body: cocked on the ground, legs straight and trailing in the air, folded and arms forward to land', () => {
+  const skel = man['leucomelas.swim'].skeleton, rig = skeletonRig(skel), row = new Float32Array(ROW_FLOATS), P = PLANS.anuran.joints;
+  const at = (t) => { const s = leapStroke(t); return { s, info: poseStroke(rig, s, row, 0, {}) }; };
+  const hipZ = rig.head[rig.byName.thighR][2], sh = rig.head[rig.byName.armR];
+  // on the ground the legs are cocked and the hands under the shoulders; mid-air the toes trail far behind the hips, the hands are
+  // drawn back behind the shoulders; landing, the hands are ahead of and below the shoulders and the legs folded again
+  assert.deepEqual(Array.from(at(0).s.legA), HIND.cock); assert.deepEqual(Array.from(at(0).s.armA), FORE.stand);
+  const air = at(0.35), land = at(0.82), end = at(1);
+  assert.ok(hipZ - air.info.tips[4][2] > 3.5, `toes ${(hipZ - air.info.tips[4][2]).toFixed(1)} cm behind the hips in the air`);
+  assert.ok(air.info.tips[2][2] < sh[2], 'hands behind the shoulders in the air');
+  assert.ok(land.info.tips[2][2] > sh[2] + 0.5 && land.info.tips[2][1] < sh[1] - 0.4, 'hands forward and down to land');
+  assert.ok(hipZ - end.info.tips[4][2] < 2.5, 'legs folded at the landing');
+  // the hips and knees straighten before the ankles and feet
+  const e = at(0.07).s.legA;
+  assert.ok((HIND.cock[0] - e[0]) / (HIND.cock[0] - HIND.leap[0]) > (HIND.cock[2] - e[2]) / (HIND.cock[2] - HIND.leap[2]) + 0.1);
+  // continuous, and every joint inside a frog's range all the way
+  let prev = at(0).s, worst = 0;
+  for (let i = 1; i <= 200; i++) {
+    const { s, info } = at(i / 200);
+    for (let c = 0; c < 9; c++) worst = Math.max(worst, Math.abs(s.legA[c] - prev.legA[c]));
+    for (let c = 0; c < 6; c++) worst = Math.max(worst, Math.abs(s.armA[c] - prev.armA[c]));
+    prev = { legA: Float32Array.from(s.legA), armA: Float32Array.from(s.armA) };
+    for (const [name, a] of Object.entries(info.bend)) { const lim = P[name.replace(/[LR]$/, '')]; assert.ok(a >= lim.min - 0.5 && a <= lim.max + 0.5, `${name} bent ${a.toFixed(0)} at ${i / 200}`); }
+  }
+  assert.ok(worst < 12, `largest step ${worst.toFixed(1)} degrees in 1/200 of a leap`);
 });

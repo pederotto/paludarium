@@ -349,9 +349,10 @@
    "rough": 0.52,
    "coat": 0.32,
    "coatRough": 0.36,
-   "grainAmt": 0.15,
-   "grain": 9
-  }
+   "grain": 9,
+   "grainAmt": 0.15
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.658,-2.26],"tail":[0,0.73,-1.138],"limb":0,"r":0.66},{"name":"spine","parent":"pelvis","head":[0,0.73,-1.138],"tail":[0,0.793,0.116],"limb":0,"r":0.924},{"name":"head","parent":"spine","head":[0,0.793,0.512],"tail":[0,0.875,2.178],"limb":0,"r":0.66},{"name":"thighL","parent":"pelvis","head":[-0.231,0.582,-2.128],"tail":[-1.403,0.509,-2.376],"limb":3,"r":0.281},{"name":"shinL","parent":"thighL","head":[-1.403,0.509,-2.376],"tail":[-0.71,1.103,-3.96],"limb":3,"r":0.198},{"name":"footL","parent":"shinL","head":[-0.71,1.103,-3.96],"tail":[-1.914,0.337,-4.158],"limb":3,"r":0.148},{"name":"toesL","parent":"footL","head":[-1.914,0.337,-4.158],"tail":[-2.838,0.097,-4.125],"limb":3,"r":0.099},{"name":"armL","parent":"spine","head":[-0.693,0.697,0.38],"tail":[-1.65,0.793,0.165],"limb":1,"r":0.181},{"name":"forearmL","parent":"armL","head":[-1.65,0.793,0.165],"tail":[-2.838,0.631,0.578],"limb":1,"r":0.148},{"name":"handL","parent":"forearmL","head":[-2.838,0.631,0.578],"tail":[-3.25,0.634,0.825],"limb":1,"r":0.099},{"name":"thighR","parent":"pelvis","head":[0.231,0.582,-2.128],"tail":[1.353,0.466,-2.425],"limb":4,"r":0.281},{"name":"shinR","parent":"thighR","head":[1.353,0.466,-2.425],"tail":[0.693,1.139,-3.91],"limb":4,"r":0.198},{"name":"footR","parent":"shinR","head":[0.693,1.139,-3.91],"tail":[1.815,0.423,-4.075],"limb":4,"r":0.148},{"name":"toesR","parent":"footR","head":[1.815,0.423,-4.075],"tail":[2.574,0.064,-4.009],"limb":4,"r":0.099},{"name":"armR","parent":"spine","head":[0.693,0.681,0.38],"tail":[1.65,0.793,0.198],"limb":2,"r":0.181},{"name":"forearmR","parent":"armR","head":[1.65,0.793,0.198],"tail":[2.772,0.615,0.578],"limb":2,"r":0.148},{"name":"handR","parent":"forearmR","head":[2.772,0.615,0.578],"tail":[3.218,0.598,0.825],"limb":2,"r":0.099}]}
  },
  "strawberry.swim": {
   "file": "strawberry.swim.glb",
@@ -415,9 +416,10 @@
    "rough": 0.52,
    "coat": 0.32,
    "coatRough": 0.36,
-   "grainAmt": 0.15,
-   "grain": 9
-  }
+   "grain": 9,
+   "grainAmt": 0.15
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.336,-1.155],"tail":[0,0.373,-0.582],"limb":0,"r":0.337},{"name":"spine","parent":"pelvis","head":[0,0.373,-0.582],"tail":[0,0.405,0.059],"limb":0,"r":0.472},{"name":"head","parent":"spine","head":[0,0.405,0.262],"tail":[0,0.447,1.113],"limb":0,"r":0.337},{"name":"thighL","parent":"pelvis","head":[-0.118,0.297,-1.088],"tail":[-0.717,0.26,-1.214],"limb":3,"r":0.143},{"name":"shinL","parent":"thighL","head":[-0.717,0.26,-1.214],"tail":[-0.363,0.564,-2.024],"limb":3,"r":0.101},{"name":"footL","parent":"shinL","head":[-0.363,0.564,-2.024],"tail":[-0.978,0.172,-2.125],"limb":3,"r":0.076},{"name":"toesL","parent":"footL","head":[-0.978,0.172,-2.125],"tail":[-1.451,0.049,-2.108],"limb":3,"r":0.051},{"name":"armL","parent":"spine","head":[-0.354,0.356,0.194],"tail":[-0.843,0.405,0.084],"limb":1,"r":0.093},{"name":"forearmL","parent":"armL","head":[-0.843,0.405,0.084],"tail":[-1.451,0.323,0.295],"limb":1,"r":0.076},{"name":"handL","parent":"forearmL","head":[-1.451,0.323,0.295],"tail":[-1.661,0.324,0.422],"limb":1,"r":0.051},{"name":"thighR","parent":"pelvis","head":[0.118,0.297,-1.088],"tail":[0.692,0.238,-1.24],"limb":4,"r":0.143},{"name":"shinR","parent":"thighR","head":[0.692,0.238,-1.24],"tail":[0.354,0.582,-1.999],"limb":4,"r":0.101},{"name":"footR","parent":"shinR","head":[0.354,0.582,-1.999],"tail":[0.928,0.216,-2.083],"limb":4,"r":0.076},{"name":"toesR","parent":"footR","head":[0.928,0.216,-2.083],"tail":[1.316,0.032,-2.049],"limb":4,"r":0.051},{"name":"armR","parent":"spine","head":[0.354,0.348,0.194],"tail":[0.843,0.405,0.101],"limb":2,"r":0.093},{"name":"forearmR","parent":"armR","head":[0.843,0.405,0.101],"tail":[1.417,0.314,0.295],"limb":2,"r":0.076},{"name":"handR","parent":"forearmR","head":[1.417,0.314,0.295],"tail":[1.644,0.306,0.422],"limb":2,"r":0.051}]}
  },
  "pygmy": {
   "file": "pygmy.glb",
@@ -1071,9 +1073,10 @@
    "rough": 0.5,
    "coat": 0.34,
    "coatRough": 0.36,
-   "grainAmt": 0.15,
-   "grain": 9
-  }
+   "grain": 9,
+   "grainAmt": 0.15
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.614,-2.11],"tail":[0,0.681,-1.062],"limb":0,"r":0.616},{"name":"spine","parent":"pelvis","head":[0,0.681,-1.062],"tail":[0,0.74,0.108],"limb":0,"r":0.862},{"name":"head","parent":"spine","head":[0,0.74,0.478],"tail":[0,0.817,2.033],"limb":0,"r":0.616},{"name":"thighL","parent":"pelvis","head":[-0.216,0.543,-1.986],"tail":[-1.309,0.475,-2.217],"limb":3,"r":0.262},{"name":"shinL","parent":"thighL","head":[-1.309,0.475,-2.217],"tail":[-0.662,1.029,-3.696],"limb":3,"r":0.185},{"name":"footL","parent":"shinL","head":[-0.662,1.029,-3.696],"tail":[-1.786,0.315,-3.881],"limb":3,"r":0.139},{"name":"toesL","parent":"footL","head":[-1.786,0.315,-3.881],"tail":[-2.649,0.09,-3.85],"limb":3,"r":0.092},{"name":"armL","parent":"spine","head":[-0.647,0.651,0.354],"tail":[-1.54,0.74,0.154],"limb":1,"r":0.169},{"name":"forearmL","parent":"armL","head":[-1.54,0.74,0.154],"tail":[-2.649,0.589,0.539],"limb":1,"r":0.139},{"name":"handL","parent":"forearmL","head":[-2.649,0.589,0.539],"tail":[-3.034,0.592,0.77],"limb":1,"r":0.092},{"name":"thighR","parent":"pelvis","head":[0.216,0.543,-1.986],"tail":[1.263,0.435,-2.264],"limb":4,"r":0.262},{"name":"shinR","parent":"thighR","head":[1.263,0.435,-2.264],"tail":[0.647,1.063,-3.65],"limb":4,"r":0.185},{"name":"footR","parent":"shinR","head":[0.647,1.063,-3.65],"tail":[1.694,0.395,-3.804],"limb":4,"r":0.139},{"name":"toesR","parent":"footR","head":[1.694,0.395,-3.804],"tail":[2.402,0.059,-3.742],"limb":4,"r":0.092},{"name":"armR","parent":"spine","head":[0.647,0.635,0.354],"tail":[1.54,0.74,0.185],"limb":2,"r":0.169},{"name":"forearmR","parent":"armR","head":[1.54,0.74,0.185],"tail":[2.587,0.574,0.539],"limb":2,"r":0.139},{"name":"handR","parent":"forearmR","head":[2.587,0.574,0.539],"tail":[3.003,0.558,0.77],"limb":2,"r":0.092}]}
  },
  "dartfrog:cobalt_clean.swim": {
   "file": "dartfrog-cobalt_clean.swim.glb",
@@ -1137,9 +1140,10 @@
    "rough": 0.5,
    "coat": 0.34,
    "coatRough": 0.36,
-   "grainAmt": 0.15,
-   "grain": 9
-  }
+   "grain": 9,
+   "grainAmt": 0.15
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.614,-2.11],"tail":[0,0.681,-1.062],"limb":0,"r":0.616},{"name":"spine","parent":"pelvis","head":[0,0.681,-1.062],"tail":[0,0.74,0.108],"limb":0,"r":0.862},{"name":"head","parent":"spine","head":[0,0.74,0.478],"tail":[0,0.817,2.033],"limb":0,"r":0.616},{"name":"thighL","parent":"pelvis","head":[-0.216,0.543,-1.986],"tail":[-1.309,0.475,-2.217],"limb":3,"r":0.262},{"name":"shinL","parent":"thighL","head":[-1.309,0.475,-2.217],"tail":[-0.662,1.029,-3.696],"limb":3,"r":0.185},{"name":"footL","parent":"shinL","head":[-0.662,1.029,-3.696],"tail":[-1.786,0.315,-3.881],"limb":3,"r":0.139},{"name":"toesL","parent":"footL","head":[-1.786,0.315,-3.881],"tail":[-2.649,0.09,-3.85],"limb":3,"r":0.092},{"name":"armL","parent":"spine","head":[-0.647,0.651,0.354],"tail":[-1.54,0.74,0.154],"limb":1,"r":0.169},{"name":"forearmL","parent":"armL","head":[-1.54,0.74,0.154],"tail":[-2.649,0.589,0.539],"limb":1,"r":0.139},{"name":"handL","parent":"forearmL","head":[-2.649,0.589,0.539],"tail":[-3.034,0.592,0.77],"limb":1,"r":0.092},{"name":"thighR","parent":"pelvis","head":[0.216,0.543,-1.986],"tail":[1.263,0.435,-2.264],"limb":4,"r":0.262},{"name":"shinR","parent":"thighR","head":[1.263,0.435,-2.264],"tail":[0.647,1.063,-3.65],"limb":4,"r":0.185},{"name":"footR","parent":"shinR","head":[0.647,1.063,-3.65],"tail":[1.694,0.395,-3.804],"limb":4,"r":0.139},{"name":"toesR","parent":"footR","head":[1.694,0.395,-3.804],"tail":[2.402,0.059,-3.742],"limb":4,"r":0.092},{"name":"armR","parent":"spine","head":[0.647,0.635,0.354],"tail":[1.54,0.74,0.185],"limb":2,"r":0.169},{"name":"forearmR","parent":"armR","head":[1.54,0.74,0.185],"tail":[2.587,0.574,0.539],"limb":2,"r":0.139},{"name":"handR","parent":"forearmR","head":[2.587,0.574,0.539],"tail":[3.003,0.558,0.77],"limb":2,"r":0.092}]}
  },
  "dartfrog:sky_spotted.swim": {
   "file": "dartfrog-sky_spotted.swim.glb",
@@ -1203,9 +1207,10 @@
    "rough": 0.5,
    "coat": 0.34,
    "coatRough": 0.36,
-   "grainAmt": 0.15,
-   "grain": 9
-  }
+   "grain": 9,
+   "grainAmt": 0.15
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.614,-2.11],"tail":[0,0.681,-1.062],"limb":0,"r":0.616},{"name":"spine","parent":"pelvis","head":[0,0.681,-1.062],"tail":[0,0.74,0.108],"limb":0,"r":0.862},{"name":"head","parent":"spine","head":[0,0.74,0.478],"tail":[0,0.817,2.033],"limb":0,"r":0.616},{"name":"thighL","parent":"pelvis","head":[-0.216,0.543,-1.986],"tail":[-1.309,0.475,-2.217],"limb":3,"r":0.262},{"name":"shinL","parent":"thighL","head":[-1.309,0.475,-2.217],"tail":[-0.662,1.029,-3.696],"limb":3,"r":0.185},{"name":"footL","parent":"shinL","head":[-0.662,1.029,-3.696],"tail":[-1.786,0.315,-3.881],"limb":3,"r":0.139},{"name":"toesL","parent":"footL","head":[-1.786,0.315,-3.881],"tail":[-2.649,0.09,-3.85],"limb":3,"r":0.092},{"name":"armL","parent":"spine","head":[-0.647,0.651,0.354],"tail":[-1.54,0.74,0.154],"limb":1,"r":0.169},{"name":"forearmL","parent":"armL","head":[-1.54,0.74,0.154],"tail":[-2.649,0.589,0.539],"limb":1,"r":0.139},{"name":"handL","parent":"forearmL","head":[-2.649,0.589,0.539],"tail":[-3.034,0.592,0.77],"limb":1,"r":0.092},{"name":"thighR","parent":"pelvis","head":[0.216,0.543,-1.986],"tail":[1.263,0.435,-2.264],"limb":4,"r":0.262},{"name":"shinR","parent":"thighR","head":[1.263,0.435,-2.264],"tail":[0.647,1.063,-3.65],"limb":4,"r":0.185},{"name":"footR","parent":"shinR","head":[0.647,1.063,-3.65],"tail":[1.694,0.395,-3.804],"limb":4,"r":0.139},{"name":"toesR","parent":"footR","head":[1.694,0.395,-3.804],"tail":[2.402,0.059,-3.742],"limb":4,"r":0.092},{"name":"armR","parent":"spine","head":[0.647,0.635,0.354],"tail":[1.54,0.74,0.185],"limb":2,"r":0.169},{"name":"forearmR","parent":"armR","head":[1.54,0.74,0.185],"tail":[2.587,0.574,0.539],"limb":2,"r":0.139},{"name":"handR","parent":"forearmR","head":[2.587,0.574,0.539],"tail":[3.003,0.558,0.77],"limb":2,"r":0.092}]}
  },
  "dartfrog:sky_clean.swim": {
   "file": "dartfrog-sky_clean.swim.glb",
@@ -1269,9 +1274,10 @@
    "rough": 0.5,
    "coat": 0.34,
    "coatRough": 0.36,
-   "grainAmt": 0.15,
-   "grain": 9
-  }
+   "grain": 9,
+   "grainAmt": 0.15
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.614,-2.11],"tail":[0,0.681,-1.062],"limb":0,"r":0.616},{"name":"spine","parent":"pelvis","head":[0,0.681,-1.062],"tail":[0,0.74,0.108],"limb":0,"r":0.862},{"name":"head","parent":"spine","head":[0,0.74,0.478],"tail":[0,0.817,2.033],"limb":0,"r":0.616},{"name":"thighL","parent":"pelvis","head":[-0.216,0.543,-1.986],"tail":[-1.309,0.475,-2.217],"limb":3,"r":0.262},{"name":"shinL","parent":"thighL","head":[-1.309,0.475,-2.217],"tail":[-0.662,1.029,-3.696],"limb":3,"r":0.185},{"name":"footL","parent":"shinL","head":[-0.662,1.029,-3.696],"tail":[-1.786,0.315,-3.881],"limb":3,"r":0.139},{"name":"toesL","parent":"footL","head":[-1.786,0.315,-3.881],"tail":[-2.649,0.09,-3.85],"limb":3,"r":0.092},{"name":"armL","parent":"spine","head":[-0.647,0.651,0.354],"tail":[-1.54,0.74,0.154],"limb":1,"r":0.169},{"name":"forearmL","parent":"armL","head":[-1.54,0.74,0.154],"tail":[-2.649,0.589,0.539],"limb":1,"r":0.139},{"name":"handL","parent":"forearmL","head":[-2.649,0.589,0.539],"tail":[-3.034,0.592,0.77],"limb":1,"r":0.092},{"name":"thighR","parent":"pelvis","head":[0.216,0.543,-1.986],"tail":[1.263,0.435,-2.264],"limb":4,"r":0.262},{"name":"shinR","parent":"thighR","head":[1.263,0.435,-2.264],"tail":[0.647,1.063,-3.65],"limb":4,"r":0.185},{"name":"footR","parent":"shinR","head":[0.647,1.063,-3.65],"tail":[1.694,0.395,-3.804],"limb":4,"r":0.139},{"name":"toesR","parent":"footR","head":[1.694,0.395,-3.804],"tail":[2.402,0.059,-3.742],"limb":4,"r":0.092},{"name":"armR","parent":"spine","head":[0.647,0.635,0.354],"tail":[1.54,0.74,0.185],"limb":2,"r":0.169},{"name":"forearmR","parent":"armR","head":[1.54,0.74,0.185],"tail":[2.587,0.574,0.539],"limb":2,"r":0.139},{"name":"handR","parent":"forearmR","head":[2.587,0.574,0.539],"tail":[3.003,0.558,0.77],"limb":2,"r":0.092}]}
  },
  "auratus.swim": {
   "file": "auratus.swim.glb",
@@ -1335,9 +1341,10 @@
    "rough": 0.48,
    "coat": 0.36,
    "coatRough": 0.36,
-   "grainAmt": 0.15,
-   "grain": 9
-  }
+   "grain": 9,
+   "grainAmt": 0.15
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.584,-2.009],"tail":[0,0.649,-1.012],"limb":0,"r":0.587},{"name":"spine","parent":"pelvis","head":[0,0.649,-1.012],"tail":[0,0.705,0.103],"limb":0,"r":0.821},{"name":"head","parent":"spine","head":[0,0.705,0.455],"tail":[0,0.778,1.936],"limb":0,"r":0.587},{"name":"thighL","parent":"pelvis","head":[-0.205,0.517,-1.892],"tail":[-1.247,0.452,-2.112],"limb":3,"r":0.249},{"name":"shinL","parent":"thighL","head":[-1.247,0.452,-2.112],"tail":[-0.631,0.98,-3.52],"limb":3,"r":0.176},{"name":"footL","parent":"shinL","head":[-0.631,0.98,-3.52],"tail":[-1.701,0.3,-3.696],"limb":3,"r":0.132},{"name":"toesL","parent":"footL","head":[-1.701,0.3,-3.696],"tail":[-2.523,0.086,-3.666],"limb":3,"r":0.088},{"name":"armL","parent":"spine","head":[-0.616,0.62,0.338],"tail":[-1.467,0.705,0.147],"limb":1,"r":0.161},{"name":"forearmL","parent":"armL","head":[-1.467,0.705,0.147],"tail":[-2.523,0.561,0.514],"limb":1,"r":0.132},{"name":"handL","parent":"forearmL","head":[-2.523,0.561,0.514],"tail":[-2.889,0.564,0.734],"limb":1,"r":0.088},{"name":"thighR","parent":"pelvis","head":[0.205,0.517,-1.892],"tail":[1.203,0.414,-2.156],"limb":4,"r":0.249},{"name":"shinR","parent":"thighR","head":[1.203,0.414,-2.156],"tail":[0.616,1.013,-3.476],"limb":4,"r":0.176},{"name":"footR","parent":"shinR","head":[0.616,1.013,-3.476],"tail":[1.613,0.376,-3.622],"limb":4,"r":0.132},{"name":"toesR","parent":"footR","head":[1.613,0.376,-3.622],"tail":[2.288,0.056,-3.564],"limb":4,"r":0.088},{"name":"armR","parent":"spine","head":[0.616,0.605,0.338],"tail":[1.467,0.705,0.176],"limb":2,"r":0.161},{"name":"forearmR","parent":"armR","head":[1.467,0.705,0.176],"tail":[2.464,0.546,0.514],"limb":2,"r":0.132},{"name":"handR","parent":"forearmR","head":[2.464,0.546,0.514],"tail":[2.86,0.532,0.734],"limb":2,"r":0.088}]}
  },
  "bumblebee.swim": {
   "file": "bumblebee.swim.glb",
@@ -1396,10 +1403,11 @@
    "rough": 0.62,
    "coat": 0.12,
    "coatRough": 0.5,
-   "grainAmt": 0.5,
    "grain": 9,
+   "grainAmt": 0.5,
    "bump": 0.035
-  }
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.409,-1.406],"tail":[0,0.454,-0.708],"limb":0,"r":0.411},{"name":"spine","parent":"pelvis","head":[0,0.454,-0.708],"tail":[0,0.493,0.072],"limb":0,"r":0.575},{"name":"head","parent":"spine","head":[0,0.493,0.318],"tail":[0,0.545,1.355],"limb":0,"r":0.411},{"name":"thighL","parent":"pelvis","head":[-0.144,0.362,-1.324],"tail":[-0.873,0.317,-1.478],"limb":3,"r":0.175},{"name":"shinL","parent":"thighL","head":[-0.873,0.317,-1.478],"tail":[-0.441,0.686,-2.464],"limb":3,"r":0.123},{"name":"footL","parent":"shinL","head":[-0.441,0.686,-2.464],"tail":[-1.191,0.21,-2.587],"limb":3,"r":0.092},{"name":"toesL","parent":"footL","head":[-1.191,0.21,-2.587],"tail":[-1.766,0.06,-2.566],"limb":3,"r":0.062},{"name":"armL","parent":"spine","head":[-0.431,0.434,0.236],"tail":[-1.027,0.493,0.103],"limb":1,"r":0.113},{"name":"forearmL","parent":"armL","head":[-1.027,0.493,0.103],"tail":[-1.766,0.393,0.36],"limb":1,"r":0.092},{"name":"handL","parent":"forearmL","head":[-1.766,0.393,0.36],"tail":[-2.023,0.395,0.514],"limb":1,"r":0.062},{"name":"thighR","parent":"pelvis","head":[0.144,0.362,-1.324],"tail":[0.842,0.29,-1.509],"limb":4,"r":0.175},{"name":"shinR","parent":"thighR","head":[0.842,0.29,-1.509],"tail":[0.431,0.709,-2.433],"limb":4,"r":0.123},{"name":"footR","parent":"shinR","head":[0.431,0.709,-2.433],"tail":[1.129,0.263,-2.536],"limb":4,"r":0.092},{"name":"toesR","parent":"footR","head":[1.129,0.263,-2.536],"tail":[1.602,0.04,-2.495],"limb":4,"r":0.062},{"name":"armR","parent":"spine","head":[0.431,0.423,0.236],"tail":[1.027,0.493,0.123],"limb":2,"r":0.113},{"name":"forearmR","parent":"armR","head":[1.027,0.493,0.123],"tail":[1.725,0.382,0.36],"limb":2,"r":0.092},{"name":"handR","parent":"forearmR","head":[1.725,0.382,0.36],"tail":[2.002,0.372,0.514],"limb":2,"r":0.062}]}
  },
  "reedfrog.swim": {
   "file": "reedfrog.swim.glb",
@@ -1458,9 +1466,10 @@
    "rough": 0.38,
    "coat": 0.45,
    "coatRough": 0.28,
-   "grainAmt": 0.15,
-   "grain": 9
-  }
+   "grain": 9,
+   "grainAmt": 0.15
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.438,-1.507],"tail":[0,0.487,-0.759],"limb":0,"r":0.44},{"name":"spine","parent":"pelvis","head":[0,0.487,-0.759],"tail":[0,0.529,0.077],"limb":0,"r":0.616},{"name":"head","parent":"spine","head":[0,0.529,0.341],"tail":[0,0.584,1.452],"limb":0,"r":0.44},{"name":"thighL","parent":"pelvis","head":[-0.154,0.388,-1.419],"tail":[-0.935,0.339,-1.584],"limb":3,"r":0.187},{"name":"shinL","parent":"thighL","head":[-0.935,0.339,-1.584],"tail":[-0.473,0.735,-2.64],"limb":3,"r":0.132},{"name":"footL","parent":"shinL","head":[-0.473,0.735,-2.64],"tail":[-1.276,0.225,-2.772],"limb":3,"r":0.099},{"name":"toesL","parent":"footL","head":[-1.276,0.225,-2.772],"tail":[-1.892,0.064,-2.75],"limb":3,"r":0.066},{"name":"armL","parent":"spine","head":[-0.462,0.465,0.253],"tail":[-1.1,0.529,0.11],"limb":1,"r":0.121},{"name":"forearmL","parent":"armL","head":[-1.1,0.529,0.11],"tail":[-1.892,0.421,0.385],"limb":1,"r":0.099},{"name":"handL","parent":"forearmL","head":[-1.892,0.421,0.385],"tail":[-2.167,0.423,0.55],"limb":1,"r":0.066},{"name":"thighR","parent":"pelvis","head":[0.154,0.388,-1.419],"tail":[0.902,0.311,-1.617],"limb":4,"r":0.187},{"name":"shinR","parent":"thighR","head":[0.902,0.311,-1.617],"tail":[0.462,0.76,-2.607],"limb":4,"r":0.132},{"name":"footR","parent":"shinR","head":[0.462,0.76,-2.607],"tail":[1.21,0.282,-2.717],"limb":4,"r":0.099},{"name":"toesR","parent":"footR","head":[1.21,0.282,-2.717],"tail":[1.716,0.042,-2.673],"limb":4,"r":0.066},{"name":"armR","parent":"spine","head":[0.462,0.454,0.253],"tail":[1.1,0.529,0.132],"limb":2,"r":0.121},{"name":"forearmR","parent":"armR","head":[1.1,0.529,0.132],"tail":[1.848,0.41,0.385],"limb":2,"r":0.099},{"name":"handR","parent":"forearmR","head":[1.848,0.41,0.385],"tail":[2.145,0.399,0.55],"limb":2,"r":0.066}]}
  },
  "toad.swim": {
   "file": "toad.swim.glb",
@@ -1520,10 +1529,11 @@
    "rough": 0.55,
    "coat": 0.2,
    "coatRough": 0.45,
-   "grainAmt": 0.7,
    "grain": 9,
+   "grainAmt": 0.7,
    "bump": 0.05
-  }
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0,0.658,-2.26],"tail":[0,0.73,-1.138],"limb":0,"r":0.66},{"name":"spine","parent":"pelvis","head":[0,0.73,-1.138],"tail":[0,0.793,0.116],"limb":0,"r":0.924},{"name":"head","parent":"spine","head":[0,0.793,0.512],"tail":[0,0.875,2.178],"limb":0,"r":0.66},{"name":"thighL","parent":"pelvis","head":[-0.231,0.582,-2.128],"tail":[-1.403,0.509,-2.376],"limb":3,"r":0.281},{"name":"shinL","parent":"thighL","head":[-1.403,0.509,-2.376],"tail":[-0.71,1.103,-3.96],"limb":3,"r":0.198},{"name":"footL","parent":"shinL","head":[-0.71,1.103,-3.96],"tail":[-1.914,0.337,-4.158],"limb":3,"r":0.148},{"name":"toesL","parent":"footL","head":[-1.914,0.337,-4.158],"tail":[-2.838,0.097,-4.125],"limb":3,"r":0.099},{"name":"armL","parent":"spine","head":[-0.693,0.697,0.38],"tail":[-1.65,0.793,0.165],"limb":1,"r":0.181},{"name":"forearmL","parent":"armL","head":[-1.65,0.793,0.165],"tail":[-2.838,0.631,0.578],"limb":1,"r":0.148},{"name":"handL","parent":"forearmL","head":[-2.838,0.631,0.578],"tail":[-3.25,0.634,0.825],"limb":1,"r":0.099},{"name":"thighR","parent":"pelvis","head":[0.231,0.582,-2.128],"tail":[1.353,0.466,-2.425],"limb":4,"r":0.281},{"name":"shinR","parent":"thighR","head":[1.353,0.466,-2.425],"tail":[0.693,1.139,-3.91],"limb":4,"r":0.198},{"name":"footR","parent":"shinR","head":[0.693,1.139,-3.91],"tail":[1.815,0.423,-4.075],"limb":4,"r":0.148},{"name":"toesR","parent":"footR","head":[1.815,0.423,-4.075],"tail":[2.574,0.064,-4.009],"limb":4,"r":0.099},{"name":"armR","parent":"spine","head":[0.693,0.681,0.38],"tail":[1.65,0.793,0.198],"limb":2,"r":0.181},{"name":"forearmR","parent":"armR","head":[1.65,0.793,0.198],"tail":[2.772,0.615,0.578],"limb":2,"r":0.148},{"name":"handR","parent":"forearmR","head":[2.772,0.615,0.578],"tail":[3.218,0.598,0.825],"limb":2,"r":0.099}]}
  },
  "dartfrog:cobalt_spotted": {
   "file": "dartfrog.glb",

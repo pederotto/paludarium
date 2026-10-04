@@ -130,6 +130,22 @@ export function hopLegs(t) {
   return 1 - smooth((t - HOP.hold) / (HOP.fold - HOP.hold));
 }
 
+// A leap, drawn by the swimming body's skeleton (render/creatures/skeleton.js poseStroke: its limbs are apart, so they straighten
+// without smearing): the joint angles at hop time t = 0 … 1, as { legA (the nine of HIND, both legs), armA (the six of FORE) }.
+// The legs drive from cocked to straight as hopLegs says, hips and knees first and the ankles and feet after them (the order a
+// frog's joints extend in a take-off: Biomimetics 9(3):168, 2024), trail through the flight and fold up before the landing; the
+// forelegs leave the ground, lie back under the chest in the air and reach forward and down to land on.
+export function leapStroke(t, out = null) {
+  t = clamp01(t);
+  const o = out ?? { legA: new Float32Array(9), armA: new Float32Array(6) }, C = HIND.cock, L = HIND.leap;
+  const e = hopLegs(t), late = hopLegs(Math.max(0, t - 0.04));      // (the ankles and feet a moment behind the hips and knees)
+  for (let c = 0; c < 9; c++) o.legA[c] = lerp(C[c], L[c], c === 2 || c === 3 || c === 6 || c === 7 || c === 8 ? late : e);
+  const S = FORE.stand, T = FORE.air, R = FORE.reach;
+  const up = smooth(t / 0.16), down = smooth((t - 0.5) / 0.3), home = smooth((t - 0.85) / 0.15);
+  for (let c = 0; c < 6; c++) { const air = lerp(lerp(S[c], T[c], up), R[c], down); o.armA[c] = lerp(air, S[c], home); }
+  return o;
+}
+
 // --- Frog calls ----------------------------------------------------------------------------------------------
 // A dart frog's call is a buzz: the vocal sac pulses some 5 times a second for a few seconds. `t` seconds into a bout of
 // `dur` seconds: the sac's inflation 0 … 1 (rising in, pulsing, and collapsing at the end).
@@ -207,30 +223,144 @@ export function rig2Unpack(a, b) {
 // --- Swimming: the anuran blueprint's stroke clock and pose (moved here from util/swim.js: a util module imports nothing) ---
 
 // The anuran swimming blueprint, motion layer (pure: no scene, no state outside what it is handed). docs/SKELETON.md "Swimming
-// blueprint". Every frog and toad swims with these two functions, driven by its SWIM profile (util/bodyplan.js swimProfile) and
-// its body's measurements (body length; the skeleton's legs reach and fold by the hind-leg extension `ext` this returns):
+// blueprint". Every frog and toad swims with these functions, driven by its SWIM profile (util/bodyplan.js swimProfile) and its
+// body's measurements (body length; the skeleton's own bone lengths do the rest):
 //
-//   swimStep(st, prof, { urgency, floating, bodyLen }, dt)   the stroke clock: kick rate from urgency, bursts of kicks with a short
-//            rest between them for a weak swimmer, the drift of a frog floating at rest. Advances `st` ({ phase, burst, rest, v }) and
-//            returns the forward speed in cm/s: a surge as the legs drive, a glide that decays, so a frog moves in pulses and covers
-//            `reach` body lengths a kick on average.
-//   swimPose(st, prof, { floating, level, t })   the posture for that moment: hind-leg extension (both legs together: they snap
-//            out behind in the thrust, trail straight through the glide, fold up in the recovery), the forelegs swept back along the
-//            flanks, the feet's splay, and the body's pitch and roll (near level at the surface, head up, the nose lifting as the
-//            legs drive). Ready for the rig: { hop: ext, pose, calm: 1, pitch, roll, sink }.
+//   swimStep(st, prof, { urgency, floating, steer, bodyLen }, dt)   the stroke clock: kick rate from urgency, bursts of kicks with
+//            a short rest between them for a weak swimmer, the drift of a frog floating at rest, the legs kicking together when
+//            it means to get somewhere and one after the other when it potters. Advances `st` and returns the forward speed in
+//            cm/s: a surge as the legs drive, a glide that decays, so a frog moves in pulses and covers `reach` body lengths a
+//            kick on average.
+//   swimPose(st, prof, { level, t })   the posture for that moment: the stroke for the skeleton (`stroke`: each hind leg's phase
+//            and how fully it kicks, how far the forelegs are held out, how much of the floating posture), and for the far level
+//            of detail's vertex rig the hind-leg extension (`hop`) and `pose`; the body's pitch and roll (near level at the
+//            surface, head up, the nose lifting as the legs drive) and how deep it lies.
+//   strokeAngles / armAngles   the stroke itself, as joint angles (below).
 //
-// The behaviour layer (sim/animals.js frogSwim: when to swim, where to, the way out) only sets urgency and heading and reads the
-// speed; the render layer only draws the pose (the skeleton near the camera, the vertex rig far: render/creatures/skeleton.js).
+// The behaviour layer (sim/animals.js frogSwim: when to swim, where to, the way out) only sets urgency, steering and heading and
+// reads the speed; the render layer only draws the pose (render/creatures/skeleton.js poseStroke).
 
+// --- The stroke as joint angles -------------------------------------------------------------------------------------------------
+// A frog's kick, read off films of swimming frogs from above (a leopard frog crossing a basin and floating; a frog in a pool:
+// the user's references, .agents/refs) and the four beats a swimming teacher counts for the "frog kick": draw up, turn out, kick,
+// close. One cycle, phase 0 … 1:
+//
+//   0.00 COCKED  thighs forward beside the flanks, shins folded back onto them, the feet turned out to the sides, webs spread
+//   0.08 KICK    the hips and knees drive first, then the ankles (as in a jump: proximal to distal): the feet sweep out and back
+//                in a wide arc, pushing water behind
+//   0.16 OPEN    the legs straight, in a V
+//   0.26 GLIDE   the legs close on each other and trail together, toes pointed: the body coasts (to 0.60; a weak swimmer resting
+//                between bursts holds this)
+//   0.74 DRAW    the knees come out to the sides and forward, the shins angle back in to the midline, feet trailing together
+//                (from above the legs make a diamond): slowly, it costs way
+//   0.88 TURN    the knees reach the flanks, the feet begin to turn out
+//   1.00 COCKED
+//
+// A segment's direction is two angles in the frog's own frame, in degrees: `th`, in its frontal plane, from straight back (0) out to
+// the side (90) and on round to straight forward (180); `ph`, its lift toward the back (+) or the belly (-).
+//   hind  [thigh th, shin th, foot th, toes th, thigh ph, shin ph, foot ph, toes ph, foot roll]
+//   fore  [arm th, forearm th, hand th, arm ph, forearm ph, hand ph]
+// (foot roll: the foot turned about its own length, from the web held upright behind the shin as it pushes (0) to lying flat,
+// sole up, as it trails (90).)
+export const HIND = {
+  cock: [125, -22, 95, 100, -16, 18, -25, -25, 0],
+  kick: [85, 30, 80, 95, -8, 6, -20, -20, 0],
+  open: [36, 24, 34, 40, -5, 0, -8, -5, 35],
+  glide: [14, -4, 0, 2, -4, 3, 2, 0, 90],
+  draw: [62, -32, 0, 4, -8, 10, 0, 0, 90],
+  turn: [100, -38, 20, 30, -13, 16, -10, -12, 55],
+  // resting at the surface: the thighs straight out, the shins hanging back, the feet out and down (a leopard frog floating)
+  float: [80, 5, 45, 50, -20, -25, -30, -30, 20],
+  // in the air: the legs trailing behind, a little apart and a little bent, the feet stretched back (a leaping frog, the user's photo)
+  leap: [30, 10, 16, 20, -12, -6, -4, 0, 70],
+};
+export const FORE = {
+  tuck: [22, 6, 0, -22, -6, 0],             // laid back along the flanks: a frog driving through the water
+  spread: [76, 109, 119, 10, -9, -2],       // held out to the sides, hands flat (the swimming scan's own pose; the user's photo)
+  hang: [95, 125, 125, -30, -40, -50],      // floating: out and down, the hands hanging
+  stand: [95, 172, 172, -52, -56, -6],      // on the ground: the arm down and out, the forearm down, the hand forward (a sitting frog)
+  reach: [150, 165, 172, -38, -48, -12],    // reaching forward and down for the landing
+  air: [35, 20, 10, -40, -30, -12],         // in the air: drawn back and down under the chest
+};
+export const STROKE_KEYS = [[0, 'cock'], [0.08, 'kick'], [0.16, 'open'], [0.26, 'glide'], [0.6, 'glide'], [0.74, 'draw'], [0.88, 'turn'], [1, 'cock']];
+// (the thrust: the legs drive from cocked to open; the phase a resting frog holds its legs at)
+export const STROKE = { thrust: 0.16, close: 0.26, glide: 0.6, recover: 1 };
+export const GLIDE_HOLD = 0.45;
 
-// A new frog's stroke clock.
-export const swimState = (rnd = Math.random) => ({ phase: KICK.recover + rnd() * 0.1, burst: 0, rest: 0, v: 0, kicks: 0, rested: false });
+// The keys joined by a curve that passes through each without overshooting (a monotone cubic: Fritsch-Carlson), sampled once.
+const STROKE_N = 128, HC = 9;       // samples of the curve, channels of a hind leg
+const STROKE_TAB = (() => {
+  const K = STROKE_KEYS, n = K.length - 1, tab = new Float32Array((STROKE_N + 1) * HC);
+  for (let c = 0; c < HC; c++) {
+    const y = K.map(([, k]) => HIND[k][c]), x = K.map(([t]) => t);
+    const h = [], d = [];
+    for (let i = 0; i < n; i++) { h.push(x[i + 1] - x[i]); d.push((y[i + 1] - y[i]) / h[i]); }
+    const m = new Array(n + 1);
+    for (let i = 0; i <= n; i++) {
+      const a = (i + n - 1) % n, b = i % n;                   // the segments before and after key i (the cycle wraps)
+      if (d[a] * d[b] <= 0) { m[i] = 0; continue; }
+      const w1 = 2 * h[b] + h[a], w2 = h[b] + 2 * h[a];
+      m[i] = (w1 + w2) / (w1 / d[a] + w2 / d[b]);
+    }
+    for (let s = 0; s <= STROKE_N; s++) {
+      const p = s / STROKE_N;
+      let i = 0; while (i < n - 1 && p > x[i + 1]) i++;
+      const t = (p - x[i]) / h[i], t2 = t * t, t3 = t2 * t;
+      tab[s * HC + c] = (2 * t3 - 3 * t2 + 1) * y[i] + (t3 - 2 * t2 + t) * h[i] * m[i] + (-2 * t3 + 3 * t2) * y[i + 1] + (t3 - t2) * h[i] * m[i + 1];
+    }
+  }
+  return tab;
+})();
+
+// One hind leg's angles (degrees, the nine of HIND) at stroke phase `p`, written to out[o … o + 8]. `amp` (0 … 1): how fully it
+// kicks (less: toward the floating posture, a leg that paddles or trails as a rudder); `float` (0 … 1): resting at the surface.
+export function strokeAngles(p, out, o = 0, amp = 1, float = 0) {
+  const u = frac(p) * STROKE_N, i = Math.min(STROKE_N - 1, Math.floor(u)), f = u - i, F = HIND.float, k = amp * (1 - float);
+  for (let c = 0; c < HC; c++) {
+    const v = STROKE_TAB[i * HC + c] * (1 - f) + STROKE_TAB[(i + 1) * HC + c] * f;
+    out[o + c] = F[c] + (v - F[c]) * k;
+  }
+  return out;
+}
+
+// A foreleg's angles (degrees, the six of FORE) for `open` (0 laid back along the flank … 1 held out) and `float`.
+export function armAngles(open, out, o = 0, float = 0) {
+  const T = FORE.tuck, S = FORE.spread, H = FORE.hang;
+  for (let c = 0; c < 6; c++) { const v = T[c] + (S[c] - T[c]) * open; out[o + c] = v + (H[c] - v) * float; }
+  return out;
+}
+
+// How far the forelegs are held out through a stroke: laid back as the legs drive and through the glide (`glide`: a poison frog,
+// a poor swimmer, keeps them half out to balance), out as it draws its legs up (`draw`), swept back with the kick.
+export function armOpen(p, draw = 1, glide = 0) {
+  p = frac(p);
+  if (p < 0.12) return lerp(draw, glide, smooth(p / 0.12));
+  if (p < 0.58) return glide;
+  if (p < 0.9) return lerp(glide, draw, smooth((p - 0.58) / 0.32));
+  return draw;
+}
+
+// The hind legs' extension through a stroke, 0 (drawn up) … 1 (stretched straight back), from the thigh's angle: the far level of
+// detail's rig (its `hop` input) and the tests.
+const _ang = new Float32Array(HC);
+export function legExtension(p) {
+  const th = strokeAngles(p, _ang)[0];
+  return clamp01((HIND.cock[0] - th) / (HIND.cock[0] - HIND.glide[0]));
+}
+
+// A new frog's stroke clock: legs drawn up, about to kick.
+export const swimState = (rnd = Math.random) => ({ phase: 0.9 + rnd() * 0.08, burst: 0, rest: 0, v: 0, kicks: 0, rested: false, alt: 0, fl: 0, steer: 0 });
 
 // Kicks a second at an urgency 0 (pottering) … 1 (a dash for the way out).
 export const kickRate = (prof, urgency) => lerp(prof.kickHz[0], prof.kickHz[1], clamp01(urgency));
 
-export function swimStep(st, prof, { urgency = 0.5, floating = false, bodyLen = 4, rnd = Math.random } = {}, dt) {
+export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0, bodyLen = 4, rnd = Math.random } = {}, dt) {
   if (!(dt > 0)) return st.v;
+  // (eased, so the legs pass from one way of swimming to another instead of jumping: floating, one leg after the other, steering)
+  const ease = (k, to, rate) => { st[k] = (st[k] ?? 0) + (to - (st[k] ?? 0)) * Math.min(1, dt * rate); };
+  ease('fl', floating ? 1 : 0, 2.5);
+  ease('alt', !floating && urgency < 0.3 ? 1 : 0, 3);
+  ease('steer', Math.max(-1, Math.min(1, steer)), 6);
   if (floating) {
     // Resting at the surface, limbs spread (a fire-bellied toad): an idle paddle now and then, hardly any way on.
     st.phase += dt * prof.kickHz[0] * 0.35;
@@ -238,7 +368,7 @@ export function swimStep(st, prof, { urgency = 0.5, floating = false, bodyLen = 
     return st.v;
   }
   if (st.rest > 0) {
-    // Between bursts: legs drawn up ready (the end of the recovery), the body coasting to a stop.
+    // Between bursts: the legs trailing (mid-glide), the body coasting to a stop.
     st.rest -= dt;
     st.v *= Math.exp(-dt * prof.drag);
     return st.v;
@@ -255,37 +385,39 @@ export function swimStep(st, prof, { urgency = 0.5, floating = false, bodyLen = 
     st.rested = true;
     if (st.rest > 0) { st.phase = Math.floor(st.phase) + GLIDE_HOLD; st.v *= Math.exp(-dt * prof.drag); return st.v; }
   }
-  // the mean of kickSpeed over a cycle is KICK_MEAN: the peak that makes `reach` body lengths a kick
-  st.v = (prof.reach * bodyLen * hz / KICK_MEAN) * kickSpeed(st.phase);
+  // the mean of kickSpeed over a cycle is KICK_MEAN: the peak that makes `reach` body lengths a kick. One leg after the other
+  // (pottering) drives half as hard twice a cycle and gets on more slowly; a leg held back to steer drives less.
+  const both = kickSpeed(st.phase), one = 0.5 * (kickSpeed(st.phase) + kickSpeed(st.phase + 0.5)) * 0.7;
+  st.v = (prof.reach * bodyLen * hz / KICK_MEAN) * lerp(both, one, st.alt) * (1 - 0.3 * Math.abs(st.steer));
   return st.v;
 }
 
-// The hind legs' extension through a stroke, 0 (folded under the body) … 1 (stretched straight back): THRUST they snap out, GLIDE they
-// trail straight behind (the body lies flat), RECOVER they draw up, and kick again at once (no crouched pause: a frog in the water
-// that held its legs folded read as a frog sitting in it).
-export const STROKE = { thrust: 0.15, glide: 0.75, recover: 0.97 };
-export const GLIDE_HOLD = 0.5;
-export function legExtension(p) {
-  p -= Math.floor(p);
-  if (p < STROKE.thrust) return easeOut(p / STROKE.thrust);
-  if (p < STROKE.glide) return 1;
-  if (p < STROKE.recover) return 1 - smooth((p - STROKE.glide) / (STROKE.recover - STROKE.glide));
-  return 0;
-}
-
-// The pose at this moment (see the header). `level`: the pitch that lays the sitting model's trunk flat.
-export function swimPose(st, prof, { floating = false, level = prof.level, t = 0 } = {}) {
-  const p = st.phase - Math.floor(st.phase), f = floating ? 1 : 0;
+// The pose at this moment (see the header). `level`: the pitch that lays the body's trunk flat (0 for the swimming body, which is
+// level as made; the sitting body's own trunk pitch when that is drawn instead).
+export function swimPose(st, prof, { level = prof.level, t = 0, floating = null } = {}) {
+  const p = st.phase - Math.floor(st.phase), f = floating != null ? (floating ? 1 : 0) : st.fl ?? 0, alt = st.alt ?? 0, steer = st.steer ?? 0;
   const push = p < STROKE.thrust ? Math.sin(Math.PI * p / STROKE.thrust) * (1 - f) : 0;
-  // floating at rest, the limbs lie spread, half out, paddling gently
+  // floating at rest, the limbs lie spread, sculling gently
   const ext = lerp(legExtension(p), 0.55 + 0.15 * Math.sin(TAU * p), f);
+  const open = prof.arms ?? [1, 0.15];
   return {
     hop: ext,
     pose: 1 - 0.5 * f,                                         // forelegs held out to the sides (floating: looser)
     calm: 1,
-    pitch: level - prof.headUp - 0.08 * push + 0.02 * Math.sin(t * TAU * 0.4),   // (positive tips the nose down)
-    roll: 0.03 * Math.sin(TAU * p + 1.1) * (1 - f) + 0.015 * Math.sin(t * TAU * 0.33),
+    // (positive tips the nose down) level at the surface with the nose up; floating, the body hangs from its nostrils
+    pitch: level - prof.headUp - 0.08 * push - (prof.hang ?? 0.3) * f + 0.02 * Math.sin(t * TAU * 0.4),
+    roll: 0.03 * Math.sin(TAU * p + 1.1) * (1 - f) + 0.015 * Math.sin(t * TAU * 0.33) + 0.05 * alt * Math.sin(TAU * p) * (1 - f),
+    // one leg after the other swings the body a little from side to side; a leg held back turns it
+    yaw: 0.07 * alt * Math.sin(TAU * p) * (1 - f),
     sink: prof.sink,
     push,
+    stroke: {
+      // the legs' phases (the right leg half a cycle behind when it potters), how fully each kicks (the inner leg of a turn trails)
+      pL: p, pR: p + 0.5 * alt,
+      ampL: (1 - 0.35 * alt) * (1 - 0.75 * Math.max(0, -steer)), ampR: (1 - 0.35 * alt) * (1 - 0.75 * Math.max(0, steer)),
+      // floating, the legs scull a little about their resting spread
+      float: f, scull: 0.1 * Math.sin(TAU * p),
+      arms: lerp(armOpen(p, open[0], open[1]), 1, 0.6 * alt), push,
+    },
   };
 }

@@ -8,12 +8,15 @@
 //   vertex    the bake's binding (`_SKIN`: bone 0, bone 1, bone 0's weight) beside the rig attribute in ONE interleaved buffer, so
 //             the pipeline keeps to WebGPU's 8 vertex buffers.
 //   switch    SKIN.on: off with ?noskin, on the Low preset and on weak GPUs (engine/gfx.js); the near instances then draw with the
-//             rig on the fine mesh, as before.
+//             rig on the fine mesh, as before. SKIN.swim (a frog's swimming body, a handful of instances at most): off only with
+//             ?noskin.
 import * as THREE from 'three/webgpu';
 import { attribute, textureLoad, ivec2, int, vec3, vec4, dot, normalize } from 'three/tsl';
 import { ROW_TEXELS, ROW_FLOATS, RowAllocator } from './skeleton.js';
 
-export const SKIN = { on: true, cap: 8 };   // cap: rows a species' mesh may hold (more of it near the camera draw with the rig)
+// on: near vertebrates drawn by their bones; swim: a frog's swimming body drawn by its stroke (at any distance: without its bones it
+// is one frozen pose); cap: rows a species' mesh may hold (more of it near the camera draw with the rig)
+export const SKIN = { on: true, swim: true, cap: 8 };
 export const SKIN_ROWS = 64;          // instances skinned at once in the whole scene (64 KB of texture)
 
 export const boneData = new Float32Array(ROW_FLOATS * SKIN_ROWS);
