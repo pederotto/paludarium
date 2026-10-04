@@ -492,6 +492,27 @@ export class Plumbing {
           under(f.x, f.z, V(x - 4.5, vy + 1.6, z), hi);
           under(f.rx, f.rz, V(x + 4.5, vy + 1.6, z), ho);
         }
+      } else if (kind === 'internal') {
+        // The submersible: pump housing and foam cartridge in one body on the pool floor in a back corner, the foam face (the mulm browns it)
+        // turned to the pool, the outlet pipe up its side to a nozzle under the surface that jets along the face.
+        const c = spot(corners);
+        if (c) {
+          const [x, z] = c, g = T.heightAt(x, z), hgt = Math.min(14, level - g - 1), ho = hoseOf.outlet;
+          const face = V(-x * 0.25, 0, TANK.d * 0.3 - z);
+          if (face.lengthSq() < 1) face.set(0, 0, 1);
+          face.normalize();
+          const q = new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), Math.atan2(face.x, face.z));
+          const at = (p, dims, c2) => S.geo(new THREE.BoxGeometry(...dims), new THREE.Matrix4().compose(p, q, V(1, 1, 1)), c2);
+          at(V(x, g + hgt / 2, z), [6.4, hgt, 4.4], BODY);
+          at(V(x, g + 0.8, z), [6.8, 1.6, 4.8], CAPC);                                                   // the pump housing at the foot
+          const fp = V(x, g + hgt * 0.5 + 0.4, z).addScaledVector(face, 2.5);
+          at(fp, [5.6, Math.max(1, hgt - 3), 0.8], FOAM.clone().lerp(DIRT, (st.mech ?? 0) * 0.8));       // the foam face
+          const ny = Math.max(g + 2.2, Math.min(level - 1.6, g + hgt + 0.2)), np = V(x, ny, z).addScaledVector(face, 1.0);
+          S.tube([V(x, g + 1.6, z), V(x, ny, z), np], rOf(ho.od), PIPE, 10, vq(ho.v), 2);
+          jet(np.clone().addScaledVector(face, 0.3), face.clone().setY(-0.03), rOf(ho.od) * 0.6, ho.v / 0.49);
+          W.water.hydro.ports.intake = { x: fp.x + face.x * 0.5, y: fp.y, z: fp.z + face.z * 0.5, r: 2.4 };
+          W.water.hydro.ports.ret = { x: np.x + face.x * 0.3, y: ny, z: np.z + face.z * 0.3, dx: face.x, dz: face.z, D: 0.07 * ho.id };
+        }
       }
     }
     // The false bottom's pump tower: in the back corner of the land, slots down where the plenum is, open at the top.
