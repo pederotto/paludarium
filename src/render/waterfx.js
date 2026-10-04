@@ -4,11 +4,14 @@
 //  - Ripples: a height field on the GPU. Each cell moves toward the average
 //    of its neighbours and overshoots (the wave equation), stepped by
 //    ping-ponging two render targets. The glass walls reflect the waves
-//    (clamp-to-edge sampling). Drops come from the waterfalls, animals and
-//    clicks.
+//    (clamp-to-edge sampling). It covers the main pool and every still pond
+//    outside it (their banks hold the waves as the shore does); streams are
+//    left out, the current sweeps ripples away. Drops come from the
+//    waterfalls, animals and clicks.
 //  - Surface: a grid moved by the ripples plus a few small travelling waves.
-//  - Caustics: every vertex of a fine grid on the surface sends a ray of the
-//    LED's light, refracted by the surface normal, down to the substrate;
+//  - Caustics: every vertex of a fine grid on the surface (the main pool's, or
+//    a still pond's) sends a ray of the LED's light, refracted by the surface
+//    normal, down to the substrate;
 //    the grid is drawn where the rays land. A patch of surface that lands on
 //    a smaller patch of floor concentrates its light, so each fragment gets
 //    the ratio of the two areas (screen-space derivatives), and overlapping
@@ -29,6 +32,7 @@ import { U } from './uniforms.js';
 export const SIM = [256, 128];     // ripple grid (x, z)
 const CAUS = [512, 256];           // caustics texture
 const RIPPLE_MM = 0.02;            // ripple units → cm of height
+const DROPS = 16;                  // drops taken per frame (falls, animals, clicks)
 const IOR = 1.333;
 
 // Shared ripple / caustics texture nodes for every material in the scene.
@@ -88,7 +92,7 @@ export class WaterFX {
     this.causRT = new THREE.RenderTarget(CAUS[0], CAUS[1], { ...opt });
     this.cur = 0;
     this.drops = [];
-    this.dropU = uniformArray(Array.from({ length: 8 }, () => new THREE.Vector4(0, 0, 1, 0)), 'vec4');
+    this.dropU = uniformArray(Array.from({ length: DROPS }, () => new THREE.Vector4(0, 0, 1, 0)), 'vec4');
     this.buildSim();
     this.buildCaustics();
     this.buildTerrainTexture();
@@ -119,29 +123,30 @@ export class WaterFX {
       let h = nb.mul(0.5).sub(c.g).mul(0.992);
       if (withDrops) {
         const p = q.sub(0.5).mul(vec2(TANK.w, TANK.d));
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < DROPS; i++) {
           const d = drops.element(i);
           const r = p.sub(d.xy).div(d.z);
           h = h.add(d.w.mul(exp(dot(r, r).negate())));
         }
       }
-      // Dry cells (substrate above the water line) hold no waves.
-      const g = FX.terrainH.sample(q).r;
-      const wet = smoothstep(0.0, 0.6, U.waterLevel.sub(g));
+      // Dry cells hold no waves: the substrate above the main pool's line, unless a still pond lies on it (its surface
+      // is in the terrain texture's green channel, see setStill).
+      const t = FX.terrainH.sample(q);
+      const wet = max(smoothstep(0.0, 0.6, U.waterLevel.sub(t.r)), smoothstep(0.0, 0.6, t.g.sub(t.r)));
       return vec4(h.mul(wet), c.r, 0, 1);
     })();
     return m;
   }
 
   addDrop(x, z, strength = 6, radius = 0.8) {
-    if (this.drops.length < 8) this.drops.push([x, z, radius, strength]);
+    if (this.drops.length < DROPS) this.drops.push([x, z, radius, strength]);
   }
 
   step() {
     const r = this.renderer;
     const prevRT = r.getRenderTarget();
     const arr = this.dropU.array;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < DROPS; i++) {
       const d = this.drops[i];
       if (d) arr[i].set(d[0], d[1], d[2], d[3]); else arr[i].set(0, 0, 1, 0);
     }
@@ -170,13 +175,16 @@ export class WaterFX {
     const surf = positionLocal.xz;
     const s = surfaceAt(surf);
     const n = normalFrom(s);
-    const P = vec3(surf.x, U.waterLevel.add(s.x), surf.y);
+    // The surface the light enters: the main pool's, or a still pond's where one lies higher (setStill), so the ripples
+    // in a pond focus light on its own floor.
+    const here = FX.terrainH.sample(tankUV(surf));
+    const P = vec3(surf.x, max(U.waterLevel, here.g).add(s.x), surf.y);
     const L = FX.lightDir;
     const r = refract(L, n, 1 / IOR);
     const ry = min(r.y, -0.05);
     // Where does the refracted ray meet the substrate? One refinement step
     // against the terrain height map is plenty for gentle slopes.
-    const g0 = FX.terrainH.sample(tankUV(surf)).r;
+    const g0 = here.r;
     const t0 = max(P.y.sub(g0), 0.1).div(ry.negate());
     const F0 = P.add(r.mul(t0));
     const g1 = FX.terrainH.sample(tankUV(F0.xz)).r;
@@ -226,6 +234,20 @@ export class WaterFX {
     const toHalf = THREE.DataUtils.toHalfFloat;
     for (let j = 0; j < f.rows; j++) for (let i = 0; i < f.cols; i++) this.hData[(j * f.cols + i) * 4] = toHalf(f.h[f.idx(i, j)]);
     this.hTex.needsUpdate = true;
+  }
+
+  // The still ponds outside the main pool, so the ripples run in them too: the green channel holds the pond's surface
+  // over each cell (far below the ground elsewhere). `surf(n)` gives it for grid cell n, or -Infinity: no still water.
+  // Only uploaded when a cell changed.
+  setStill(surf) {
+    const f = this.world.terrain.field, toHalf = THREE.DataUtils.toHalfFloat, dry = toHalf(-100);
+    let changed = false;
+    for (let n = 0; n < f.cols * f.rows; n++) {
+      const v = surf(n);
+      const g = v > -Infinity ? toHalf(v) : dry;
+      if (this.hData[n * 4 + 1] !== g) { this.hData[n * 4 + 1] = g; changed = true; }
+    }
+    if (changed) this.hTex.needsUpdate = true;
   }
 }
 
