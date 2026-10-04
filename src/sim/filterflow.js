@@ -11,6 +11,7 @@
 
 import { FILTERS } from '../content/equipment.js';
 import { pumpCurve } from './hydro.js';
+import { PLENUM } from './plenum.js';
 import { TANK } from './tank.js';
 
 const TW = () => TANK.w / 2, TD = () => TANK.d / 2;
@@ -49,33 +50,56 @@ export function stageClogs(F, clog) {
   });
 }
 
+// Where each kind stands decides what its pump lifts, which hose costs head and what is drawn. lift(E, kind, level, drop) is the
+// head (cm) the pump works against before the media; len(level, drop) the length (cm) of the hose that costs head, of the `run`
+// ('out' the return, 'in' the intake) bore; pre the head a sponge on the intake adds; hoses the hoses to draw: role, bore, length,
+// direction of the water; blocked why it cannot run (or null).
+//   cabinet   sponge box, canister: on the cabinet floor, fed by the overflow drain, the pump lifts the water back up the return
+//   pool      corner foam filter: in the pool, lifts the water over the top of the foam
+//   rim       hang-on-back: the pump lifts the water up a rigid tube to a box on the rim (the tank's height over the pool's
+//             line, and the box's own water standing RIM_BOX over the rim) and it falls back over a lip: no return hose
+//   internal  submersible: pump and foam in one body in the pool, the outlet nozzle under the surface, so it lifts next to nothing
+//   bed       false bottom: the pump in the slotted tower lifts from the plenum's line (E.plenumLevel, a centimetre under the
+//             pool's when unknown) to a spout SPOUT over the pool; no false bottom, or a plenum under its intake, and it does not run
+export const RIM_BOX = 4, INTERNAL_LIFT = 1;
+export const MOUNTS = {
+  cabinet: { run: 'out', pre: 2, lift: (E, k, level, drop) => Math.max(0, level + drop - FILTER_TOP[k]), len: (level, drop) => drop + 15,
+    hoses: (F, len, level, drop) => [['intake', F.hose.in, drop + 15, 'down'], ['return', F.hose.out, len, 'up']] },
+  pool: { run: 'out', pre: 0, lift: () => SPOUT, len: (level) => Math.max(4, level + SPOUT + 2),
+    hoses: (F, len) => [['riser', F.hose.out, len, 'up']] },
+  rim: { run: 'in', pre: 1.5, lift: (E, k, level) => Math.max(0, TANK.h - level) + RIM_BOX, len: () => TANK.h,
+    hoses: (F, len) => [['uptake', F.hose.in, len, 'up']] },
+  internal: { run: 'out', pre: 0, lift: () => INTERNAL_LIFT, len: () => 12,
+    hoses: (F, len) => [['outlet', F.hose.out, len, 'up']] },
+  bed: { run: 'out', pre: 0, lift: (E, k, level) => Math.max(0, level + SPOUT - (E.plenumLevel ?? level - 1)), len: (level) => Math.max(8, level + SPOUT + 6),
+    blocked: (E) => (E.drainage < 1 ? 'no false bottom' : E.plenumLevel < PLENUM.intake ? 'dry' : null),
+    hoses: (F, len) => [['riser', F.hose.out, len, 'up']] },
+};
+
 // The flow (L/h) and the head (cm) it meets, the stages and the hoses, for the settings in E (filter, filterKind, filterDirt,
 // mediaBio, prefilter) with the pool's water at `level` cm over the glass floor and the cabinet floor `drop` cm under it.
 export function filterFlow(E, level, drop = CABINET_DROP) {
-  const kind = FILTERS[E.filterKind] ? E.filterKind : 'sponge', F = FILTERS[kind];
+  const kind = FILTERS[E.filterKind] ? E.filterKind : 'sponge', F = FILTERS[kind], M = MOUNTS[F.mount];
   const clog = Math.max(0, Math.min(1, (E.filterDirt ?? 0) / F.hold));
   const stages = stageClogs(F, clog);
-  const ext = kind !== 'matten';
-  const lift = ext ? Math.max(0, level + drop - FILTER_TOP[kind]) : SPOUT;
-  const retLen = ext ? drop + 15 : Math.max(4, level + SPOUT + 2);
+  const lift = M.lift(E, kind, level, drop);
+  const len = M.len(level, drop);
   // The media's head at the rated flow, each stage by its share, a clogged one many times more; more bio media a little more.
   let media = 0;
   for (const s of stages) media += s.share * (1 + CLOG_K * s.clog * s.clog) * (s.id === 'bio' ? 0.75 + 0.5 * (E.mediaBio ?? 0.5) : 1);
   media *= F.media;
-  if (ext && E.prefilter) media += 2;                  // the foam sleeve over the overflow's comb
-  const head = (q) => lift + media * (q / F.lph) ** 2 + hoseLoss(q, F.hose.out[0], retLen);
+  if (E.prefilter) media += M.pre;                     // the foam sleeve over the overflow's comb, or over the intake
+  const head = (q) => lift + media * (q / F.lph) ** 2 + hoseLoss(q, F.hose[M.run][0], len);
   // The working point: the flow at which what the pump gives against the head equals the flow (bisection, it only falls).
   let lo = 0, hi = F.pump.lph;
   for (let k = 0; k < 40; k++) {
     const q = (lo + hi) / 2;
     if (F.pump.lph * pumpCurve(head(q), F.pump.hmax) > q) lo = q; else hi = q;
   }
-  const lph = E.filter ? (lo + hi) / 2 : 0;
-  const hose = (role, [id, od], len, dir) => ({ role, id, od, len, dir, v: hoseSpeed(lph, id) });
-  const hoses = ext
-    ? [hose('intake', F.hose.in, drop + 15, 'down'), hose('return', F.hose.out, retLen, 'up')]
-    : [hose('riser', F.hose.out, retLen, 'up')];
-  return { kind, on: !!E.filter, lph, rated: F.lph, eff: lph / F.lph, head: head(lph), lift, clog, stages, hoses };
+  const blocked = M.blocked?.(E) ?? null;
+  const lph = E.filter && !blocked ? (lo + hi) / 2 : 0;
+  const hoses = M.hoses(F, len, level, drop).map(([role, [id, od], l, dir]) => ({ role, id, od, len: l, dir, v: hoseSpeed(lph, id) }));
+  return { kind, on: !!E.filter, lph, rated: F.lph, eff: lph / F.lph, head: head(lph), lift, clog, stages, hoses, blocked };
 }
 
 // The filter's pull and push in the pool. render/plumbing.js puts the overflow and the return where the keeper sees them and

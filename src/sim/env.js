@@ -63,7 +63,7 @@ export class Env {
     this.backdrop = 'natural';  // the background's finish: 'natural' (painted relief) or 'foam' (black expanding foam with coir)
     this.drainEff = null;       // drainage as it works right now (0 when the false bottom is flooded); set by the sim
     this.mediaBio = 0.4;        // filter biomedia, 0 … 1: more surface, more bacteria
-    this.filterKind = 'sponge'; // sponge | matten | canister (content/equipment.js FILTERS)
+    this.filterKind = 'sponge'; // sponge | matten | canister | hob | internal | bed (content/equipment.js FILTERS)
     this.prefilter = false;     // a sponge over the canister intake (shrimp- and fry-safe)
     this.filterDirt = 0;        // dirt the filter has caught (detritus units): it clogs it until rinsed (sim.js)
     this.filterLph = 0;         // water its pump is moving now (L/h)

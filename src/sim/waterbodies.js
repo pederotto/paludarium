@@ -11,7 +11,7 @@
 // it under Node. Species and plant tables are handed in by sim.js.
 
 import { clamp, lerp } from '../util/math.js';
-import { filterOf, filterEff, filterClog, sourceOf } from '../content/equipment.js';
+import { filterOf, filterEff, filterClog, sourceOf, plenumBio } from '../content/equipment.js';
 
 export const NODE = { GROUND: 0, SUMP: 1, EXT: 2, OUT0: 3, OUTS: 12, BODY0: 15, BODIES: 48, TRANSIT: 63, MAX: 64 };
 
@@ -411,7 +411,7 @@ export class WaterBodies {
     // Filter, plenum and the water the tank is topped up with (content/equipment.js).
     const F = filterOf(E), src = sourceOf(E), fEff = filterEff(E);   // a clogged filter passes less water
     // The false bottom's bio-rings are one big filter bed, as far as they are under water.
-    const plenum = E.drainage >= 1 ? 0.3 * (E.plenum ? clamp(E.plenum.filled * 1.3, 0.25, 1) : 1) : E.drainage > 0 ? 0.1 : 0;
+    const plenum = plenumBio(E);   // (a running bed filter counts through its own row)
     let tannin = 0, mineral = 0;
     for (const p of W.decor?.pieces ?? []) { tannin += TANNIN[p.type] ?? 0; mineral += MINERAL[p.type] ?? 0; }
     const pumpTurn = H.pump?.running ? (H.pump.lph ?? 0) / Math.max(1, sump.vol) : 0;   // tank volumes an hour

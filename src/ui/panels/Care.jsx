@@ -159,6 +159,7 @@ export function CarePanel() {
           <div class="chips"><button class="btn sm primary" onClick={() => openModal('flow')}><Icon name="drop" size={14} /> Flow balance: pump, valves and ponds</button></div>
           <Toggle label="Filter running" on={E.filter} set={(v) => { E.filter = v; }} />
           {E.filter ? <FilterState E={E} /> : null}
+          {E.filter && E.filterFlow?.blocked ? <p class="note" style={{ color: 'var(--bad, #c0583c)' }}>{E.filterFlow.blocked === 'dry' ? 'The pump in the tower has run dry: the false bottom\'s water is under its intake.' : 'This filter needs a false bottom (Foundation).'}</p> : null}
           <div class="cols">
             {Object.entries(FILTERS).map(([id, F]) => {
               const owned = eq.has(F.gear);
@@ -166,12 +167,12 @@ export function CarePanel() {
                 <div key={id} class={'tile' + (owned ? '' : ' lock')}>
                   <h4>{F.name}</h4><p>{F.blurb}</p>
                   <div class="foot"><span class="price">{owned ? '' : `¤${GEAR[F.gear].price}`}</span>
-                    {owned ? <button class={'btn sm' + (E.filterKind === id ? ' primary' : '')} onClick={() => { E.filterKind = id; E.mediaBio = Math.min(E.mediaBio, F.mediaMax); refresh(); }}>{E.filterKind === id ? 'In use' : 'Use'}</button> : <button class="btn sm" onClick={() => openModal('studio', 'shop')}>Shop</button>}</div>
+                    {owned ? <button disabled={id === 'bed' && !(E.drainage >= 1)} title={id === 'bed' && !(E.drainage >= 1) ? 'Needs a false bottom (Foundation)' : undefined} class={'btn sm' + (E.filterKind === id ? ' primary' : '')} onClick={() => { E.filterKind = id; E.mediaBio = Math.min(E.mediaBio, F.mediaMax); refresh(); }}>{E.filterKind === id ? 'In use' : 'Use'}</button> : <button class="btn sm" onClick={() => openModal('studio', 'shop')}>Shop</button>}</div>
                 </div>
               );
             })}
           </div>
-          {E.filterKind === 'canister' ? <Toggle label="Sponge pre-filter on the intake" on={E.prefilter} set={(v) => { E.prefilter = v; }} title="Keeps baby shrimp and fry out of the intake" /> : null}
+          {(FILTERS[E.filterKind] ?? FILTERS.sponge).prefilter ? <Toggle label="Sponge pre-filter on the intake" on={E.prefilter} set={(v) => { E.prefilter = v; }} title="Keeps baby shrimp and fry out of the intake" /> : null}
           <label class="row" style={{ gap: 8, alignItems: 'center' }}><span style={{ width: 110 }}>Water source</span>
             <select value={E.waterSource} onChange={(ev) => { E.waterSource = ev.currentTarget.value; refresh(); }}>{Object.entries(WATER_SOURCES).map(([id, w]) => <option key={id} value={id}>{w.name} (pH {w.ph}, GH {w.gh})</option>)}</select>
           </label>

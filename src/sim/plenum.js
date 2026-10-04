@@ -120,7 +120,10 @@ export function stepPlenum(W, E, d) {
   const hasPool = W.water.volumeLitres() > 1;
   if (!(E.plenumH > 0)) E.plenumH = Math.round((pool + 1) * 2) / 2;   // fitted just over the water
   const cm2 = plenumArea(W, E.plenumH), H = W.water.hydro;
-  const pumpLph = P.on && P.running ? P.lph : 0;
+  // The pump in the tower: the main pump's (it feeds the falls) and a bed filter's own (content/equipment.js FILTERS.bed; it returns to
+  // the pool by its riser, so the loop pool > screen > plenum > pump > pool is closed and the exchange below, which pays the pool for the
+  // plenum's change only, stays right). E.filterLph is 0 when that filter is off or cannot run.
+  const pumpLph = (P.on && P.running ? P.lph : 0) + (E.filter && E.filterKind === 'bed' ? E.filterLph ?? 0 : 0);
   // A new plenum is filled with the build (the keeper fills it with the tank: not out of the pool) to where it settles open
   // to the pool, the pump in its tower holding it under the pool's line; without a pool it holds the little water poured in.
   if (!(E.plenumLevel >= 0)) E.plenumLevel = hasPool ? clamp(pool - pumpLph / 60 / PLENUM.gap, 0, E.plenumH + PLENUM.over) : Math.min(1.5, E.plenumH * 0.3);

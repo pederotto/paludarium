@@ -82,6 +82,21 @@ export const GEAR = {
     blurb: 'Lots of biological media in a sealed box. A big jump in how much life the water can carry.',
     teach: 'Biological capacity is surface area. Ceramic media has a huge internal surface, so a small volume can hold a colony large enough for a full stocked tank. Plumbed through bulkheads or hidden behind the background, it keeps the media out of the water. Its intake sucks: cover it with a sponge pre-filter or it takes baby shrimp and fry.',
   },
+  filterHob: {
+    id: 'filterHob', group: 'Water', name: 'Hang-on-back filter', level: 3, price: 45, icon: 'filter',
+    blurb: 'A box that hangs on the back rim: a pump in it lifts the water up a tube, through its media, and lets it fall back over a lip.',
+    teach: 'The falling sheet of water stirs the surface, and that is where oxygen gets in, with no air pump. The tube has to lift the water all the way to the rim, so it moves much more in a deep pool than in a shallow one, and its intake pulls small animals in unless you fit a sponge over it.',
+  },
+  filterInternal: {
+    id: 'filterInternal', group: 'Water', name: 'Internal filter', level: 2, price: 30, icon: 'filter',
+    blurb: 'A small pump and a foam cartridge in one body that stands in the pool. No hoses, no cabinet.',
+    teach: 'It cleans the water it stands in: the pump pulls it through the foam and a nozzle puts it back near the surface. The foam face is large, so the pull is gentle, but the media is small and clogs sooner than a box outside the tank.',
+  },
+  filterBed: {
+    id: 'filterBed', group: 'Water', name: 'False-bottom bed filter', level: 4, price: 60, icon: 'filter',
+    blurb: 'The false bottom\'s bed of bio-rings, with a pump in the slotted tower that pulls the water down through it.',
+    teach: 'The space under the land is already a bed of bio-rings; a pump in the slotted tower makes the water run through it instead of leaving it to drift. All that surface holds a big colony and nothing in the tank can reach the intake. It needs a build with a false bottom, the water must stay over the pump, and it cannot be rinsed without lifting the land.',
+  },
   autofeeder: {
     id: 'autofeeder', group: 'Feeding', name: 'Auto-feeder', level: 3, price: 70, icon: 'bowl',
     blurb: 'Drops fish food once a day at 10:00.',
@@ -141,26 +156,44 @@ export const ACTUATORS = {
 // suction is how many baby shrimp and fry its intake takes (a pre-filter sponge on the intake cuts it to almost nothing).
 // lph is the water its pump moves (litres an hour, clean), catch the share of the particles in that water the media keeps,
 // hold how much dirt (detritus units) it takes before it is clogged solid (sim.js).
+// mount: where it stands (sim/filterflow.js MOUNTS: cabinet | pool | rim | internal | bed), prefilter: a sponge can be fitted over its intake.
 // The hardware (sim/filterflow.js turns it into the flow it really gives): pump is the filter pump's rating, lph moved against no
 // head and hmax the lift (cm) at which it moves nothing; hose the inner/outer diameter (mm) of the drain from the overflow down
 // to the filter (in) and of the return up to the tank (out), standard aquarium hose sizes; media the head (cm) the clean media
 // cost at the rated flow; stages the media in the order the water meets them: id, name, share of that head.
 export const FILTERS = {
-  sponge: { gear: 'filterSponge', name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, lph: 120, catch: 0.5, hold: 24, blurb: 'A sponge in an external box, a strainer on its intake: gentle, shrimp-safe, small capacity; needs a rinse every few weeks.',
+  sponge: { gear: 'filterSponge', mount: 'cabinet', prefilter: false, name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, lph: 120, catch: 0.5, hold: 24, blurb: 'A sponge in an external box, a strainer on its intake: gentle, shrimp-safe, small capacity; needs a rinse every few weeks.',
     pump: { lph: 190, hmax: 145 }, hose: { in: [16, 22], out: [12, 16] }, media: 17,
     stages: [['mech', 'Coarse sponge', 0.5], ['bio', 'Fine bio sponge', 0.35], ['chem', 'Carbon pad', 0.15]] },
-  matten: { gear: 'filterMatten', name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, lph: 150, catch: 0.45, hold: 60, blurb: 'A wall of coarse foam with a pump behind it: no suction, a huge surface, almost no current; goes months between rinses.',
+  matten: { gear: 'filterMatten', mount: 'pool', prefilter: false, name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, lph: 150, catch: 0.45, hold: 60, blurb: 'A wall of coarse foam with a pump behind it: no suction, a huge surface, almost no current; goes months between rinses.',
     pump: { lph: 150, hmax: 80 }, hose: { out: [12, 16] }, media: 7,
     stages: [['mech', 'Coarse foam face', 0.6], ['bio', 'Foam core', 0.4]] },
-  canister: { gear: 'filterCanister', name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.',
+  canister: { gear: 'filterCanister', mount: 'cabinet', prefilter: true, name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.',
     pump: { lph: 560, hmax: 150 }, hose: { in: [19, 27], out: [16, 22] }, media: 22,
     stages: [['mech', 'Coarse sponge', 0.3], ['bio', 'Ceramic rings', 0.2], ['chem', 'Fine floss and carbon', 0.5]] },
+  // Hang-on-back (nominal, an AquaClear / Tidal class box, 300-1100 L/h): an impeller in the box on the rim, a rigid uptake tube down the glass,
+  // a spillway lip back into the pool (no return hose).
+  hob: { gear: 'filterHob', mount: 'rim', prefilter: true, name: 'Hang-on-back filter', mediaMax: 0.8, flow: 0.3, oxygen: 2, suction: 0.35, lph: 355, catch: 0.7, hold: 35, blurb: 'Hangs on the back rim: floss, carbon and bio-rings, and a falling lip that stirs the surface. Strong in a deep pool; put a sponge over the intake for shrimp and fry.',
+    pump: { lph: 520, hmax: 120 }, hose: { in: [25, 34] }, media: 15,
+    stages: [['mech', 'Floss pad', 0.3], ['chem', 'Carbon cartridge', 0.3], ['bio', 'Bio rings', 0.4]] },
+  // Internal submersible (nominal, a Fluval U / Eheim Pickup class, 150-700 L/h): pump and foam cartridge in one body in the pool, a nozzle under the surface.
+  internal: { gear: 'filterInternal', mount: 'internal', prefilter: false, name: 'Internal filter', mediaMax: 0.55, flow: 0.28, oxygen: 1.5, suction: 0.2, lph: 310, catch: 0.55, hold: 20, blurb: 'A pump and foam in one body that stands in the pool: no hoses, gentle pull, small capacity; rinse it often.',
+    pump: { lph: 350, hmax: 55 }, hose: { out: [12, 16] }, media: 12.5,
+    stages: [['mech', 'Foam cartridge', 0.55], ['bio', 'Bio foam', 0.3], ['chem', 'Carbon pad', 0.15]] },
+  // False-bottom bed (nominal, a submersible pump of 200-600 L/h): the plenum's bio-ring bed with its pump in the slotted tower, lifting to a spout over the pool.
+  bed: { gear: 'filterBed', mount: 'bed', prefilter: false, name: 'False-bottom bed filter', mediaMax: 1, flow: 0.15, oxygen: 0.8, suction: 0, lph: 315, catch: 0.35, hold: 80, blurb: 'The false bottom\'s bio-ring bed with a pump in the slotted tower: huge surface, nothing to pull in, slow to clog and hard to clean.',
+    pump: { lph: 340, hmax: 120 }, hose: { out: [16, 22] }, media: 27,
+    stages: [['mech', 'Screen and fines', 0.3], ['bio', 'Bio-ring bed', 0.7]] },
 };
 export const filterOf = (E) => FILTERS[E.filterKind] ?? FILTERS.sponge;
 // How clogged the filter is (0 clean … 1 solid) and how much of its rated flow it still passes (0 when it is off): the flow
 // sim/filterflow.js found for its pump, head and media (Env.filterFlow, every sim step), or a plain estimate before the first.
 export const filterClog = (E) => Math.max(0, Math.min(1, (E.filterDirt ?? 0) / filterOf(E).hold));
 export const filterEff = (E) => (!E.filter ? 0 : E.filterFlow?.kind === (E.filterKind ?? 'sponge') ? Math.min(1.25, E.filterFlow.lph / filterOf(E).lph) : 1 - 0.75 * filterClog(E));
+
+// The false bottom's bio-rings as media (0 … 0.3, as far as the plenum is under water), added to the sump's. A bed filter that is running
+// is that media working as the filter: it counts through its FILTERS row (media, flow, clog) and not a second time here.
+export const plenumBio = (E) => (E.filter && E.filterKind === 'bed' ? 0 : E.drainage >= 1 ? 0.3 * (E.plenum ? Math.max(0.25, Math.min(1, E.plenum.filled * 1.3)) : 1) : E.drainage > 0 ? 0.1 : 0);
 
 // The water you fill and change with: it sets the hardness (GH, °dH) and pH the tank drifts back to.
 export const WATER_SOURCES = {

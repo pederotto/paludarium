@@ -81,3 +81,87 @@ test('off: no flow; filterEff follows the flow the sim found', () => {
   assert.ok(Math.abs(filterEff(E) - (1 - 0.75 * 12 / 40)) < 1e-9, 'a stale result for another kind is not used');
   assert.equal(filterEff({ filter: false, filterFlow: E.filterFlow }), 0);
 });
+
+// ---- B5c: three more kinds (hang-on-back, internal submersible, false-bottom bed), each a FILTERS row with a mount ----
+import { GEAR, plenumBio } from '../src/content/equipment.js';
+import { MOUNTS } from '../src/sim/filterflow.js';
+import { PLENUM } from '../src/sim/plenum.js';
+
+const KINDS = ['sponge', 'matten', 'canister', 'hob', 'internal', 'bed'];
+const bedE = (o = {}) => ({ filter: true, filterKind: 'bed', filterDirt: 0, mediaBio: 0.5, drainage: 1, ...o });
+
+test('B5c: every kind is a row with a gear item, a mount, real hose sizes and a finite lift, and filterFlow answers for that kind', () => {
+  assert.deepEqual(Object.keys(FILTERS).sort(), [...KINDS].sort());
+  for (const [k, F] of Object.entries(FILTERS)) {
+    assert.ok(GEAR[F.gear]?.name, `${k}: its gear item`);
+    assert.ok(MOUNTS[F.mount], `${k}: mount ${F.mount}`);
+    assert.equal(typeof F.prefilter, 'boolean', k);
+    for (const [role, [id, od]] of Object.entries(F.hose)) assert.ok(HOSES.some(([a, b]) => a === id && b === od), `${k}: ${role} hose ${id}/${od} is a standard size`);
+    const r = run(k);
+    assert.equal(r.kind, k);
+    assert.ok(Number.isFinite(r.lift) && Number.isFinite(r.head) && r.lph > 0, `${k}: lift ${r.lift}, flow ${r.lph}`);
+    assert.ok(r.hoses.length >= 1 && r.hoses.every((h) => Number.isFinite(h.v) && h.v > 0), `${k}: water moves in every hose`);
+  }
+});
+
+test('B5c: filterEff follows the flow the sim found, and clogging lowers it, for every kind', () => {
+  for (const [k, F] of Object.entries(FILTERS)) {
+    const E = { filter: true, filterKind: k, filterDirt: 0, mediaBio: 0.5, drainage: 1 };
+    E.filterFlow = filterFlow(E, 12);
+    assert.ok(Math.abs(filterEff(E) - E.filterFlow.lph / F.lph) < 1e-9, k);
+    const clean = filterEff(E);
+    E.filterDirt = F.hold * 0.8; E.filterFlow = filterFlow(E, 12);
+    assert.ok(filterEff(E) < clean * 0.8, `${k}: clogged ${filterEff(E)} vs clean ${clean}`);
+  }
+});
+
+test('B5c: where each one stands decides its lift', () => {
+  // hang-on-back: the pump lifts from the pool to the box on the rim, so deeper water is less lift, more flow
+  assert.ok(run('hob', 0, 40).lph > run('hob', 0, 12).lph * 1.05 && run('hob', 0, 40).head < run('hob', 0, 12).head);
+  assert.deepEqual(run('hob').hoses.map((h) => [h.role, h.dir]), [['uptake', 'up']]);   // a rigid tube down the glass, no return hose: a spillway
+  // internal: it stands in the pool, its outlet under the surface: the level does not matter
+  assert.ok(Math.abs(run('internal', 0, 40).lph - run('internal', 0, 12).lph) < 3);
+  assert.deepEqual(run('internal').hoses.map((h) => [h.role, h.dir]), [['outlet', 'up']]);
+  // bed: the pump stands in the tower and lifts from the plenum's line to a spout over the pool, a few cm
+  assert.ok(run('bed').lift > 0 && run('bed').lift < 6);
+  assert.deepEqual(run('bed').hoses.map((h) => [h.role, h.dir]), [['riser', 'up']]);
+});
+
+test('B5c: the bed filter needs a false bottom with water over its intake', () => {
+  assert.ok(filterFlow(bedE(), 12).lph > 100);
+  assert.equal(filterFlow(bedE({ drainage: 0 }), 12).lph, 0, 'no false bottom, no bed');
+  assert.equal(filterFlow(bedE({ plenumLevel: PLENUM.intake - 0.1 }), 12).lph, 0, 'the pump in the tower runs dry');
+  assert.ok(filterFlow(bedE({ plenumLevel: 10.5 }), 12).lph > 100);
+  assert.ok(filterFlow(bedE({ plenumLevel: 6 }), 12).lph < filterFlow(bedE({ plenumLevel: 11 }), 12).lph, 'a lower plenum line is more lift');
+});
+
+test('B5c: a running bed filter is the false bottom\'s bio media, not a second set on top of it', () => {
+  const E = { drainage: 1, filter: true, filterKind: 'sponge' };
+  assert.ok(Math.abs(plenumBio(E) - 0.3) < 1e-9, 'a false bottom is a bed of bio-rings');
+  assert.equal(plenumBio({ ...E, filterKind: 'bed' }), 0, 'running as the filter, it counts through the filter row');
+  assert.ok(plenumBio({ ...E, filterKind: 'bed', filter: false }) > 0, 'switched off it is still a passive bed');
+  assert.equal(plenumBio({ drainage: 0 }), 0);
+});
+
+// ---- the bed filter's pump in the tower: the false bottom's water, and the litres (sim/plenum.js stepPlenum) ----
+import { stepPlenum } from '../src/sim/plenum.js';
+
+test('B5c: the bed filter\'s pump holds the plenum under the pool\'s line, and the pool and the plenum together neither gain nor lose water in a day', () => {
+  for (const bed of [false, true]) {
+    let poolL = 10.8;                                          // a 30 x 30 cm pool, 0.9 L a cm, 12 cm deep
+    const W = {
+      terrain: { baseAt: () => 50 },                           // land over the whole mesh
+      water: { level: 12, volumeLitres: () => poolL,
+        hydro: { pump: { on: false, running: false, lph: 0 }, volumeAt: (h) => 900 * h, solveLevel() { W.water.level = poolL / 0.9; },
+          exchange(mL) { poolL += mL / 1000; return mL; } } },
+    };
+    const E = { drainage: 1, plenumH: 12.5, filter: bed, filterKind: bed ? 'bed' : 'sponge', filterLph: bed ? 300 : 0, rain: 0, mist: 0, soil: 0.4 };
+    stepPlenum(W, E, 10);
+    const total0 = poolL + E.plenumL;
+    let expect = 0;
+    for (let k = 0; k < 143; k++) { const f = stepPlenum(W, E, 10).flows; expect += (f.drip - f.wick - f.drain) * 10; }
+    assert.ok(Math.abs(poolL + E.plenumL - total0 - expect) < 1e-6, `${bed ? 'bed' : 'no bed'}: ${poolL + E.plenumL - total0} L against ${expect} L of rain, wicking and drain`);
+    if (bed) assert.ok(E.plenumLevel < W.water.level - 2 && E.plenumLevel > PLENUM.intake, `the pump (5 L/min, ${PLENUM.gap} L/min per cm) holds it about 2.5 cm under the pool: ${E.plenumLevel} vs ${W.water.level}`);
+    else assert.ok(E.plenumLevel > W.water.level - 0.5, 'without the pump it settles at the pool\'s line');
+  }
+});

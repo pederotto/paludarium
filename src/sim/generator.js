@@ -375,7 +375,7 @@ class Gen {
   env(o = {}, gear = []) {
     const E = this.W.env;
     E.matureTank();
-    if (gear.includes('filterCanister')) E.filterKind = 'canister';
+    for (const [g, k] of [['filterCanister', 'canister'], ['filterHob', 'hob'], ['filterInternal', 'internal'], ['filterBed', 'bed']]) if (gear.includes(g)) E.filterKind = k;
     Object.assign(E, o);
     for (const g of gear) this.gear.add(g);
   }
