@@ -3,7 +3,7 @@
 
 import * as THREE from 'three/webgpu';
 import {
-  Fn, vec3, float, positionWorld, time, mix, smoothstep, clamp, exp, max, min, attribute, sin, cos,
+  Fn, If, vec3, float, positionWorld, time, mix, smoothstep, clamp, exp, max, min, attribute, sin, cos,
   instanceIndex, positionLocal, dot, vec2, saturate, instanceColor, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
   mrt, packNormalToRGB, screenCoordinate, fract, step,
 } from 'three/tsl';
@@ -93,8 +93,31 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
   const ws = [w0.x, w0.y, w0.z, w1.x, w1.y, w1.z];
   let base = vec3(0);
   GROUND.forEach((g, k) => {
-    base = base.add(triplanar(TEX.ground[k], g.scale, pw, bf).mul(vec3(...g.tint)).mul(ws[k]));
+    let c = triplanar(TEX.ground[k], g.scale, pw, bf).mul(vec3(...g.tint));
+    // (2026-10-03) The dark stone's lichen scan is pale specks on brown: the specks are pressed down (a power curve keeps the
+    // dark rock and lowers the bright flecks), so a wall of it reads as weathered stone rather than a camouflage print.
+    if (k === 5) c = pow(c, vec3(1.45)).mul(1.35);
+    base = base.add(c.mul(ws[k]));
   });
+  // Rock (mossy rock, dark stone): large-scale variation in tone and warmth, so a big wall of one texture is not one even
+  // tile; close up a stretched scan blurs, so the stone gets detail of its own: fine grain and branching cracks (the zero lines
+  // of a warped noise), dark in the crack with a pale lip beside it; and the relief of a rock normal map (below). Skipped on the
+  // Low preset (U.surfaceDetail: a branch on a uniform, so the texture reads are not made and no shader is rebuilt).
+  const rockW = clamp(ws[3].add(ws[5]), 0, 1);
+  const plain = base;
+  base = Fn(() => {
+    const out = plain.toVar();
+    If(U.surfaceDetail.greaterThan(0.5), () => {
+      const macroN = noise3(pw.mul(0.045)), macro = macroN.mul(0.5).add(0.5), warm = smoothstep(-0.6, 0.6, macroN.mul(-1.3).add(0.15));
+      const rockTone = plain.mul(macro.mul(0.55).add(0.72)).mul(mix(vec3(0.92, 0.97, 1.04), vec3(1.08, 0.98, 0.88), warm));
+      const grain = noise3(pw.mul(2.4)).mul(0.5).add(0.5);
+      const cw = pw.mul(0.22).add(vec3(grain, grain.mul(-1), 0).mul(0.35));     // (the grain wobbles the crack lines: no extra lookup)
+      const cn = abs(noise3(cw)), crack = smoothstep(0.045, 0.0, cn).mul(smoothstep(0.3, 0.7, macro)), lip = smoothstep(0.1, 0.05, cn).sub(crack).mul(0.5);
+      const detailed = rockTone.mul(grain.mul(0.3).add(0.85)).mul(float(1).sub(crack.mul(0.65))).add(lip.mul(0.02));
+      out.assign(mix(plain, detailed, rockW));
+    });
+    return out;
+  })();
   // The water over this point: the main pool, or (substrate) any pool or
   // stream, written per vertex by the water simulation.
   const surf = perVertexWater ? attribute('wsurf', 'float') : U.waterLevel;
@@ -129,6 +152,15 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
   m.colorNode = color;
   m.emissiveNode = emissive;
   m.roughnessNode = mix(float(0.95), float(0.45), wetBand.mul(2));
+  // Relief on rock: a triplanar rock normal map (three texture reads), as the spires have; soil, sand and moss stay as they were.
+  m.normalNode = Fn(() => {
+    const nOut = normalView.toVar();
+    If(U.surfaceDetail.greaterThan(0.5), () => {
+      const nd = triplanar(TEX.rockNormal, 1 / 16, pw, bf).mul(2).sub(vec3(1, 1, 2));
+      nOut.assign(normalize(normalView.add(cameraViewMatrix.mul(vec4(nd, 0)).xyz.mul(rockW.mul(1.1)))));
+    });
+    return nOut;
+  })();
   return m;
 }
 
@@ -187,7 +219,12 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // submerged leaf stays green instead of washing out to teal-white. Every
 // emissive term is multiplied by the leaf's own colour (vertex x instance x
 // texture) so nothing glows white.
-export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null } = {}) {
+// `leafVeins`: the geometry carries leaf coordinates (render/geo.js Builder: u across -1 … 1, v base 0 … tip 1; v < 0 is not a leaf), and
+// the leaves get a midrib, veins and a darker margin. `veins`: { kind: 'pinnate' (side veins from the midrib towards the tip, n per
+// unit length) | 'parallel' (n lines either side running base to tip, following the margin: the arcuate veins of a sword plant, the
+// parallel ones of a grass), n, slope (how steeply pinnate veins run to the tip), rib (midrib width), k (strength), cross (faint
+// cross-veins between parallel ones) }.
+export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {} } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.96, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   m.userData.foliage = true;
   if (FOLIAGE.mrt) m.mrtNode = mrt({ normal: vec4(packNormalToRGB(normalView), 0) });
@@ -235,6 +272,29 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
   const tone = mix(vec3(1.0), vec3(0.62, 0.74, 0.72), under).mul(vein.mul(0.035).add(patch.mul(0.12)).add(1));
   const leafTint = vec3(0.9, 0.8, 0.86).mul(tone);
   base = base.mul(leafTint);
+  if (leafVeins) {
+    const L = attribute('leaf', 'vec2');
+    const isLeaf = step(0, L.y), au = abs(L.x), lv = saturate(L.y);
+    const { kind = 'pinnate', n = 8, slope = 1.6, rib = 0.07, k = 1, cross = 0 } = veins;
+    const TAU = Math.PI * 2;
+    const ribK = smoothstep(rib, rib * 0.25, au).mul(smoothstep(0.98, 0.7, lv));
+    let line;
+    if (kind === 'parallel') {
+      line = smoothstep(0.86, 1, cos(au.mul(n * Math.PI))).mul(smoothstep(rib, rib * 2, au)).mul(smoothstep(0.97, 0.85, au));
+      if (cross) line = max(line, smoothstep(0.93, 1, cos(lv.mul(cross * TAU).add(au.mul(1.3)))).mul(0.35));
+    } else {
+      const ph = lv.mul(n).sub(au.mul(slope));
+      line = smoothstep(0.84, 1, cos(ph.mul(TAU))).mul(smoothstep(rib * 1.2, rib * 3, au)).mul(smoothstep(0.95, 0.75, au));
+    }
+    // between the veins the blade puckers a little (lighter), the margin is darker, the midrib and veins paler and yellower
+    const margin = smoothstep(0.8, 1, au);
+    // (a leaf's own light: lighter along the veins, a little darker in the blade between them and at the margin, so it reads as
+    // a leaf and not a flat green sheet, and a soft lengthwise variation from leaf to leaf)
+    const vary = noise3(vec3(L.x.mul(0.3), lv.mul(2.0), float(instanceIndex).mul(0.37).add(positionLocal.y.mul(0.05)))).sub(0.5).mul(0.22);
+    const shade = vec3(1).add(vec3(0.4, 0.5, 0.1).mul(ribK.add(line.mul(0.75))).mul(k))
+      .mul(float(1).sub(margin.mul(0.2 * k)).sub(float(1).sub(line).mul(0.06 * k)).add(vary));
+    base = base.mul(mix(vec3(1), shade, isLeaf));
+  }
   const [color, emissive] = wet(base, positionWorld, U.waterLevel, U.plantWater, U.plantWater.mul(0.5));
   m.colorNode = color;
   // Caustic light and the water's own scatter in `emissive` were computed on a white base: the caustic part must

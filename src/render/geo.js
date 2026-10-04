@@ -18,12 +18,14 @@ export class Builder {
     this.nor = [];
     this.col = [];
     this.sway = [];
+    this.leaf = [];       // per vertex (u across the leaf -1 … 1, v base 0 … tip 1), or (0, -1) for a part that is not a leaf
   }
 
   // Adds `geo` transformed by position/rotation/scale. `color` may be a hex
   // number, a THREE.Color or a function (localPosition) → THREE.Color.
   // `sway` is a number or function (worldPosition) → 0..1 used by plants.
-  add(geo, { p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1], color = 0xffffff, sway = 0, jitter = 0 } = {}) {
+  // `leaf`: (localPosition) → [u, v] leaf coordinates (see `this.leaf`); without it the part is not a leaf.
+  add(geo, { p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1], color = 0xffffff, sway = 0, jitter = 0, leaf = null } = {}) {
     const g = geo.index ? geo.toNonIndexed() : geo.clone();
     g.computeVertexNormals();
     const sc = typeof s === 'number' ? [s, s, s] : s;
@@ -48,17 +50,20 @@ export class Builder {
       }
       this.col.push(_c.r, _c.g, _c.b);
       this.sway.push(typeof sway === 'function' ? sway(v) : sway);
+      if (leaf) { const l = leaf(lv, v); this.leaf.push(l[0], l[1]); } else this.leaf.push(0, -1);
     }
     g.dispose();
     return this;
   }
 
-  // Flat-shaded triangle strip ribbon along a list of points; widths per point.
-  ribbon(points, widths, side, { color = 0xffffff, sway = null, twist = 0 } = {}) {
+  // Flat-shaded triangle strip ribbon along a list of points; widths per point. `leaf: true` marks it as a leaf blade (leaf
+  // coordinates from edge to edge and base to tip, for the veins in plantMaterial); stems and roots leave it off.
+  ribbon(points, widths, side, { color = 0xffffff, sway = null, twist = 0, leaf = false } = {}) {
     const g = new THREE.BufferGeometry();
     const verts = [];
     const cols = [];
     const sw = [];
+    const lf = [];
     for (let i = 0; i < points.length; i++) {
       const w = widths[i] * 0.5;
       const pt = points[i];
@@ -70,6 +75,7 @@ export class Builder {
       cols.push(_c.r, _c.g, _c.b, _c.r, _c.g, _c.b);
       const s = sway ? sway(t) : t;
       sw.push(s, s);
+      if (leaf) lf.push(-1, t, 1, t); else lf.push(0, -1, 0, -1);
     }
     const idx = [];
     for (let i = 0; i < points.length - 1; i++) {
@@ -79,15 +85,17 @@ export class Builder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
     g.setAttribute('sway', new THREE.Float32BufferAttribute(sw, 1));
+    g.setAttribute('leaf', new THREE.Float32BufferAttribute(lf, 2));
     g.setIndex(idx);
     g.computeVertexNormals();           // smooth: shared ring vertices average their faces, so a bent blade is not faceted
     const ng = g.toNonIndexed();
-    const pa = ng.attributes.position, na = ng.attributes.normal, ca = ng.attributes.color, sa = ng.attributes.sway;
+    const pa = ng.attributes.position, na = ng.attributes.normal, ca = ng.attributes.color, sa = ng.attributes.sway, la = ng.attributes.leaf;
     for (let i = 0; i < pa.count; i++) {
       this.pos.push(pa.getX(i), pa.getY(i), pa.getZ(i));
       this.nor.push(na.getX(i), na.getY(i), na.getZ(i));
       this.col.push(ca.getX(i), ca.getY(i), ca.getZ(i));
       this.sway.push(sa.getX(i));
+      this.leaf.push(la.getX(i), la.getY(i));
     }
     g.dispose();
     ng.dispose();
@@ -100,6 +108,8 @@ export class Builder {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
     g.setAttribute('sway', new THREE.Float32BufferAttribute(this.sway, 1));
+    // (only plants with leaves carry the attribute: their material reads it, see plantMaterial({ leaf }))
+    if (this.leaf.length === this.sway.length * 2 && this.leaf.some((v, i) => i % 2 === 1 && v >= 0)) g.setAttribute('leaf', new THREE.Float32BufferAttribute(this.leaf, 2));
     g.computeBoundingSphere();
     return g;
   }

@@ -18,6 +18,7 @@ export const U = {
   creatureWater: uniform(0.3), // 0 … 1: how much of the water's colour absorption animals get (1 = same as the sand)
   plantWater: uniform(0.42),   // 0 … 1: how much of the water's colour absorption plants get (1 = same as the sand); tuned by eye
   rockMoss: uniform(1),         // 0 bare … 1 mossy: how far moss has grown over the hardscape
+  surfaceDetail: uniform(1),    // 0 on the Low preset: rock skips its relief, cracks and grain (engine/gfx.js build; a branch, no new shader)
   backdrop: uniform(0),         // 0 the painted relief … 1 black expanding foam dusted with coir (Env.backdrop)
   focus: uniform(new THREE.Vector4(0, 0, 0, 0)),   // a followed animal: xyz its position, w the radius of the see-through (0 off)
 };

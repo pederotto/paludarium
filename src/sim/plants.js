@@ -36,7 +36,7 @@ function blade(b, { dir, len, width, droop = 0.4, segs = 5, color, tip, twist = 
     sides.push(side.clone().applyAxisAngle(d, twist * t));
   }
   const c0 = new THREE.Color(color), c1 = new THREE.Color(tip ?? color);
-  b.ribbon(pts, widths, sides, { color: (t) => c0.clone().lerp(c1, t) });
+  b.ribbon(pts, widths, sides, { color: (t) => c0.clone().lerp(c1, t), leaf: true });
 }
 
 // A flat leaf with a real outline (and holes): `outline(t)` is the half-width at t (0 base … 1 tip) as a fraction of
@@ -76,6 +76,8 @@ function shapedLeaf(b, { base = V(0, 0, 0), dir, len, width, droop = 0.2, outlin
       return c;
     },
     sway: (v) => clamp(v.distanceTo(base) / len, 0, 1),
+    // leaf coordinates: across (-1 … 1 of the outline's half width there) and along (0 base … 1 tip)
+    leaf: (lv) => { const q = lv.clone().sub(base), t = clamp(q.dot(d) / len, 0, 1); return [clamp(q.dot(side) / Math.max(1e-3, outline(t) * width), -1, 1), t]; },
   });
 }
 
@@ -215,7 +217,7 @@ export const PLANTS = {
             const bb = new Builder();
             blade(bb, { dir: dirL, len: ll, width: 0.55, droop: 0.2, segs: 2, color: 0x3f7d2a, tip: 0x6fae3e });
             for (let q = 0; q < bb.pos.length; q += 3) { bb.pos[q] += p.x; bb.pos[q + 1] += p.y; bb.pos[q + 2] += p.z; }
-            b.pos.push(...bb.pos); b.nor.push(...bb.nor); b.col.push(...bb.col);
+            b.pos.push(...bb.pos); b.nor.push(...bb.nor); b.col.push(...bb.col); b.leaf.push(...bb.leaf);
             b.sway.push(...bb.sway.map(() => t));
           }
         }
@@ -243,6 +245,7 @@ export const PLANTS = {
       }
       return b.build();
     },
+    material: { veins: { kind: 'parallel', n: 5, rib: 0.03, k: 0.6 } },
   },
   pothos: {
     name: 'Creeping fig', habitat: 'wall|land', humidity: [50, 100], light: 0.3, size: 1,
@@ -283,7 +286,7 @@ export const PLANTS = {
           const bb = new Builder();
           blade(bb, { dir: V(Math.cos(a), 0.15, Math.sin(a)), len: 3, width: 0.35, droop: 0.5, segs: 3, color: 0x6d9e3f, tip: 0x8fbf55 });
           for (let i = 0; i < bb.pos.length; i += 3) { bb.pos[i] += top.x; bb.pos[i + 1] += top.y; bb.pos[i + 2] += top.z; }
-          b.pos.push(...bb.pos); b.nor.push(...bb.nor); b.col.push(...bb.col); b.sway.push(...bb.sway.map(() => 1));
+          b.pos.push(...bb.pos); b.nor.push(...bb.nor); b.col.push(...bb.col); b.leaf.push(...bb.leaf); b.sway.push(...bb.sway.map(() => 1));
         }
       }
       return b.build();
@@ -299,11 +302,11 @@ export const PLANTS = {
       const b = new Builder();
       const r = rng(13);
       const SEG = 9;
-      for (let k = 0; k < 20; k++) {
+      for (let k = 0; k < 28; k++) {
         const a = r() * Math.PI * 2, rr = Math.sqrt(r()) * 1.7;
         const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
         const h = 6 + Math.pow(r(), 1.4) * 20;          // many short, a few long
-        const W = (0.5 + r() * 0.45) * (0.7 + h / 40);  // longer leaves are wider
+        const W = (0.38 + r() * 0.3) * (0.7 + h / 40);  // longer leaves are wider
         const bend = (0.4 + r() * 1.1) * h * 0.06, bd = r() * Math.PI * 2;
         const wob = r() * 6, tw = (r() - 0.5) * 2.2;
         const pts = [], w = [], sides = [];
@@ -316,39 +319,65 @@ export const PLANTS = {
         const dark = 0.75 + r() * 0.35, hue = r();
         const c0 = new THREE.Color(0x2c6a24).multiplyScalar(dark).lerp(new THREE.Color(0x3d7a2a), hue * 0.5);
         const c1 = new THREE.Color(0x6aa83a).multiplyScalar(0.85 + r() * 0.25);
+        if (r() < 0.2) c1.lerp(new THREE.Color(0x9a9a46), 0.5);                // an older leaf yellowing toward the tip
         b.ribbon(pts, w, sides, { color: (t) => c0.clone().lerp(c1, Math.min(1, t * 1.15)) });
       }
       return b.build();
     },
-    material: { amp: 0.4, underwaterAmp: 2.6, speed: 0.9 },
+    material: { amp: 0.4, underwaterAmp: 2.6, speed: 0.9, veins: { kind: 'parallel', n: 2, rib: 0.06, cross: 30, k: 1 } },
   },
   sword: {
     name: 'Amazon sword', habitat: 'aquatic', light: 0.5, nutrients: 1.5, size: 12,
     note: 'Rosette plant for the aquarium floor.',
     build() {
+      // Echinodorus: a rosette of lance-shaped leaves on long stalks, the young ones in the middle short and upright, the old
+      // ones outside long and arching out; arcuate veins that follow the margin (drawn by plantMaterial), a pale midrib.
       const b = new Builder();
       const r = rng(17);
-      for (let k = 0; k < 12; k++) {
-        const a = (k / 12) * Math.PI * 2 + r() * 0.3;
-        blade(b, { dir: V(Math.cos(a) * 0.5, 1, Math.sin(a) * 0.5), len: 7 + r() * 6, width: 2.0 + r() * 0.9, droop: 0.3 + r() * 0.15, segs: 6, color: new THREE.Color(0x24682a).multiplyScalar(0.85 + r() * 0.3), tip: 0x5da83a, twist: 0.3 });
+      const lance = (t) => 0.5 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.03 + t * 0.98)), 0.85) * (1 - 0.25 * t) * (t < 0.12 ? 0.55 + t * 3.7 : 1);
+      const N = 16;
+      for (let k = 0; k < N; k++) {
+        const age = k / (N - 1);                                  // 0 the youngest (middle) … 1 the oldest (outside)
+        const a = k * 2.399 + r() * 0.3;                          // golden-angle phyllotaxis
+        const out = 0.25 + age * 0.9, up = 1.0 - age * 0.35;
+        const dir = V(Math.cos(a) * out, up, Math.sin(a) * out).normalize();
+        const stalk = (2.2 + age * 3.2) * (0.85 + r() * 0.3);
+        const p0 = V(Math.cos(a) * 0.15, 0, Math.sin(a) * 0.15), p1 = p0.clone().addScaledVector(dir, stalk);
+        p1.y -= age * 0.35 * stalk;
+        const sc = new THREE.Color(0x4d7a2c).multiplyScalar(0.85 + r() * 0.2);
+        b.ribbon([p0, p0.clone().lerp(p1, 0.5).add(V(0, 0.1, 0)), p1], [0.28, 0.22, 0.18], V(-Math.sin(a), 0, Math.cos(a)), { color: sc });
+        const ld = V(dir.x, dir.y * (0.75 - age * 0.55), dir.z);
+        const dark = 0.82 + r() * 0.3;
+        shapedLeaf(b, { base: p1, dir: ld, len: (3.5 + age * 4.5) * (0.85 + r() * 0.3), width: 1.5 + age * 0.9 + r() * 0.3, droop: 0.25 + age * 0.35, outline: lance,
+          color: new THREE.Color(0x1f5e24).multiplyScalar(dark), tip: new THREE.Color(0x4f9a34).multiplyScalar(dark), rib: 0x8ab858, n: 14, cup: 0.15 });
       }
       return b.build();
     },
-    material: { amp: 0.3, underwaterAmp: 1.2, speed: 0.8 },
+    material: { amp: 0.3, underwaterAmp: 1.2, speed: 0.8, veins: { kind: 'parallel', n: 3, rib: 0.08, cross: 10 } },
   },
   javafern: {
     name: 'Java fern', habitat: 'aquatic', light: 0.2, nutrients: 0.5, size: 9,
     note: 'Hardy, low light. Fine on rock or wood.',
     build() {
+      // Microsorum pteropus: a creeping brown rhizome with tough, narrow lance leaves on short stalks, dark green with a wavy
+      // margin, the veins standing out; a few young pale leaves.
       const b = new Builder();
       const r = rng(23);
-      for (let k = 0; k < 8; k++) {
-        const a = r() * Math.PI * 2;
-        blade(b, { dir: V(Math.cos(a) * 0.8, 1, Math.sin(a) * 0.8), len: 6 + r() * 3, width: 1.5, droop: 0.2, segs: 5, color: 0x1f5a24, tip: 0x3a7a2e, twist: 0.8 });
+      b.ribbon([V(-1.6, 0.15, -0.2), V(-0.4, 0.22, 0.1), V(0.8, 0.2, -0.1), V(1.7, 0.12, 0.15)], [0.38, 0.42, 0.4, 0.3], V(0, 0, 1), { color: 0x4a3a22, sway: () => 0 });
+      b.ribbon([V(-1.6, 0.15, -0.2), V(-0.4, 0.22, 0.1), V(0.8, 0.2, -0.1), V(1.7, 0.12, 0.15)], [0.38, 0.42, 0.4, 0.3], V(0, 1, 0), { color: 0x3c2e1a, sway: () => 0 });
+      for (let k = 0; k < 9; k++) {
+        const x = -1.4 + k * 0.36 + (r() - 0.5) * 0.2, a = r() * Math.PI * 2, young = r() < 0.25;
+        const wav = 2 + Math.floor(r() * 3), ph = r() * 6;
+        const outline = (t) => (0.5 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.04 + t * 0.97)), 0.7) * (1 - 0.3 * t)) * (1 + 0.08 * Math.sin(t * wav * 6.28 + ph));
+        const dir = V(Math.cos(a) * 0.55, 1, Math.sin(a) * 0.55).normalize();
+        const p0 = V(x, 0.2, 0), p1 = p0.clone().addScaledVector(dir, 0.6 + r() * 0.4);
+        b.ribbon([p0, p1], [0.12, 0.1], V(1, 0, 0), { color: 0x3a4a22 });
+        const c = young ? 0x4d8a34 : 0x1d4e20, tip = young ? 0x8ac25a : 0x356e2a;
+        shapedLeaf(b, { base: p1, dir, len: (young ? 3.5 : 5.5) + r() * 3, width: 1.2 + r() * 0.4, droop: 0.12 + r() * 0.15, outline, color: c, tip, rib: 0x6a8a48, n: 16, cup: 0.1 });
       }
       return b.build();
     },
-    material: { amp: 0.2, underwaterAmp: 1.0, speed: 0.7 },
+    material: { amp: 0.2, underwaterAmp: 1.0, speed: 0.7, veins: { kind: 'pinnate', n: 9, slope: 1.3, rib: 0.07, k: 1.2 } },
   },
   // ---- From the keeper's care sheets (2026-10) ----
   anubias: {
@@ -370,7 +399,7 @@ export const PLANTS = {
       }
       return b.build();
     },
-    material: { amp: 0.12, underwaterAmp: 0.6, speed: 0.6 },
+    material: { amp: 0.12, underwaterAmp: 0.6, speed: 0.6, veins: { kind: 'pinnate', n: 11, slope: 0.9, rib: 0.07 } },
   },
   javamoss: {
     name: 'Java moss', habitat: 'emergent', humidity: [65, 100], light: 0.15, nutrients: 0.3, size: 4,
@@ -424,7 +453,7 @@ export const PLANTS = {
       blade(b, { base: V(0, 0, 0), dir: V(0, 1, 0.1), len: 10, width: 0.25, droop: 0, segs: 4, color: 0x3a5a22, tip: 0x4a6a2a });
       return b.build();
     },
-    material: { amp: 0.25, speed: 0.6 },
+    material: { amp: 0.25, speed: 0.6, veins: { kind: 'pinnate', n: 6, slope: 1.1, rib: 0.06 } },
   },
   fissidens: {
     name: 'Fissidens moss', habitat: 'aquatic', light: 0.15, nutrients: 0.3, size: 3,
@@ -482,13 +511,14 @@ export const PLANTS = {
       for (let k = 0; k < 7; k++) {
         const a = r() * Math.PI * 2, rr = r() * 2.6;
         const s = 0.9 + r() * 0.6;
-        b.add(new THREE.CircleGeometry(1, 9), { p: [Math.cos(a) * rr, 0.05 + r() * 0.03, Math.sin(a) * rr], r: [-Math.PI / 2, 0, 0], s: [s, s, 1], color: r() > 0.5 ? 0x4f9a36 : 0x3f8a2c, sway: 0.4, jitter: 0.2 });
+        b.add(new THREE.CircleGeometry(1, 20), { p: [Math.cos(a) * rr, 0.05 + r() * 0.03, Math.sin(a) * rr], r: [-Math.PI / 2, 0, 0], s: [s, s * 0.9, 1], color: r() > 0.5 ? 0x4f9a36 : 0x3f8a2c, sway: 0.4, jitter: 0.2,
+          leaf: (lv) => [Math.atan2(lv.y, lv.x) / Math.PI * 0.7, Math.min(1, Math.hypot(lv.x, lv.y))] });
         // Dangling roots.
         b.ribbon([V(Math.cos(a) * rr, 0, Math.sin(a) * rr), V(Math.cos(a) * rr, -2.5 - r() * 2, Math.sin(a) * rr)], [0.12, 0.05], V(1, 0, 0), { color: 0xcfc6a8, sway: (t) => t });
       }
       return b.build();
     },
-    material: { amp: 0.15, underwaterAmp: 0.4, speed: 0.6 },
+    material: { amp: 0.15, underwaterAmp: 0.4, speed: 0.6, veins: { kind: 'parallel', n: 30, rib: 0.004, k: 0.5 } },
   },
   lily: {
     name: 'Water lily', habitat: 'floating', light: 0.7, nutrients: 1, size: 7,
@@ -496,10 +526,19 @@ export const PLANTS = {
     build() {
       const b = new Builder();
       const r = rng(31);
-      for (let k = 0; k < 4; k++) {
-        const a = (k / 4) * Math.PI * 2 + r(), rr = 2.5 + r();
-        const pad = new THREE.CircleGeometry(1, 12, 0.3, Math.PI * 2 - 0.3);
-        b.add(pad, { p: [Math.cos(a) * rr, 0.05, Math.sin(a) * rr], r: [-Math.PI / 2, 0, r() * 6], s: [2.2, 2.2, 1], color: 0x3a7a2c, sway: 0.5, jitter: 0.2 });
+      // Pads: round with the notch cut to the stalk, radial veins (plantMaterial, 'parallel' veins on an angle coordinate), the
+      // rim a little turned up and reddish underneath at the edge; a younger, paler pad or two.
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2 + r(), rr = 2.2 + r() * 1.4, sc = 1.7 + r() * 0.8, young = k === 4;
+        const pad = new THREE.CircleGeometry(1, 40, 0.22, Math.PI * 2 - 0.44);
+        const pp = pad.attributes.position;
+        for (let i = 0; i < pp.count; i++) { const x = pp.getX(i), y = pp.getY(i), d = Math.hypot(x, y); pp.setZ(i, Math.pow(d, 6) * 0.08); }
+        const c0 = new THREE.Color(young ? 0x4a7a26 : 0x22521c), c1 = new THREE.Color(young ? 0x648a30 : 0x306624), rim = new THREE.Color(0x6a3a2a);
+        b.add(pad, {
+          p: [Math.cos(a) * rr, 0.05, Math.sin(a) * rr], r: [-Math.PI / 2, 0, r() * 6], s: [sc, sc, sc], sway: 0.5, jitter: 0.1,
+          color: (lv) => { const d = Math.hypot(lv.x, lv.y); return c0.clone().lerp(c1, d).lerp(rim, Math.max(0, d - 0.93) * 6); },
+          leaf: (lv) => [Math.atan2(lv.y, lv.x) / Math.PI * 0.7, Math.min(1, Math.hypot(lv.x, lv.y))],
+        });
       }
       for (let k = 0; k < 8; k++) {
         const a = (k / 8) * Math.PI * 2;
@@ -508,7 +547,7 @@ export const PLANTS = {
       b.add(PRIM.sphereLo, { p: [0, 0.4, 0], s: 0.4, color: 0xf2c53d });
       return b.build();
     },
-    material: { amp: 0.1, underwaterAmp: 0.2, speed: 0.5 },
+    material: { amp: 0.1, underwaterAmp: 0.2, speed: 0.5, veins: { kind: 'parallel', n: 44, rib: 0.004, k: 0.6 } },
   },
 };
 
@@ -534,7 +573,8 @@ export class Plants {
       this.variants[id] = 1;
       Object.defineProperty(this.meshes, id, { configurable: true, enumerable: false, get: () => {
         delete this.meshes[id];
-        this.addMesh(id, sp.build(), plantMaterial({ ...(sp.material ?? {}), map: sp.map ? sp.map() : null }));
+        const geo = sp.build();
+        this.addMesh(id, geo, plantMaterial({ ...(sp.material ?? {}), map: sp.map ? sp.map() : null, leafVeins: !!geo.attributes.leaf }));
         return this.meshes[id];
       } });
     }
