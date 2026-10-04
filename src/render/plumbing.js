@@ -22,7 +22,7 @@ import { wet, U } from './shaders.js';
 import { TANK } from '../sim/tank.js';
 import { pumpCurve } from '../sim/hydro.js';
 import { filterEff, filterOf } from '../content/equipment.js';
-import { filterFlow, pumpHose, hoseSpeed, CABINET_DROP, FILTER_TOP, poolCurrent } from '../sim/filterflow.js';
+import { filterFlow, pumpHose, hoseSpeed, CABINET_DROP, FILTER_TOP, SPOUT, poolCurrent } from '../sim/filterflow.js';
 
 // The moving water: bands BAND cm apart that travel at the water's speed. The clock wraps every WRAP s and every speed is
 // rounded to a whole number of bands per wrap (0.1 cm/s), so the wrap is seamless and the phase stays small.
@@ -311,6 +311,11 @@ export class Plumbing {
   //            over the top
   //   false bottom: a slotted PVC access tower standing in a back corner of the land, down to the plenum, open at the top: the
   //            water in it stands at the plenum's line (Env.plenumLevel, sim/plenum.js) or, without that, the pool's
+  //   hob      hang-on-back: a box on the back glass outside the rim, a lip spilling over it into the pool, a rigid uptake tube
+  //            down the glass to a strainer (no return hose, no overflow)
+  //   internal submersible: pump and foam cartridge in one body in a back corner of the pool, a nozzle under the surface
+  //   bed      the false bottom's own filter: a pump on the plenum floor in the same tower, its riser over the land to a spout
+  //            over the pool (Env.drainage >= 1; sim/plenum.js draws its flow from the plenum)
   filterGear(S, px, pz, J) {
     const W = this.world, E = W.env, T = W.terrain, wall = W.wall, level = W.water.hydro.level;
     const hw = TANK.w / 2, back = (x, y) => wall.zAt(x, y);
@@ -557,6 +562,30 @@ export class Plumbing {
         for (let k = 0; k < 12; k++) {
           const a = (k / 12) * Math.PI * 2;
           S.geo(new THREE.BoxGeometry(0.22, Math.max(0.5, ph - 1), 0.14), new THREE.Matrix4().compose(V(x + Math.cos(a) * 2.13, (ph - 1) / 2 + 0.3, z + Math.sin(a) * 2.13), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT);
+        }
+        if (E.filter && E.filterKind === 'bed' && hoseOf.riser) {
+          // The bed filter's pump: a submersible on the plenum floor in the tower (it draws through the slots), its riser up the tower and
+          // over the land to a spout over the nearest water of the pool, jetting into it.
+          const h = hoseOf.riser;
+          S.geo(new THREE.CylinderGeometry(1.5, 1.6, 4.4, 14), cylM(x, 2.4, z), BODY);
+          S.geo(new THREE.CylinderGeometry(1.75, 1.75, 0.8, 14), cylM(x, 0.5, z), CAPC);                // its strainer plate
+          let to = null;
+          for (let r = 4; r <= 70 && !to; r += 3) for (let a = 0; a < 18 && !to; a++) {
+            const ax = x + Math.cos(a * Math.PI / 9) * r, az = z + Math.sin(a * Math.PI / 9) * r;
+            if (Math.abs(ax) < hw - 1.5 && Math.abs(az) < TANK.d / 2 - 1.5 && pool(ax, az)) to = V(ax, 0, az);
+          }
+          if (to) {
+            const dir = to.clone().sub(V(x, 0, z)).setY(0).normalize(), end = to.clone().addScaledVector(dir, 1.5), sy = level + SPOUT;
+            const pts = [V(x, 4.6, z), V(x, g + 1.4, z)];
+            for (let k = 1; k <= 10; k++) {
+              const t = k / 10, px2 = x + (end.x - x) * t, pz2 = z + (end.z - z) * t;
+              pts.push(V(px2, Math.max(g + 1.4 + (sy + 1 - g - 1.4) * t, T.heightAt(px2, pz2) + 1.2) + Math.sin(Math.PI * t) * 1.5, pz2));
+            }
+            pts.push(V(end.x, sy, end.z));
+            S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(64), rOf(h.od), FHOSE, 10, vq(h.v), 2);
+            jet(V(end.x, sy, end.z), dir.clone().setY(-0.6), rOf(h.od) * 0.7, h.v / 0.49);
+            W.water.hydro.ports.ret = { x: end.x, y: sy, z: end.z, dx: dir.x, dz: dir.z, D: 0.07 * h.id };
+          }
         }
         break;
       }
