@@ -29,7 +29,9 @@ export function loadManifest() {
 
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 
-const matIdFor = (name = '') => (/eye/i.test(name) ? 1 : /fin|gill|wing/i.test(name) ? 2 : /glass|shell|carapace/i.test(name) ? 4 : 0);
+// ("eye" as a word or after a separator: the red-eyed tree frog's body material is called "redeye" and was taken for an eye, which
+// left the model without a body texture and the game drawing the procedural stand-in instead of the scan)
+const matIdFor = (name = '') => (/(^|[^a-z])eye/i.test(name) ? 1 : /fin|gill|wing/i.test(name) ? 2 : /glass|shell|carapace/i.test(name) ? 4 : 0);
 
 // Merge every mesh of a glTF scene into one geometry in centimetres, with a
 // per-vertex material id in `matId` (temporary, moved into rig.w by addRig).

@@ -33,6 +33,16 @@ const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = 
 const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0), _gb = V(0, 0, 0);
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
 const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog']);
+// Plants a perching frog uses: broad leaves to sit on, or reed stems to cling to (grass and creeping plants hold no frog).
+const PERCH_PLANTS = { bromeliad: 'leaf', monstera: 'leaf', fern: 'leaf', fernph: 'leaf', cattail: 'stem', bamboo: 'stem' };
+const _pm = new THREE.Mesh(undefined, new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide }));   // a plant instance, for rays
+_pm.matrixAutoUpdate = false;
+// The heading that puts a frog's head up when its belly is to a vertical surface with outward normal N (Animals.draw turns
+// UP onto the normal, then the heading about it).
+function clingYaw(N) {
+  const v = new THREE.Vector3(0, 1, 0).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), N).invert());
+  return Math.atan2(v.x, v.z);
+}
 const GLASS_N = { front: V(0, 0, -1), left: V(1, 0, 0), right: V(-1, 0, 0) };
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
 const RADIUS = { skink: 0.6, swim: 0.38, crawlWater: 0.4, crawlLand: 0.3, crab: 0.6, fly: 0.2, frog: 0.85, toad: 0.8, newt: 0.7, axolotl: 0.75, gecko: 0.7 };
@@ -42,6 +52,13 @@ const TINY = 0.1;                                            // bodies narrower 
 const CELLG = 5;
 const VIS = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink']);   // animals with idle pulses, twitches and strikes (see vis)
 const CORE_WALKERS = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink', 'crab']);   // kept out of plant stems (see plantCores)
+// The radius of a plant's stems that walkers are kept out of (Animals.plantCores), or 0 for a plant they walk through.
+function coreR(q) {
+  if (q.surface === 'wall' || NO_CORE.has(q.id)) return 0;
+  const hab = PLANTS[q.id]?.habitat ?? '';
+  if (hab === 'floating' || hab === 'aquatic') return 0;
+  return clamp((q.reach ?? 3) * (0.3 + 0.7 * q.grown) * 0.18, 0.5, 2.5);
+}
 const NO_CORE = new Set(['javamoss', 'pothos']);                                            // carpets and creepers: walked over
 const LIVE = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink']);   // hunters that really stalk and strike
 
@@ -373,7 +390,7 @@ export const SPECIES = {
     note: 'A small black toad with canary-yellow spots and fiery red soles, out by day. It walks more than it hops and swims badly: water no deeper than 2-3 cm, with gentle gravel slopes, or it drowns. Keep 4 to 6; feeds on springtails and fruit flies.',
   },
   reedfrog: {
-    name: 'Starry night reed frog', scale: 1, group: 'Amphibians', kind: 'frog', perch: true, size: 1.2, speed: 1,
+    name: 'Starry night reed frog', scale: 1, group: 'Amphibians', kind: 'frog', perch: true, perchSwim: true, size: 1.2, speed: 1,
     minL: 60, minH: 45, temp: [24, 29], humidity: 70, hungerHours: 150, lifeDays: 2500, eats: ['fly', 'flylarva', 'springtail', 'cricket'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 8, days: 5, into: 'tadpole', where: 'water' },
     ph: [6.5, 7.5], land: 0.3, flock: [3, 8],
@@ -679,8 +696,10 @@ export class Animals {
       this.meshes[key] = this.models[key] ? this.models[key]() : createSpeciesMesh(this.scene, id, { morph });
       if (!this.models[key]) this.loadModel(key);
       this.keys[id].push(key);
-      this.ensurePose(key, 'swim');
-      if (this.poseModels[key]?.swim) this.warmPose(key, 'swim');
+      for (const pose of new Set(['swim', ...Object.keys(this.poseMeta[key] ?? {})])) {
+        this.ensurePose(key, pose);
+        if (this.poseModels[key]?.[pose]) this.warmPose(key, pose);
+      }
     }
     return this.meshes[key];
   }
@@ -1654,89 +1673,133 @@ export class Animals {
     a.normal = T.normalAt(a.pos.x, a.pos.z);
   }
 
-  // --- Perching frogs (the starry night reed frog) --------------------------------------------------------------
-  // By day a perching frog climbs a tall plant, a wall plant or a stem near water and sits pressed flat on it, legs tucked in
+  // --- Perching frogs (the starry night reed frog, the red-eyed tree frog) -------------------------------------------
+  // By day a perching frog climbs a tall plant, a wall plant, wood or the glass and sits pressed flat on it, legs tucked in
   // (it saves water); at dusk, or when hungry, it climbs down and hunts on the ground like any frog (frog()). Returns true
-  // while it is on its way up, perched or on its way down (frog() is skipped), false when frog() is in charge.
+  // while it is on its way, climbing, perched or climbing down (frog() is skipped), false when frog() is in charge.
+  // The way (perchRoute): on foot to the foot of the climb, then along `path`, points on the climb itself (up the stem, up the
+  // background, over the wood, up the glass), and back down the same way. A tree frog keeps its feet dry the whole way; a reed
+  // frog (sp.perchSwim) may swim to the foot, in the stroke. Neither walks over water.
   perchFrog(a, sp, dt) {
     const W = this.world, T = W.terrain;
     const want = W.env.bright() > 0.25 && a.hunger < 0.6 && !a.swimming && !a.order && !a.hop;
     const P = a.perch;
-    if (P) {
-      const plantGone = (P.plant && !W.plants.list.includes(P.plant)) || (P.piece && !W.decor.pieces.includes(P.piece));
-      if (P.ph === 'sit' && (!want || plantGone)) {
+    if (P && !P.path) a.perch = null;                                    // (a perch from an older version: start again)
+    else if (P) {
+      const gone = (P.plant && !W.plants.list.includes(P.plant)) || (P.piece && !W.decor.pieces.includes(P.piece));
+      if (P.ph === 'go' && gone) { this.perchQuit(a, P); return false; }
+      if ((P.ph === 'sit' && (!want || gone)) || (P.ph === 'up' && gone)) {
+        P.left = gone ? 'gone' : a.order ? 'hunting' : a.hop ? 'hop' : a.hunger >= 0.6 ? 'hungry' : 'dusk';
+        P.i = P.ph === 'sit' ? P.path.length - 2 : P.i - 1;              // back down the way it came
         P.ph = 'down';
-        P.left = plantGone ? 'gone' : a.order ? 'hunting' : a.swimming ? 'swimming' : a.hop ? 'hop' : a.hunger >= 0.6 ? 'hungry' : 'dusk';
-        // Off the glass straight down to the foot of the climb; off a leaf or a branch a hop's length ahead.
-        P.goal = P.glassN ? P.base.clone() : V(P.top.x + Math.sin(a.yaw) * 1.5, 0, P.top.z + Math.cos(a.yaw) * 1.5);
-        if (!P.glassN) P.goal.y = T.heightAt(P.goal.x, P.goal.z);
       }
-      const goal = P.ph === 'go' ? P.base : P.ph === 'up' ? P.top : P.ph === 'down' ? P.goal : null;
       a.speedNow = 0; a.state = 'rest';
-      if (goal) {
-        const dx = goal.x - a.pos.x, dy = P.ph === 'go' ? 0 : goal.y - a.pos.y, dz = goal.z - a.pos.z, dist = Math.hypot(dx, dy, dz);   // on the way there only the ground distance counts
-        const speed = sp.speed * (P.ph === 'go' ? 2.2 : 1.4), step = Math.min(dist, speed * dt);
-        // On the way to the foot of the climb it walks, wades or swims (a reed pool is mostly water); only a rock, a root or
-        // the background in the way sends it back to frog().
-        if (P.ph === 'go' && !this.okFor('any', a.pos.x + (dx / (dist || 1)) * step, a.pos.z + (dz / (dist || 1)) * step, 99)) { a.perch = null; a.perchT = 6; return false; }
+      if (P.ph === 'go') {
+        const dx = P.base.x - a.pos.x, dz = P.base.z - a.pos.z, dist = Math.hypot(dx, dz);
+        // No headway for 3 s (a rock or the background pushes it back), or water ahead for a frog that keeps its feet dry
+        // (a pump move, a spring): it gives up on this perch.
+        if (dist < P.near - 0.25) { P.near = dist; P.stuck = 0; } else P.stuck += dt;
+        // Held off the foot by a neighbour's stems or a body in the way, but nearly there: it starts the climb from where it is.
+        if (P.stuck > 1 && dist < 1.5) { P.path[0] = a.pos.clone(); P.base = P.path[0]; P.ph = 'up'; P.i = 1; a.swimming = false; return true; }
+        const step = Math.min(dist, sp.speed * 2.2 * dt);
+        const nx = a.pos.x + (dx / (dist || 1)) * step, nz = a.pos.z + (dz / (dist || 1)) * step;
+        if (P.stuck > 3 || (step > 1e-4 && !this.okFor(sp.perchSwim ? 'any' : 'land', nx, nz, 99, (a.rad ?? 0.5) * 0.9))) { this.perchQuit(a, P); return false; }
+        a.pos.x = nx; a.pos.z = nz;
+        const g = T.heightAt(nx, nz), s = W.water.surfaceAt(nx, nz, 0.2);
+        a.swimming = s > g + 0.9 * sp.size;                              // (only a reed frog gets here: it swims, in the stroke)
+        if (a.swimming) {
+          a.pos.y = s - 0.35 * sp.size; a.normal = null; a.pitch = 0;
+          const before = a.kick ?? Math.random();
+          a.kick = before + dt / kickPeriod(0.9);
+          if (Math.floor(a.kick) !== Math.floor(before)) W.fx?.addDrop(a.pos.x, a.pos.z, -1.2, 0.5);
+        } else { a.pos.y = g; a.normal = T.normalAt(nx, nz); }
+        if (dist > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
+        a.speedNow = step / Math.max(1e-4, dt); a.state = 'walk';
+        if (dist - step < 0.05) { P.ph = 'up'; P.i = 1; a.swimming = false; a.normal ??= T.normalAt(a.pos.x, a.pos.z); }
+        return true;
+      }
+      if (P.ph === 'up' || P.ph === 'down') {
+        const goal = P.path[P.i];
+        const dx = goal.x - a.pos.x, dy = goal.y - a.pos.y, dz = goal.z - a.pos.z, dist = Math.hypot(dx, dy, dz), dh = Math.hypot(dx, dz);
+        const step = Math.min(dist, sp.speed * 1.4 * dt);
         if (dist > 1e-3) { a.pos.x += (dx / dist) * step; a.pos.y += (dy / dist) * step; a.pos.z += (dz / dist) * step; }
-        if (P.ph === 'go') a.pos.y = Math.max(T.heightAt(a.pos.x, a.pos.z), W.water.surfaceAt(a.pos.x, a.pos.z) - 0.3);
-        if (P.glassN && P.ph !== 'go') a.yaw = P.glassYaw + (P.ph === 'down' ? Math.PI : 0);   // on the glass: head up, or head first coming down
-        else if (Math.hypot(dx, dz) > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
-        a.pitch = P.ph === 'up' ? -1.1 : P.ph === 'down' ? 0.9 : 0;          // nose up climbing, head first coming down
+        if (P.glassN) {
+          // On the glass belly to it, head up (head first coming down); across the ground at its foot, standing on the ground.
+          if (Math.abs(dy) > dh * 1.5) { a.normal = P.glassN; a.yaw = P.glassYaw + (dy < 0 ? Math.PI : 0); }
+          else { a.normal = T.normalAt(a.pos.x, a.pos.z); if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6)); }
+          a.pitch = 0;
+        } else {
+          // Up a stem or the background, over wood: drawn by heading and pitch, nose up the climb (head first coming down).
+          a.normal = null;
+          if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
+          if (dist > 0.05) a.pitch = lerp(a.pitch ?? 0, clamp(-Math.atan2(dy, dh), -1.25, 1.25), Math.min(1, dt * 8));
+        }
         a.speedNow = step / Math.max(1e-4, dt); a.state = 'walk';
         if (dist - step < 0.05) {
-          if (P.ph === 'go') P.ph = 'up';
-          else if (P.ph === 'up') { P.ph = 'sit'; a.pitch = 0; }
-          else { a.perch = null; a.pitch = 0; a.fs = 'sit'; a.fsT = 1 + Math.random() * 2; a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.perchT = 20 + Math.random() * 20; return true; }
+          P.i += P.ph === 'up' ? 1 : -1;
+          if (P.ph === 'up' && P.i >= P.path.length) { P.ph = 'sit'; a.pitch = 0; }
+          else if (P.ph === 'down' && P.i < 0) {
+            a.perch = null; a.pitch = 0; a.fs = 'sit'; a.fsT = 1 + Math.random() * 2; a.perchT = 20 + Math.random() * 20;
+            a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.normal = T.normalAt(a.pos.x, a.pos.z);
+            return true;
+          }
         }
-      } else {
-        a.pos.copy(P.top); a.pitch = 0;
-        a.crouch = 0.6;                                                    // pressed flat on the leaf, the wood or the glass
-        if (P.glassN) { if (Math.random() < dt * 0.03) a.yaw = P.glassYaw + (Math.random() - 0.5) * 0.9; }
-        else if (Math.random() < dt * 0.05) a.yaw += (Math.random() - 0.5) * 0.6;   // shuffles round now and then
+        return true;
       }
-      a.normal = P.glassN && P.ph !== 'go' ? P.glassN : UP;
+      a.pos.copy(P.top); a.pitch = 0;
+      a.crouch = 0.6;                                                    // pressed flat on the leaf, the wood or the glass
+      a.normal = P.glassN ?? P.up ?? UP;                                 // (on a leaf: tilted with it)
+      if (P.glassN) { if (Math.random() < dt * 0.03) a.yaw = P.glassYaw + (Math.random() - 0.5) * 0.9; }
+      else if (Math.random() < dt * 0.05) a.yaw += (Math.random() - 0.5) * 0.6;   // shuffles round now and then
       return true;
     }
     if (!want) return false;
     a.perchT = (a.perchT ?? Math.random() * 6) - dt;
     if (a.perchT > 0) return false;
     a.perchT = 8 + Math.random() * 8;
-    const top = this.perchSpot(a);
-    if (!top) return false;
-    // The foot of the climb: under the perch, but in front of the background (wall plants hang on it).
-    const bz = Math.max(top.p.z, W.wall.zAt(top.p.x, T.heightAt(top.p.x, top.p.z) + 1) + 0.8);
-    const base = top.base ?? V(top.p.x, 0, bz);
-    base.y = Math.max(T.heightAt(base.x, base.z), W.water.surfaceAt(base.x, base.z) - 0.3);   // at the surface if the foot is under water
-    a.perch = { ph: 'go', top: top.p, plant: top.plant ?? null, piece: top.piece ?? null, glassN: top.glassN ?? null, glassYaw: top.glassYaw ?? 0, base };
+    const r = this.perchSpot(a, sp);
+    if (!r) return false;
+    a.perch = { ph: 'go', top: r.p, plant: r.plant, piece: r.piece, glassN: r.glassN, glassYaw: r.glassYaw, up: r.up, base: r.base, path: r.path, near: Infinity, stuck: 0 };
     a.fs = null;
     return true;
   }
 
-  // The best perch within reach: the top of a tall plant (or a wall plant), better high and over or near water, not taken.
-  perchSpot(a) {
+  // Off the way to a perch (stuck, or water ahead): back to frog(), and that perch is left alone for a few minutes.
+  perchQuit(a, P) {
+    a.perch = null; a.pitch = 0; a.swimming = false;
+    a.perchT = 8 + Math.random() * 8;
+    a.perchBad = [...(a.perchBad ?? []).slice(-3), { x: P.top.x, y: P.top.y, z: P.top.z, t: this.t }];
+  }
+
+  // The best perch within reach: the top of a tall plant (or a wall plant), wood, or the glass; better high and over or near
+  // water, not taken, and with a way there (perchRoute).
+  perchSpot(a, sp) {
     const W = this.world, T = W.terrain;
     // Each frog has a favourite kind of perch (leaves, wood and bamboo, or the glass), as real ones settle into habits.
     const like = (a.perchLike ??= ['plant', 'plant', 'piece', 'glass'][Math.floor(Math.random() * 4)]);
     const fav = (k) => (k === like ? 8 : 0);
-    const H = { fernph: 10, weed: 6, fern: 8, bilberry: 9, grass: 6, bromeliad: 7, pothos: 4, cattail: 18, bamboo: 14, monstera: 12 };
+    const taken = (top) => (this.by[a.sp] ?? []).some((b) => b !== a && b.perch && b.perch.top.distanceTo(top) < 2.5)
+      || (a.perchBad ?? []).some((q) => this.t - q.t < 180 && Math.hypot(q.x - top.x, q.y - top.y, q.z - top.z) < 4);
     let best = null, bs = -1e9;
     const list = W.plants.list;
     for (let i = 0, n = Math.min(list.length, 300); i < n; i++) {
-      const p = list[i], h = H[p.id];
-      if (!h) continue;
+      const p = list[i], kind = PERCH_PLANTS[p.id];
+      if (!kind) continue;
       const d = Math.hypot(p.pos.x - a.pos.x, p.pos.z - a.pos.z);
       if (d > 40) continue;
-      const k = h * (p.scale ?? 1) * (p.grown ?? 1) * 0.8, nrm = p.normal ?? UP;
-      const top = V(p.pos.x + nrm.x * k, p.pos.y + Math.max(0.3, nrm.y) * k, p.pos.z + nrm.z * k);
+      // A broad leaf facing up that the frog can sit on (found on the plant's own mesh), or a reed stem to cling to.
+      const c = kind === 'stem' ? this.stemPerch(a, p) : this.leafPerch(p);
+      if (!c) continue;
+      const top = c.top;
       if (Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1) continue;
-      if ((this.by[a.sp] ?? []).some((b) => b !== a && b.perch && b.perch.top.distanceTo(top) < 2.5)) continue;
-      const wet = W.nearWater(V(top.x, T.heightAt(top.x, top.z), top.z), 12) ? 6 : 0;
-      const sc = Math.min(20, top.y - T.heightAt(top.x, top.z)) + wet - d * 0.25 + Math.random() * 6 + fav('plant');   // high is good, up to a point
-      if (sc > bs) { bs = sc; best = { p: top, plant: p }; }
+      const gy = T.heightAt(top.x, top.z);
+      if (top.y - gy < 3) continue;
+      const wet = W.nearWater(V(top.x, gy, top.z), 12) ? 6 : 0;
+      const sc = Math.min(20, top.y - gy) + wet - d * 0.25 + Math.random() * 6 + fav('plant');   // high is good, up to a point
+      if (sc <= bs || taken(top)) continue;
+      const r = this.perchRoute(a, sp, c);
+      if (r) { bs = sc; best = r; }
     }
-    const taken = (top) => (this.by[a.sp] ?? []).some((b) => b !== a && b.perch && b.perch.top.distanceTo(top) < 2.5);
     // Wood, cork, roots, a stump, a bamboo pole or a floating log: the highest point of its top surface (found by dropping a
     // ray on it at a few points of its footprint).
     for (const pc of W.decor?.pieces ?? []) {
@@ -1756,15 +1819,9 @@ export class Animals {
       const gy = T.heightAt(top.x, top.z), over = W.water.surfaceAt(top.x, top.z) > gy;
       if (top.y - gy < 2) continue;
       const sc = Math.min(20, top.y - gy) + (over || W.nearWater(V(top.x, gy, top.z), 12) ? 6 : 0) - Math.hypot(top.x - a.pos.x, top.z - a.pos.z) * 0.25 + Math.random() * 6 + fav('piece');
-      if (sc > bs) {
-        // The climb starts just outside the piece's footprint on the frog's side (on the ground, or swimming up to a log).
-        const cx2 = (_box.min.x + _box.max.x) / 2, cz2 = (_box.min.z + _box.max.z) / 2;
-        let dx = a.pos.x - cx2, dz = a.pos.z - cz2;
-        const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
-        const rx = (_box.max.x - _box.min.x) / 2 + 1, rz = (_box.max.z - _box.min.z) / 2 + 1, k = Math.min(rx / Math.max(1e-3, Math.abs(dx)), rz / Math.max(1e-3, Math.abs(dz)));
-        const bx = clamp(cx2 + dx * k, -TANK.w / 2 + 1.5, TANK.w / 2 - 1.5), bz = clamp(cz2 + dz * k, -TANK.d / 2 + 1.5, TANK.d / 2 - 1.5);
-        if (this.okFor('any', bx, bz, 99)) { bs = sc; best = { p: top, piece: pc, base: V(bx, 0, bz) }; }
-      }
+      if (sc <= bs) continue;
+      const r = this.perchRoute(a, sp, { top, piece: pc });
+      if (r) { bs = sc; best = r; }
     }
     // The glass: front or side, above the water or the bank, where a reed frog sits pressed flat by day.
     for (let k = 0; k < 4; k++) {
@@ -1773,14 +1830,131 @@ export class Animals {
       if (side === 0) { x = clamp(a.pos.x + (Math.random() - 0.5) * 30, -TANK.w / 2 + 3, TANK.w / 2 - 3); z = TANK.d / 2 - 0.7; n = GLASS_N.front; yaw = 0; }
       else { x = side * (TANK.w / 2 - 0.7); z = clamp(a.pos.z + (Math.random() - 0.5) * 16, -TANK.d / 2 + 4, TANK.d / 2 - 3); n = side > 0 ? GLASS_N.right : GLASS_N.left; yaw = side * Math.PI / 2; }
       const bx = x + n.x * 1.2, bz = z + n.z * 1.2;                       // the foot of the climb, a little in from the glass
-      if (!this.okFor('any', bx, bz, 99)) continue;
       const gy = T.heightAt(bx, bz), y = Math.min(TANK.h - 4, Math.max(gy, W.water.level) + 5 + Math.random() * 14);
       const top = V(x, y, z);
       if (y - gy < 4 || taken(top)) continue;
       const sc = Math.min(20, y - gy) + (W.nearWater(V(bx, gy, bz), 12) ? 5 : 0) - Math.hypot(x - a.pos.x, z - a.pos.z) * 0.25 + Math.random() * 6 - 2 + fav('glass');
-      if (sc > bs) { bs = sc; best = { p: top, base: V(bx, Math.max(gy, W.water.surfaceAt(bx, bz) - 0.3), bz), glassN: n, glassYaw: yaw }; }
+      if (sc <= bs) continue;
+      const r = this.perchRoute(a, sp, { top, glassN: n, glassYaw: yaw });
+      if (r) { bs = sc; best = r; }
     }
     return best;
+  }
+
+  // The way to a perch candidate `c` ({ top, plant | piece | glassN + glassYaw }): `base`, the foot of the climb, and `path`, the
+  // points of the climb from the base to the top. Null when there is no way: the foot cannot be walked to in a straight line (over
+  // dry ground, or for sp.perchSwim also through water), or the way over the wood has a gap.
+  perchRoute(a, sp, c) {
+    const W = this.world, T = W.terrain, top = c.top, medium = sp.perchSwim ? 'any' : 'land';
+    // in front of the background relief, by more than the push that keeps a body clear of it (clearOfWall)
+    const gap = Math.max(0.8, (a.rad ?? 0.5) * 0.9 + 0.4), front = (x, y, z) => Math.max(z, W.wall.zAt(x, y) + gap, W.wall.zAt(x, y + 1.5) + gap);
+    const dryAt = (x, z) => !(W.water.surfaceAt(x, z, 0.2) > T.heightAt(x, z) + 0.2);
+    let base, path;
+    if (c.glassN) {
+      // The glass, or a reed stem (`plant`): from the ground in front of it straight up, belly to it.
+      const n = c.glassN, off = c.plant ? coreR(c.plant) + (a.rad ?? 0.5) * 0.7 + 0.3 : 1.2;
+      const bx = top.x + n.x * off, bz = front(bx, T.heightAt(bx, top.z + n.z * off) + 0.1, top.z + n.z * off);
+      base = V(bx, T.heightAt(bx, bz), bz);
+      path = [base, V(top.x, Math.max(T.heightAt(top.x, top.z), base.y), top.z), top];
+    } else if (c.plant) {
+      const p = c.plant, gy = T.heightAt(p.pos.x, p.pos.z);
+      if (p.pos.y - gy > 1.5) {
+        // A wall plant (a bromeliad on the background): up the background from the ground under it.
+        const bz = front(top.x, gy + 1, top.z);
+        base = V(top.x, T.heightAt(top.x, bz), bz);
+        path = [base];
+        const n = Math.max(1, Math.ceil((top.y - base.y) / 1.5));
+        for (let i = 1; i < n; i++) { const y = lerp(base.y, top.y, i / n); path.push(V(top.x, y, front(top.x, y, lerp(base.z, top.z, i / n)))); }
+        path.push(top);
+      } else {
+        // Up the stem from its foot, on the frog's side of the plant: just outside the stems that walkers are kept out of.
+        let ux = a.pos.x - p.pos.x, uz = a.pos.z - p.pos.z;
+        const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+        const off = coreR(p) + (a.rad ?? 0.5) * 0.7 + 0.3;
+        const bx = p.pos.x + ux * off, bz = front(bx, gy + 1, p.pos.z + uz * off);
+        base = V(bx, T.heightAt(bx, bz), bz);
+        if (!sp.perchSwim && !dryAt(p.pos.x, p.pos.z)) return null;      // a plant standing in the water
+        // up the stem to the height of the leaf, then out along it
+        const sz = front(p.pos.x, gy + 1, p.pos.z);
+        path = [base, V(p.pos.x, gy + 0.3, sz), V(p.pos.x, Math.max(gy + 0.3, top.y - 0.4), front(p.pos.x, top.y, sz)), top];
+      }
+    } else {
+      // Wood: from just outside its footprint on the frog's side, up its side and along its top (a ray onto it every 0.8 cm).
+      const m = c.piece.mesh;
+      _box.setFromObject(m);
+      const cx = (_box.min.x + _box.max.x) / 2, cz = (_box.min.z + _box.max.z) / 2;
+      let dx = a.pos.x - cx, dz = a.pos.z - cz;
+      const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+      const rx = (_box.max.x - _box.min.x) / 2 + 1, rz = (_box.max.z - _box.min.z) / 2 + 1, k = Math.min(rx / Math.max(1e-3, Math.abs(dx)), rz / Math.max(1e-3, Math.abs(dz)));
+      const bx = clamp(cx + dx * k, -TANK.w / 2 + 1.5, TANK.w / 2 - 1.5), bz = clamp(cz + dz * k, -TANK.d / 2 + 1.5, TANK.d / 2 - 1.5);
+      base = V(bx, T.heightAt(bx, bz), bz);
+      path = [base];
+      const n = Math.min(60, Math.max(2, Math.ceil(Math.hypot(top.x - bx, top.z - bz) / 0.8)));
+      let on = false;
+      for (let i = 1; i < n; i++) {
+        const x = lerp(bx, top.x, i / n), z = lerp(bz, top.z, i / n);
+        _ray.set(_t.set(x, _box.max.y + 2, z), DOWN);
+        const hit = _ray.intersectObject(m, false)[0];
+        if (!hit) {
+          if (on) return null;                                           // a gap in the wood
+          if (!sp.perchSwim && !dryAt(x, z)) return null;                // water before the wood (a floating log)
+          continue;
+        }
+        const y = hit.point.y + 0.35;
+        if (!on) { on = true; const g = Math.max(T.heightAt(x, z), path[path.length - 1].y); path.push(V(x, g, z)); }   // up its side
+        path.push(V(x, y, z));
+      }
+      if (!on) path.push(V(top.x, Math.max(T.heightAt(top.x, top.z), base.y), top.z));
+      path.push(top);
+    }
+    // The foot, and the straight way to it from here.
+    const rb = (a.rad ?? 0.5) * 0.9 + 0.1;                              // (clear of the background by its body, as clearOfWall keeps it)
+    if (!this.okFor(medium, base.x, base.z, 99, rb)) return null;
+    // A swimmer starts a climb from the water at the surface; for a tree frog no point of the climb may be under water.
+    for (const q of path) {
+      const s = W.water.surfaceAt(q.x, q.z, 0.2);
+      if (!(s > q.y)) continue;
+      if (!sp.perchSwim) return null;
+      q.y = Math.max(q.y, s - 0.35 * sp.size);
+    }
+    const d = Math.hypot(base.x - a.pos.x, base.z - a.pos.z), n = Math.ceil(d / 0.8);
+    for (let i = 1; i < n; i++) if (!this.okFor(medium, lerp(a.pos.x, base.x, i / n), lerp(a.pos.z, base.z, i / n), 99, rb)) return null;
+    return { p: top, plant: c.plant ?? null, piece: c.piece ?? null, glassN: c.glassN ?? null, glassYaw: c.glassYaw ?? 0, up: c.up ?? null, base, path };
+  }
+
+  // A leaf to sit on: rays dropped onto the plant's mesh (its instance, at its size and lean) at a few points of its crown; the
+  // highest hit on a face turned up (a broad leaf, not a blade or a stalk). { top, plant, up } or null.
+  leafPerch(p) {
+    const PL = this.world.plants, im = PL.meshes?.[PL.key(p)];
+    if (!im || p.index == null) return null;
+    const geo = im.geometry;
+    if (!geo.boundsTree && geo.computeBoundsTree) geo.computeBoundsTree();
+    im.getMatrixAt(p.index, _pm.matrixWorld);
+    _pm.geometry = geo;
+    const h = PL.heightOf(p), r = Math.max(1, (p.reach ?? 3) * (0.3 + 0.7 * (p.grown ?? 1)) * 0.6);
+    let best = null;
+    for (let k = 0; k < 10; k++) {
+      const ang = Math.random() * TAU, rr = r * Math.sqrt(Math.random());
+      _ray.set(_t.set(p.pos.x + Math.sin(ang) * rr, p.pos.y + h * 1.3 + 3, p.pos.z + Math.cos(ang) * rr), DOWN);
+      const hit = _ray.intersectObject(_pm, false)[0];
+      if (!hit?.face) continue;
+      const up = hit.face.normal.clone().transformDirection(_pm.matrixWorld);
+      if (up.y < 0) up.negate();                                         // (leaves are two-sided)
+      if (up.y < 0.6 || (best && hit.point.y <= best.top.y)) continue;
+      best = { top: hit.point.clone().addScaledVector(up, 0.35), plant: p, up };
+    }
+    return best;
+  }
+
+  // A reed or sedge stem to cling to, belly to it and head up (as on the glass), on the frog's side of it, half to four fifths up.
+  stemPerch(a, p) {
+    const W = this.world, h = W.plants.heightOf(p);
+    let nx = a.pos.x - p.pos.x, nz = a.pos.z - p.pos.z;
+    const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
+    if (nz < -0.3) { nz = -0.3; const k = Math.hypot(nx, nz); nx /= k; nz /= k; }   // (not round the back, against the background)
+    const N = V(nx, 0, nz);
+    const top = V(p.pos.x + nx * 0.7, p.pos.y + h * (0.5 + Math.random() * 0.3), p.pos.z + nz * 0.7);
+    return { top, plant: p, glassN: N, glassYaw: clingYaw(N) };
   }
 
   // --- Crocodile skink ------------------------------------------------------------------------------------------
@@ -2574,6 +2748,7 @@ export class Animals {
   groupOf(a, sp) {
     if (sp.kind === 'egg' || sp.sessile) return null;
     if (a.wallMode) return 'wall';
+    if (a.perch && a.perch.ph !== 'go') return null;                         // up on its perch (or on the way up or down): out of the crowd
     if (sp.kind === 'fly') return 'land';                                     // (flightless: it walks with everyone else)
     if (sp.kind === 'swim' || sp.kind === 'crawlWater' || sp.kind === 'axolotl' || a.swimming) return 'water';
     return 'land';
@@ -2689,14 +2864,12 @@ export class Animals {
     const G = this.cores ??= new Map();
     G.clear();
     for (const q of P.list) {
-      if (q.surface === 'wall' || NO_CORE.has(q.id)) continue;
-      const hab = PLANTS[q.id]?.habitat ?? '';
-      if (hab === 'floating' || hab === 'aquatic') continue;
-      const r = clamp((q.reach ?? 3) * (0.3 + 0.7 * q.grown) * 0.18, 0.5, 2.5);
+      const r = coreR(q);
+      if (!r) continue;
       const k = Math.floor(q.pos.x / CELLG) * 1000 + Math.floor(q.pos.z / CELLG);
       let l = G.get(k);
       if (!l) G.set(k, l = []);
-      l.push({ x: q.pos.x, y: q.pos.y, z: q.pos.z, r });
+      l.push({ x: q.pos.x, y: q.pos.y, z: q.pos.z, r, q });
     }
   }
 
@@ -2774,7 +2947,7 @@ export class Animals {
         for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) {
           const l = this.cores.get((u + du) * 1000 + (v + dv));
           if (l) for (const c of l) {
-            if (Math.abs(c.y - a.pos.y) > 4) continue;
+            if (Math.abs(c.y - a.pos.y) > 4 || c.q === a.perch?.plant) continue;     // (not the plant it is about to climb)
             let qx, qz;
             if (a.cap) { const fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0), mx = a.pos.x + fx * a.cap.zc, mz = a.pos.z + fz * a.cap.zc; const t = clamp((c.x - mx) * fx + (c.z - mz) * fz, -a.cap.hl, a.cap.hl); qx = mx + fx * t; qz = mz + fz * t; }
             else { qx = a.pos.x; qz = a.pos.z; }
@@ -3433,11 +3606,14 @@ export class Animals {
         // A swimming frog or toad is drawn in the breaststroke pose (forelegs along the flanks, hind legs kicking), level, bobbing on the water.
         const frogish = sp.kind === 'frog' || sp.kind === 'toad';
         // A species with a swimming-pose model draws that one (level already, legs out); the others get the pose from the rig.
-        const poseMesh = frogish && a.swimming && !a.hop ? this.meshFor(id, null, 'swim') : null;
+        // A frog asleep on its perch (sitting on a leaf, wood or the glass) draws its sleeping-pose model where it has one
+        // (legs folded tight, hands under the chin: made from its skeleton, tools/rig/skeleton.mjs).
+        const sleepMesh = frogish && !a.swimming && !a.hop && a.perch?.ph === 'sit' ? this.meshFor(id, null, 'sleep') : null;
+        const poseMesh = (frogish && a.swimming && !a.hop ? this.meshFor(id, null, 'swim') : null) ?? sleepMesh;
         const sw = frogish && a.swimming && !a.hop ? frogSwimPose(frac(a.kick ?? 0), { floating: a.floating ? 1 : 0, level: poseMesh ? 0 : an.swimLevel ?? 0.28, t: this.t + a.phase }) : null;
         if (a.wallMode || (a.perch?.glassN && a.perch.ph !== 'go')) {
           // On the background (or a reed frog on the glass): belly to the wall, heading within its plane.
-          q.setFromUnitVectors(UP, a.normal);
+          q.setFromUnitVectors(UP, a.normal ?? UP);
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
         } else if (a.normal && !swimming && !a.hop) {
           // Standing on the ground: on the plane through the ground under its feet (see footing), so on a bank or a hump the
@@ -3514,7 +3690,8 @@ export class Animals {
           if (cb.sinkNow > 0.01) { pos = _p.copy(pos); pos.y -= cb.sinkNow * 1.35 * sc; }
         }
         // The swimming-pose model flexes a little in time with the stroke; everything else is the rig's business.
-        if (poseMesh) poseMesh.put(pos, q, sc, (a.kick ?? 0) * TAU, 0.16, 0, 0, cam ? cam.distanceToSquared(a.pos) : 1e9);
+        if (sleepMesh) sleepMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (breathing, eyes shut)
+        else if (poseMesh) poseMesh.put(pos, q, sc, (a.kick ?? 0) * TAU, 0.16, 0, 0, cam ? cam.distanceToSquared(a.pos) : 1e9);
         else if (a.hr && an.rig2) {
           // The mind's head, bend and tail, plus what the gait adds: the head swings against the body wave as the feet step, and
           // follows the wave (late) when swimming.

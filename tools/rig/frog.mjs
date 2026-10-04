@@ -10,9 +10,17 @@
 // The thigh of a sitting frog is about as thick as the flank, so the "thin" pieces start at the knee and the elbow. The thigh is
 // then claimed for the hind leg by growing each limb back into the body through the vertices beside the hip (a short geodesic
 // reach, only below the back), so the upper leg moves with the leg instead of being stretched between the body and the knee.
+//
+// `hind` (a scan whose hind legs are folded flat against the body, the red-eyed tree frog's): the thigh and the shin lie side by side
+// in a lobe at the rear, as thick as the flank, so neither the thinness test nor growing back from the foot finds them, and the
+// walk and the hop moved only the feet while the lobe stayed stuck to the body. `hind` gives a skeleton measured on the scan
+// (scan units, after rotY): `trunk`, points [x, y, z, r] along the body's axis, and per hind leg id (3 left, 4 right) the joints
+// [x, y, z, r] from the hip (hip, knee, heel). The chain ends at the foot's base (the foot is the thin piece the segmentation found).
+// A body vertex belongs to the leg whose chain it is nearest (distance less the radius), unless the trunk is nearer; legT runs
+// along the chain from the hip and on along the foot.
 import { segment, normals } from './appendages.mjs';
 
-export function frogRig(pos, idx, { thin = 0.24, distal = 0.08, thigh = 0.34, footT = 0.62 } = {}) {
+export function frogRig(pos, idx, { thin = 0.24, distal = 0.08, thigh = 0.34, footT = 0.62, hind = null } = {}) {
   const n = pos.length / 3;
   const seg = segment(pos, idx, { thin, eyeMax: 30, distal, minLimb: 30 });
   // Four limbs: the biggest pieces (stray thin bits, a toe that came apart, are folded into the nearest big one).
@@ -68,6 +76,7 @@ export function frogRig(pos, idx, { thin = 0.24, distal = 0.08, thigh = 0.34, fo
       legT[i] = Math.min(1, (b + seg.legT[i] * seg.limbs[seg.limb[i]].reach) / full);
     }
   }
+  if (hind) skeletonHind(pos, n, seg, leg, legT, reach, hind, adj);
   // A little smoothing of legT over the mesh so the seam between the body and the limb bends softly.
   for (let it = 0; it < 4; it++) {
     const o = Float32Array.from(legT);
@@ -84,4 +93,61 @@ export function frogRig(pos, idx, { thin = 0.24, distal = 0.08, thigh = 0.34, fo
   zs.sort((a, b) => a - b);
   const q = (f) => zs[Math.floor(f * (zs.length - 1))];
   return { leg, legT, part, zf, body: { z0: q(0.002), z1: q(0.998) }, limbs: big.length };
+}
+
+// Distance from vertex i to a chain of capsules [[x, y, z, r], …], less the radius there, and the arc length along the chain at the
+// nearest point.
+function toChain(pos, i, C) {
+  const px = pos[i * 3], py = pos[i * 3 + 1], pz = pos[i * 3 + 2];
+  let best = Infinity, at = 0, s0 = 0;
+  for (let k = 0; k + 1 < C.length; k++) {
+    const A = C[k], B = C[k + 1], ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2], L = Math.hypot(ux, uy, uz) || 1e-9;
+    const t = Math.max(0, Math.min(1, ((px - A[0]) * ux + (py - A[1]) * uy + (pz - A[2]) * uz) / (L * L)));
+    const d = Math.hypot(px - A[0] - ux * t, py - A[1] - uy * t, pz - A[2] - uz * t) - (A[3] + (B[3] - A[3]) * t);
+    if (d < best) { best = d; at = s0 + L * t; }
+    s0 += L;
+  }
+  return [best, at, s0];
+}
+
+function skeletonHind(pos, n, seg, leg, legT, reach, hind, adj) {
+  const chains = {};
+  for (const l of [3, 4]) {
+    if (!hind[l]) continue;
+    // the foot's base: the middle of the ring where its thin piece starts
+    let fx = 0, fy = 0, fz = 0, c = 0;
+    for (let i = 0; i < n; i++) if (seg.limb[i] >= 0 && leg[i] === l && seg.legT[i] < 0.06) { fx += pos[i * 3]; fy += pos[i * 3 + 1]; fz += pos[i * 3 + 2]; c++; }
+    if (!c) throw new Error(`frog rig: no foot found for hind leg ${l}`);
+    const C = [...hind[l], [fx / c, fy / c, fz / c, hind[l][hind[l].length - 1][3] * 0.7]];
+    chains[l] = { C, len: toChain(pos, 0, C)[2] };
+  }
+  for (let i = 0; i < n; i++) {
+    if (seg.limb[i] >= 0) {
+      const ch = chains[leg[i]];
+      if (ch) legT[i] = (ch.len + seg.legT[i] * seg.limbs[seg.limb[i]].reach) / (ch.len + (reach[leg[i]] ?? 0));
+      continue;
+    }
+    if (leg[i] && !chains[leg[i]]) continue;                         // a shoulder claimed by a front leg
+    let who = 0, bd = toChain(pos, i, hind.trunk)[0], s = 0;
+    for (const l in chains) { const [d, at] = toChain(pos, i, chains[l].C); if (d < bd) { bd = d; who = +l; s = at; } }
+    leg[i] = who;
+    legT[i] = who ? s / (chains[who].len + (reach[who] ?? 0)) : 0;
+  }
+  // Body vertices cut off from the body (a toe the thinness test missed, nearer the trunk's line than the foot's): they go with
+  // the limb they touch, or they would stay behind when the foot moves.
+  let top = 0;
+  for (let i = 0; i < n; i++) if (!leg[i] && pos[i * 3 + 1] > pos[top * 3 + 1]) top = i;
+  const body = new Uint8Array(n), q = [top];
+  body[top] = 1;
+  while (q.length) { const i = q.pop(); for (const j of adj[i]) if (!leg[j] && !body[j]) { body[j] = 1; q.push(j); } }
+  for (let pass = 0, left = 1; left && pass < 50; pass++) {
+    left = 0;
+    for (let i = 0; i < n; i++) {
+      if (leg[i] || body[i]) continue;
+      const cnt = {}; let t = 0, c = 0;
+      for (const j of adj[i]) if (leg[j]) { cnt[leg[j]] = (cnt[leg[j]] ?? 0) + 1; t += legT[j]; c++; }
+      if (!c) { left++; continue; }
+      leg[i] = +Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0]; legT[i] = t / c;
+    }
+  }
 }

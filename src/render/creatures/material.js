@@ -59,7 +59,8 @@ export const FINISH = {
 // h, w (unit tangents: horizontal and up-ish), pupil: [a, b] half sizes in units of r, shape: 'oval' | 'tri',
 // inner, outer (linear iris colours near the pupil and near the rim), rim (pupil colour, near black), limb (colour of the
 // ring at the cap's edge, default rim), shape: 'oval' | 'tri' | 'slit' (vertical lens, gecko), cap: sine of the visible
-// cap angle (0.84), mirror: also draw at -x (default true) }. Positions are in the mesh's own frame.
+// cap angle (0.84), mirror: also draw at -x (default true), lid: a closed lid over it ({ col, vein, amount }, a sleeping model) }.
+// Positions are in the mesh's own frame.
 // Returns the eye mask k (0…1), its colour, and glint(nWorld, toEye): a small catchlight for a lamp overhead.
 function analyticEyes(eyes) {
   const P = attribute('position', 'vec3');
@@ -89,7 +90,15 @@ function analyticEyes(eyes) {
     const limb = e.limb ? vec3(...e.limb) : rim;                                     // colour of the limbal ring at the edge of the cap
     let iris = mix(vec3(...e.inner), vec3(...e.outer), smoothstep(0.3, 0.9, t)).mul(streak);
     iris = mix(iris, limb, smoothstep(0.7, 0.98, t));
-    col = mix(col, mix(iris, rim, pup), mask);
+    let ec = mix(iris, rim, pup);
+    if (e.lid) {
+      // A closed lid drawn over the eye (a model of the animal asleep): `lid` { col, vein (linear), amount 0 … 1 }. The red-eyed
+      // tree frog's lower lid is a translucent membrane netted with fine gold lines, the iris showing faintly through it.
+      const L = e.lid, n = noise3(vec3(u.div(e.r).mul(7), v.div(e.r).mul(7), float((e.seed ?? 3) + 11)));
+      const net = float(1).sub(smoothstep(0.03, 0.08, abs(n)));
+      ec = mix(ec, mix(vec3(...L.col), vec3(...(L.vein ?? L.col)), net), L.amount ?? 0.85);
+    }
+    col = mix(col, ec, mask);
     k = max(k, mask);
     spots.push(mask);
   }

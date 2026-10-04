@@ -99,3 +99,24 @@ leg cycle still follows the distance walked (`util/gait.js strideRate`), so plan
 * Newt and axolotl eggs, and their courtship, are the sim's chance of breeding made 2.5 times likelier by a courtship; the spermatophore is not drawn.
 * Burrow-style hides are not dug: they use the pieces and moss that are there.
 * A dropped tail is not eaten by anything.
+
+## Red-eyed tree frog fixes (2026-10-03, evening)
+
+* **The scan was never drawn.** `render/creatures/glb.js` picked eye materials by `/eye/i`, and the frog's material is called
+  `redeye`: the whole model was taken for an eyeball, had no body texture, and the game fell back to the procedural stand-in (the
+  squat frog with the big rump). Now "eye" has to start a word or follow a separator. Only this species was affected.
+* **Hind legs rigged by a skeleton.** The scan's thighs and shins lie folded in a lobe at the rear, as thick as the flank, so the
+  thinness test (`tools/rig/frog.mjs`) found only the feet. The job's `rigOpt.hind` gives hip, knee and heel measured on the scan;
+  body vertices go to the nearer of the trunk and the leg chain.
+* **Skeleton and poses** (`tools/rig/skeleton.mjs`, the rule for every animal from now on: bones, then muscles and skin). The job's
+  `skeleton` has 17 bones; poses are joint targets turned into rotations and skinned. `sleep` (legs folded tight, hands under the
+  chin, eyelid membrane netted with gold, `finish.eyes[].lid`) is baked to `redeye.sleep.glb` with the same texture and drawn while
+  the frog sits on its perch. Preview with `node tools/bench.mjs redeye --src=glb --body=sleep`.
+* **No walking on water.** Perches come with a route (`Animals.perchRoute`): a straight walk to the foot of the climb over dry ground
+  (a reed frog, `perchSwim`, may swim it in the stroke), then a path along the climb itself: up a stem, up the background, over the
+  wood (rays onto the piece), up the glass; down the same way. It gives up after 3 s without headway. Plant perches are real: an
+  upward-facing leaf found on the plant's mesh (bromeliad, monstera, ferns) or a reed stem to cling to (cattail, sedge); grass no
+  longer holds a frog. Climbing frogs leave the separation crowd, and the plant a frog climbs no longer pushes it away.
+  Checked with 8 frogs over 150 s by the pond: 0 ticks on the water.
+* **Colours** repainted against the reference photos: leaf green with granules and white flecks, blue only on hidden limb faces,
+  orange hands and feet all round, cream belly, pale line between back and flank, orange-red eye, less lacquer.

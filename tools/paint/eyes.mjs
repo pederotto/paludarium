@@ -31,9 +31,9 @@ export const EYES = {
   bumblebee: frogAs(2.8 / 4.5, { inner: lin([0.16, 0.11, 0.06]), outer: lin([0.05, 0.035, 0.02]), pupil: [0.46, 0.42] }, { rough: 0.62, coat: 0.12, coatRough: 0.5, grain: 9, bump: 0.035, grainAmt: 0.5 }),
   reedfrog: frogAs(3.0 / 4.5, { inner: lin([0.42, 0.3, 0.14]), outer: lin([0.14, 0.09, 0.04]), pupil: [0.5, 0.34] }, { rough: 0.28, coat: 0.65, coatRough: 0.12 }),
   toad: frogAs(1, { inner: lin([0.95, 0.72, 0.22]), outer: lin([0.62, 0.4, 0.12]), pupil: [0.5, 0.42], shape: 'tri' }, { rough: 0.55, coat: 0.2, coatRough: 0.45, grain: 9, bump: 0.05, grainAmt: 0.7 }),
-  // Red-eyed tree frog: big bulging eyes (a sphere fitted to the scan's eye, 0.4 cm), a blood-red iris going darker at the rim and a
-  // narrow vertical slit pupil (shape 'slit'); smooth, wet, glossy skin with almost no grain.
-  redeye: { finish: { eyes: [eye([0.7, 2.21, 1.8], 0.4, [0.74, 0.36, 0.57], { shape: 'slit', pupil: [0.15, 0.6], inner: lin([0.97, 0.16, 0.05]), outer: lin([0.78, 0.07, 0.02]), limb: lin([0.22, 0.02, 0.01]), rim: lin([0.01, 0.006, 0.004]), cap: 0.9, seed: 9 })], rough: 0.36, coat: 0.55, coatRough: 0.18, grainAmt: 0.1 } },
+  // Red-eyed tree frog: big bulging eyes (a sphere fitted to the scan's eye, 0.4 cm), an orange-red iris going darker at the rim and a
+  // narrow vertical slit pupil (shape 'slit'); moist, satiny, finely granular skin (a lacquered coat read as plastic).
+  redeye: { finish: { eyes: [eye([0.7, 2.21, 1.8], 0.4, [0.74, 0.36, 0.57], { shape: 'slit', pupil: [0.15, 0.6], inner: lin([1.0, 0.34, 0.08]), outer: lin([0.88, 0.14, 0.03]), limb: lin([0.32, 0.03, 0.01]), rim: lin([0.01, 0.006, 0.004]), cap: 0.9, seed: 9 })], rough: 0.5, coat: 0.3, coatRough: 0.28, grainAmt: 0.22 } },
   firesal: { finish: { eyes: [eye([1.05, 3.7, 7.5], 0.5, [0.65, 0.5, 0.55], { pupil: [0.78, 0.76], inner: lin([0.06, 0.04, 0.02]), outer: lin([0.03, 0.02, 0.012]) })], rough: 0.5, coat: 0.5, coatRough: 0.2, grainAmt: 0.2 } },
   // Vampire crab: glossy yellow eyes with a small dark pupil. The ball's centre, radius and stalk direction come from the
   // baked rig (tools/rig/crab.mjs), so `eyes` is a function of them. Hard shell: no skin grain (the scan has its own relief,
