@@ -226,7 +226,7 @@ export function rig2Unpack(a, b) {
 // blueprint". Every frog and toad swims with these functions, driven by its SWIM profile (util/bodyplan.js swimProfile) and its
 // body's measurements (body length; the skeleton's own bone lengths do the rest):
 //
-//   swimStep(st, prof, { urgency, floating, steer, bodyLen }, dt)   the stroke clock: kick rate from urgency, bursts of kicks with
+//   swimStep(st, prof, { urgency, floating, steer, sitting, bodyLen }, dt)   the stroke clock: kick rate from urgency, bursts of kicks with
 //            a short rest between them for a weak swimmer, the drift of a frog floating at rest, the legs kicking together when
 //            it means to get somewhere and one after the other when it potters. Advances `st` and returns the forward speed in
 //            cm/s: a surge as the legs drive, a glide that decays, so a frog moves in pulses and covers `reach` body lengths a
@@ -349,15 +349,18 @@ export function legExtension(p) {
 }
 
 // A new frog's stroke clock: legs drawn up, about to kick.
-export const swimState = (rnd = Math.random) => ({ phase: 0.9 + rnd() * 0.08, burst: 0, rest: 0, v: 0, kicks: 0, rested: false, alt: 0, fl: 0, steer: 0 });
+export const swimState = (rnd = Math.random) => ({ phase: 0.9 + rnd() * 0.08, burst: 0, rest: 0, v: 0, kicks: 0, rested: false, alt: 0, fl: 0, steer: 0, sit: 0 });
 
 // Kicks a second at an urgency 0 (pottering) … 1 (a dash for the way out).
 export const kickRate = (prof, urgency) => lerp(prof.kickHz[0], prof.kickHz[1], clamp01(urgency));
 
-export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0, bodyLen = 4, rnd = Math.random } = {}, dt) {
+export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0, sitting = false, bodyLen = 4, rnd = Math.random } = {}, dt) {
   if (!(dt > 0)) return st.v;
-  // (eased, so the legs pass from one way of swimming to another instead of jumping: floating, one leg after the other, steering)
+  // (eased, so the legs pass from one way of swimming to another instead of jumping: floating, one leg after the other, steering,
+  // sitting on the bottom)
   const ease = (k, to, rate) => { st[k] = (st[k] ?? 0) + (to - (st[k] ?? 0)) * Math.min(1, dt * rate); };
+  ease('sit', sitting ? 1 : 0, 4);
+  if (sitting) { st.v *= Math.exp(-dt * 6); ease('fl', 0, 2.5); ease('alt', 0, 3); ease('steer', 0, 6); return st.v; }    // (on the bottom: no stroke)
   ease('fl', floating ? 1 : 0, 2.5);
   ease('alt', !floating && urgency < 0.3 ? 1 : 0, 3);
   ease('steer', Math.max(-1, Math.min(1, steer)), 6);
@@ -416,7 +419,7 @@ export function swimPose(st, prof, { level = prof.level, t = 0, floating = null 
       pL: p, pR: p + 0.5 * alt,
       ampL: (1 - 0.35 * alt) * (1 - 0.75 * Math.max(0, -steer)), ampR: (1 - 0.35 * alt) * (1 - 0.75 * Math.max(0, steer)),
       // floating, the legs scull a little about their resting spread
-      float: f, scull: 0.1 * Math.sin(TAU * p),
+      float: f, scull: 0.1 * Math.sin(TAU * p), sit: st.sit ?? 0,      // (sit: on the bottom, as it sits on land)
       arms: lerp(armOpen(p, open[0], open[1]), 1, 0.6 * alt), push,
     },
   };

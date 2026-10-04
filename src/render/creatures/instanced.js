@@ -68,9 +68,9 @@ export class CreatureMesh {
     finish = turnFinish(finish, geometry);
     if (skin) {
       this.skinRig = skeletonRig(skin, { legLift, legStride, limb, turn: finish.turnSweep && typeof finish.turnSweep === 'object' ? finish.turnSweep : null });
-      this.skinCap = Math.min(cap, SKIN.cap);
+      this.skinCap = Math.min(cap, this.skinRig?.stroke ? SKIN.strokes : SKIN.cap);
       this.row0 = this.skinRig ? rows.take(this.skinCap) : -1;
-      if (this.row0 < 0) { this.skinRig = null; this.skinCap = 0; }
+      if (this.row0 < 0) { if (this.skinRig) console.warn('skin: no rows of the bone texture left (SKIN_ROWS): this body draws without its bones'); this.skinRig = null; this.skinCap = 0; }
       else { cap = this.skinCap; live.add(this); }
       this.inY = !!finish.turnSweep?.inY;
     }
@@ -124,7 +124,7 @@ export class CreatureMesh {
     if (this.skinRig) {
       // the bones from the state the rig would have drawn (anim.y then carries the instance's row of the bone texture)
       const row = this.row0 + i;
-      if (this.skinRig.stroke) poseStroke(this.skinRig, st, boneData, row * ROW_FLOATS);
+      if (this.skinRig.stroke) poseStroke(this.skinRig, st, boneData, row * ROW_FLOATS, st?.info ?? null);    // (info: the limbs' tips, for whoever asked)
       else { const u = unpackAnim(a3); poseBones(this.skinRig, { phase: a2, tau: this.inY ? a1 : c4, hop: u.hop, calm: u.calm, pose: u.pose }, boneData, row * ROW_FLOATS); }
       a1 = row;
     }

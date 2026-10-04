@@ -181,3 +181,34 @@ test('a leap, by the same body: cocked on the ground, legs straight and trailing
   }
   assert.ok(worst < 12, `largest step ${worst.toFixed(1)} degrees in 1/200 of a leap`);
 });
+
+test('on the bottom it sits as on land: no stroke, legs folded and hands down; its body is spheres for the water it moves', () => {
+  const prof = swimProfile('toad'), st = swimState(seeded());
+  for (let i = 0; i < 60; i++) swimStep(st, prof, { urgency: 0.7, bodyLen: 4.5, rnd: seeded(3) }, 1 / 30);
+  assert.ok(st.v > 0.5);
+  const ph = st.phase;
+  for (let i = 0; i < 60; i++) swimStep(st, prof, { sitting: true, bodyLen: 4.5 }, 1 / 30);
+  assert.ok(st.sit > 0.99 && st.v < 0.01 && st.phase === ph, 'sat down: no way on, the stroke held');
+  const skel = man['toad.swim'].skeleton, rig = skeletonRig(skel), row = new Float32Array(ROW_FLOATS);
+  const sit = poseStroke(rig, swimPose(st, prof, { level: 0 }).stroke, row, 0, {}), land = poseStroke(rig, leapStroke(0), row, 0, {});
+  for (const k of [1, 2, 3, 4]) for (let c = 0; c < 3; c++) assert.ok(Math.abs(sit.tips[k][c] - land.tips[k][c]) < 0.05, `limb ${k} as it sits on land`);
+  // the hull: the trunk's three spheres and one at the end of every limb bone (2 x (4 + 3)), each inside the body's reach, the feet
+  // counted wider than their bones (the web)
+  assert.equal(sit.hull.length, 17);
+  const size = man['toad.swim'].sizeCm;
+  for (const h of sit.hull) assert.ok(h[3] > 0.1 && h[3] < 1.5 && Math.abs(h[0]) < size[0] && Math.abs(h[2]) < size[2] * 1.2, JSON.stringify(h));
+  const glide = poseStroke(rig, null, row, 0, {});
+  const foot = skel.bones.find((b) => b.name === 'footR').r;
+  assert.ok(glide.hull.some((h) => Math.abs(h[3] - foot * 2.2) < 1e-6), 'a foot is a paddle');
+  // a kick moves the feet's spheres far further than the trunk's (which do not move in the body's frame at all)
+  const a = poseStroke(rig, swimPose({ phase: 0.02 }, prof, { level: 0 }).stroke, row, 0, {}).hull.map((h) => [...h]);
+  const b = poseStroke(rig, swimPose({ phase: 0.14 }, prof, { level: 0 }).stroke, row, 0, {}).hull;
+  const moved = a.map((h, i) => Math.hypot(h[0] - b[i][0], h[1] - b[i][1], h[2] - b[i][2]));
+  assert.ok(Math.max(...moved.slice(0, 3)) < 1e-9 && Math.max(...moved.slice(3)) > 2, `feet moved ${Math.max(...moved).toFixed(1)} cm in a kick`);
+});
+
+test('only a frog at home in the water dives', () => {
+  assert.ok(swimProfile('toad').dive && swimProfile('toad').float);
+  for (const id of ['dartfrog', 'leucomelas', 'auratus', 'strawberry', 'bumblebee', 'reedfrog', 'redeye']) assert.ok(!swimProfile(id).dive && !swimProfile(id).float, id);
+  assert.ok(man['redeye.swim']?.skeleton?.bind === 'swim', 'the red-eyed tree frog has the body it leaps in');
+});

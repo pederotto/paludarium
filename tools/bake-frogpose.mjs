@@ -35,6 +35,9 @@ const JOBS = {
   'bumblebee.swim': SWIM(2.8, 'melano', 'bumblebee'),
   'reedfrog.swim': SWIM(3.0, 'heterixalus', 'reedfrog'),
   'toad.swim': SWIM(4.5, 'bombina', 'toad'),
+  // The red-eyed tree frog does not swim, but it leaps, and its own scan sits with its hind legs folded in one lump: in the air it is
+  // drawn in this body (Animals.draw, util/gait.js leapStroke), painted as itself.
+  'redeye.swim': SWIM(6.4, 'callidryas', 'redeye'),
 };
 // The swimming scan's skeleton (tools/rig/skeleton.mjs frogBones): joints measured on the leveled scan (scan units, head +z, about 2
 // long: analyse() below) from its top, side and front views, each at the middle of the limb where the mesh bends. The hind leg is

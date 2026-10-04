@@ -24,7 +24,7 @@
 // throat and the eyes are the rig's, on the rest pose before the bones move it (render/creatures/instanced.js).
 
 import { PLANS, bendAngle } from '../../util/bodyplan.js';
-import { strokeAngles, armAngles } from '../../util/gait.js';
+import { strokeAngles, armAngles, HIND, FORE } from '../../util/gait.js';
 
 export const ROW_TEXELS = 64;                  // texels in an instance's row of the bone texture (RGBA float each)
 export const BONE_TEXELS = 3;                  // a bone is an affine 3 x 4 matrix: three rows of [m0, m1, m2, t]
@@ -288,7 +288,12 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
   const { n, head, dir, L, limbs } = rig, s = st ?? GLIDING;
   const R = new Array(n), H = new Array(n);
   for (let b = 0; b < n; b++) { R[b] = I3(); H[b] = head[b]; }
-  if (info) { info.tips = {}; info.bend = {}; }
+  if (info) {
+    info.tips = {}; info.bend = {};
+    // (the body as spheres, for the water it moves: [x, y, z, radius] in the model's cm: the trunk here, the limbs' joints below)
+    const P = (info.hull ??= []); P.length = 0;
+    for (const nm of ['pelvis', 'spine', 'head']) { const b = rig.byName[nm]; if (b != null) P.push([(head[b][0] + rig.tail[b][0]) / 2, (head[b][1] + rig.tail[b][1]) / 2, (head[b][2] + rig.tail[b][2]) / 2, (rig.B[b].r ?? 0.3) * 0.85]); }
+  }
   for (const c of limbs) {
     const left = c.side < 0, k = c.bones.length;
     let A;
@@ -299,6 +304,8 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
       // (floating, the legs scull gently about their spread, one side then the other)
       if (s.float > 0) { const w = s.float * (s.scull ?? 0) * (left ? 1 : -1) * 60; A[0] += w; A[1] += w * 0.6; A[2] -= w * 0.8; }
     } else A = armAngles(s.arms, _fore, 0, s.float);
+    // (sitting on the bottom: the legs folded and the hands down, as it sits on land)
+    if (s.sit > 0 && !s.legA) { const to = c.hind ? HIND.cock : FORE.stand; for (let i = 0; i < to.length; i++) A[i] += (to[i] - A[i]) * s.sit; }
     let J = head[c.bones[0]], dPrev = null;
     for (let i = 0; i < k; i++) {
       const b = c.bones[i], d1 = segDir(A[i], A[k + i], c.side);
@@ -309,6 +316,8 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
       H[b] = J;
       J = addv(J, mul(d1, L[b]));
       if (info && dPrev) info.bend[rig.B[b].name] = bendAngle(dPrev, d1);
+      // (each bone's far end: the knee, the heel, the foot and the toes; the elbow, the wrist and the hand)
+      if (info) info.hull.push([J[0], J[1], J[2], Math.max(0.12, (rig.B[b].r ?? 0.15) * (c.hind && i >= 2 ? 2.2 : 1.1))]);    // (a foot is a paddle: its web is wider than its bone)
       dPrev = d1;
     }
     if (info) info.tips[c.limb] = J;

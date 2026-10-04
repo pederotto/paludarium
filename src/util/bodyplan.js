@@ -109,6 +109,7 @@ export const PLANS = {
 //            the sitting model level (its skeleton's trunk pitch, pelvis to head, as baked: measured from the manifest); headUp: the nose lifted at the surface (rad)
 //   float    rests at the surface with its limbs spread between swims (the fire-bellied toad); hang: how far its body hangs down
 //            from its nostrils as it rests there (rad)
+//   dive     it dives: kicks down to the bottom, sits there a while and comes up again (a frog at home in the water)
 //   arms     how far the forelegs are held out, [as it draws its legs up, through the kick and glide] (0 laid back along the flanks
 //            … 1 out to the sides): a poison frog, a poor swimmer, keeps them well out to balance; a strong swimmer lays them back
 export const SWIM = {
@@ -124,7 +125,7 @@ export const SWIM = {
   reedfrog: { kickHz: [1.0, 2.4], reach: 0.6, level: 0.208, arms: [0.8, 0.08] },
   redeye: { kickHz: [0.9, 2.0], reach: 0.6, arms: [0.8, 0.08] },
   // Bombina: at home in the water, long glides, rests floating spread-eagled at the surface
-  toad: { kickHz: [0.8, 2.0], reach: 0.65, burst: [1, 3], rest: [0.6, 2], drag: 1.8, sink: 0.45, headUp: 0.04, float: true, level: 0.179, arms: [0.6, 0.05] },
+  toad: { kickHz: [0.8, 2.0], reach: 0.65, burst: [1, 3], rest: [0.6, 2], drag: 1.8, sink: 0.45, headUp: 0.04, float: true, dive: true, level: 0.179, arms: [0.6, 0.05] },
 };
 export const swimProfile = (id) => ({ ...SWIM.anuran, ...(SWIM[id] ?? {}) });
 

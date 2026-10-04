@@ -51,9 +51,11 @@ for (const id of ids) for (const scene of scenes) {
     // swimming along the front glass toward a far mark (no way out there), or resting, or with its goal off to one side
     a.swimming = true; a.roam = true; a.timer = 1e9; a.yaw = Math.PI / 2; a.shore = new V3(60, 0, z);
     if (scene === 'float') { a.floating = true; a.shore = new V3(x + 0.5, 0, z); }
+    if (scene === 'dive') { a.wetT = 0; a.wetStay = 1e9; }
     window.__sw = a; window.__scene = scene;
     for (let i = 0; i < 40; i++) { A._rt = performance.now() - 33; A.move(1 / 30); }
     if (scene === 'turn') a.shore = new V3(a.pos.x + 6, 0, a.pos.z - 30);
+    if (scene === 'dive') { a.dive = { ph: 'down', t: 0 }; window.__diveLen = 1.2; }
     await new Promise((r) => setTimeout(r, 1200));
     return true;
   }, { id, scene });
@@ -64,14 +66,16 @@ for (const id of ids) for (const scene of scenes) {
       const st = await page.evaluate(({ view, f }) => {
         const g = window.game, A = g.world.animals, a = window.__sw;
         // (a toad pottering: the sim's own urgency for a roaming toad; a frog is made to potter by hand, to show the gait)
-        if (f) for (let i = 0; i < 2; i++) { A._rt = performance.now() - 33; if (window.__scene === 'potter' && a.sw) a.swPotter = true; A.move(1 / 30); }
+        const steps = window.__scene === 'dive' ? 5 : 2;      // (a dive is filmed faster: it takes several seconds)
+        if (f) for (let i = 0; i < steps; i++) { A._rt = performance.now() - 33; if (a.dive?.ph === 'sit' && window.__diveLen) a.dive.len = window.__diveLen; A.move(1 / 30); }
         const p = a.pos, s = g.world.water.surfaceAt(p.x, p.z, 0.2);
         g.rig?.stopOrbit?.(); if (g.rig) g.rig.moved = true;
         if (view === 'above') g.controls.setLookAt(p.x + 1, s + 44, p.z + 6, p.x + 1, s, p.z, false);
         else if (view === 'low') g.controls.setLookAt(p.x - 12, s + 9, p.z + 30, p.x + 1, s, p.z, false);
+        else if (view === 'rake') g.controls.setLookAt(p.x + 4, s + 14, p.z + 26, p.x + 2, s, p.z - 2, false);
         else g.controls.setLookAt(p.x + 1, s - 2, p.z + 38, p.x + 1, s - 1, p.z, false);
         A.move(0);
-        return { kick: +(a.kick ?? 0).toFixed(2), v: +(a.sw?.v ?? 0).toFixed(1), under: +(s - p.y).toFixed(2), alt: +(a.sw?.alt ?? 0).toFixed(1), fl: +(a.sw?.fl ?? 0).toFixed(1), swim: !!a.swimming, skinned: window.__skin?.drawn ?? 0 };
+        return { kick: +(a.kick ?? 0).toFixed(2), v: +(a.sw?.v ?? 0).toFixed(1), under: (a.dive?.ph ?? '') + (s - p.y).toFixed(1), alt: +(a.sw?.alt ?? 0).toFixed(1), fl: +(a.sw?.fl ?? 0).toFixed(1), swim: !!a.swimming, skinned: window.__skin?.drawn ?? 0 };
       }, { view, f });
       await page.waitForTimeout(220);
       const buf = await page.screenshot({ clip: { x: 600 - W / 2, y: 400 - H / 2, width: W, height: H } });

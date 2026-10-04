@@ -16,8 +16,11 @@ import { ROW_TEXELS, ROW_FLOATS, RowAllocator } from './skeleton.js';
 
 // on: near vertebrates drawn by their bones; swim: a frog's swimming body drawn by its stroke (at any distance: without its bones it
 // is one frozen pose); cap: rows a species' mesh may hold (more of it near the camera draw with the rig)
-export const SKIN = { on: true, swim: true, cap: 8 };
-export const SKIN_ROWS = 64;          // instances skinned at once in the whole scene (64 KB of texture)
+export const SKIN = { on: true, swim: true, cap: 8, strokes: 6 };       // (strokes: rows a swimming body's mesh holds)
+// Instances skinned at once in the whole scene (rows of the bone texture, 1 KB each). A frog species holds two runs: its sitting
+// body's (SKIN.cap) and its swimming body's (SKIN.strokes: it swims and leaps in that one), so a tank with every frog and morph
+// needs about 150; when the rows ran out (64 once) the last species to arrive swam as a frozen pose.
+export const SKIN_ROWS = 192;
 
 export const boneData = new Float32Array(ROW_FLOATS * SKIN_ROWS);
 export const boneTexture = new THREE.DataTexture(boneData, ROW_TEXELS, SKIN_ROWS, THREE.RGBAFormat, THREE.FloatType);

@@ -7,7 +7,13 @@
 //    (clamp-to-edge sampling). It covers the main pool and every still pond
 //    outside it (their banks hold the waves as the shore does); streams are
 //    left out, the current sweeps ripples away. Drops come from the
-//    waterfalls, animals and clicks.
+//    waterfalls and clicks.
+//  - Bodies: an animal in or at the water is a few spheres (its hull, a
+//    swimming frog's feet). Each step the water a sphere pushes aside where it
+//    is now, less what it pushed aside where it was, goes into the height
+//    field (the sandbox's coupling of its floating bodies: SH.ripple `column`),
+//    so a wake, the ring behind a kick and the splash of a body dropping in
+//    come from the motion itself. A body deep under the surface moves none.
 //  - Surface: a grid moved by the ripples plus a few small travelling waves.
 //  - Caustics: every vertex of a fine grid on the surface (the main pool's, or
 //    a still pond's) sends a ray of the LED's light, refracted by the surface
@@ -33,6 +39,11 @@ export const SIM = [256, 128];     // ripple grid (x, z)
 const CAUS = [512, 256];           // caustics texture
 const RIPPLE_MM = 0.02;            // ripple units → cm of height
 const DROPS = 16;                  // drops taken per frame (falls, animals, clicks)
+export const HULLS = 48;           // spheres of bodies in or at the water coupled to the ripples at once (a swimming frog is 17)
+const COUPLE = 0.3;                // how much of the water a hull pushes aside goes into the ripple field
+const HULL_CAP = 9;                // the most a cell's height changes by it in a step (ripple units)
+const DAMP = 0.992, WAVE = 0.44, VISC = 0.025;   // the ripple solver: speed kept a step, pull toward the neighbours, viscosity on the speed
+const HULL_MIN = 0.5;              // the smallest footprint a hull is given (cm: about two cells of the grid)
 const IOR = 1.333;
 
 // Shared ripple / caustics texture nodes for every material in the scene.
@@ -93,6 +104,10 @@ export class WaterFX {
     this.cur = 0;
     this.drops = [];
     this.dropU = uniformArray(Array.from({ length: DROPS }, () => new THREE.Vector4(0, 0, 1, 0)), 'vec4');
+    // hulls: (x, y, z, radius) in cm, where each sphere was a step ago and where it is now (far above the water: none)
+    this.hullOld = uniformArray(Array.from({ length: HULLS }, () => new THREE.Vector4(0, 1e4, 0, 1)), 'vec4');
+    this.hullNew = uniformArray(Array.from({ length: HULLS }, () => new THREE.Vector4(0, 1e4, 0, 1)), 'vec4');
+    this.hulls = new Map();          // key → { x, y, z, r, px, py, pz, seen }
     this.buildSim();
     this.buildCaustics();
     this.buildTerrainTexture();
@@ -111,16 +126,21 @@ export class WaterFX {
 
   simMaterial(prevTexture, withDrops) {
     const prev = texture(prevTexture);
-    const drops = this.dropU;
+    const drops = this.dropU, hullOld = this.hullOld, hullNew = this.hullNew;
     const m = new THREE.MeshBasicNodeMaterial();
     // fragmentNode writes the raw (signed) heights, skipping colour output.
     m.fragmentNode = Fn(() => {
       const q = uv();
       const e = vec2(1 / SIM[0], 1 / SIM[1]);
       const c = prev.sample(q);
-      const nb = prev.sample(q.add(vec2(0, e.y))).r.add(prev.sample(q.sub(vec2(0, e.y))).r)
-        .add(prev.sample(q.add(vec2(e.x, 0))).r).add(prev.sample(q.sub(vec2(e.x, 0))).r);
-      let h = nb.mul(0.5).sub(c.g).mul(0.992);
+      const nbs = prev.sample(q.add(vec2(0, e.y))).rg.add(prev.sample(q.sub(vec2(0, e.y))).rg)
+        .add(prev.sample(q.add(vec2(e.x, 0))).rg).add(prev.sample(q.sub(vec2(e.x, 0))).rg);
+      // The wave equation: the height keeps its vertical speed (a little damped) and is pulled toward its neighbours' mean. With
+      // the pull just under the scheme's limit a cell also feels its own height, and a little viscosity on the vertical speed
+      // (the speed here against its neighbours') takes out the cell-to-cell chop a small, quick body leaves, while the longer
+      // waves run as before (the sandbox's solver does the same). Stable for (WAVE + 2 VISC) * 8 <= 2 * (1 + DAMP).
+      const vel = c.r.sub(c.g);
+      let h = c.r.add(vel.mul(DAMP)).add(nbs.x.sub(c.r.mul(4)).mul(WAVE)).add(nbs.x.sub(nbs.y).sub(vel.mul(4)).mul(VISC));
       if (withDrops) {
         const p = q.sub(0.5).mul(vec2(TANK.w, TANK.d));
         for (let i = 0; i < DROPS; i++) {
@@ -129,9 +149,28 @@ export class WaterFX {
           h = h.add(d.w.mul(exp(dot(r, r).negate())));
         }
       }
+      const t = FX.terrainH.sample(q);
+      if (withDrops) {
+        // Bodies. The column of water a sphere takes up over this cell: its own height here (a rounded footprint, flat-topped
+        // with a soft rim) as far as it lies under the water's level. What it took up before less what it takes up now is water
+        // that has to go somewhere: the height here changes by it. A sphere whose top is well under the surface moves none.
+        const p = q.sub(0.5).mul(vec2(TANK.w, TANK.d));
+        const lvl = max(U.waterLevel, t.g);
+        const column = (sph) => {
+          const tt = p.sub(sph.xz).length().div(max(sph.w, HULL_MIN));     // (a footprint narrower than the grid can carry is spread)
+          const hc = sph.w.mul(exp(pow(tt.mul(1.1), 6).negate()));
+          return clamp(lvl.sub(sph.y.sub(hc)), 0, hc.mul(2));
+        };
+        let src = float(0);
+        for (let i = 0; i < HULLS; i++) {
+          const so = hullOld.element(i), sn = hullNew.element(i);
+          const near = float(1).sub(smoothstep(sn.w, sn.w.mul(3), lvl.sub(sn.y.add(sn.w))));
+          src = src.add(column(so).sub(column(sn)).mul(near));
+        }
+        h = h.add(clamp(src.mul(COUPLE / RIPPLE_MM), -HULL_CAP, HULL_CAP));
+      }
       // Dry cells hold no waves: the substrate above the main pool's line, unless a still pond lies on it (its surface
       // is in the terrain texture's green channel, see setStill).
-      const t = FX.terrainH.sample(q);
       const wet = max(smoothstep(0.0, 0.6, U.waterLevel.sub(t.r)), smoothstep(0.0, 0.6, t.g.sub(t.r)));
       return vec4(h.mul(wet), c.r, 0, 1);
     })();
@@ -140,6 +179,16 @@ export class WaterFX {
 
   addDrop(x, z, strength = 6, radius = 0.8) {
     if (this.drops.length < DROPS) this.drops.push([x, z, radius, strength]);
+  }
+
+  // A body in or at the water this frame: a sphere (centre and radius, cm) under a key that stays the same from frame to frame
+  // (the animal's id, and a number for each of its spheres). Its last position is remembered here; a body that is not named for a
+  // frame is forgotten. A body that jumps further than it could have moved (put somewhere else) starts afresh.
+  addHull(key, x, y, z, r) {
+    const h = this.hulls.get(key);
+    if (!h) { this.hulls.set(key, { x, y, z, r, px: x, py: y, pz: z, seen: true }); return; }
+    if (Math.hypot(x - h.x, y - h.y, z - h.z) > 3 * r + 3) { h.px = x; h.py = y; h.pz = z; }
+    h.x = x; h.y = y; h.z = z; h.r = r; h.seen = true;
   }
 
   step() {
@@ -151,6 +200,15 @@ export class WaterFX {
       if (d) arr[i].set(d[0], d[1], d[2], d[3]); else arr[i].set(0, 0, 1, 0);
     }
     this.drops.length = 0;
+    // the hulls: where each was and is (those that moved first, if there are more than fit), then this frame becomes the last
+    const ho = this.hullOld.array, hn = this.hullNew.array;
+    let n = 0;
+    for (const [key, h] of this.hulls) {
+      if (!h.seen) { this.hulls.delete(key); continue; }
+      if (n < HULLS && (h.x !== h.px || h.y !== h.py || h.z !== h.pz)) { ho[n].set(h.px, h.py, h.pz, h.r); hn[n].set(h.x, h.y, h.z, h.r); n++; }
+      h.px = h.x; h.py = h.y; h.pz = h.z; h.seen = false;
+    }
+    for (; n < HULLS; n++) { ho[n].set(0, 1e4, 0, 1); hn[n].set(0, 1e4, 0, 1); }
     // Two sub-steps per frame keeps waves moving at a natural speed.
     r.setRenderTarget(this.rt[1]);
     this.simQuads[0].render(r);

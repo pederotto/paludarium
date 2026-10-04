@@ -1279,7 +1279,8 @@ export class Animals {
     switch (sp.kind) {
       case 'swim': return true;
       case 'crawlWater': case 'crawlLand': case 'crab': return a.state === 'walk' && !!a.target && Math.hypot(a.target.x - a.pos.x, a.target.z - a.pos.z) > 0.5;   // (there: not stuck)
-      case 'frog': case 'toad': return (a.hopFail ?? 0) >= 1 || (!!a.swimming && !!a.shore);
+      // (a frog resting at the surface or sitting on the bottom means to be still: taken for stuck, a floating toad was put ashore)
+      case 'frog': case 'toad': return (a.hopFail ?? 0) >= 1 || (!!a.swimming && !!a.shore && !a.floating && a.dive?.ph !== 'sit');
       case 'newt': case 'axolotl': return a.herp ? !!a.wantMove : a.swimming ? true : a.state === 'walk' && !!a.target;
       case 'fly': return a.state === 'walk' && !!a.target;
     }
@@ -2656,10 +2657,12 @@ export class Animals {
     const g = T.heightAt(a.pos.x, a.pos.z);
     const s = W.water.surfaceAt(a.pos.x, a.pos.z, 0.2);
     const inWater = s > g + (a.swimming ? 0.5 : 0.9) * sp.size;      // (once swimming, it swims on through the shallows to its bank)
-    if (inWater && !a.swimming) a.sw = swimState();                   // (into the water: legs drawn up, and it kicks off)
+    if (inWater && !a.swimming) { a.sw = swimState(); a.wetT = 0; a.wetStay = 90 + Math.random() * 240; a.dive = null; a.diveP = 0; }   // (into the water: legs drawn up, and it kicks off)
+    if (!inWater && a.swimming) { a.dryT = 0; a.dive = null; a.diveP = 0; }
     a.swimming = inWater;
     a.timer -= dt;
-    if (inWater) { this.frogSwim(a, sp, dt, s, toad); a.fs = null; return; }
+    if (inWater) { a.wetT = (a.wetT ?? 0) + dtS; this.frogSwim(a, sp, dt, s, toad); a.fs = null; return; }
+    a.dryT = (a.dryT ?? 0) + dtS;
     a.pos.y = g;
     a.normal = T.normalAt(a.pos.x, a.pos.z);
     if (!a.fs) { a.fs = 'sit'; a.fsT = this.pickSit(a, sp) * Math.random(); a.chain = 0; a.crouch = 0; }
@@ -2749,15 +2752,18 @@ export class Animals {
     } else {
       const E = W.env, light = clamp(E.bright(), 0, 1);
       const uneasy = (a.why?.length ?? 0) > 0, cont = !!a.chainNext;
-      const hd0 = a.hd ?? a.yaw, wantWater = toad && !cont && Math.random() < 0.15;
+      // (a fire-bellied toad spends much of its day in the water: after a while on land it makes for the nearest it can find)
+      const wantWater = toad && !cont && a.hunger < 0.6 && Math.random() < ((a.dryT ?? 0) > 25 ? 0.7 : 0.15);
+      const pond = wantWater ? this.crabFind(a.pos.x, a.pos.z, 30, (px, pz, d) => d > 1.2 * sp.size) : null;
+      const hd0 = pond ? Math.atan2(pond.x - a.pos.x, pond.z - a.pos.z) : a.hd ?? a.yaw;
       const mid = (sp.temp[0] + sp.temp[1]) / 2;
       const cands = [];
       for (let k = 0; k < (uneasy ? 14 : 8); k++) {
-        let ang = hd0 + gauss() * (cont ? 0.3 : 0.6);
+        let ang = hd0 + gauss() * (cont ? 0.3 : pond ? 0.25 : 0.6);
         if (k >= 5 || (uneasy && k >= 3)) ang = Math.random() * Math.PI * 2;                       // now and then somewhere else entirely
-        else if (!cont && k === 4) ang = hd0 + Math.PI * (0.7 + 0.6 * Math.random());             // turn back
-        const walk = cont && a.plan ? a.plan.type === 'walk' : toad ? Math.random() < 0.2 : Math.random() < 0.68;
-        const len = (walk ? 2 + Math.random() * 5 : (1.4 + Math.random() * 2.6) * (toad ? 1.7 : 1)) * (uneasy ? 1.8 : 1);
+        else if (!cont && !pond && k === 4) ang = hd0 + Math.PI * (0.7 + 0.6 * Math.random());    // turn back
+        const walk = cont && a.plan ? a.plan.type === 'walk' : toad ? Math.random() < (pond ? 0 : 0.2) : Math.random() < 0.68;
+        const len = pond && k < 4 ? Math.min(pond.d + 1.5, (2.2 + Math.random() * 2.4) * 1.7) : (walk ? 2 + Math.random() * 5 : (1.4 + Math.random() * 2.6) * (toad ? 1.7 : 1)) * (uneasy ? 1.8 : 1);
         const to = V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len);
         const g = T.heightAt(to.x, to.z);
         let sc = this.comfortAt(sp, to.x, g, to.z) * (uneasy ? 6 : 3) + Math.random() * 0.8 + Math.cos(ang - hd0) * 0.4;
@@ -2765,6 +2771,7 @@ export class Animals {
         const cover = this.occ.count && this.occ.solidAt(to.x, g + 3, to.z) ? 1 : 0;
         sc += (cover + T.field.matAt(to.x, to.z, MAT.moss)) * (1.6 * (1 - light) + 0.4);
         sc += clamp((W.climate.tempAt(to.x, g, to.z) - mid) / 5, -0.6, 0.6) * light * 0.8;
+        if (pond && k < 4) sc += 3;                                    // (toward the water first)
         cands.push({ to, ang, walk, sc });
       }
       cands.sort((p, q) => q.sc - p.sc);
@@ -2824,13 +2831,19 @@ export class Animals {
   // glide (kickSpeed). Dart frogs avoid deep water and head for the nearest bank at once, kicking hard; a toad floats about and
   // now and then decides to climb out.
   frogSwim(a, sp, dt, s, toad) {
-    const W = this.world, T = W.terrain;
-    a.pos.y = Math.max(s - this.swimDepth(a, sp), T.heightAt(a.pos.x, a.pos.z));
+    const W = this.world, T = W.terrain, prof = swimProfile(a.sp), ground = T.heightAt(a.pos.x, a.pos.z), top = s - this.swimDepth(a, sp);
     a.normal = null;
+    // (under the water: a dive to the bottom, a rest there, the swim back up: frogDive runs it until the frog is at the surface again)
+    if (a.dive && this.frogDive(a, sp, dt, s, top, ground)) return;
+    a.diveP = (a.diveP ?? 0) * Math.max(0, 1 - dt * 4);
+    a.pos.y = Math.max(top, ground);
     if (!a.shore || a.timer <= 0) {
       a.timer = 4 + Math.random() * 4;
       a.shore = null; a.shoreLand = null; a.roam = false;
-      if (!toad || Math.random() < 0.35) {
+      // A frog that has no business in the water makes for the way out at once. One at home in it (a toad) stays: it rests at the
+      // surface, potters about, dives, and leaves when it has had its time in the water (or is hungry: it hunts on land).
+      const leave = !toad || Math.random() < ((a.wetT ?? 0) > (a.wetStay ?? 120) || a.hunger > 0.6 ? 0.5 : 0.04);
+      if (leave) {
         a.floating = false;
         // The way out: along each of 16 lines the first dry ground (the bank it would swim into: land beyond a bank is not reached by
         // swimming, and swimming at it had a frog pushed back off that bank for minutes), and the nearest of those it can climb
@@ -2870,9 +2883,13 @@ export class Animals {
           }
         }
       } else {
-        const ang = Math.random() * Math.PI * 2;
+        const ang = Math.random() * Math.PI * 2, u = Math.random();
         a.shore = V(a.pos.x + Math.sin(ang) * 6, 0, a.pos.z + Math.cos(ang) * 6);
-        a.floating = true;
+        // rest at the surface (most of the time, and for a good while), potter off somewhere, or dive (where the water is deep
+        // enough to)
+        if (prof.dive && u < 0.1 && top - ground > 2.2 * sp.size) { a.floating = false; a.dive = { ph: 'down', t: 0 }; }
+        else if (u < 0.35) { a.floating = false; a.roam = true; a.shore = V(a.pos.x + Math.sin(ang) * (5 + Math.random() * 8), 0, a.pos.z + Math.cos(ang) * (5 + Math.random() * 8)); }
+        else { a.floating = true; a.roam = true; a.timer = 15 + Math.random() * 25; }
       }
     }
     // The stroke (util/gait.js, the species' SWIM profile): how urgent it is sets the beat, bursts of kicks, surge and glide. A frog
@@ -2880,12 +2897,13 @@ export class Animals {
     // with its legs: the leg on the inside of a turn trails while the outer one drives.
     const want = a.shore ? Math.atan2(a.shore.x - a.pos.x, a.shore.z - a.pos.z) : a.yaw;
     const v = this.swimClock(a, sp, a.floating ? 0.1 : toad ? (a.roam || !a.exit && !a.shoreLand ? 0.25 : 0.6) : 0.95, dt, angDiff(want, a.yaw) / 0.9);
-    this.swimWake(a, sp, v, dt);
     if (!a.shore) return;
     const dir = V(a.shore.x - a.pos.x, 0, a.shore.z - a.pos.z);
     const dist = dir.length();
     this.turnTo(a, sp, want, dt, 3, false);
     const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt;
+    // (resting or pottering it stays in water it can swim in: it turns back from the shallows instead of drifting ashore)
+    if ((a.roam || a.floating) && !(W.water.surfaceAt(nx, nz, 0.2) > T.heightAt(nx, nz) + 1.1 * sp.size)) { a.shore = null; a.timer = 0; return; }
     if (this.avoid && this.occ.solidAt(nx, a.pos.y, nz)) {
       if (!a.roam) { (a.badShore ??= []).push([a.shore.x, a.shore.z]); if (a.badShore.length > 8) a.badShore.shift(); }   // (a rock on the way)
       a.shore = null; a.timer = 0;
@@ -2922,26 +2940,48 @@ export class Animals {
     }
   }
 
-  // The stroke clock of a frog in the water (util/gait.js swimStep with its SWIM profile and body length): advances its kick (a.kick,
-  // the phase the rig draws), a ripple as the legs drive, and returns its speed in cm/s.
-  swimClock(a, sp, urgency, dt, steer = 0) {
-    const st = (a.sw ??= swimState()), k0 = st.kicks, b = this.bodyOf(a.sp);
-    const v = swimStep(st, swimProfile(a.sp), { urgency, floating: !!a.floating, steer, bodyLen: b ? 2 * b.hlen * drawScale(a, sp) : 3 * sp.size }, dt);
-    a.kick = st.phase;
-    // the kick: a ring where the feet drove the water back, behind the body
-    if (st.kicks !== k0) { const r = 1.6 * sp.size; this.world.fx?.addDrop(a.pos.x - Math.sin(a.yaw) * r, a.pos.z - Math.cos(a.yaw) * r, -3.2, 0.9); }
-    return v;
+  // Under the water (a frog at home in it: SWIM `dive`): it tips its nose down and kicks to the bottom, sits there a while as it
+  // sits on land, then pushes off and kicks up to the surface, where it rests. `top`: where it lies at the surface, `ground`: the
+  // bottom under it. Returns true while the dive goes on. (Seen in film of a leopard frog in a basin and of a frog in a pool.)
+  frogDive(a, sp, dt, s, top, ground) {
+    const D = a.dive, bottom = ground + 0.05, lean = (to) => { a.diveP = (a.diveP ?? 0) + (to - (a.diveP ?? 0)) * Math.min(1, dt * 3); };
+    const free = (x, y, z) => Math.abs(x) < TANK.w / 2 - 1.5 && Math.abs(z) < TANK.d / 2 - 1.5 && !(this.avoid && this.occ.solidAt(x, y, z)) && this.world.water.surfaceAt(x, z, 0.3) > -Infinity;
+    // (forward and up or down together if the way is clear, else only up or down, else only forward: it slides along what it meets)
+    const go = (v, dy) => {
+      const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt, ny = Math.max(bottom, Math.min(top, a.pos.y + dy * dt));
+      if (free(nx, ny, nz)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = ny; return true; }
+      if (free(a.pos.x, ny, a.pos.z)) { a.pos.y = ny; return true; }
+      if (free(nx, a.pos.y, nz)) { a.pos.x = nx; a.pos.z = nz; }
+      return false;
+    };
+    a.floating = false;
+    D.t += dt;
+    if (D.ph === 'down') {
+      lean(0.75);
+      const v = this.swimClock(a, sp, 0.7, dt);
+      // down to the bottom, or onto whatever lies in the way (a sunken branch, a stone)
+      const ok = go(v * Math.cos(a.diveP), -(v * Math.sin(a.diveP) + 0.6));
+      if (!ok || a.pos.y <= bottom + 0.02 || D.t > 12) { D.ph = 'sit'; D.t = 0; D.len = 4 + Math.random() * 14; }
+    } else if (D.ph === 'sit') {
+      lean(0);
+      this.swimClock(a, sp, 0, dt, 0, true);
+      if (D.t > D.len) { D.ph = 'up'; D.t = 0; }
+    } else {
+      lean(-0.8);
+      const v = this.swimClock(a, sp, 0.8, dt);
+      if (!go(v * Math.cos(a.diveP), v * Math.sin(-a.diveP) + 0.8)) a.yaw += dt * 1.2;      // (under something: it works its way round)
+      if (a.pos.y >= top - 0.02 || D.t > 40) { a.pos.y = Math.max(top, ground); a.dive = null; a.floating = true; a.roam = true; a.timer = 8 + Math.random() * 15; a.shore = V(a.pos.x + Math.sin(a.yaw) * 2, 0, a.pos.z + Math.cos(a.yaw) * 2); return false; }
+    }
+    return true;
   }
 
-  // The water a swimming frog moves: a small bow ripple each body length it travels (stronger the faster it goes), and now and then
-  // a faint ring round one resting at the surface as it sculls.
-  swimWake(a, sp, v, dt) {
-    const fx = this.world.fx;
-    if (!fx) return;
-    const L = 2.4 * sp.size;
-    a.wakeD = (a.wakeD ?? 0) + v * dt;
-    if (a.wakeD > L) { a.wakeD = 0; fx.addDrop(a.pos.x + Math.sin(a.yaw) * L * 0.6, a.pos.z + Math.cos(a.yaw) * L * 0.6, -Math.min(2.2, 0.5 + v * 0.2), 0.6); }
-    else if (a.floating && Math.random() < dt * 0.35) fx.addDrop(a.pos.x, a.pos.z, -0.35, 0.7);
+  // The stroke clock of a frog in the water (util/gait.js swimStep with its SWIM profile and body length): advances its kick (a.kick,
+  // the phase the rig draws) and returns its speed in cm/s. (The water it moves: its hull and feet in the ripple field, hulls().)
+  swimClock(a, sp, urgency, dt, steer = 0, sitting = false) {
+    const st = (a.sw ??= swimState()), b = this.bodyOf(a.sp);
+    const v = swimStep(st, swimProfile(a.sp), { urgency, floating: !!a.floating, steer, sitting, bodyLen: b ? 2 * b.hlen * drawScale(a, sp) : 3 * sp.size }, dt);
+    a.kick = st.phase;
+    return v;
   }
 
   // How far under the surface a swimming frog's origin lies (cm). Its swimming body (the `<id>.swim` model, belly on y = 0) floats
@@ -4258,7 +4298,31 @@ export class Animals {
     return { up, dy };
   }
 
+  // Bodies at the water, for the ripples (render/waterfx.js addHull: the water a body pushes aside as it moves goes into the ripple
+  // field): every animal that can be in or on the water is a sphere at its body's middle, as wide as its body, while it is within
+  // reach of a surface (the surface over it is looked up every few frames, every frame while it is in the air). A swimming frog is
+  // its skeleton instead: a sphere at its trunk and at every joint of its limbs, where the stroke puts them (draw).
+  hulls() {
+    const fx = this.world.fx;
+    if (!fx?.addHull) return;
+    const Wt = this.world.water, f = (this._hf = (this._hf ?? 0) + 1);
+    for (const [id, arr] of Object.entries(this.by)) {
+      const sp = SPECIES[id], k = HULL[sp.kind];
+      if (!k) continue;
+      for (const a of arr) {
+        if (a.hop || a.wetS === undefined || ((f + a.id) & 7) === 0) a.wetS = Wt.surfaceAt(a.pos.x, a.pos.z, 0.2);
+        const s = a.wetS;
+        if (!(s > -1e9)) continue;
+        const r = Math.max(0.25, k * sp.size * drawScale(a, sp)), y = a.pos.y + (sp.kind === 'swim' ? 0 : r * 0.9);
+        if (y - r > s + 4 || s - (y + r) > 3 * r) continue;           // well above the water, or deep under it
+        if (a.swHull && a.swHullF >= f - 2) continue;                 // (a swimming frog: its skeleton's spheres, from draw)
+        fx.addHull(a.id * 32, a.pos.x, y, a.pos.z, r);
+      }
+    }
+  }
+
   draw(dt = 0.016) {
+    this.hulls();
     const q = this._q;
     const e = new THREE.Euler();
     const tq = new THREE.Quaternion();
@@ -4304,7 +4368,7 @@ export class Animals {
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
           if (ft) { a._fy = ft.dy; }
         } else {
-          e.set(sw ? sw.pitch : a.pitch ?? 0, a.yaw + (sw?.yaw ?? 0), sw ? sw.roll : 0, 'YXZ');
+          e.set(sw ? sw.pitch + (a.diveP ?? 0) : a.pitch ?? 0, a.yaw + (sw?.yaw ?? 0), sw ? sw.roll : 0, 'YXZ');
           q.setFromEuler(e);
         }
         // A gecko or a frog on a climb (a perching frog, one climbing out of the water): its frame turns smoothly while it climbs, gets
@@ -4347,7 +4411,7 @@ export class Animals {
               a.swimFold = Math.min(1, (a.swimFold ?? 0) + dt * 3);
               packed = packAnim(ss.hop * a.swimFold, v.breath, 0, v.eye, ss.pose * a.swimFold, ss.calm);
             } else packed = packAnim(hop, v.breath, 0, v.eye);
-            if (sw) { pos = _p.copy(a.pos); pos.y += bob(this.t + a.phase, sp.size, frac(a.kick ?? 0), a.floating ? 0 : 1); }
+            if (sw) { pos = _p.copy(a.pos); if (!a.dive) pos.y += bob(this.t + a.phase, sp.size, frac(a.kick ?? 0), a.floating ? 0 : 1); }
           }
           if (!sw) {
             // (the look-round and nosing yaw is not a spin of the whole body: the head turns it, a.visYaw, or the animal steps round)
@@ -4386,7 +4450,22 @@ export class Animals {
           q.setFromEuler(e.set((a.pitch ?? 0) - 0.22 * (1 - t), a.yaw, 0, 'YXZ'));
           leapMesh.put(_p.copy(a.pos).setY(a.pos.y + 0.27 * sp.size * sc), q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, leapStroke(t, a.leapA ??= { legA: new Float32Array(9), armA: new Float32Array(6) }));
         } else if (sleepMesh) sleepMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (breathing, eyes shut)
-        else if (swimMesh) swimMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, sw.stroke);
+        else if (swimMesh) {
+          sw.stroke.info = a.swTips ??= {};
+          swimMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, sw.stroke);
+          // its body in the water as the stroke posed it (the trunk and every joint of its limbs: skeleton.js poseStroke `hull`), for
+          // the ripples: the knees sweeping out, the feet driving back and the hands each move their own water
+          const hull = a.swTips.hull, fx = this.world.fx;
+          a.swHull = false;
+          if (hull?.length && fx?.addHull) {
+            for (let k = 0; k < hull.length; k++) {
+              const h = hull[k];
+              _t.set(h[0], h[1], h[2]).multiplyScalar(sc).applyQuaternion(q).add(pos);
+              fx.addHull(a.id * 32 + 1 + k, _t.x, _t.y, _t.z, h[3] * sc);
+            }
+            a.swHull = true; a.swHullF = this._hf;
+          }
+        }
         else if (poseMesh) poseMesh.put(pos, q, sc, (a.kick ?? 0) * TAU, 0.16, 0, 0, cam ? cam.distanceToSquared(a.pos) : 1e9);
         else if (a.hr && an.rig2) {
           // The mind's head, bend and tail, plus what the gait adds: the head swings against the body wave as the feet step, and
@@ -4481,6 +4560,13 @@ export class Animals {
     return best;
   }
 
+  // The tank is going (Game.unloadTank): its meshes give back what they hold outside the scene, the rows of the shared bone texture
+  // their skinned bodies drew with (render/creatures/skin.js). Never given back, a few tank changes used them all up, and every
+  // frog after that was drawn without its bones.
+  release() {
+    for (const m of Object.values(this.meshes)) m?.skinned?.releaseSkin?.();
+  }
+
   clear() {
     for (const k of Object.keys(this.by)) this.by[k] = [];
     this.food = [];
@@ -4498,6 +4584,10 @@ export class Animals {
 const SPECIES_LOCI = (id) => lociOf(id).length;
 
 // The scale an animal is drawn at (its species' scale grown with age): the same number Animals.draw hands the rig.
+// The radius of an animal's hull in the water, as a share of its species size (Animals.hulls): a frog's body is about as wide as
+// that; a fish, a newt or a lizard is slender.
+const HULL = { frog: 0.55, toad: 0.5, newt: 0.3, axolotl: 0.3, swim: 0.2, crab: 0.5, skink: 0.25, gecko: 0.25 };
+
 function drawScale(a, sp) {
   const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
   return (sp.scale ?? sp.size) * grow * (a.sizeK ?? 1);

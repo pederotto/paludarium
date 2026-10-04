@@ -143,6 +143,7 @@ export class Game {
   unloadTank() {
     if (!this.world) return;
     this.events.emit('unload', this.world);
+    this.world.animals?.release();       // (the rows its skinned bodies hold in the shared bone texture)
     this.fx?.dispose();
     this.stage?.dispose();
     const kill = (o) => {

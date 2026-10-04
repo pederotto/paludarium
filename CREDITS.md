@@ -19,7 +19,7 @@
 
 [CAUSTIC//VOLUME](https://github.com/scottiefox/caustic-volume) by Scottie, MIT License, Copyright (c) 2026 Scottie. Ported to three.js WebGPU/TSL:
 
-- `src/render/waterfx.js`: the ripple height field (wave equation, glass walls reflect the waves), and the caustics: a grid on the surface sends refracted light rays to the floor and the area ratio of each patch gives its brightness.
+- `src/render/waterfx.js`: the ripple height field (wave equation, glass walls reflect the waves), and the caustics: a grid on the surface sends refracted light rays to the floor and the area ratio of each patch gives its brightness. Also the way bodies move the water, after the sandbox's coupling of its floating objects (`sandbox/src/10_sim.js`): each body is a few spheres, and the column of water a sphere takes up now, less the one it took up a step ago, goes into the height field; and its solver's viscosity on the surface's vertical speed. Written anew for this game's animals (their skeletons are the spheres).
 - `src/render/creatures/mesher.js` and `kit.js`: the surface-nets meshing idea (from the rubber duck in `lite/index.html`) and the SDF helpers (ellipsoid distance, smooth minimum). The mesher here is a new adaptive version with two levels of detail, a vertex rig for animation and per-material shading.
 
 ## Poly Haven (CC0)

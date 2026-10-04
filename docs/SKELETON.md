@@ -198,17 +198,38 @@ potter instead), how urgent and which way to steer; `swimClock()` runs the motio
 heading (turns through `turnTo`); `swimDepth()` puts its back awash and its eyes out (from the swimming body's spine); `swimWake()`
 and the kick ring disturb the water. Avoidance (`tooDeep`): a frog is not pushed or slid into water deeper than half its body.
 
+**Under the water** (a frog at home in it: SWIM `dive`, the fire-bellied toad): `frogDive()` tips its nose down and kicks to the
+bottom (or onto a sunken branch or stone), sits there as it sits on land (`sitting` → the stroke's `sit`: legs folded, hands down),
+then pushes off and kicks up to the surface, where it rests hanging from its nostrils. Seen in the owner's films: a leopard frog in a
+basin sitting on the bottom and pushing off, a frog in a pool swimming well under the surface. A toad stays in the water for minutes
+(`wetStay`), resting most of that time, pottering and now and then diving; on land it makes for water again after a while
+(`frogPlan`: `pond`). The poison frogs, the bumblebee toad and the reed frog only cross water; the red-eyed tree frog never enters it.
+
+**The water it moves** (`render/waterfx.js` hulls, after CAUSTIC//VOLUME's sandbox): a swimming frog is its skeleton to the water: a
+sphere at its trunk's three bones and at the end of every limb bone (`poseStroke` `hull`, 17 of them, a foot counted wider than its
+bone: the web), handed to `WaterFX.addHull` each frame by `Animals.draw`. The ripple pass takes, for each sphere, the column of water it
+occupies where it is now from the column it occupied a step ago, and changes the height field by the difference: the body's surge
+leaves a bow and a wake, each foot's sweep its own ring, a frog dropping in a splash, with no drops placed by hand. Every other animal
+in or at the water (a wading newt, a fish at the surface, a crab) is one sphere (`Animals.hulls`). A body well under the surface
+moves none. The pass costs the same with 48 spheres as with none (measured, 1.6 ms a step either way on the M1).
+
 **The leap**: a frog in the air is drawn in the same body (`leapStroke`: legs driven from cocked to straight, hips and knees before
 ankles and feet, the order measured for a frog's take-off (Biomimetics 9(3):168, 2024, the user's reference); trailing through the
 flight; folded before the landing; the forelegs drawn back under the chest, then reaching forward and down to land on). The sitting
 body is drawn on the ground before and after. This replaces the sitting skeleton's hop, whose skin stretched about threefold.
+
+**Open (noted by the owner, 2026-10-04)**: the swimming body has no webbing between its toes. A swimming frog's foot is a paddle:
+the web spreads as the foot drives back and folds as it trails. It needs geometry (a membrane between the toes of the swim scan,
+material id 2 so it draws translucent) and a spread channel in the stroke. Until then the foot's hull sphere stands in for the web
+in the water coupling (`poseStroke` hull: a foot counts 2.2 times its bone's width).
 
 **Adding a frog**: a job in tools/bake-frogpose.mjs (size, painter, eyes: `node tools/bake-frogpose.mjs <id>.swim`), a SWIM row in
 bodyplan.js (copy the nearest species, then set kick rate and reach from its biology: a weak swimmer 0.4-0.5 body lengths a kick, a
 strong one 0.8), then `node --test tests/swim.test.mjs`, `node tools/steps/swim-cycle.mjs --ids=<id>` (the stroke from above, the
 side and three-quarter, to hold against film of the real animal), `tools/steps/swim-film.mjs` and `tools/steps/leap-film.mjs` (in a
 tank) and `tools/steps/frog-water.mjs` (time in the water, exits). A frog with a body of another build (the red-eyed tree frog)
-needs its own swimming scan and `SWIM_SKELETON`; until it has one it swims and leaps on its sitting skeleton.
+needs its own swimming scan and `SWIM_SKELETON` for a body true to its proportions; the red-eyed tree frog, which does not swim, has
+the shared body painted as itself (`redeye.swim`) to leap in.
 
 ## Phased plan
 
