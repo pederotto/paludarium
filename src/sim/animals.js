@@ -19,6 +19,8 @@ import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
+import { herpSpot } from './placement.js';
+import { HABITAT } from '../content/habitats.js';
 import { SKINK, skinkMind, skinkThink } from './skink.js';
 import { SHRIMP, shrimpMind, shrimpThink, shrimpDoing } from './shrimp.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
@@ -819,13 +821,10 @@ export class Animals {
       case 'toad':
         if (surf > ground) return { pos: V(x, surf - 0.3, z) };
         return { pos: V(x, ground, z) };
-      case 'newt':
-        if (surf > ground) return { pos: V(x, ground + Math.min(1, (surf - ground) * 0.3), z) };
-        if (!W.nearWater(V(x, ground, z), 8)) return { error: 'Newts need water nearby.' };
-        return { pos: V(x, ground, z) };
-      case 'axolotl':
-        if (depth < 4) return { error: 'Axolotls need water at least 4 cm deep.' };
-        return { pos: V(x, ground, z) };
+      case 'newt': case 'axolotl': {          // (placement.js herpSpot: the habitat row decides; a fire salamander is never put on a pool floor)
+        const r = herpSpot(HABITAT[id], { ground, surf, wl, nearWater: (d) => W.nearWater(V(x, ground, z), d) });
+        return r.error ? r : { pos: V(x, r.y, z) };
+      }
       case 'gecko':
         if (hit.surface === 'wall') return { pos: hit.point.clone(), wall: true };
         if (surf > ground) return { error: 'Geckos live on land and on the background.' };
@@ -1383,6 +1382,7 @@ export class Animals {
       case 'crawlWater': case 'axolotl': return 'water';
       case 'crawlLand': return sp.surface ? 'surface' : 'land';
       case 'frog': case 'toad': case 'gecko': case 'fly': return 'land';
+      case 'newt': return sp.landBias >= 0.5 ? 'land' : 'any';       // (the fire salamander: relocate must not pick another pool cell)
       default: return 'any';
     }
   }
