@@ -600,6 +600,16 @@ const SPREAD = {
   pleurothallis: [0.015, 4, 8], lepanthes: [0.01, 3, 8], cuthbertsonii: [0.01, 3, 6], sinningia: [0.08, 4, 20], columnea: [0.02, 6, 6], begonia: [0.03, 5, 10],
 };
 
+// Aquatic and emergent plants lean in the water's push (B5b: util/plantbend.js, render/airflow.js plantFlow). They carry two
+// per-instance attributes: `flow` (the flow at the plant, cm/s, in the plant's own axes: the last sample's xz, then the new one's)
+// and `flowDepth` (the water over its base, in its own units). `bend`: how far a leaf tip goes at full lean, in the plant's own units
+// (a scanned plant is 1 across); `stiffness`: 1 an average leaf, more is stiffer (by default from how much it sways: underwaterAmp).
+function flowOptions(sp) {
+  if (!/aquatic|emergent/.test(sp.habitat)) return {};
+  const m = sp.material ?? {};
+  return { flowBend: true, bend: m.bend ?? (sp.model ? 0.4 : Math.max(2, (sp.size ?? 6) * 0.4)), stiffness: m.stiffness ?? clamp(2.2 / (m.underwaterAmp ?? 2.2), 0.4, 4) };
+}
+
 export class Plants {
   constructor(scene) {
     this.scene = scene;
@@ -623,7 +633,7 @@ export class Plants {
       Object.defineProperty(this.meshes, id, { configurable: true, enumerable: false, get: () => {
         delete this.meshes[id];
         const geo = sp.build();
-        this.addMesh(id, geo, plantMaterial({ ...(sp.material ?? {}), map: sp.map ? sp.map() : null, leafVeins: !!geo.attributes.leaf }));
+        this.addMesh(id, geo, plantMaterial({ ...(sp.material ?? {}), map: sp.map ? sp.map() : null, leafVeins: !!geo.attributes.leaf, ...flowOptions(sp) }));
         return this.meshes[id];
       } });
     }
@@ -638,6 +648,13 @@ export class Plants {
     im.frustumCulled = false;
     im.name = 'plant:' + key;
     im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 3).fill(1), 3);
+    if (mat.userData.flowBend) {
+      for (const [k, n] of [['flow', 4], ['flowDepth', 1]]) {
+        const a = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * n), n);
+        a.setUsage(THREE.DynamicDrawUsage);
+        geo.setAttribute(k, a);
+      }
+    }
     this.scene.add(im);
     this.meshes[key] = im;
   }
@@ -665,13 +682,21 @@ export class Plants {
         g.setAttribute('sway', new THREE.BufferAttribute(sway, 1));
         g.setAttribute('color', new THREE.BufferAttribute(col, 3));
         const src = part.material;
-        this.addMesh(id + '#' + k, g, plantMaterial({ ...(sp.material ?? {}), map: src.map, normalMap: src.normalMap }));
+        this.addMesh(id + '#' + k, g, plantMaterial({ ...(sp.material ?? {}), map: src.map, normalMap: src.normalMap, ...flowOptions(sp) }));
       });
       this.variants[id] = parts.length;
     }
   }
 
   key(p) { return this.variants[p.id] > 1 || PLANTS[p.id].model ? p.id + '#' + (p.variant ?? 0) : p.id; }
+  // A plant's flow slot (B5b): zeroed for a new plant, copied to the plant that takes a freed slot.
+  moveFlow(im, from, to) {
+    const f = im.geometry.attributes.flow, d = im.geometry.attributes.flowDepth;
+    if (!f) return;
+    for (let k = 0; k < 4; k++) f.array[to * 4 + k] = from < 0 ? 0 : f.array[from * 4 + k];
+    d.array[to] = from < 0 ? 0 : d.array[from];
+    f.needsUpdate = d.needsUpdate = true;
+  }
 
   // Checks whether species `id` may grow at a surface hit.
   canPlace(id, hit, world) {
@@ -733,6 +758,7 @@ export class Plants {
     const F = PLANTS[id].flower;
     if (F) p.bloom = unpackBloom(bloom, F) ?? newBloom(F, grown);
     im.count++;
+    this.moveFlow(im, -1, p.index);
     this.list.push(p);
     this.writeInstance(p);
     return p;
@@ -751,6 +777,7 @@ export class Plants {
     const im = this.meshes[this.key(p)];
     const last = this.list.filter((q) => this.key(q) === this.key(p) && q.index === im.count - 1)[0];
     if (last && last !== p) {
+      this.moveFlow(im, last.index, p.index);
       last.index = p.index;
       this.writeInstance(last);
     }
