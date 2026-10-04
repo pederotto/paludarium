@@ -61,6 +61,19 @@ export const PLANS = {
       spine: { min: 0, max: 50 }, head: { min: 0, max: 50 }, tail: { min: 0, max: 120 },
       thigh: { min: 20, max: 160 }, shin: { min: 0, max: 130 }, foot: { min: 0, max: 110 },
       arm: { min: 20, max: 160 }, forearm: { min: 0, max: 140 }, hand: { min: 0, max: 110 },
+      neck: { min: 0, max: 40 }, fingers: { min: 0, max: 90 }, toes: { min: 0, max: 90 },
+    },
+    // The baked skeleton's joints (tools/rig/lizard.mjs, 25 bones; a joint is named by its child bone, tail1 … tail5 are each a
+    // `tail`), in degrees about the bone's axes at rest: yaw about the body's up, pitch about its side (+ up), protraction (forward),
+    // elevation (up) and twist (about the bone) at the shoulder and hip balls, hinges at the elbow, knee, wrist, ankle and the digit
+    // fans (negative: the digits curled up off the surface, a gecko peeling its pads). The trunk's and tail's ranges are per joint;
+    // the totals above bound their sums. Anatomy estimates for a sprawling gecko (RIG_gecko.md), to be checked on MOTION_gecko.md.
+    rom: {
+      spine: { yaw: [-25, 25], pitch: [-10, 15] }, neck: { yaw: [-35, 35], pitch: [-20, 30] }, head: { yaw: [-20, 20], pitch: [-25, 25] },
+      tail: { yaw: [-30, 30], pitch: [-15, 25] },
+      arm: { protract: [-60, 60], elevate: [-30, 40], twist: [-40, 40] }, forearm: { hinge: [0, 140] }, hand: { hinge: [0, 110], twist: [-30, 30] },
+      thigh: { protract: [-65, 65], elevate: [-30, 45], twist: [-50, 50] }, shin: { hinge: [0, 130] }, foot: { hinge: [0, 110], twist: [-30, 30] },
+      fingers: { hinge: [-60, 30] }, toes: { hinge: [-75, 30] },
     },
     rig: { head: deg(45), bend: 0.45, tail: 0.3 },
     muscles: [
