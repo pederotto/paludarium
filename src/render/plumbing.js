@@ -492,6 +492,35 @@ export class Plumbing {
           under(f.x, f.z, V(x - 4.5, vy + 1.6, z), hi);
           under(f.rx, f.rz, V(x + 4.5, vy + 1.6, z), ho);
         }
+      } else if (kind === 'hob') {
+        // Hung on the back glass: the box stands outside the rim (open top, the media seen in the order the water meets them), a plate
+        // carries its lip over the rim, and the water falls from the lip into the pool. The rigid uptake tube goes down the inside of
+        // the glass (along the background) to a strainer near the floor, with a foam sleeve on it when there is a pre-filter.
+        const zg = -TANK.d / 2, zl = zg + 3, hh = TANK.h, bw = 14, ht = hoseOf.uptake;
+        const landing = (x0) => Math.max(zl + 0.5, zb(x0));
+        const x = [-hw + 9, hw - 9, px - 14, px + 14, px].find((x0) => Math.abs(x0) < hw - bw / 2 - 1 && pool(x0, landing(x0))) ?? null;
+        if (x !== null) {
+          const zp = landing(x), tx = x + bw / 2 - 2.2, zc = zg - 3.9, yb = hh - 8;
+          box(bw, 0.4, 7, x, yb, zc, BODY);
+          box(bw, 11, 0.4, x, hh - 2.5, zg - 7.1, BODY);
+          box(bw, 11, 0.4, x, hh - 2.5, zg - 0.6, CAPC);
+          for (const sx of [-1, 1]) box(0.4, 11, 7, x + sx * (bw / 2 - 0.2), hh - 2.5, zc, BODY);
+          const mw = (bw - 1.2) / 3;
+          [['floss', st.mech], ['chem', st.chem], ['bio', st.bio]].forEach(([id, c], k) => box(mw - 0.2, 9, 5.6, x - bw / 2 + 0.6 + mw * (k + 0.5), hh - 3.4, zc, media(id, c ?? 0)));
+          box(bw - 3, 0.5, 4.4, x, hh + 1.2, zg + 1.5, CAPC);                                            // the plate over the rim, the lip at its inner edge
+          const fall = [];
+          for (let k = 0; k <= 10; k++) { const t = k / 10; fall.push(V(x, hh + 1.2 - (hh + 1.2 - level) * t * t, zl + 0.5 + (zp - zl - 0.5) * t)); }
+          for (const dx of [-3, 0, 3]) J.tube(fall.map((p) => p.clone().add(V(dx, 0, 0))), 0.4, CLEAR, 6, vq(30), 2);
+          // the tube: from the box down to the strainer, following the background; the water in it goes up
+          const g = T.heightAt(tx, zg + 2), yt = g + 2.4, r = rOf(ht.od), pts = [];
+          for (let k = 0; k <= 12; k++) { const y = hh + 0.6 - (hh + 0.6 - yt) * (k / 12); pts.push(V(tx, y, Math.max(zg + 1.4, back(tx, y) + r + 0.2))); }
+          S.tube(pts.reverse(), r, PIPE, 10, vq(ht.v), 2);
+          const zt = pts[0].z;
+          S.geo(new THREE.CylinderGeometry(2.1, 2.1, 2.6, 14, 1, true), cylM(tx, yt - 0.9, zt), GRILL);
+          if (E.prefilter) S.geo(new THREE.CylinderGeometry(2.8, 2.8, 5, 14), cylM(tx, yt + 0.4, zt), FOAM.clone().lerp(DIRT, (st.mech ?? 0) * 0.7));
+          W.water.hydro.ports.intake = { x: tx, y: yt, z: zt, r: E.prefilter ? 2.8 : 2.2 };
+          W.water.hydro.ports.ret = { x, y: level, z: zp, dx: 0, dz: 1, D: 1.6 };
+        }
       } else if (kind === 'internal') {
         // The submersible: pump housing and foam cartridge in one body on the pool floor in a back corner, the foam face (the mulm browns it)
         // turned to the pool, the outlet pipe up its side to a nozzle under the surface that jets along the face.

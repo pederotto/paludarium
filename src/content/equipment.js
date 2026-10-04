@@ -171,12 +171,12 @@ export const FILTERS = {
   canister: { gear: 'filterCanister', mount: 'cabinet', prefilter: true, name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.',
     pump: { lph: 560, hmax: 150 }, hose: { in: [19, 27], out: [16, 22] }, media: 22,
     stages: [['mech', 'Coarse sponge', 0.3], ['bio', 'Ceramic rings', 0.2], ['chem', 'Fine floss and carbon', 0.5]] },
-  // Hang-on-back (nominal, an AquaClear / Tidal class box, 300-1100 L/h): an impeller in the box on the rim, a rigid uptake tube down the glass,
+  // Hang-on-back (nominal, a rim box of the 300-1100 L/h class): an impeller in the box on the rim, a rigid uptake tube down the glass,
   // a spillway lip back into the pool (no return hose).
   hob: { gear: 'filterHob', mount: 'rim', prefilter: true, name: 'Hang-on-back filter', mediaMax: 0.8, flow: 0.3, oxygen: 2, suction: 0.35, lph: 355, catch: 0.7, hold: 35, blurb: 'Hangs on the back rim: floss, carbon and bio-rings, and a falling lip that stirs the surface. Strong in a deep pool; put a sponge over the intake for shrimp and fry.',
     pump: { lph: 520, hmax: 120 }, hose: { in: [25, 34] }, media: 15,
     stages: [['mech', 'Floss pad', 0.3], ['chem', 'Carbon cartridge', 0.3], ['bio', 'Bio rings', 0.4]] },
-  // Internal submersible (nominal, a Fluval U / Eheim Pickup class, 150-700 L/h): pump and foam cartridge in one body in the pool, a nozzle under the surface.
+  // Internal submersible (nominal, the 150-700 L/h class): pump and foam cartridge in one body in the pool, a nozzle under the surface.
   internal: { gear: 'filterInternal', mount: 'internal', prefilter: false, name: 'Internal filter', mediaMax: 0.55, flow: 0.28, oxygen: 1.5, suction: 0.2, lph: 310, catch: 0.55, hold: 20, blurb: 'A pump and foam in one body that stands in the pool: no hoses, gentle pull, small capacity; rinse it often.',
     pump: { lph: 350, hmax: 55 }, hose: { out: [12, 16] }, media: 12.5,
     stages: [['mech', 'Foam cartridge', 0.55], ['bio', 'Bio foam', 0.3], ['chem', 'Carbon pad', 0.15]] },
