@@ -9,9 +9,24 @@ const eye = (c, r, axis, o = {}) => ({ c, r, ...basis(axis), ...o });
 const frog = (k) => ({
   finish: { eyes: [eye([0.66 * k, 2.58 * k, 1.5 * k], 0.3 * k, [0.62, 0.45, 0.65], { pupil: [0.5, 0.48], inner: lin([0.30, 0.19, 0.06]), outer: lin([0.08, 0.05, 0.02]) })], rough: 0.45, coat: 0.45, coatRough: 0.2, grainAmt: 0.15 },
 });
+// The scanned frog at another size, eye colour and skin finish. Dart frogs have glossy near-black eyes (a faint bronze ring);
+// toads a gold iris; `grain`/`bump` add the shader's fine relief on top of the painted granules.
+const frogAs = (k, iris = {}, fin = {}) => {
+  const f = frog(k).finish;
+  return { finish: { ...f, eyes: f.eyes.map((e) => ({ ...e, ...iris })), ...fin } };
+};
+const DARK_EYE = { inner: lin([0.3, 0.2, 0.1]), outer: lin([0.07, 0.05, 0.03]), limb: lin([0.02, 0.015, 0.01]), pupil: [0.5, 0.48] };
 export const EYES = {
-  leucomelas: frog(1),
-  strawberry: frog(0.511),
+  leucomelas: frogAs(1, DARK_EYE),
+  strawberry: frogAs(0.511, DARK_EYE),
+  dartfrog: frogAs(4.2 / 4.5, DARK_EYE, { rough: 0.42, coat: 0.5 }),
+  'dartfrog:cobalt_clean': frogAs(4.2 / 4.5, DARK_EYE, { rough: 0.42, coat: 0.5 }),
+  'dartfrog:sky_spotted': frogAs(4.2 / 4.5, DARK_EYE, { rough: 0.42, coat: 0.5 }),
+  'dartfrog:sky_clean': frogAs(4.2 / 4.5, DARK_EYE, { rough: 0.42, coat: 0.5 }),
+  auratus: frogAs(4.0 / 4.5, DARK_EYE, { rough: 0.38, coat: 0.55 }),
+  bumblebee: frogAs(2.8 / 4.5, { inner: lin([0.16, 0.11, 0.06]), outer: lin([0.05, 0.035, 0.02]), pupil: [0.46, 0.42] }, { rough: 0.62, coat: 0.12, coatRough: 0.5, grain: 9, bump: 0.035, grainAmt: 0.5 }),
+  reedfrog: frogAs(3.0 / 4.5, { inner: lin([0.42, 0.3, 0.14]), outer: lin([0.14, 0.09, 0.04]), pupil: [0.5, 0.34] }, { rough: 0.28, coat: 0.65, coatRough: 0.12 }),
+  toad: frogAs(1, { inner: lin([0.95, 0.72, 0.22]), outer: lin([0.62, 0.4, 0.12]), pupil: [0.5, 0.42], shape: 'tri' }, { rough: 0.55, coat: 0.2, coatRough: 0.45, grain: 9, bump: 0.05, grainAmt: 0.7 }),
   firesal: { finish: { eyes: [eye([1.05, 3.7, 7.5], 0.5, [0.65, 0.5, 0.55], { pupil: [0.78, 0.76], inner: lin([0.06, 0.04, 0.02]), outer: lin([0.03, 0.02, 0.012]) })], rough: 0.5, coat: 0.5, coatRough: 0.2, grainAmt: 0.2 } },
   // Vampire crab: glossy yellow eyes with a small dark pupil. The ball's centre, radius and stalk direction come from the
   // baked rig (tools/rig/crab.mjs), so `eyes` is a function of them. Hard shell: no skin grain (the scan has its own relief,

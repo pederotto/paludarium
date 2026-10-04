@@ -750,36 +750,38 @@ function marbledBody() {
 function geckoShape(st) {
   // Snout at +z = 3.9, tail tip at -5.6 (9.5 cm). A flat body wider than it is tall, a distinct triangular head on a pinched
   // neck, the tail starting thick at the vent and tapering to a fine tip.
+  // (2026-10-03: a gecko's head is broad and rounded, as wide as the body, with a short blunt snout; the tail is thick and
+  // flattened at the base, where the fat is stored, and the trunk is full rather than a flat strip.)
   const loft = new Loft([
-    [-5.6, 0.30, 0.05, 0.05, 0.05],
-    [-4.9, 0.32, 0.09, 0.09, 0.08],
-    [-4.0, 0.34, 0.15, 0.14, 0.12],
-    [-3.0, 0.36, 0.23, 0.19, 0.16],
-    [-2.1, 0.38, 0.33, 0.24, 0.19],
-    [-1.4, 0.40, 0.44, 0.28, 0.22],
-    [-0.8, 0.42, 0.54, 0.30, 0.25],
-    [-0.1, 0.43, 0.59, 0.31, 0.26],
-    [0.7, 0.43, 0.59, 0.31, 0.26],
-    [1.25, 0.43, 0.51, 0.30, 0.25],
-    [1.75, 0.43, 0.41, 0.27, 0.22],
-    [2.15, 0.43, 0.46, 0.28, 0.21],
-    [2.6, 0.42, 0.47, 0.27, 0.19],
-    [3.05, 0.40, 0.37, 0.22, 0.16],
-    [3.5, 0.385, 0.25, 0.155, 0.115],
-    [3.9, 0.37, 0.12, 0.10, 0.08],
-  ], { front: 0.55, back: 0.3 });
+    [-5.6, 0.30, 0.05, 0.04, 0.04],
+    [-4.9, 0.32, 0.11, 0.08, 0.07],
+    [-4.0, 0.34, 0.2, 0.13, 0.11],
+    [-3.0, 0.37, 0.3, 0.18, 0.15],
+    [-2.1, 0.40, 0.4, 0.23, 0.19],
+    [-1.4, 0.42, 0.48, 0.27, 0.23],
+    [-0.8, 0.44, 0.58, 0.32, 0.27],
+    [-0.1, 0.45, 0.64, 0.35, 0.29],
+    [0.7, 0.45, 0.63, 0.35, 0.29],
+    [1.25, 0.45, 0.55, 0.33, 0.27],
+    [1.7, 0.45, 0.47, 0.3, 0.24],
+    [2.1, 0.45, 0.54, 0.32, 0.24],
+    [2.55, 0.44, 0.56, 0.31, 0.22],
+    [3.0, 0.42, 0.47, 0.26, 0.18],
+    [3.4, 0.4, 0.34, 0.19, 0.13],
+    [3.75, 0.385, 0.2, 0.12, 0.09],
+  ], { front: 0.42, back: 0.3 });
 
   const legs = [];
   for (const side of [-1, 1]) {
     for (const back of [false, true]) {
-      const pts = back ? [[0.42, 0.42, -0.75], [1.22, 0.4, -0.42], [1.62, 0.12, -1.02]] : [[0.4, 0.42, 1.2], [1.12, 0.4, 0.92], [1.5, 0.12, 1.5]];
-      const rads = back ? [0.23, 0.145, 0.1] : [0.2, 0.13, 0.095];
+      const pts = back ? [[0.45, 0.42, -0.75], [1.15, 0.44, -0.45], [1.5, 0.12, -0.98]] : [[0.42, 0.42, 1.2], [1.05, 0.44, 0.95], [1.4, 0.12, 1.42]];
+      const rads = back ? [0.27, 0.17, 0.12] : [0.23, 0.155, 0.11];
       const rods = new Rods();
       rods.chain(flipX(pts, side), rads, 0, 0.5);
       const w = pts[2];
       const angles = back ? [-18, 5, 27, 50, 74] : [-26, 0, 25, 50, 75];
-      const lens = back ? [0.5, 0.66, 0.76, 0.8, 0.64] : [0.44, 0.58, 0.64, 0.62, 0.5];
-      const tr = st.hi ? [0.055, 0.045] : [0.07, 0.06], pt = st.hi ? 0.034 : 0.05;
+      const lens = back ? [0.38, 0.52, 0.6, 0.62, 0.5] : [0.34, 0.46, 0.5, 0.48, 0.4];
+      const tr = st.hi ? [0.06, 0.05] : [0.075, 0.065], pt = st.hi ? 0.036 : 0.05;
       const pads = [];
       for (let i = 0; i < angles.length; i++) {
         const an = (angles[i] * Math.PI) / 180, dx = Math.sin(an) * side, dz = Math.cos(an), L = lens[i];
@@ -787,8 +789,8 @@ function geckoShape(st) {
         const tip = [b[0] + dx * L, 0.07, b[2] + dz * L];
         rods.chain([b, [b[0] + dx * L * 0.5, 0.07, b[2] + dz * L * 0.5], tip], [tr[0], (tr[0] + tr[1]) / 2, tr[1]], 0.5, 1);
         // the expanded adhesive pad covers the outer half of the toe, and a small claw pokes out past it
-        const hl = L * 0.3 + 0.04;
-        pads.push([b[0] + dx * (L - hl + 0.02), pt, b[2] + dz * (L - hl + 0.02), dx, dz, hl, pt, 0.14, 0.92]);
+        const hl = L * 0.32 + 0.03;
+        pads.push([b[0] + dx * (L - hl + 0.02), pt, b[2] + dz * (L - hl + 0.02), dx, dz, hl, pt, 0.11, 0.92]);
         if (i === 1 || i === 2 || i === 3) rods.add([tip[0], 0.06, tip[2]], [tip[0] + dx * 0.16, 0.05, tip[2] + dz * 0.16], 0.035, 0.012, 0.95, 1);
       }
       legs.push(new Limb(back ? (side < 0 ? 3 : 4) : side < 0 ? 1 : 2, rods, pads));
@@ -796,7 +798,7 @@ function geckoShape(st) {
   }
   // Big bulging eyes, looking up, out and a little forward, each under a raised brow.
   const eyes = [-1, 1].map((s) => {
-    const e = makeEye(loft, 0.355 * s, 0, 2.62, 0.265, 0.3);
+    const e = makeEye(loft, 0.4 * s, 0, 2.6, 0.27, 0.3);
     e.axis = norm3([e.axis[0], e.axis[1] * 0.8, e.axis[2] + 0.5]);
     e.sock = [e.c[0] - e.axis[0] * 0.08, e.c[1] - e.axis[1] * 0.08, e.c[2] - e.axis[2] * 0.08];
     return e;
@@ -806,11 +808,11 @@ function geckoShape(st) {
   for (const s of [-1, 1]) {
     const e = eyes[s < 0 ? 0 : 1];
     const top = (x, z) => loft.top(Math.abs(x), z);
-    ridges.chain([[0.09 * s, top(0.09, 3.75) - 0.01, 3.75], [0.17 * s, top(0.17, 3.2) + 0.0, 3.2], [e.c[0] * 0.92, e.c[1] + e.r * 0.78, e.c[2] + 0.18], [e.c[0] * 0.98, e.c[1] + e.r * 0.74, e.c[2] - 0.2]], [0.045, 0.06, 0.1, 0.085]);
+    ridges.chain([[0.1 * s, top(0.1, 3.6) - 0.01, 3.6], [0.2 * s, top(0.2, 3.15) + 0.0, 3.15], [e.c[0] * 0.92, e.c[1] + e.r * 0.78, e.c[2] + 0.18], [e.c[0] * 0.98, e.c[1] + e.r * 0.74, e.c[2] - 0.2]], [0.045, 0.06, 0.1, 0.085]);
   }
   ridges.done();
-  const nostrils = [-1, 1].map((s) => [0.085 * s, loft.top(0.085, 3.76) - 0.005, 3.76, 0.05]);
-  const mouth = new Table([[1.9, 0.47], [2.4, 0.44], [3.0, 0.42], [3.7, 0.4]], 0.02);
+  const nostrils = [-1, 1].map((s) => [0.1 * s, loft.top(0.1, 3.62) - 0.005, 3.62, 0.05]);
+  const mouth = new Table([[1.85, 0.47], [2.4, 0.44], [3.0, 0.42], [3.6, 0.4]], 0.02);
   const parts = [];
   for (const l of legs) parts.push({ near: (x, y, z) => l.near(x, y, z), d: (x, y, z) => l.d(x, y, z), k: 0.14 });
   parts.push({ near: (x, y, z) => ridges.near(x, y, z), d: (x, y, z) => ridges.d(x, y, z), k: 0.07 });
@@ -834,7 +836,7 @@ function geckoBody() {
   const S = geckoShape(st);
   const { loft, legs, eyes, mouthY, sdf } = S;
   const cs = {
-    tan: C(0x9a8260), grey: C(0x7f7566), belly: C(0xe4d6b8), bar: C(0x3b2b1b), dark: C(0x211710), pad: C(0xd8b79c), line: C(0x8f7650),
+    tan: C(0x8c7556), grey: C(0x716757), belly: C(0xe4d6b8), bar: C(0x3b2b1b), dark: C(0x211710), pad: C(0xd8b79c), line: C(0x8f7650),
     cream: C(0xd9c7a2), gold: C(0xd4a83c), amber: C(0x9c6f22), rim: C(0x4a3a24), black: C(0x060504), limb: C(0x8e7656), lip: C(0xcdbb98),
   };
   const zS = 3.9, zT = -5.6, sc = [0, 0, 0, 0];
@@ -858,23 +860,27 @@ function geckoBody() {
   // The pattern. A mourning gecko is a pale brown to grey animal with a dark stripe from the nostril through the eye along each
   // side of the back, irregular dark blotches down the middle, small cream flecks, and a banded tail.
   const pattern = (x, y, z, lat, dorsal) => {
-    const ground = lerp3(cs.tan, cs.grey, 0.45 * vnoise(x * 1.3, y * 1.3, z * 1.3) + 0.2 * vnoise(x * 4, y * 4, z * 4));
+    const ground = lerp3(cs.tan, cs.grey, 0.4 * vnoise(x * 1.3, y * 1.3, z * 1.3) + 0.2 * vnoise(x * 4, y * 4, z * 4));
     let col = ground;
-    const broken = 0.55 + 0.6 * vnoise(x * 2.2 + 3, y * 2.2, z * 2.2);
-    // dorsolateral stripes
-    const stripe = sm(0.17, 0.05, Math.abs(Math.abs(lat) - 0.6)) * sm(-4.4, -2.6, z) * broken;
-    col = lerp3(col, cs.bar, stripe * dorsal * 0.95);
-    // middle blotches: irregular patches, strongest over the shoulders and hips
-    const blot = sm(0.44, 0.28, cells(x, y, z, 1.25) + (vnoise(x * 3, y * 3, z * 3) - 0.5) * 0.35) * sm(0.5, 0.15, Math.abs(lat)) * sm(-3.8, -2.0, z);
-    col = lerp3(col, cs.bar, blot * dorsal * 0.8);
-    // pale flecks
-    col = lerp3(col, cs.cream, sm(0.15, 0.08, cells(x + 7, y, z, 3.0)) * dorsal * 0.8);
-    // the tail: alternating light and dark bands, thinning toward the tip
-    if (z < -1.0) {
-      const f = (z * 1.55) - Math.floor(z * 1.55);
-      const band = sm(0.08, 0.3, f) * sm(0.7, 0.5, f);
-      col = lerp3(col, cs.bar, (0.2 + 0.45 * band) * (0.6 + 0.4 * dorsal));
-      col = lerp3(col, cs.cream, sm(0.78, 0.9, f) * 0.35);
+    const wob = (vnoise(x * 3, y * 3, z * 3) - 0.5) * 0.22;
+    // (2026-10-03) The mourning gecko's mark: a row of dark chevrons (a W, its arms swept back) from the nape to the hips, each
+    // with a pale cream edge behind it, so the back reads as bands rather than a stripe. Paired dark dots between them.
+    const al = Math.abs(lat);
+    const chev = z - 0.55 * al + wob;                                       // the arms sweep back towards the flanks
+    const f = (chev * 1.45) - Math.floor(chev * 1.45);
+    const onBack = sm(-3.0, -2.2, z) * sm(1.9, 1.5, z) * sm(1.05, 0.7, al);
+    col = lerp3(col, cs.bar, sm(0.0, 0.08, f) * sm(0.3, 0.2, f) * onBack * dorsal * 0.85);
+    col = lerp3(col, cs.cream, sm(0.3, 0.36, f) * sm(0.48, 0.38, f) * onBack * dorsal * 0.5);
+    // paired dark dots either side of the spine
+    col = lerp3(col, cs.dark, sm(0.13, 0.06, cells(x * 1.0 + 3, y, z, 2.6)) * sm(0.15, 0.3, al) * sm(0.65, 0.45, al) * onBack * dorsal * 0.8);
+    // the flank below the chevrons a little darker, peppered with pale flecks
+    col = lerp3(col, lerp3(cs.grey, cs.bar, 0.35), sm(0.7, 0.95, al) * sm(0.2, -0.2, y - 0.45) * 0.4);
+    col = lerp3(col, cs.cream, sm(0.15, 0.08, cells(x + 7, y, z, 3.0)) * dorsal * 0.7);
+    // the tail: chevron bands that continue the back's, thinning toward the tip, the underside pale
+    if (z < -1.6) {
+      const tf = ((z - 0.35 * al + wob) * 1.6) - Math.floor((z - 0.35 * al + wob) * 1.6);
+      col = lerp3(col, cs.bar, sm(0.0, 0.1, tf) * sm(0.4, 0.28, tf) * (0.55 + 0.45 * dorsal) * 0.85);
+      col = lerp3(col, cs.cream, sm(0.5, 0.58, tf) * sm(0.75, 0.65, tf) * 0.35 * dorsal);
     }
     return col;
   };
@@ -895,12 +901,14 @@ function geckoBody() {
         const p = a.pad, s = ((x - p[0]) * p[3] + (z - p[2]) * p[4]) / p[5];
         const under = sm(p[1] + 0.01, p[1] - 0.015, y);
         const lam = 0.5 + 0.5 * Math.cos(TAU * s * 3.6);
-        return lerp3(lerp3(cs.pad, cs.limb, 0.2), cs.line, lam * (0.3 + 0.5 * under) * sm(1.0, 0.75, Math.abs(s)));
+        // the pad is the toe's colour on top; underneath, pale lamellae (the adhesive scansors) in rows across it
+        const top = lerp3(cs.limb, cs.grey, 0.3);
+        return lerp3(top, lerp3(cs.pad, cs.line, lam * 0.55 * sm(1.0, 0.75, Math.abs(s))), under);
       }
       // the leg: the body's ground colour with dark bars across it, and a pale foot
       const bars = 0.5 + 0.5 * Math.cos(TAU * (z * 2.2 + x * 1.3));
       const g = lerp3(cs.limb, cs.grey, 0.3 * vnoise(x * 3, y * 3, z * 3));
-      return lerp3(lerp3(g, cs.bar, sm(0.62, 0.92, bars) * 0.5), cs.pad, sm(0.3, 0.1, y) * 0.55);
+      return lerp3(lerp3(g, cs.bar, sm(0.62, 0.92, bars) * 0.5), cs.pad, sm(0.12, 0.04, y) * 0.5);
     }
     loft.sect(z, sc);
     const yy = y - sc[0], v = yy / (yy >= 0 ? sc[2] : sc[3]);
@@ -916,6 +924,14 @@ function geckoBody() {
       col = lerp3(col, cs.line, Math.exp(-(m * m) / 0.0022) * 0.9);
       const w = Math.abs(Math.abs(x) - 0.22 - 0.5 * Math.max(0, 2.0 - z));
       col = lerp3(col, cs.bar, sm(0.07, 0.02, Math.abs(w + 0.3 * (z - 1.95))) * sm(1.6, 1.8, z) * sm(2.3, 2.05, z) * dorsal * 0.6);
+    }
+    // the dark stripe from the nostril through the eye and back over the ear to the shoulder, on the side of the head
+    if (z > 1.2) {
+      const ax = Math.abs(x);
+      const segD = (ax0, z0, ax1, z1) => { const dx = ax1 - ax0, dz = z1 - z0, t = Math.max(0, Math.min(1, ((ax - ax0) * dx + (z - z0) * dz) / (dx * dx + dz * dz))); return Math.hypot(ax - ax0 - dx * t, z - z0 - dz * t); };
+      const d = Math.min(segD(0.1, 3.6, 0.36, 2.75), segD(0.36, 2.75, 0.5, 2.1), segD(0.5, 2.1, 0.62, 1.3));
+      const yc = loft.t.v(0, z) + 0.05;
+      col = lerp3(col, cs.dark, sm(0.09, 0.04, d) * sm(0.16, 0.06, Math.abs(y - yc)) * 0.8);
     }
     // the throat and belly: pale, finely flecked
     col = lerp3(col, mul3(cs.line, 0.9), sm(0.2, 0.1, cells(x, y, z, 5)) * sm(-0.2, -0.8, v) * 0.35);

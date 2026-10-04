@@ -17,3 +17,7 @@ export function paint(v) {
   }
   return c;
 }
+
+// Per texel (tools/paint/frogkit.mjs): the same pattern with granules, toe discs, the mouth line and the baked creases.
+import { skin } from './frogkit.mjs';
+export const texel = (v) => skin(v, (q) => paint(q), { gran: 0.8 });

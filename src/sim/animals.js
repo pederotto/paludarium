@@ -277,7 +277,7 @@ export const SPECIES = {
     name: 'Mourning gecko', scale: 1, group: 'Reptiles', kind: 'gecko', size: 1.4, speed: 4,
     minH: 40, temp: [21, 29], humidity: 55, hungerHours: 150, lifeDays: 3500, eats: ['fly', 'springtail', 'flylarva', 'cricket', 'waxworm'], cap: 10, breed: 0.04, adultDays: 25,
     eggs: { n: 2, days: 12, into: 'gecko', where: 'wall' },
-    body: sdfBody('gecko'), anim: { amp: 0.6, wave: 1.1, lift: 0.28, stride: 0.75, rig2: { neck: 0.24, s0: 0.04, s1: 0.28, neckY: 0.43, len: 9.5, tail0: 0.5, tailY: 0.34 } },
+    body: sdfBody('gecko'), anim: { amp: 0.7, wave: 1.1, waveHead: 0.45, lift: 0.3, stride: 0.75, rig2: { neck: 0.24, s0: 0.04, s1: 0.28, neckY: 0.43, len: 9.5, tail0: 0.5, tailY: 0.34 } },
     note: 'Climbs the background and glass. Sleeps by day in a crevice, often with others, comes out at dusk, drinks droplets after rain or misting, stalks insects with its tail waving, and licks its own eyes clean. Females lay eggs without males.',
   },
   cardinal: {
@@ -499,10 +499,11 @@ const BODY_CACHE = {};
 // shows the model the tank shows. `cap`: how many instances the mesh holds.
 export async function modelBuilder(id, meta = null) {
   meta ??= (await loadManifest())[id];
-  const sp = SPECIES[id];
+  const sp = SPECIES[id.split(':')[0]];                // 'dartfrog:sky_clean': a morph's own model, drawn like its species
   if (!sp || !meta || meta.disabled || meta.pose) return null;
-  if (!GLB_CACHE.has(id)) GLB_CACHE.set(id, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
-  const g = await GLB_CACHE.get(id);
+  const ck = meta.file ?? id;                          // (by file: a morph that is the species' default look shares its files)
+  if (!GLB_CACHE.has(ck)) GLB_CACHE.set(ck, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
+  const g = await GLB_CACHE.get(ck);
   if (!g) return null;
   const a = sp.anim ?? {};
   const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
@@ -562,12 +563,13 @@ export class Animals {
     this._s = new THREE.Vector3();
   }
 
-  // Swap in textured models (public/assets/creatures/) for any species that has one.
+  // Swap in textured models (public/assets/creatures/) for any species that has one. A manifest key is a mesh key: the species
+  // ('dartfrog') or one of its morphs ('dartfrog:sky_clean'), and '<mesh key>.<pose>' for a pose model.
   async upgradeModels() {
     const man = await loadManifest();
     for (const [id, meta] of Object.entries(man)) {
       if (meta.pose) { const [b, p] = id.split('.'); (this.poseMeta[b] ??= {})[p] = { key: id, meta }; if (this.meshes[b]) this.ensurePose(b, p); continue; }
-      if (SPECIES[id] && !meta.disabled) (this.modelMeta ??= {})[id] = meta;
+      if (SPECIES[id.split(':')[0]] && !meta.disabled) (this.modelMeta ??= {})[id] = meta;
       if (this.meshes[id]) this.loadModel(id);
     }
   }
@@ -589,10 +591,11 @@ export class Animals {
     }).catch((e) => console.warn('creature model', id, e));
   }
 
-  // A pose model is the same animal in another body, drawn while it does one thing: manifest key '<species>.<pose>', for now
-  // 'leucomelas.swim', a frog mid-stroke with its legs out (made by tools/bake-frogpose.mjs). It has no rig of its own: it moves as a
-  // whole (the stroke's surge and glide, the bob and roll of Animals.draw), and the sitting model is drawn the rest of the time.
-  // Fetched only when a tank has an animal of the species (and not at all on a tank without one).
+  // A pose model is the same animal in another body, drawn while it does one thing: manifest key '<mesh key>.<pose>', e.g.
+  // 'leucomelas.swim' or 'dartfrog:sky_clean.swim', a frog mid-stroke with its legs out (made by tools/bake-frogpose.mjs). It has no
+  // rig of its own: it moves as a whole (the stroke's surge and glide, the bob and roll of Animals.draw), and the sitting model is
+  // drawn the rest of the time. Fetched only when a tank has an animal of the species (and not at all on a tank without one).
+  // `id` here is a mesh key (meshKeyFor): the species, or the species and morph.
   ensurePose(id, pose = 'swim') {
     const m = this.poseMeta[id]?.[pose];
     if (!m || this.poseModels[id]?.[pose] || this._posing?.has(m.key)) return;
@@ -602,7 +605,7 @@ export class Animals {
 
   async loadPose(key, meta) {
     const [id, pose] = key.split('.');
-    const sp = SPECIES[id];
+    const sp = SPECIES[id.split(':')[0]];
     if (!sp || meta.disabled) return;
     if (!GLB_CACHE.has(key)) GLB_CACHE.set(key, loadCreatureGLB(key, { legs: false, ...meta }));
     const g = await GLB_CACHE.get(key);
@@ -621,7 +624,8 @@ export class Animals {
     const key = `${id}#${pose}`;
     if (this.meshes[key] || this._warming?.has(key)) return;
     (this._warming ??= new Set()).add(key);
-    setTimeout(() => { if (this.scene.parent) this.meshFor(id, null, pose); }, 6000 + Math.random() * 4000);
+    const [sid, morph] = id.split(':');
+    setTimeout(() => { if (this.scene.parent) this.meshFor(sid, morph ?? null, pose); }, 6000 + Math.random() * 4000);
   }
 
   get all() { return Object.values(this.by).flat(); }
@@ -630,19 +634,23 @@ export class Animals {
   // mesh is a body to mesh, a material to make and a shader to build, so only the ones in use exist. The species' default
   // mesh stands in when the body library has no variant for the morph (so counts stay right and nothing is built twice).
   meshFor(id, morph = null, pose = null) {
-    if (pose) {
-      const build = this.poseModels[id]?.[pose], key = `${id}#${pose}`;
-      if (!build) return null;
-      if (!this.meshes[key]) { this.meshes[key] = build(); this.keys[id].push(key); }
-      return this.meshes[key];
-    }
     const key = meshKeyFor(id, morph);
+    if (pose) {
+      // a morph without a pose model of its own swims in the species' one
+      const pk = this.poseModels[key]?.[pose] ? key : this.poseMeta[key]?.[pose] ? null : id;
+      const build = pk && this.poseModels[pk]?.[pose], mk = `${pk}#${pose}`;
+      if (!build) return null;
+      if (!this.meshes[mk]) { this.meshes[mk] = build(); this.keys[id].push(mk); }
+      return this.meshes[mk];
+    }
     if (!this.meshes[key]) {
-      if (key === id && !this.models[id] && READY.has(id)) { const b = READY.get(id); this.models[id] = () => b(this.scene); }
-      this.meshes[key] = key === id && this.models[id] ? this.models[id]() : createSpeciesMesh(this.scene, id, { morph });
-      if (key === id && !this.models[id]) this.loadModel(id);
+      // The textured model of this species or morph once it has loaded; the procedural body stands in until then.
+      if (!this.models[key] && READY.has(key)) { const b = READY.get(key); this.models[key] = () => b(this.scene); }
+      this.meshes[key] = this.models[key] ? this.models[key]() : createSpeciesMesh(this.scene, id, { morph });
+      if (!this.models[key]) this.loadModel(key);
       this.keys[id].push(key);
-      if (key === id) { this.ensurePose(id, 'swim'); if (this.poseModels[id]?.swim) this.warmPose(id, 'swim'); }
+      this.ensurePose(key, 'swim');
+      if (this.poseModels[key]?.swim) this.warmPose(key, 'swim');
     }
     return this.meshes[key];
   }

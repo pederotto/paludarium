@@ -23,9 +23,22 @@ import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer
 
 const OUT = 'public/assets/creatures';
 // rotY: degrees about y that turn the mesh's head towards +z. lengthCm: nose-to-tail length of the real animal.
+const FROG = { src: 'frog_mesh', rotY: -90, pre: 22000, rig: 'frog', legs: true, matId: 0, texture: 1024, aoReach: 0.35 };
 const JOBS = {
-  leucomelas: { src: 'frog_mesh', rotY: -90, lengthCm: 4.5, tris: [30000, 10000], paint: "leucomelas", legs: true },
-  strawberry: { src: 'frog_mesh', rotY: -90, lengthCm: 2.3, tris: [30000, 7000], paint: 'strawberry', legs: true },
+  // The frogs: one scan (frog_mesh, a sitting Dendrobates) decimated to 30k triangles, rigged (tools/rig/frog.mjs: limbs measured
+  // along their length, so a folded hind leg moves at the foot), reshaped per species (tools/rig/warps.mjs) and painted into a
+  // 1024 texture (tools/paint/<species>.mjs on tools/paint/frogkit.mjs: granules, toe discs, mouth line, creases darkened by the
+  // baked occlusion). The coarse level keeps the texture, so a frog across the tank is as crisp as one up close.
+  leucomelas: { ...FROG, lengthCm: 4.5, tris: [22000, 8000], paint: 'leucomelas' },
+  strawberry: { ...FROG, lengthCm: 2.3, tris: [22000, 6000], paint: 'strawberry' },
+  dartfrog: { ...FROG, lengthCm: 4.2, tris: [22000, 8000], paint: 'azureus#cobalt_spotted', warp: 'azureus' },
+  'dartfrog:cobalt_clean': { ...FROG, lengthCm: 4.2, tris: [22000, 8000], paint: 'azureus#cobalt_clean', warp: 'azureus' },
+  'dartfrog:sky_spotted': { ...FROG, lengthCm: 4.2, tris: [22000, 8000], paint: 'azureus#sky_spotted', warp: 'azureus' },
+  'dartfrog:sky_clean': { ...FROG, lengthCm: 4.2, tris: [22000, 8000], paint: 'azureus#sky_clean', warp: 'azureus' },
+  auratus: { ...FROG, lengthCm: 4.0, tris: [22000, 8000], paint: 'auratus', warp: 'auratus' },
+  bumblebee: { ...FROG, lengthCm: 2.8, tris: [22000, 6000], paint: 'melano', warp: 'melano' },
+  reedfrog: { ...FROG, lengthCm: 3.0, tris: [22000, 7000], paint: 'heterixalus', warp: 'heterixalus' },
+  toad: { ...FROG, lengthCm: 4.5, tris: [22000, 8000], paint: 'bombina', warp: 'bombina' },
   firesal: { src: 'salamander_mesh', rotY: 90, lengthCm: 18, headZ: 6.2, tris: [32000, 8000], paint: 'firesal', legs: true },
   // Vampire crab: carapace 2.1 cm wide (the procedural body's size, so the sim's spacing is unchanged), legs about 6 cm across.
   // matId 0 (skin) not 4 (chitin): the chitin id has a fixed clear coat that ignores finish and looked like plastic on the scan.
@@ -107,7 +120,7 @@ async function build(id, job, paint, level, geo, fullNormals, rig = null) {
   const mesh = doc.createMesh(id).addPrimitive(prim);
   doc.createScene().addChild(doc.createNode(id).setMesh(mesh));
   await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeColor: 8, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
-  const file = path.join(OUT, level === 'hi' ? `${id}.glb` : `${id}.lo.glb`);
+  const fid = id.replace(':', '-'), file = path.join(OUT, level === 'hi' ? `${fid}.glb` : `${fid}.lo.glb`);
   await io.write(file, doc);
   return { file, verts: n, tris: idx.length / 3, bytes: fs.statSync(file).size, size: [(x1 - x0) * 100, (y1 - y0) * 100, (z1 - z0) * 100] };
 }
@@ -135,14 +148,14 @@ async function buildTextured(id, job, level, g, rig, image) {
     .setMaterial(mat);
   doc.createScene().addChild(doc.createNode(id).setMesh(doc.createMesh(id).addPrimitive(prim)));
   await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 16, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
-  const file = path.join(OUT, level === 'hi' ? `${id}.glb` : `${id}.lo.glb`);
+  const fid = id.replace(':', '-'), file = path.join(OUT, level === 'hi' ? `${fid}.glb` : `${fid}.lo.glb`);
   await io.write(file, doc);
   return { file, verts: n, tris: idx.length / 3, bytes: fs.statSync(file).size, size: [(x1 - x0) * 100, (y1 - y0) * 100, (z1 - z0) * 100] };
 }
 
-async function bakeTextured(id, job, pos, srcIdx, fullN, rig) {
+async function bakeTextured(id, job, pos, srcIdx, fullN, rig, eye = null) {
   const { unwrap, paintTexture, simplifyKeepingSeams, uvStats } = await import('./rig/texture.mjs');
-  const { texel } = await import(`./paint/${job.paint}.mjs`);
+  const texel = job.texelFn;
   const U = await unwrap(pos, srcIdx, job.texture);
   const n = U.from.length, P = new Float32Array(n * 3), N = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) { P[i*3+k] = pos[U.from[i]*3+k]; N[i*3+k] = fullN[U.from[i]*3+k]; }
@@ -150,15 +163,23 @@ async function bakeTextured(id, job, pos, srcIdx, fullN, rig) {
   console.log(`  uv: texel density p1 ${st.p1} p5 ${st.p5} p50 ${st.p50} (1 = even), ${st.squashed} faces under 10 %, ${st.used} % of the atlas used`);
   if (st.squashed > U.idx.length / 3 * 0.01) throw new Error(`${id}: ${st.squashed} faces squashed in UV space (they would show as flat-coloured patches)`);
   const t0 = Date.now();
+  // The same frame numbers the vertex paint gets (u snout 0 … tail 1, h height 0 … 1, s out from the midline 0 … 1) and the
+  // distance to the analytic eye's centre in cm (eyeD), for masks and rings around the eye.
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (let i = 0; i < n; i++) { x0 = Math.min(x0, P[i*3]); x1 = Math.max(x1, P[i*3]); y0 = Math.min(y0, P[i*3+1]); y1 = Math.max(y1, P[i*3+1]); z0 = Math.min(z0, P[i*3+2]); z1 = Math.max(z1, P[i*3+2]); }
+  const hw = Math.max(x1, -x0);
   const img = paintTexture(job.texture, U.uv, U.idx, P, N, ({ p, n: nn, w, v }) => {
     const o = v.map((i) => U.from[i]);
     const lerp = (arr) => w[0] * arr[o[0]] + w[1] * arr[o[1]] + w[2] * arr[o[2]];
     const main = o[w.indexOf(Math.max(...w))];
-    return texel({ x: p[0] * 100, y: p[1] * 100, z: p[2] * 100, n: nn, part: rig.part[main], leg: rig.leg[main], legT: lerp(rig.legT), ao: lerp(rig.ao), eyeT: lerp(rig.eyeT), zf: lerp(rig.zf) });
+    const x = p[0] * 100, y = p[1] * 100, z = p[2] * 100;
+    const eyeD = eye ? Math.hypot(Math.abs(x) - eye.c[0], y - eye.c[1], z - eye.c[2]) : 99;
+    return texel({ x, y, z, n: nn, part: rig.part[main], leg: rig.leg[main], legT: lerp(rig.legT), ao: lerp(rig.ao), eyeT: lerp(rig.eyeT), zf: lerp(rig.zf),
+      u: (z1 - p[2]) / (z1 - z0), h: (p[1] - y0) / (y1 - y0), s: Math.abs(p[0]) / hw, eyeD, eyeR: eye?.r ?? 0 });
   });
   const webp = await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).removeAlpha().webp({ quality: 88, effort: 6 }).toBuffer();
   fs.mkdirSync('test-output/bake', { recursive: true });
-  await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).png().toFile(`test-output/bake/${id}_color.png`);
+  await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).png().toFile(`test-output/bake/${id.replace(':', '-')}_color.png`);
   console.log(`  texture ${job.texture}px painted in ${Date.now() - t0} ms, ${(webp.length / 1024) | 0} KB webp (preview test-output/bake/${id}_color.png)`);
   const hi = await buildTextured(id, job, 'hi', { pos: P, nor: N, uv: U.uv, idx: U.idx, from: U.from }, rig, webp);
   const L = simplifyKeepingSeams(P, U.idx, job.tris[1], U.uv);
@@ -177,15 +198,22 @@ const want = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const cache = {};
 for (const [id, job] of Object.entries(JOBS)) {
   if (want.length && !want.includes(id)) continue;
-  const { paint } = await import(`./paint/${job.paint}.mjs`);
-  if (!cache[job.src]) {
+  // `paint: 'module#arg'` picks one variant of a paint module (paintFor(arg) / texelFor(arg)): the azureus morphs share a painter.
+  const [pmod, parg] = job.paint.split('#');
+  const PM = await import(`./paint/${pmod}.mjs`);
+  const paint = parg ? PM.paintFor(parg) : PM.paint;
+  job.texelFn = parg ? PM.texelFor?.(parg) : PM.texel;
+  const ckey = `${job.src}@${job.pre ?? 0}`;
+  if (!cache[ckey]) {
     const doc = await io.read(`art-src/raw/${job.src}.glb`);
     await doc.transform(weld());
     const p = doc.getRoot().listMeshes()[0].listPrimitives()[0];
-    cache[job.src] = { pos: Float32Array.from(p.getAttribute('POSITION').getArray()), idx: Uint32Array.from(p.getIndices().getArray()) };
+    cache[ckey] = { pos: Float32Array.from(p.getAttribute('POSITION').getArray()), idx: Uint32Array.from(p.getIndices().getArray()) };
+    // `pre`: decimate a dense scan first (the frog scan has 400k triangles: too many to rig, unwrap and texture).
+    if (job.pre) { const s = simplified(cache[ckey].pos, cache[ckey].idx, job.pre); cache[ckey] = { pos: s.pos, idx: s.idx }; }
   }
   // Orient, stand on the ground, centre, scale to the real length (metres).
-  const src = cache[job.src], pos = Float32Array.from(src.pos);
+  const src = cache[ckey], pos = Float32Array.from(src.pos);
   const a = job.rotY * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
   for (let i = 0; i < pos.length; i += 3) { const x = pos[i], z = pos[i + 2]; pos[i] = x * ca + z * sa; pos[i + 2] = -x * sa + z * ca; }
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, z0 = 1e9, z1 = -1e9;
@@ -197,27 +225,48 @@ for (const [id, job] of Object.entries(JOBS)) {
     const { [`${job.rig}Rig`]: makeRig } = await import(`./rig/${job.rig}.mjs`);
     const { ambientOcclusion, normals: nrm } = await import('./rig/appendages.mjs');
     rig = makeRig(pos, src.idx);
-    rig.ao = ambientOcclusion(pos, src.idx, nrm(pos, src.idx), { rays: 48, reach: 0.3 });
-    const sh = rig.shell;
-    k = (job.shellWidthCm / 100) / (sh.x1 - sh.x0); cx = (sh.x0 + sh.x1) / 2; cz = (sh.z0 + sh.z1) / 2;
+    rig.ao = ambientOcclusion(pos, src.idx, nrm(pos, src.idx), { rays: 48, reach: job.aoReach ?? 0.3 });
     const n = pos.length / 3;
-    rig.zf = new Float32Array(n); rig.eyeT = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
+    rig.eyeT ??= new Float32Array(n);
+    const sh = rig.shell;
+    if (sh) { k = (job.shellWidthCm / 100) / (sh.x1 - sh.x0); cx = (sh.x0 + sh.x1) / 2; cz = (sh.z0 + sh.z1) / 2; }
+    if (sh) rig.zf = new Float32Array(n);
+    for (let i = 0; sh && i < n; i++) {
       rig.zf[i] = Math.max(0, Math.min(1, (pos[i*3+2] - sh.z0) / (sh.z1 - sh.z0)));
       if (rig.part[i] !== 'eye') continue;
       const e = rig.eyes.reduce((b, e) => (Math.abs(e.c[0] - pos[i*3]) < Math.abs(b.c[0] - pos[i*3]) ? e : b));
       rig.eyeT[i] = Math.max(0, 1 - Math.hypot(pos[i*3] - e.c[0], pos[i*3+1] - e.c[1], pos[i*3+2] - e.c[2]) / (2.4 * e.r));
     }
     // The +x eye in centimetres of the baked frame, looking along its stalk tipped forward (the shader mirrors it).
-    const e = rig.eyes.reduce((a, b) => (b.c[0] > a.c[0] ? b : a));
-    const cm = (p) => [(p[0] - cx) * k * 100, (p[1] - y0) * k * 100, (p[2] - cz) * k * 100];
-    const stalk = e.c.map((v, i) => v - e.base[i]), sl = Math.hypot(...stalk);
-    eyesOut = { c: cm(e.c).map((v) => +v.toFixed(3)), r: +(e.r * k * 100).toFixed(3), axis: [stalk[0] / sl * 0.6 + 0.25, stalk[1] / sl * 0.6, stalk[2] / sl * 0.6 + 0.75] };
+    if (rig.eyes) {
+      const e = rig.eyes.reduce((a, b) => (b.c[0] > a.c[0] ? b : a));
+      const cm = (p) => [(p[0] - cx) * k * 100, (p[1] - y0) * k * 100, (p[2] - cz) * k * 100];
+      const stalk = e.c.map((v, i) => v - e.base[i]), sl = Math.hypot(...stalk);
+      eyesOut = { c: cm(e.c).map((v) => +v.toFixed(3)), r: +(e.r * k * 100).toFixed(3), axis: [stalk[0] / sl * 0.6 + 0.25, stalk[1] / sl * 0.6, stalk[2] / sl * 0.6 + 0.75] };
+    }
   }
   for (let i = 0; i < pos.length; i += 3) { pos[i] = (pos[i] - cx) * k; pos[i + 1] = (pos[i + 1] - y0) * k; pos[i + 2] = (pos[i + 2] - cz) * k; }
+  // `warp`: reshape one scan into a related species (a flatter toad, a slimmer, longer-legged reed frog), in metres of the baked
+  // frame, per vertex with the rig: warp([x, y, z] in cm, { leg, legT, part }) -> [x, y, z] in cm. The eyes move with it.
+  let warpEye = null;
+  if (job.warp) {
+    const { [job.warp]: warpFn } = await import('./rig/warps.mjs');
+    const W = warpFn(pos, rig);
+    for (let i = 0; i < pos.length / 3; i++) {
+      const q = W([pos[i*3] * 100, pos[i*3+1] * 100, pos[i*3+2] * 100], { leg: rig?.leg[i] ?? 0, legT: rig?.legT[i] ?? 0, part: rig?.part[i] });
+      pos[i*3] = q[0] / 100; pos[i*3+1] = q[1] / 100; pos[i*3+2] = q[2] / 100;
+    }
+    let ymin = Infinity; for (let i = 1; i < pos.length; i += 3) ymin = Math.min(ymin, pos[i]);
+    for (let i = 1; i < pos.length; i += 3) pos[i] -= ymin;
+    warpEye = (c) => { const q = W(c, { leg: 0, legT: 0, part: 'body' }); return [q[0], q[1] - ymin * 100, q[2]]; };
+  }
+  const extra = { ...(EYES[id] ?? {}) };
+  if (extra.finish) extra.finish = { ...extra.finish, eyes: Array.isArray(extra.finish.eyes) ? extra.finish.eyes.map((e) => ({ ...e })) : extra.finish.eyes };
+  if (eyesOut && typeof extra.finish?.eyes === 'function') extra.finish = { ...extra.finish, eyes: extra.finish.eyes(eyesOut) };
+  if (warpEye && Array.isArray(extra.finish?.eyes)) for (const e of extra.finish.eyes) e.c = warpEye(e.c).map((v) => +v.toFixed(3));
   const fullN = normals(pos, src.idx);
   const { hi, lo } = job.texture && rig
-    ? await bakeTextured(id, job, pos, src.idx, fullN, rig)
+    ? await bakeTextured(id, job, pos, src.idx, fullN, rig, extra.finish?.eyes?.[0] ?? null)
     : { hi: await build(id, job, paint, 'hi', simplified(pos, src.idx, job.tris[0]), fullN, rig), lo: await build(id, job, paint, 'lo', simplified(pos, src.idx, job.tris[1]), fullN, rig) };
   if (process.argv.includes('--eyes')) {
     // Candidate eye bulges: clusters of the highest vertices on each side of the midline (cm).
@@ -231,9 +280,10 @@ for (const [id, job] of Object.entries(JOBS)) {
     }
     console.log('  eye candidates (mean of the 40 highest vertices per side, cm)', JSON.stringify(out));
   }
-  const extra = EYES[id] ?? {};
-  if (eyesOut && typeof extra.finish?.eyes === 'function') extra.finish = { ...extra.finish, eyes: extra.finish.eyes(eyesOut) };
-  manifest[id] = { file: `${id}.glb`, lo: `${id}.lo.glb`, legs: job.legs, ...(job.rig ? { rig: 'baked' } : {}), tris: { hi: hi.tris, lo: lo.tris }, sizeCm: hi.size.map((v) => +v.toFixed(2)), ...extra };
+  manifest[id] = { file: `${id.replace(':', '-')}.glb`, lo: `${id.replace(':', '-')}.lo.glb`, legs: job.legs, ...(job.rig ? { rig: 'baked' } : {}), tris: { hi: hi.tris, lo: lo.tris }, sizeCm: hi.size.map((v) => +v.toFixed(2)), ...extra };
   console.log(`${id}: hi ${hi.tris} tris ${(hi.bytes / 1024) | 0} KB, lo ${lo.tris} tris ${(lo.bytes / 1024) | 0} KB, ${hi.size.map((v) => v.toFixed(2)).join(' x ')} cm (x y z)`);
 }
+// Aliases: a morph whose look is the species' default draws the same files (no second copy; the game loads a file once).
+const ALIAS = { 'dartfrog:cobalt_spotted': 'dartfrog' };
+for (const [k, v] of Object.entries(ALIAS)) if (manifest[v]) manifest[k] = { ...manifest[v] };
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));

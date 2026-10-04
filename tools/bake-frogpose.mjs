@@ -18,9 +18,19 @@ import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer
 
 const OUT = 'public/assets/creatures';
 // cmPerUnit: the scan's trunk (snout to vent, 1.33 units) has to be the 4.5 cm of the sitting leucomelas; strawberry is 0.511 of that.
+// Every frog with a baked body gets one, painted by the same painter as its sitting model (paint 'module#arg' as in bake-creature).
+const SWIM = (cm, paint, eyes, tris = [24000, 7000]) => ({ src: 'frog_swim_mesh', cmPerUnit: 3.3 * cm / 4.5, tris, paint, eyes });
 const JOBS = {
-  'leucomelas.swim': { src: 'frog_swim_mesh', cmPerUnit: 3.3, tris: [30000, 10000], paint: 'leucomelas', eyes: 'leucomelas' },
-  'strawberry.swim': { src: 'frog_swim_mesh', cmPerUnit: 1.69, tris: [30000, 7000], paint: 'strawberry', eyes: 'strawberry' },
+  'leucomelas.swim': SWIM(4.5, 'leucomelas', 'leucomelas', [30000, 10000]),
+  'strawberry.swim': SWIM(2.3, 'strawberry', 'strawberry'),
+  'dartfrog.swim': SWIM(4.2, 'azureus#cobalt_spotted', 'dartfrog'),
+  'dartfrog:cobalt_clean.swim': SWIM(4.2, 'azureus#cobalt_clean', 'dartfrog:cobalt_clean'),
+  'dartfrog:sky_spotted.swim': SWIM(4.2, 'azureus#sky_spotted', 'dartfrog:sky_spotted'),
+  'dartfrog:sky_clean.swim': SWIM(4.2, 'azureus#sky_clean', 'dartfrog:sky_clean'),
+  'auratus.swim': SWIM(4.0, 'auratus', 'auratus'),
+  'bumblebee.swim': SWIM(2.8, 'melano', 'bumblebee'),
+  'reedfrog.swim': SWIM(3.0, 'heterixalus', 'reedfrog'),
+  'toad.swim': SWIM(4.5, 'bombina', 'toad'),
 };
 const { EYES } = await import('./paint/eyes.mjs');
 await MeshoptSimplifier.ready; await MeshoptEncoder.ready; await MeshoptDecoder.ready;
@@ -99,7 +109,7 @@ async function writeGlb(id, level, pos, nor, col, idx) {
     .setMaterial(doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.6).setMetallicFactor(0));
   doc.createScene().addChild(doc.createNode(id).setMesh(doc.createMesh(id).addPrimitive(prim)));
   await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeColor: 8 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
-  const file = path.join(OUT, level === 'hi' ? `${id}.glb` : `${id}.lo.glb`);
+  const fid = id.replace(':', '-'), file = path.join(OUT, level === 'hi' ? `${fid}.glb` : `${fid}.lo.glb`);
   await io.write(file, doc);
   return { file, bytes: fs.statSync(file).size };
 }
@@ -111,7 +121,12 @@ const want = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const cache = {};
 for (const [id, job] of Object.entries(JOBS)) {
   if (want.length && !want.includes(id)) continue;
-  const { paint } = await import(`./paint/${job.paint}.mjs`);
+  // The texel painter at vertex resolution (no granules, no occlusion), with the eye known, so masks round the eye come out.
+  const [pmod, parg] = job.paint.split('#');
+  const PM = await import(`./paint/${pmod}.mjs`);
+  const tex = parg ? PM.texelFor(parg) : PM.texel;
+  const sc0 = job.cmPerUnit / 3.3, eyeC = [0.48 * sc0, 1.18 * sc0, 1.6 * sc0], eyeR = 0.3 * sc0;
+  const paint = (v) => tex({ ...v, ao: 0, noGran: true, eyeR, eyeD: Math.hypot(Math.abs(v.x) - eyeC[0], v.y - eyeC[1], v.z - eyeC[2]) });
   cache[job.src] ??= analyse(await readScan(job.src));
   const A = cache[job.src], src = await readScan(job.src);
   const k = job.cmPerUnit / 100, zc = (A.zs + A.zv) / 2;
@@ -138,7 +153,7 @@ for (const [id, job] of Object.entries(JOBS)) {
   const base = EYES[job.eyes].finish, e0 = base.eyes[0];
   const finish = { ...base, eyes: [{ ...e0, c: eye, r: +(0.3 * sc).toFixed(3) }] };
   const size = [0, 0, 0].map((_, a) => { let lo2 = 1e9, hi2 = -1e9; for (let i = 0; i < A.n; i++) { lo2 = Math.min(lo2, pos[i * 3 + a]); hi2 = Math.max(hi2, pos[i * 3 + a]); } return +((hi2 - lo2) * 100).toFixed(2); });
-  manifest[id] = { file: `${id}.glb`, lo: `${id}.lo.glb`, legs: false, pose: 'swim', tris: { hi: hi.tris, lo: lo.tris }, sizeCm: size, finish };
+  manifest[id] = { file: `${id.replace(':', '-')}.glb`, lo: `${id.replace(':', '-')}.lo.glb`, legs: false, pose: 'swim', tris: { hi: hi.tris, lo: lo.tris }, sizeCm: size, finish };
   console.log(`${id}: hi ${hi.tris} tris ${(hi.bytes / 1024) | 0} KB, lo ${lo.tris} tris ${(lo.bytes / 1024) | 0} KB, ${size.join(' x ')} cm (x y z), eye at ${eye.join(', ')} cm`);
 }
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));

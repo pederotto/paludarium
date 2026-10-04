@@ -66,7 +66,7 @@ function makeLod() {
 let lod = makeLod();
 if (q.get('src') === 'glb') {
   const man = await loadManifest();
-  const key = q.has('body') ? `${id}.${q.get('body')}` : id;      // &body=swim: a pose model ('<species>.swim' in the manifest)
+  const key = q.has('body') ? `${id}.${q.get('body')}` : morph && man[`${id}:${morph}`] ? `${id}:${morph}` : id;      // &body=swim: a pose model ('<species>.swim' in the manifest)
   const g = man[key] && await loadCreatureGLB(key, { legs: !q.has('body') && ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab'].includes(sp.kind), ...man[key] });
   if (g) {
     lod.lo.mesh.removeFromParent();

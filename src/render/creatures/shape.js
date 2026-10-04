@@ -78,14 +78,34 @@ export function bodyShape(def, detail = 'lo') {
   return { P: Float64Array.from(P), N: Float32Array.from(N), I: index, n: P.length / 3 };
 }
 
+// Ambient occlusion from the SDF (the classic marching estimate): step out along the normal and see how much closer than the
+// step the surface is. 0 in the open … 1 in a deep crease (the armpit, the gap under a leg, between the toes). Steps are set by
+// the coarse cell so both levels of detail shade alike. Baked into the vertex colour: creases read without any cost at run time.
+function sdfOcclusion(sdf, x, y, z, nx, ny, nz, step) {
+  let occ = 0, w = 0.5;
+  for (let k = 1; k <= 4; k++) {
+    const t = step * k, d = sdf(x + nx * t, y + ny * t, z + nz * t);
+    occ += w * Math.max(0, t - d) / t;
+    w *= 0.62;
+  }
+  return Math.min(1, occ / 0.9);
+}
+
 // Per-vertex colour and rig/material for a shape. Sets the def's detail state the same way bodyShape does.
+// def.ao (default 0.5): how much the baked occlusion darkens creases; 0 turns it off.
 export function paintShape(def, shape, detail = 'lo') {
+  const step = def.cell * 1.6;                                      // (read before the detail state is set: reading cell resets it)
   void (def.cell * (detail === 'hi' ? def.hiScale ?? 0.5 : 1));
-  const { P, n } = shape;
+  const { P, N, n } = shape;
   const col = new Float32Array(n * 3), rig = new Float32Array(n * 4);
+  const aoK = def.ao ?? 0.5;
   for (let i = 0; i < n; i++) {
     const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2];
     col.set(def.color(x, y, z), i * 3);
+    if (aoK > 0 && N) {
+      const k = 1 - aoK * sdfOcclusion(def.sdf, x, y, z, N[i * 3], N[i * 3 + 1], N[i * 3 + 2], step);
+      col[i * 3] *= k; col[i * 3 + 1] *= k; col[i * 3 + 2] *= k;
+    }
     const r = def.rig ? def.rig(x, y, z) : [0, 0, 0];
     rig[i * 4] = r[0]; rig[i * 4 + 1] = r[1]; rig[i * 4 + 2] = r[2];
     rig[i * 4 + 3] = def.mat ? def.mat(x, y, z) : 0;      // material id rides in rig.w (the GPU allows only 8 vertex buffers)
