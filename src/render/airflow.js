@@ -124,12 +124,12 @@ if (typeof window !== 'undefined' && (import.meta.env?.DEV || new URLSearchParam
     const ref = P?.list?.[0]?.pos;
     if (!ref || !H?.vx || !H.d) return { ...out, error: 'no plants or no hydro' };
     // Where to plant: 5 cm downstream of a running filter's return, at the nozzle's height, if that is in water; else in the fastest wet cell.
-    const r = H.ports?.ret, wet = (x, z) => H.d[H.cellOf(x, z)] >= 3;
+    const r = H.ports?.ret, wet = (x, z) => H.d[H.cellOf(x, z)] >= 0.3;
     let x, z, y, src;
     if (r && (H.ports.lph ?? 0) > 0 && wet(r.x + r.dx * 5, r.z + r.dz * 5)) { x = r.x + r.dx * 5; z = r.z + r.dz * 5; y = r.y; src = 'return nozzle, 5 cm downstream'; }
     else {
       let best = 0, bn = -1;
-      for (let n = 0; n < H.N; n++) { if (H.d[n] < 3) continue; const v = Math.hypot(H.vx[n], H.vz[n]); if (v > best) { best = v; bn = n; } }
+      for (let n = 0; n < H.N; n++) { if (H.d[n] < 0.3) continue; const v = Math.hypot(H.vx[n], H.vz[n]); if (v > best) { best = v; bn = n; } }
       if (bn < 0) return { ...out, ports: !!H.ports, lph: H.ports?.lph, error: 'no wet cell moves' };
       const w = H.cellXZ(bn); x = w.x ?? w[0]; z = w.z ?? w[1]; y = W.terrain.heightAt(x, z); src = 'fastest cell ' + best.toFixed(2) + ' cm/s';
     }
