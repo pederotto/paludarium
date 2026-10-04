@@ -250,10 +250,11 @@ export class Water {
     wd.needsUpdate = true;
     this.wtur.needsUpdate = true;
     this.flowGeo.computeBoundingSphere();
-    // The substrate under pools and streams is shaded as wet and submerged.
-    const ws = this.terrain.geo.attributes.wsurf;
+    // The substrate under pools and streams is shaded as wet and submerged; not where the ground is drawn below the
+    // stamped height (under an overhang): a stream on the rock does not flood the ground beneath it.
+    const ws = this.terrain.geo.attributes.wsurf, hv = f.hv ?? h;
     if (ws) {
-      for (let n = 0; n < H.N; n++) ws.array[n] = res[n] ? L : d[n] > WET ? h[n] + d[n] : -50;
+      for (let n = 0; n < H.N; n++) ws.array[n] = res[n] ? L : d[n] > WET && hv[n] > h[n] - 0.3 ? h[n] + d[n] : -50;
       ws.needsUpdate = true;
     }
   }

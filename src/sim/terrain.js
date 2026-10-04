@@ -5,7 +5,9 @@
 // The substrate keeps two heights per point: `base`, the ground you sculpt,
 // and `h`, what everything else sees: the ground with the hardscape stamped
 // on top (the highest of the two). Moving or removing a rock simply stamps
-// the pieces again over the untouched base.
+// the pieces again over the untouched base. The drawn ground uses a third,
+// `hv`: the same stamps, except where a piece overhangs or at the rim of its
+// footprint (decor.js restamp), where the drawn grid would show through it.
 
 import * as THREE from 'three/webgpu';
 import { TANK, TERRAIN_RES, WALL_RES, LIMITS, MATERIALS, NMAT, MAT } from './tank.js';
@@ -128,8 +130,8 @@ export class Field {
   }
 
   // weightsTo for every vertex at once, straight on the two vec3 arrays. `flipRows`: the wall's plane runs its rows top to bottom.
-  weightsAll(W0, W1, flipRows = false, bare = false) {
-    const { cols, rows, mat } = this, stamped = bare ? null : this.stamped;
+  weightsAll(W0, W1, flipRows = false, stamped = this.stamped) {
+    const { cols, rows, mat } = this;
     for (let j = 0; j < rows; j++) {
       const row = (flipRows ? rows - 1 - j : j) * cols;
       for (let i = 0, n = j * cols; i < cols; i++, n++) {
@@ -179,6 +181,7 @@ export class Field {
     for (let i = 0; i < hq.length; i++) this.base[i] = hq[i] / 100;
     for (let i = 0; i < mq.length; i++) this.mat[i] = mq[i] / 255;
     if (this.base !== this.h) this.h.set(this.base);
+    this.hv?.set(this.base);
     this.dirty = true;
     return true;
   }
@@ -227,6 +230,8 @@ export class Terrain {
     const nv = (nx + 1) * (nz + 1);
     this.field.base = new Float32Array(nv);
     this.field.stamped = new Uint8Array(nv);
+    this.field.hv = new Float32Array(nv);          // the drawn height (see the top of this file)
+    this.field.stampedVis = new Uint8Array(nv);    // drawn as stone
     const g = new THREE.PlaneGeometry(1, 1, nx, nz);
     g.rotateX(-Math.PI / 2);
     // PlaneGeometry after rotation runs x left→right and z back→front with
@@ -255,19 +260,25 @@ export class Terrain {
     this.compose([]);
   }
 
-  // h = the base ground with every piece's stamp on top.
+  // h = the base ground with every piece's stamp on top; hv = the same with only the points a stamp may draw.
   compose(stamps = this.stamps) {
     this.stamps = stamps;
     const f = this.field;
     f.h.set(f.base);
+    f.hv.set(f.base);
     f.stamped.fill(0);
+    f.stampedVis.fill(0);
     for (const s of stamps) {
       if (!s) continue;
       for (let k = 0; k < s.idx.length; k++) {
-        const n = s.idx[k];
-        if (s.top[k] > f.h[n]) {
-          f.h[n] = s.top[k];
-          if (s.top[k] > f.base[n] + 0.4) f.stamped[n] = 1;
+        const n = s.idx[k], t = s.top[k];
+        if (t > f.h[n]) {
+          f.h[n] = t;
+          if (t > f.base[n] + 0.4) f.stamped[n] = 1;
+        }
+        if ((!s.vis || s.vis[k]) && t > f.hv[n]) {
+          f.hv[n] = t;
+          if (t > f.base[n] + 0.4) f.stampedVis[n] = 1;
         }
       }
     }
@@ -304,9 +315,9 @@ export class Terrain {
       }
       this._laidOut = true;
     }
-    const h = this.bare ? f.base : f.h;
+    const h = this.bare ? f.base : f.hv;
     for (let n = 0; n < h.length; n++) P[n * 3 + 1] = h[n];
-    f.weightsAll(W0, W1, false, this.bare);
+    f.weightsAll(W0, W1, false, this.bare ? null : f.stampedVis);
     normalsFromIndexed(P, geo.index.array, geo.attributes.normal.array);
     geo.attributes.position.needsUpdate = true;
     geo.attributes.normal.needsUpdate = true;

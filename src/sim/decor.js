@@ -26,7 +26,7 @@ import { TEX, modelParts } from '../render/assets.js';
 import { plantMaterial, hardscapeMaterial, mouldMix, wet, triplanar, blendWeights, noise3 } from '../render/shaders.js';
 import { U } from '../render/uniforms.js';
 import { MAT, NMAT, TANK } from './tank.js';
-import { rng, clamp } from '../util/math.js';
+import { rng, clamp, hash3 } from '../util/math.js';
 import { TINTS, PROC, rollLook, hullPoints, transformedBox, boxShift, nearestWall, faceQuat, faceOrigin, FACE_EMBED, SLOPE_NORMAL_Y } from './placement.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -37,7 +37,9 @@ export const PIECES = {
   boulder: { name: 'Mossy boulder', model: ['rock_moss_set_01', 'rock_moss_set_02'], size: 10, stamp: true, moss: 0.55 },
   spire: { name: 'Stone spire', procedural: true, size: 30, stamp: true, moss: 0.5 },
   cliff: { name: 'Cliff face', model: ['rock_face_01'], size: 26, stamp: true, moss: 0.45, face: true },
-  roots: { name: 'Roots', model: ['root_cluster_01'], size: 30, stamp: false, moss: 0.25 },
+  // (sink: the scan is a root ball dug out with its soil plug, cut flat underneath: sunk deeper, the plug's cut sides are buried
+  // instead of hanging over a slope or in the water)
+  roots: { name: 'Roots', model: ['root_cluster_01'], size: 30, stamp: false, moss: 0.25, sink: 0.3 },
   stump: { name: 'Tree stump', model: ['tree_stump_01'], size: 16, stamp: true, moss: 0.4 },
   wood: { name: 'Driftwood', model: ['dead_tree_trunk'], size: 36, stamp: false, moss: 0.3 },
   // From the keeper's care sheets (2026-10): a hide and a cave-or-ramp stone. Not stamped, so animals walk under them
@@ -54,6 +56,8 @@ export const PIECES = {
 
 export { TINTS, PROC, rollLook };
 const HULLS = new WeakMap();
+// cm between a piece's underside and what is below it beyond which the piece overhangs there (see restamp).
+const STAMP_GAP = 1.2;
 const ROUND_BOULDERS = [6, 7, 8, 10, 11, 12];
 
 // Copy of a geometry, every vertex moved by fn(v), re-seated on the origin (footprint centred,
@@ -198,7 +202,10 @@ function logGeo(r, { rad = 0.12, bend = 0 } = {}) {
 }
 
 function stumpGeo(r, { flare = 0.5, rag = 0.2, taper = 0.12 } = {}) {
-  const g = new THREE.CylinderGeometry(0.5, 0.5, 1, 28, 12);
+  const g = new THREE.CylinderGeometry(0.5, 0.5, 1, 64, 28);
+  // the bark tiles three times round (it was stretched to one tile round a 3-units-around trunk)
+  const uva = g.attributes.uv;
+  for (let i = 0; i < uva.count; i++) uva.setX(i, uva.getX(i) * 3);
   const lobes = Array.from({ length: 4 }, () => ({ k: 2 + Math.floor(r() * 5), ph: r() * 6.28, a: 0.04 + r() * 0.07 }));
   const topPh = r() * 6.28, tilt = (r() - 0.5) * 0.25;
   const pos = g.attributes.position;
@@ -207,6 +214,7 @@ function stumpGeo(r, { flare = 0.5, rag = 0.2, taper = 0.12 } = {}) {
     const t = y + 0.5, a = Math.atan2(z, x), rr = Math.hypot(x, z);
     let rad = 1 + flare * Math.pow(1 - t, 4) * (0.6 + 0.4 * Math.sin(a * 5 + topPh));
     for (const l of lobes) rad += l.a * Math.sin(a * l.k + l.ph);
+    rad += 0.025 * Math.pow(Math.abs(Math.sin(a * 11 + Math.sin(t * 5 + topPh) * 0.6)), 0.5) - 0.02;   // bark furrows
     rad *= 1 - taper * t;
     const top = t > 0.97 ? rag * (Math.sin(a * 3 + topPh) * 0.5 + Math.sin(a * 7) * 0.3 + tilt * Math.cos(a)) * rr * 2 : 0;
     pos.setXYZ(i, x * rad, t + top, z * rad);
@@ -216,7 +224,19 @@ function stumpGeo(r, { flare = 0.5, rag = 0.2, taper = 0.12 } = {}) {
   return g;
 }
 
-function displace(rawGeo, r, { squash = 1, stretch = 1, taper = 0, strata = 0 } = {}) {
+// Smooth value noise in 3D (seeded through the offset), for the stone's fine relief.
+function vnoise3(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const h = (a, b, c) => hash3(xi + a, yi + b, zi + c);
+  const L = (a, b, t) => a + (b - a) * t;
+  return L(L(L(h(0, 0, 0), h(1, 0, 0), u), L(h(0, 1, 0), h(1, 1, 0), u), v), L(L(h(0, 0, 1), h(1, 0, 1), u), L(h(0, 1, 1), h(1, 1, 1), u), v), w);
+}
+
+// `detail` (2026-10-03): the stones used to be IcosahedronGeometry(1, 5), which in three.js is only 720 triangles (detail
+// subdivides each edge linearly): smooth blobs. Now 8.8k triangles (detail 20: 32 cost 0.6 s of loading and 1 ms a frame), with relief to use them: sharp ridges (the folded
+// noise of weathered limestone), vertical fissures, and the strata as stepped ledges.
+function displace(rawGeo, r, { squash = 1, stretch = 1, taper = 0, strata = 0, ridge = 0.07, fissure = 0.05 } = {}) {
   const geo = mergeVertices(rawGeo);
   rawGeo.dispose();
   const pos = geo.attributes.position;
@@ -227,14 +247,29 @@ function displace(rawGeo, r, { squash = 1, stretch = 1, taper = 0, strata = 0 } 
     amp: 0.05 + r() * 0.1,
     phase: r() * Math.PI * 2,
   }));
-  const sf = 5 + r() * 4, sp = r() * 6;
+  const sf = 5 + r() * 4, sp = r() * 6, o = [r() * 100, r() * 100, r() * 100], fk = 5 + Math.floor(r() * 5), fph = r() * 6.28;
   for (let i = 0; i < pos.count; i++) {
     v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
     const n = v.clone().normalize();
     let d = 1;
     for (const w of waves) d += w.amp * Math.sin(n.dot(w.dir) * w.freq * Math.PI + w.phase);
-    // Horizontal strata: layered ledges, sharp-edged like weathered stone.
-    if (strata) d += strata * Math.pow(Math.abs(Math.sin(n.y * sf + sp)), 3) - strata * 0.5;
+    // Horizontal strata: layered ledges, sharp-edged like weathered stone (a smoothed staircase: flat treads, steep risers).
+    if (strata) {
+      const q = n.y * sf + sp, f = q - Math.floor(q), step = f < 0.75 ? 0 : (f - 0.75) / 0.25;
+      d += strata * (Math.pow(Math.abs(Math.sin(q)), 3) * 0.6 + step * step * 0.8) - strata * 0.6;
+    }
+    // Ridged relief: 1 - |noise| makes sharp crests and rounded hollows, at two scales.
+    if (ridge) {
+      const a = 1 - Math.abs(vnoise3(n.x * 3.2 + o[0], n.y * 3.2 + o[1], n.z * 3.2 + o[2]) * 2 - 1);
+      const b = 1 - Math.abs(vnoise3(n.x * 8 + o[1], n.y * 8 + o[2], n.z * 8 + o[0]) * 2 - 1);
+      d += ridge * (a * a * 0.7 + b * b * 0.35 - 0.45) + ridge * 0.25 * (vnoise3(n.x * 19 + o[2], n.y * 19, n.z * 19 + o[1]) - 0.5);
+    }
+    // Vertical fissures: narrow grooves running up the stone, wandering a little.
+    if (fissure) {
+      const ang = Math.atan2(n.z, n.x) * fk + fph + (vnoise3(n.y * 3 + o[0], 0, 0) - 0.5) * 3;
+      const g = Math.pow(Math.max(0, Math.cos(ang)), 24) * (0.5 + vnoise3(n.x * 2 + o[1], n.y * 2, n.z * 2));
+      d -= fissure * g;
+    }
     v.copy(n).multiplyScalar(d);
     const t = (v.y + 1) / 2;                    // 0 at the base, 1 at the top
     const k = 1 - taper * t * t;
@@ -350,7 +385,7 @@ export class Decor {
     // Spires: the original five, then a thin shard, a fat butte and a crooked one.
     const r = R(7);
     P.spire = Array.from({ length: 5 }, (_, i) => {
-      const geometry = displace(new THREE.IcosahedronGeometry(1, 5), r, { squash: 1, stretch: 1.8 + r() * 0.9, taper: 0.45 + r() * 0.3, strata: 0.1 + r() * 0.08 });
+      const geometry = displace(new THREE.IcosahedronGeometry(1, 20), r, { squash: 1, stretch: 1.8 + r() * 0.9, taper: 0.45 + r() * 0.3, strata: 0.1 + r() * 0.08 });
       geometry.computeBoundsTree();
       return part(geometry, sm, 'spire' + i);
     });
@@ -361,7 +396,7 @@ export class Decor {
       { stretch: 2.2, taper: 0.5, strata: 0.16, lean: 0.28 },
     ];
     spireX.forEach((o, i) => {
-      let geometry = displace(new THREE.IcosahedronGeometry(1, 5), r2, o);
+      let geometry = displace(new THREE.IcosahedronGeometry(1, 20), r2, o);
       if (o.lean) geometry = warp(geometry, (v) => { v.x += v.y * o.lean; });
       geometry.computeBoundsTree();
       P.spire.push(part(geometry, sm, 'spire' + (5 + i)));
@@ -376,7 +411,7 @@ export class Decor {
       { squash: 1.0, stretch: 1.0, taper: 0.3, strata: 0.08 },
     ];
     boulderX.forEach((o, i) => {
-      const geometry = displace(new THREE.IcosahedronGeometry(1, 5), r3, o);
+      const geometry = displace(new THREE.IcosahedronGeometry(1, 20), r3, o);
       geometry.computeBoundsTree();
       P.boulder.push(part(geometry, sm, 'boulderx' + i));
     });
@@ -497,9 +532,9 @@ export class Decor {
       return piece;
     }
     if (opt.y !== undefined) piece.mesh.position.y = opt.y;
-    else this.settle(piece, opt.sink ?? 0.08);
+    else this.settle(piece, opt.sink ?? def.sink ?? 0.08);
     // Inside the glass, whatever the size, turn and scale; re-seat after a sideways move.
-    if (this.clampPiece(piece) && opt.y === undefined) { this.settle(piece, opt.sink ?? 0.08); this.clampPiece(piece); }
+    if (this.clampPiece(piece) && opt.y === undefined) { this.settle(piece, opt.sink ?? def.sink ?? 0.08); this.clampPiece(piece); }
     this.restamp(piece);
     return piece;
   }
@@ -596,7 +631,12 @@ export class Decor {
 
   stamps() { return this.pieces.map((p) => p.stamp); }
 
-  // The ground under the piece rises to its top surface.
+  // The ground under the piece rises to its top surface (what animals, water and stacking see), and each raised point
+  // also says whether the drawn ground may rise with it (`vis`). The drawn ground is a grid of triangles, so a raised point
+  // is joined straight to its unraised neighbours, and those joins showed in two places: under an overhang, where the ground
+  // filled the open space under the rock with a sheet in front of its underside, and on the outer ring of the footprint,
+  // where they poked out of a steep side as a row of teeth (both on a boulder overhanging a ledge). So the drawn ground rises
+  // only where the piece rests on what is below it, and not on the outer ring of that (terrain.js `hv`).
   restamp(piece) {
     this.occupancyVersion++;
     const def = PIECES[piece.type];
@@ -605,22 +645,45 @@ export class Decor {
       const f = T.field;
       piece.mesh.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(piece.mesh);
-      const down = new THREE.Vector3(0, -1, 0);
+      const down = new THREE.Vector3(0, -1, 0), up = new THREE.Vector3(0, 1, 0);
       const o = new THREE.Vector3();
+      // What the piece stands on: the sculpted ground and every other piece's stamp, not its own.
+      const ground = f.base.slice();
+      for (const p of this.pieces) {
+        const s = p !== piece && p.stamp;
+        if (s) for (let k = 0; k < s.idx.length; k++) if (s.top[k] > ground[s.idx[k]]) ground[s.idx[k]] = s.top[k];
+      }
       const [i0, j0] = f.toGrid(box.min.x, box.min.z).map(Math.floor);
       const [i1, j1] = f.toGrid(box.max.x, box.max.z).map(Math.ceil);
-      const idx = [], top = [];
-      for (let j = Math.max(0, j0); j <= Math.min(f.ny, j1); j++) {
-        for (let i = Math.max(0, i0); i <= Math.min(f.nx, i1); i++) {
+      const ia = Math.max(0, i0), ib = Math.min(f.nx, i1), ja = Math.max(0, j0), jb = Math.min(f.ny, j1);
+      const W = ib - ia + 1, H = jb - ja + 1;
+      const tops = new Float32Array(W * H).fill(NaN);   // NaN: the piece is not over this point
+      const rests = new Uint8Array(W * H);              // 1: and its underside rests on what is below
+      for (let j = ja; j <= jb; j++) {
+        for (let i = ia; i <= ib; i++) {
           const [x, z] = f.toWorld(i, j);
           this.ray.set(o.set(x, box.max.y + 1, z), down);
           const hit = this.ray.intersectObject(piece.mesh, false)[0];
           if (!hit) continue;
-          idx.push(f.idx(i, j));
-          top.push(Math.min(f.maxH, hit.point.y - 0.15));
+          const c = (j - ja) * W + (i - ia);
+          tops[c] = Math.min(f.maxH, hit.point.y - 0.15);
+          this.ray.set(o.set(x, box.min.y - 1, z), up);
+          const under = this.ray.intersectObject(piece.mesh, false)[0];
+          rests[c] = !under || under.point.y <= ground[f.idx(i, j)] + STAMP_GAP ? 1 : 0;
         }
       }
-      piece.stamp = { idx: Int32Array.from(idx), top: Float32Array.from(top) };
+      const idx = [], top = [], vis = [];
+      const r = (i, j) => (i < 0 || j < 0 || i >= W || j >= H ? 0 : rests[j * W + i]);
+      for (let j = 0; j < H; j++) {
+        for (let i = 0; i < W; i++) {
+          const t = tops[j * W + i];
+          if (Number.isNaN(t)) continue;
+          idx.push(f.idx(i + ia, j + ja));
+          top.push(t);
+          vis.push(r(i, j) && r(i + 1, j) && r(i - 1, j) && r(i, j + 1) && r(i, j - 1) ? 1 : 0);
+        }
+      }
+      piece.stamp = { idx: Int32Array.from(idx), top: Float32Array.from(top), vis: Uint8Array.from(vis) };
     } else piece.stamp = null;
     T.compose(this.stamps());
   }
