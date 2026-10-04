@@ -22,6 +22,7 @@ import { Jobs } from '../sim/jobs.js';
 import { Support } from '../sim/support.js';
 import { PLANTS } from '../sim/plants.js';
 import { SedimentFX } from './sedimentfx.js';
+import { plungeGeometry, makePlungeMaterial } from './falls.js';
 
 // Erosion setting (Settings > Simulation realism): 0 off, 0.5, 1 or 2 times the strength.
 const EROSION_KEY = 'paludarium.erosion';
@@ -79,8 +80,8 @@ export class Water {
 
     this.buildFlowMesh();
     this.fallMat = makeFallMaterial();
-    this.splashMat = makeSplashMaterial();
-    this.ribbons = new Map();   // key → { mesh, splash, pts, curve, len, q, width, end }
+    this.splashMat = makePlungeMaterial();
+    this.ribbons = new Map();   // key → { mesh, splash (the plunge, render/falls.js), pts, curve, len, q, width, end, R }
     const dg = new THREE.IcosahedronGeometry(0.16, 0);
     this.drops = new THREE.InstancedMesh(dg, new THREE.MeshStandardNodeMaterial({ color: 0xe8f6ff, roughness: 0.05, transparent: true, opacity: 0.7 }), 500);
     this.drops.frustumCulled = false;
@@ -344,22 +345,37 @@ export class Water {
   // tongue can run ahead of its sides (water is slowed at the ends of a lip).
   // Per vertex (`fdat`): the flow's strength, how aerated the water is (glassy
   // at the lip and where it slides over the ground, white once it has fallen a
-  // few centimetres) and how far in from the ends it is (soft start and end).
-  makeRibbon(pts, side, width, q, { lift = new THREE.Vector3(), bulge = null, lip = 0, fadeIn = 0.6 } = {}) {
+  // few centimetres), how far in from the ends it is (soft start and end) and how far it has torn into ropes; uv.y is
+  // the water's time of flight from the lip.
+  makeRibbon(path, side, width, q, { lift = new THREE.Vector3(), bulge = null, lip = 0, fadeIn = 0.6 } = {}) {
     const pos = [], uvs = [], dat = [], idx = [];
     const strength = Math.min(1, 0.5 + q / 50);
+    // A fall that lands in water goes on into it: the sheet runs a centimetre under the surface and fades out there, so
+    // it meets its foam instead of stopping in the air above the pool.
+    const foot = path[path.length - 1], fs = this.hydro.surfaceAt(foot.x, foot.z, 0.2);
+    const sink = fs > -Infinity && Math.abs(foot.y - fs) < 1.2;
+    const pts = sink ? [...path, foot.clone().add(new THREE.Vector3(foot.x - path[path.length - 2].x, 0, foot.z - path[path.length - 2].z).clampLength(0, 0.4)).setY(fs - 1.2)] : path;
     const n = pts.length;
     const lens = [0];
     for (let i = 1; i < n; i++) lens.push(lens[i - 1] + pts[i].distanceTo(pts[i - 1]));
     const len = lens[n - 1];
     const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
     const top = pts[Math.min(lip, n - 1)].y;
+    const drop = pts.map((p) => Math.max(0, top - p.y));
     const aer = pts.map((p, i) => {
       const a = pts[Math.min(n - 1, i + 1)], b = pts[Math.max(0, i - 1)];
       const steep = Math.abs(a.y - b.y) / Math.max(1e-4, a.distanceTo(b));
-      return sm(0.4, 3.5, top - p.y) * (0.35 + 0.65 * sm(0.25, 0.75, steep));
+      return sm(1.2, 6, drop[i]) * (0.35 + 0.65 * sm(0.25, 0.75, steep));
     });
-    const fade = lens.map((l) => sm(0, fadeIn, l) * sm(0, 1.6, len - l));
+    // Time of flight from the lip (s), the pattern's coordinate along the sheet: water leaves the lip slowly and speeds
+    // up as it falls (v² = v0² + 2gh), so what rides on it runs faster and is drawn out into streaks lower down. Slowed
+    // (6 cm/s at the lip, 24 after 9 cm) so the streaks still read at 30 frames a second.
+    const tof = [0];
+    for (let i = 1; i < n; i++) tof.push(tof[i - 1] + (lens[i] - lens[i - 1]) / (6 + 6 * Math.sqrt((drop[i] + drop[i - 1]) / 2)));
+    // Where the sheet tears into ropes with air between them: after a few centimetres of fall, and only a sheet wide enough
+    // to tear (a narrow jet stays one column).
+    const brk = drop.map((d) => sm(2.5, 10, d) * sm(1.5, 5, width));
+    const fade = lens.map((l, i) => sm(0, fadeIn, l) * (sink ? (i < n - 1 ? 1 : 0) : sm(0, 1.6, len - l)));
     const lead = Math.min(0.8, width * 0.12);
     // Water stands higher in the middle of a lip than at its ends, so seen from the front the top of the sheet is an
     // arch: the sides drop a little sooner.
@@ -367,8 +383,8 @@ export class Water {
     const strip = (sideOf, wScale, cols, bulgeDir) => {
       const base = pos.length / 3;
       for (let i = 0; i < n; i++) {
-        // A little wider as it falls and spreads.
-        const w = width * wScale * (0.85 + Math.min(0.5, (Math.max(0, i - lip) / n) * 0.5));
+        // Drawn in a little by surface tension as it leaves the lip, then fraying outward as it breaks up.
+        const w = width * wScale * (1 - 0.15 * sm(0, 4, drop[i]) + 0.14 * brk[i]);
         const sd = sideOf(i);
         const ahead = bulgeDir ? lead * sm(0, 2, lens[i] - lens[Math.min(lip, n - 1)]) : 0;
         for (let c = 0; c <= cols; c++) {
@@ -377,8 +393,8 @@ export class Water {
           if (ahead) v.addScaledVector(bulgeDir, ahead * (1 - x * x));
           if (bulgeDir && cols > 1) v.y -= sag * x * x * sm(-0.5, 1.5, lens[i] - lens[Math.min(lip, n - 1)]);
           pos.push(v.x, v.y, v.z);
-          uvs.push(u, lens[i]);
-          dat.push(strength, aer[i], fade[i]);
+          uvs.push(u, tof[i]);
+          dat.push(strength, aer[i], fade[i], brk[i]);
         }
       }
       for (let i = 0; i < n - 1; i++) for (let c = 0; c < cols; c++) {
@@ -395,7 +411,7 @@ export class Water {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    g.setAttribute('fdat', new THREE.Float32BufferAttribute(dat, 3));
+    g.setAttribute('fdat', new THREE.Float32BufferAttribute(dat, 4));
     g.setIndex(idx);
     g.computeVertexNormals();
     const mesh = new THREE.Mesh(g, this.fallMat);
@@ -403,14 +419,22 @@ export class Water {
     mesh.name = 'fall';
     mesh.frustumCulled = false;
     this.scene.add(mesh);
-    const end = pts[n - 1];
-    const sg = new THREE.CircleGeometry(Math.min(3.2, 1 + width * 0.3), 20);
-    sg.rotateX(-Math.PI / 2);
+    const end = foot, m = path.length;
+    // The plunge (render/falls.js): foam where it lands, and in standing water a trail of foam carried off toward the
+    // pool's outlet (the pump's intake in the main pool). Heading: the fall's own, or straight out from a wall it runs down.
+    const H = this.hydro, hh = this.terrain.field.h, a = path[Math.max(0, m - 4)];
+    const head = new THREE.Vector2(end.x - a.x, end.z - a.z);
+    if (head.length() < 0.2) head.set(bulge?.x ?? -side.z, bulge?.z ?? side.x);
+    head.normalize();
+    const inPool = sink && H.res[H.cellOf(end.x, end.z)];
+    const intake = inPool ? H.pump.intake ?? (H.seed !== undefined ? { x: H.cellXZ(H.seed)[0], z: H.cellXZ(H.seed)[1] } : null) : null;
+    const wetAt = (x, z) => { const c = H.cellOf(x, z); return H.res[c] ? H.level - hh[c] > 0.4 : H.d[c] > 0.4; };
+    const R = Math.min(3.4, 1 + width * 0.3 + q * 0.015);
+    const sg = plungeGeometry({ foot: new THREE.Vector3(end.x, (sink ? fs : end.y) + 0.08, end.z), dir: [head.x, head.y], toward: intake, R, q, wet: sink ? wetAt : () => false });
     const splash = new THREE.Mesh(sg, this.splashMat);
-    splash.position.copy(end).add(new THREE.Vector3(0, 0.08, 0));
     splash.renderOrder = 8;
     this.scene.add(splash);
-    return { mesh, splash, pts, curve: new THREE.CatmullRomCurve3(pts.slice(lip)), len: len - lens[Math.min(lip, n - 1)], q, width, end };
+    return { mesh, splash, pts: path, curve: new THREE.CatmullRomCurve3(path.slice(lip)), len: lens[m - 1] - lens[Math.min(lip, m - 1)], q, width, end, R };
   }
 
   // Which falls land in still water (the main pool or a pond), and the ponds for the ripple simulation (WaterFX.setStill):
@@ -511,29 +535,42 @@ export class Water {
     if ((this._flowTick = (this._flowTick || 0) + 1) % 2 === 0 || this._flowTick === 1) this.updateFlowMesh();
     this._t -= dt;
     if (this._t <= 0) { this._t = 0.4; this.syncFalls(); this.syncStill(); }
-    // Droplets riding the falls; where a fall lands in the main pool or a still pond it stirs the ripples.
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    // Droplets torn off the falls and thrown up where they land; where a fall lands in the main pool or a still pond it
+    // stirs the ripples.
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     let k = 0;
     const now = performance.now() * 0.001;
     for (const r of this.ribbons.values()) {
-      const n = Math.min(40, Math.round(8 + r.len * 0.6));
+      // Only off the lower sheet, where it breaks into ropes (none on the glassy top), riding just outside it.
+      const n = Math.min(24, Math.round(4 + r.len * 0.4));
       const speedK = 30 / Math.max(4, r.len);
       for (let i = 0; i < n && k < 500; i++) {
-        const t = (now * speedK * (0.8 + (i % 5) * 0.08) + i / n) % 1;
-        const p = r.curve.getPointAt(t);
-        p.x += Math.sin(i * 12.9) * r.width * 0.3;
-        p.z += Math.cos(i * 7.3) * 0.3;
-        const kk = 0.6 + (i % 3) * 0.3;
-        m.compose(p, q, s.set(kk, kk * 1.8, kk));
+        const t = 0.4 + 0.6 * ((now * speedK * (0.8 + (i % 5) * 0.08) + i / n) % 1);
+        p.copy(r.curve.getPointAt(t));
+        p.x += Math.sin(i * 12.9) * r.width * 0.4;
+        p.z += Math.cos(i * 7.3) * 0.4;
+        const kk = 0.4 + (i % 3) * 0.2;
+        m.compose(p, q, s.set(kk, kk * 2.2, kk));
         this.drops.setMatrixAt(k++, m);
       }
-      const sc = 1 + Math.sin(now * 6 + r.len) * 0.06;
-      r.splash.scale.set(sc, 1, sc);
+      // Spray: short hops out of the boil at the foot, each in a new direction (a little slowed).
+      if (r.wet) for (let i = 0, ns = Math.min(14, 4 + Math.round(r.q / 4)); i < ns && k < 500; i++) {
+        const life = 0.3 + (i % 4) * 0.06, c = (now + i * 0.137) / life, t = c % 1, a = i * 2.399 + Math.floor(c) * 1.7;
+        const out = (0.3 + (i % 3) * 0.25) * r.R, hgt = Math.min(2.5, 0.4 + r.q / 30 + (i % 2) * 0.4);
+        p.set(r.end.x + Math.cos(a) * out * t, r.end.y + 4 * hgt * t * (1 - t), r.end.z + Math.sin(a) * out * t);
+        const kk = 0.3 + (i % 3) * 0.12;
+        m.compose(p, q, s.set(kk, kk, kk));
+        this.drops.setMatrixAt(k++, m);
+      }
       // The plunge: a few drops a frame scattered over the foot, harder for a bigger flow, so rings keep spreading
-      // from it and run into each other instead of one steady pulse.
+      // from it and run into each other instead of one steady pulse; a big fall also stirs the edge of its foam ring.
       if (this.fx && r.wet && Math.random() < 0.85) {
         const sp = Math.min(2.5, 0.8 + r.width * 0.2), k = Math.min(1.6, 0.6 + r.q / 40);
         this.fx.addDrop(r.end.x + (Math.random() - 0.5) * sp, r.end.z + (Math.random() - 0.5) * sp, -(1.5 + Math.random() * 3.5) * k, 0.45 + Math.random() * 0.6);
+        if (r.q > 12 && Math.random() < 0.5) {
+          const a = Math.random() * 6.283;
+          this.fx.addDrop(r.end.x + Math.cos(a) * r.R * 0.85, r.end.z + Math.sin(a) * r.R * 0.85, -(1 + Math.random() * 2) * k, 0.4 + Math.random() * 0.3);
+        }
       }
     }
     this.drops.count = k;
@@ -611,7 +648,7 @@ export class Water {
     const W = this.world, T = W.terrain;
     for (const p of W.plants?.list ?? []) {
       if (p.surface !== 'terrain' || String(PLANTS[p.id]?.habitat ?? '').includes('floating')) continue;
-      const y = T.heightAt(p.pos.x, p.pos.z);
+      const y = W.plants.seatY?.(p.pos.x, p.pos.z) ?? T.heightAt(p.pos.x, p.pos.z);     // (the drawn ground, sim/plants.js)
       if (Math.abs(y - p.pos.y) < 0.03) continue;
       p.pos.y = y;
       p.normal.copy(T.normalAt(p.pos.x, p.pos.z));
@@ -736,47 +773,39 @@ function makeFlowMaterial() {
 }
 
 // Falling water. At the lip and where it slides over the ground it is a glassy sheet: what lies behind it shows
-// through, bent by the streaks (the same screen copy the pools refract, render/waterfx.js), with the lamp's highlight
-// on it. Once it has fallen a few centimetres air gets in and it turns white: thin streaks racing down (noise stretched
-// along the flow), a whiter core, see-through edges; bigger flows are more opaque. The top and the sides are ragged and
-// move, so the sheet is never a rectangle with a straight upper edge.
+// through, bent by the streaks (the same screen copy the pools refract, render/waterfx.js), with a sheen that moves with
+// the water. The pattern rides the water (its coordinate along the sheet is the time of flight, see makeRibbon), so it
+// creeps over the lip and races at the foot, drawn out into streaks. Once the water has fallen a few centimetres air
+// gets in and it turns white in streaks, and lower still the sheet tears into ropes with air between them. The top and
+// the sides are ragged and move, so the sheet is never a rectangle with a straight upper edge.
 function makeFallMaterial() {
   // Lit here rather than by the standard lighting, as the pools are: its bright environment map turned any part of the
   // sheet that faces up (the lip, a slide down a slope) into a flat white slab, and its highlight ran along the fold at
   // the lip as a straight bright line.
   const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide });
   const u = uv();
-  const fd = attribute('fdat', 'vec3');
-  const str = fd.x, aer = fd.y, fade = fd.z;
-  const streak = noise3(vec3(u.x.mul(14.0), u.y.mul(0.35).sub(time.mul(6.0)), 0.5))
-    .add(noise3(vec3(u.x.mul(31.0), u.y.mul(0.8).sub(time.mul(9.0)), 2.5)).mul(0.6));
-  const fine = noise3(vec3(u.x.mul(60.0), u.y.mul(3.0).sub(time.mul(16.0)), 7.0));
-  const wob = noise3(vec3(u.y.mul(0.6).sub(time.mul(2.5)), u.x.mul(3.0), 4.4));
-  const side = abs(u.x.mul(2).sub(1)).add(wob.mul(0.12));
+  const fd = attribute('fdat', 'vec4');
+  const str = fd.x, aer = fd.y, fade = fd.z, brk = fd.w;
+  const ride = u.y.sub(time);
+  const streak = noise3(vec3(u.x.mul(14.0), ride.mul(2.2), 0.5)).add(noise3(vec3(u.x.mul(31.0), ride.mul(5.0), 2.5)).mul(0.6));
+  const fine = noise3(vec3(u.x.mul(60.0), ride.mul(14.0), 7.0));
+  const wob = noise3(vec3(ride.mul(0.9), u.x.mul(3.0), 4.4));
+  const side = abs(u.x.mul(2).sub(1)).add(wob.mul(0.12).add(brk.mul(0.08)));
   const edge = smoothstep(1.0, 0.62, side);
   const core = smoothstep(0.7, 0.0, side);
   const ends = smoothstep(0.1, 0.9, fade.add(wob.mul(0.35)));
-  const white = smoothstep(-0.1, 0.8, streak.add(fine.mul(0.3))).mul(aer.mul(0.85).add(0.15));
+  // Ropes: a pattern across the sheet, long along the fall (it rides the water too), whose gaps open as it breaks up.
+  const rope = noise3(vec3(u.x.mul(8.0).add(wob.mul(0.5)), ride.mul(0.6), 6.1));
+  const solid = mix(float(1), smoothstep(-0.22, -0.02, rope), brk);
+  const froth = smoothstep(-0.05, 0.6, streak.add(fine.mul(0.3)));
+  const white = aer.mul(mix(float(0.3), float(1), froth)).mul(solid.mul(0.4).add(0.6));
   const glass = float(1).sub(aer).mul(float(1).sub(white));
   const lit = U.daylight.mul(0.8).add(0.12);
   const below = viewportSharedTexture(viewportSafeUV(screenUV.add(vec2(streak.mul(0.01), fine.mul(0.005))))).rgb;
+  const sheen = smoothstep(0.25, 0.65, streak).mul(glass).mul(0.22).mul(lit);
   const airyCol = mix(vec3(0.5, 0.64, 0.68), vec3(0.9, 0.93, 0.95), white).mul(lit);
-  m.colorNode = mix(below.mul(vec3(0.86, 0.95, 0.97)), airyCol, float(1).sub(glass));
-  const airy = white.mul(0.6).add(core.mul(0.25)).add(0.12);
-  m.opacityNode = edge.mul(ends).mul(str).mul(mix(float(0.9), airy, aer));
-  return m;
-}
-
-// Where a fall plunges: white water churning over the foot, made of two layers of noise that boil at different speeds
-// and a ragged rim. The rings that spread from it are the ripple simulation's (drops in Water.animate), not drawn here.
-function makeSplashMaterial() {
-  const m = new THREE.MeshStandardNodeMaterial({ transparent: true, depthWrite: false, roughness: 0.35 });
-  const u = uv().sub(0.5).mul(2);
-  const a = noise3(vec3(u.x.mul(3.2), u.y.mul(3.2), time.mul(1.6)));
-  const b = noise3(vec3(u.x.mul(7.5), u.y.mul(7.5), time.mul(3.4).add(5)));
-  const r = length(u).add(a.mul(0.25));
-  const churn = smoothstep(0.05, 0.5, a.mul(0.6).add(b.mul(0.5)).add(float(0.5).sub(r.mul(0.6))));
-  m.colorNode = vec3(0.93, 0.97, 1);
-  m.opacityNode = smoothstep(1.0, 0.4, r).mul(churn).mul(0.45);
+  m.colorNode = mix(below.mul(vec3(0.86, 0.95, 0.97)), airyCol, float(1).sub(glass)).add(sheen);
+  const airy = white.mul(0.7).add(core.mul(0.2)).add(0.14);
+  m.opacityNode = edge.mul(ends).mul(str).mul(solid).mul(mix(float(0.9), airy, aer));
   return m;
 }

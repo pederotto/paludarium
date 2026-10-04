@@ -38,8 +38,9 @@ export const WET = 0.05;      // cm: thinner films count as dry
 const NB8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const HMAX = 80;              // cm of lift at which the pump delivers nothing
 const NN = NODE.MAX;          // ledger nodes: 0 ground, 1 sump, 2 outside, 3.. outlets, 15.. ponds and streams
-// Share of the rated flow the pump really delivers when it lifts water `head` cm (a simple pump curve).
-export const pumpCurve = (head) => Math.max(0, 1 - (head / HMAX) * (head / HMAX));
+// Share of the rated flow the pump really delivers when it lifts water `head` cm (a simple pump curve); a filter's pump
+// passes its own lift at zero flow, hmax (content/equipment.js FILTERS, sim/filterflow.js).
+export const pumpCurve = (head, hmax = HMAX) => Math.max(0, 1 - (head / hmax) * (head / hmax));
 
 export class Hydro {
   constructor(world) {
@@ -70,6 +71,7 @@ export class Hydro {
     this.outlets = [];                     // { pos, wall, cell, pts }
     this.topUp = true;
     this.targetTotal = 0;                  // cm³ the top-up keeps
+    this.held = 0;                         // cm³ moved from the pool into the false bottom's plenum (sim/plenum.js, exchange)
     this.pools = [];
     this.falls = [];
     this.flowOut = 0;                      // cm³/s currently pumped
@@ -342,6 +344,7 @@ export class Hydro {
     this.solveLevel();
     this.updateMembership();
     this.targetTotal = this.total();
+    this.held = 0;                         // (the level the keeper set is the top-up's new mark, with the plenum as it is)
   }
 
   // Cells join the main pool when it rises over them (their water merges
@@ -633,6 +636,20 @@ export class Hydro {
     }
   }
 
+  // Water swapped with the false bottom's plenum (sim/plenum.js), cm³: positive into the main pool (the plenum's pump water,
+  // which the falls bring back here), negative out of it (through the screen into the plenum). The plenum is outside these
+  // books, so it is booked against the outside, like evaporation; `held` keeps what it holds of the pool's water, so the
+  // top-up does not refill the pool for water that only moved under the land. Returns what was moved (the pool cannot give
+  // more than it has).
+  exchange(cm3) {
+    const v = cm3 < 0 ? -Math.min(-cm3, this.resVol) : cm3;
+    if (!v) return 0;
+    this.resVol += v;
+    this.held -= v;
+    if (v > 0) this.x(NODE.EXT, NODE.SUMP, v); else this.x(NODE.SUMP, NODE.EXT, -v);
+    return v;
+  }
+
   // Evaporation (game minutes), with an optional automatic top-up like the
   // float valve of a real tank.
   evaporate(minutes, humidity, temp, openArea) {
@@ -643,7 +660,7 @@ export class Hydro {
     this.evapLph = rate * 3.6;
     let added = 0;
     if (this.topUp && this.targetTotal > 0) {
-      const lack = this.targetTotal - this.total();
+      const lack = this.targetTotal - this.total() - this.held;
       if (lack > 0) { this.resVol += lack; added = lack; this.x(NODE.EXT, NODE.SUMP, lack); }
     }
     // Top-up as litres per (game) hour, smoothed.
@@ -866,7 +883,7 @@ export class Hydro {
     const q = new Uint16Array(this.N);
     for (let n = 0; n < this.N; n++) q[n] = Math.min(65535, Math.round(this.d[n] * 200));
     return {
-      resVol: Math.round(this.resVol), d: b64(q.buffer), target: Math.round(this.targetTotal), topUp: this.topUp,
+      resVol: Math.round(this.resVol), d: b64(q.buffer), target: Math.round(this.targetTotal), topUp: this.topUp, held: Math.round(this.held),
       pump: { on: this.pump.on, rate: this.pump.rate, intake: this.pump.intake ? [this.pump.intake.x, this.pump.intake.z] : null },
       outlets: this.outlets.map((o) => ({ p: o.pos.toArray().map((v) => +v.toFixed(2)), w: o.wall, v: +(o.valve ?? 1).toFixed(2) })),
       bodies: this.bodies.serialize(),
@@ -892,6 +909,7 @@ export class Hydro {
     this.solveLevel();
     this.updateMembership();
     this.targetTotal = o.target || this.total();
+    this.held = o.held ?? 0;
     this.hPrev.set(this.f.h);
     this.bodies.pending = o.bodies ?? null;
     this.findPools();

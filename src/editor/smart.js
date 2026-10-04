@@ -158,7 +158,7 @@ export class SmartPlacer {
 
   // Places `n` pieces: one, or a graded cluster (odd: 3 or 5) around (cx, cz). `around`: an existing focal piece
   // (the cluster grows around it instead of starting a new one).
-  pieces(type, cx, cz, n, { stackY = null, onPiece = false, around = null } = {}) {
+  pieces(type, cx, cz, n, { stackY = null, onPiece = false, around = null, rest = onPiece } = {}) {
     const T = this.T, W = this.W, def = PIECES[type];
     const seed = seedOf(cx, cz, this.n++), rnd = mulberry(seed), ks = kitScale();
     const base = (around ? around.size / 1.15 : def.size * ks) * (onPiece ? 0.7 : 1);
@@ -181,11 +181,11 @@ export class SmartPlacer {
       if (err) { toast(err, 'bad'); break; }
       const look = W.decor.look(type, seed + i * 977);
       const face = !!def.face && !onPiece;
-      const p = W.decor.addPiece(type, x, z, { size: L.size, variant: look.variant, rot: look.rot, scale: look.scale, flip: look.flip, tint: look.tint, face, y: stackY != null && !face ? stackY - L.size * 0.08 : undefined });
+      const p = W.decor.addPiece(type, x, z, { size: L.size, variant: look.variant, rot: look.rot, scale: look.scale, flip: look.flip, tint: look.tint, face, rest: rest && !face });
       if (!p) { T.game.career?.refund('piece', type); toast('Still loading models…', 'bad'); break; }
       made.push(p); refunds.push(type);
-      if (T.mirrored(x, 1)) T.mirrorPiece({ type, size: L.size, variant: look.variant, rot: look.rot, onTop: stackY != null, x, z, look });
-      this.last = { kind: 'piece', id: type, x: p.mesh.position.x, z: p.mesh.position.z, size: L.size, piece: p, stackY };
+      if (T.mirrored(x, 1)) T.mirrorPiece({ type, size: L.size, variant: look.variant, rot: look.rot, onTop: rest, x, z, look });
+      this.last = { kind: 'piece', id: type, x: p.mesh.position.x, z: p.mesh.position.z, size: L.size, piece: p, stackY, rest };
     }
     if (!made.length) { if (W.undoStack.length === len) { W.undoStack.pop(); S.undoDepth.value = W.undoStack.length; } this.setBar(); return; }
     W.groundChanged();
@@ -339,7 +339,7 @@ export class SmartPlacer {
     if (!l) return;
     if (l.kind === 'piece') {
       const a = (this.n * 2.399963) % (Math.PI * 2), r = Math.max(2, l.size * 0.7);
-      this.pieces(l.id, l.x + Math.cos(a) * r, l.z + Math.sin(a) * r * 0.8, 1, { stackY: l.stackY });
+      this.pieces(l.id, l.x + Math.cos(a) * r, l.z + Math.sin(a) * r * 0.8, 1, { stackY: l.stackY, rest: l.rest });
     } else if (l.kind === 'plant') {
       const a = (this.n++ * 2.399963) % (Math.PI * 2), r = this.spacing() * 1.3;
       const x = l.x + Math.cos(a) * r, z = l.z + Math.sin(a) * r;
@@ -350,7 +350,7 @@ export class SmartPlacer {
   group(n) {
     const l = this.last;
     if (!l) return;
-    if (l.kind === 'piece') this.pieces(l.id, l.x, l.z, n, { around: l, stackY: l.stackY });
+    if (l.kind === 'piece') this.pieces(l.id, l.x, l.z, n, { around: l, stackY: l.stackY, rest: l.rest });
     else if (l.kind === 'plant') this.plants(l.id, l.hit ?? this.hitFor(l.id, l.x, l.z), n, { x: l.x, z: l.z });
     else if (l.kind === 'animal') this.animals(l.id, l.hit, n);
   }

@@ -6,10 +6,13 @@ import * as THREE from 'three/webgpu';
 import { Builder, PRIM } from '../render/geo.js';
 import { hash3, clamp, lerp, rng, closestOnSegments } from '../util/math.js';
 import { bodyFootprint } from '../util/body.js';
+import { surfaceFrame, pitchFrame, glassPush, feetPlane, steadyNormal, easeAngle } from '../util/contain.js';
 import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, bob, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
+import { limbFrame, turnFrame, turnStep, pivotShift, turnSteps, turnPose, steerLimit } from '../util/turn.js';
+import { PLANS, planOf, limitRig } from '../util/bodyplan.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
@@ -31,10 +34,11 @@ const UP = V(0, 1, 0);
 const TAU = Math.PI * 2;
 const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion();
 const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0), _gb = V(0, 0, 0);
+const _fr = new Array(9), _gp = [0, 0, 0], _bb = { X: 0, z0: 0, z1: 0, H: 0 }, _sd = [0, 0, 0];     // (whole-body containment: inGlass, bodyBox, stemDepth)
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
 const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog']);
 // Plants a perching frog uses: broad leaves to sit on, or reed stems to cling to (grass and creeping plants hold no frog).
-const PERCH_PLANTS = { bromeliad: 'leaf', monstera: 'leaf', fern: 'leaf', fernph: 'leaf', cattail: 'stem', bamboo: 'stem' };
+const PERCH_PLANTS = { bromeliad: 'leaf', guzmania: 'leaf', neoregelia: 'leaf', monstera: 'leaf', fern: 'leaf', fernph: 'leaf', cattail: 'stem', bamboo: 'stem' };   // (frogs sit in a bromeliad's cup leaves)
 const _pm = new THREE.Mesh(undefined, new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide }));   // a plant instance, for rays
 _pm.matrixAutoUpdate = false;
 // The heading that puts a frog's head up when its belly is to a vertical surface with outward normal N (Animals.draw turns
@@ -61,6 +65,22 @@ function coreR(q) {
 }
 const NO_CORE = new Set(['javamoss', 'pothos']);                                            // carpets and creepers: walked over
 const LIVE = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink']);   // hunters that really stalk and strike
+const TAILED = new Set(['newt', 'axolotl', 'gecko', 'skink']);                  // a long tail behind the hind feet (footing stands them on their feet)
+// Where a four-legged body's feet are along it (cm, the mesh's rest pose): the lowest point of each leg of the rig, the mean of the
+// fore pair and of the hind pair. Null for other bodies (a crab's legs and claws, a fish).
+function feetOf(P, R) {
+  if (!R) return null;
+  const low = new Map();
+  for (let i = 0, n = P.length / 3; i < n; i++) {
+    const k = R[i * 4 + 1];
+    if (k <= 0.5) continue;
+    const j = low.get(k);
+    if (j == null || P[i * 3 + 1] < P[j * 3 + 1]) low.set(k, i);
+  }
+  if (low.size !== 4) return null;
+  const z = [...low.values()].map((i) => P[i * 3 + 2]).sort((p, q) => q - p);
+  return { fore: (z[0] + z[1]) / 2, hind: (z[2] + z[3]) / 2 };
+}
 
 // ---------------------------------------------------------------------------
 // Looks. All built facing +z, feet/belly at y = 0 for walkers, centred for
@@ -378,7 +398,7 @@ export const SPECIES = {
     minL: 100, temp: [23, 27], humidity: 70, hungerHours: 260, lifeDays: 4000, eats: ['isopod', 'fly', 'flylarva', 'springtail', 'pandaking', 'cricket', 'dubia', 'earthworm', 'waxworm'], cap: 2, breed: 0.006, adultDays: 120,
     eggs: { n: 1, days: 60, into: 'skink', where: 'land' },
     bask: 28.5, uvb: 2, land: 0.8, territorial: true, flock: [1, 2], ph: [6.5, 7.8],
-    body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6 },
+    body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6, rig2: { neck: 0.13, s0: 0.03, s1: 0.17, neckY: 0.55, len: 16.8 } },
     note: 'A shy, armoured little lizard of humid stream banks in New Guinea, with orange rings round its eyes. 80% land, a shallow pool (5-7 cm at most) to soak in, 23-27 °C with a 28-29 °C warm spot, 80-90% humidity, low UVB; cork bark, leaf litter and moss to hide in. Out at dusk. One, or a male and a female.',
   },
   bumblebee: {
@@ -507,9 +527,19 @@ export function createSpeciesMesh(scene, id, { cap = null, morph = null } = {}) 
   return new CreatureLOD(scene, src, {
     cap: cap ?? sp.cap + 20,
     wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-    finish: { ...FINISH[group], ...(src.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}) },
+    finish: { ...FINISH[group], ...(src.finish ?? {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}), ...turnRigFinish(sp) },
     near: 34 + sp.size * 10,
   });
+}
+
+// The turning rig a species' mesh is built with (render/creatures/instanced.js turnFinish): four-legged walkers swing their legs round
+// the pivot in a turn (`turnSweep`: the body plan, measured on the mesh), and a fish gets the rig2 bend channel for the C-bend of a
+// turn (head yaw unused; its length is measured on the mesh). Insects, crabs and shrimp step round with their own leg rigs.
+export function turnRigFinish(sp) {
+  const plan = planOf(sp), a = sp.anim ?? {};
+  if ((plan === 'anuran' || plan === 'caudate' || plan === 'lizard') && a.stride && (a.legAxis ?? 'z') === 'z') return { turnSweep: plan };
+  if (plan === 'fish' && !a.rig2) return { rig2: { neck: 0, s0: 0, s1: 0.02, neckY: 0 } };
+  return {};
 }
 
 const READY = new Map();         // id → (scene, cap) => mesh: models already loaded, so a later tank uses them at once
@@ -539,7 +569,7 @@ export async function modelBuilder(id, meta = null) {
   const palette = meta.palette ? paletteFinish(id.includes(':') ? id.split(':')[1] : meta.paletteMorph ?? 'red', meta) : null;
   return (scene, cap = sp.cap + 20) => new CreatureLOD(scene, g.lo, {
     cap, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(palette ? { palette } : {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(palette ? { palette } : {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}), ...turnRigFinish(sp) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
   });
 }
 
@@ -890,15 +920,30 @@ export class Animals {
           case 'skink': this.skink(a, sp, dt); break;
           case 'egg': break;
         }
+        if (a.lookTo != null) {
+          // Looking round (vis): a body without a neck turns on the spot, while it is sitting or resting and nothing else moves it.
+          const rest = !a.hop && !a.swimming && !a.perch && !a.wallMode && !a.onWall && !a.st && (sp.kind === 'frog' || sp.kind === 'toad' ? a.fs === 'sit' : a.state !== 'walk');
+          if (!rest || Math.abs(angDiff(a.lookTo, a.yaw ?? 0)) < 0.02) a.lookTo = null;
+          else if (dt > 0) this.turnTo(a, sp, a.lookTo, sp.kind === 'frog' || sp.kind === 'toad' ? dt / this.tf : dt, 4);
+        }
         if (dt > 0 && LIVE.has(sp.kind)) this.hunter(a, sp, dt);
         if (dt > 0 && this.avoid) this.keepFree(a, sp, dt);
+        if (dt > 0 && this.avoid && CORE_WALKERS.has(sp.kind)) this.offCliff(a, sp, px, py, pz);
         // Distance walked drives the leg cycle: one cycle per stride of this animal at its size (util/gait.js strideRate), so
         // a planted foot does not slide. A frog or salamander turning on the spot steps round too (its feet travel about half a
         // body length per radian), and `stepping` says the legs are working, so they come to rest planted when it stops.
         const moved = Math.hypot(a.pos.x - px, a.pos.y - py, a.pos.z - pz);
-        let steps = moved;
-        if (VIS.has(sp.kind) && !a.hop && !a.swimming && a._py != null) steps += Math.abs(angDiff(a.yaw ?? 0, a._py)) * 0.45 * sp.size;
+        // Turning drives the legs too (util/turn.js): the feet travel R a radian round the pivot, R measured on the mesh, so there is
+        // no yaw without the legs stepping; the turning mix (a.turnMix) tells the rig to swing them round instead of back.
+        const dyaw = a._py != null ? angDiff(a.yaw ?? 0, a._py) : 0;
         a._py = a.yaw ?? 0;
+        let steps = moved, tau = 0;
+        if (dyaw && !a.hop && !a.swimming && sp.kind !== 'swim') {
+          const ts = turnSteps(Math.max(0, moved - (a.pivotMoved ?? 0)), dyaw, this.turnRadius(a, sp));
+          steps = ts.steps; tau = ts.tau;
+        }
+        a.pivotMoved = 0;
+        if (dt > 0) this.turnPoseStep(a, sp, dyaw, tau, sp.kind === 'frog' || sp.kind === 'toad' ? dt / this.tf : dt);
         const rate = sp.kind === 'crab' ? crabGaitRate((sp.crabProfile ?? CRAB).shellCm) : VIS.has(sp.kind) && sp.anim?.stride ? strideRate(sp.anim.stride, drawScale(a, sp)) : 2.6;
         a.gait = (a.gait ?? a.phase) + steps * rate;
         if (dt > 0) a.stepping = steps > 1e-4 ? 0.18 : Math.max(0, (a.stepping ?? 0) - dt / this.tf);
@@ -914,14 +959,18 @@ export class Animals {
       for (const [id, arr] of Object.entries(this.by)) {
         const sp = SPECIES[id];
         for (const a of arr) {
-          // Never beyond the glass.
+          // Never beyond the glass: its middle, then the whole body as it is drawn (inGlass).
           const hx = TANK.w / 2 - 0.4, hz = TANK.d / 2 - 0.4;
           a.pos.x = clamp(a.pos.x, -hx, hx); a.pos.y = clamp(a.pos.y, 0, TANK.h - 0.5);
           if (!a.wallMode) a.pos.z = clamp(a.pos.z, -hz, hz);
+          if (sp.kind !== 'egg') this.inGlass(a, sp);
           if (a.onWall || a.hop || a.wallMode || (a.perch && a.perch.ph !== 'go')) continue;
           if (sp.kind !== 'swim') { const g = T.heightAt(a.pos.x, a.pos.z); if (a.pos.y < g - 0.3) a.pos.y = g; }
           if (sp.kind !== 'egg') this.clearOfWall(a, sp);
+          if (CORE_WALKERS.has(sp.kind)) this.outOfStems(a, sp);
+          if (CORE_WALKERS.has(sp.kind)) this.outOfBank(a, sp);
           if (this.insideSolid(a, sp)) this.relocate(a, sp, true, true);
+          if (sp.kind !== 'egg') this.inGlass(a, sp);                    // (again: the pushes above may not take it through the glass)
         }
       }
     }
@@ -996,19 +1045,209 @@ export class Animals {
   // Keeps the whole body in front of the background relief: the far end of its capsule (or its circle) and its radius, at the
   // height of its body, not only its middle (a crab walking sideways along the back put its legs into the wall). Swimmers too.
   clearOfWall(a, sp) {
-    const Wl = this.world.wall, T = this.world.terrain, r = a.rad ?? 0.4;
-    let x = a.pos.x, zmin = a.pos.z;
-    if (a.cap) {
-      const fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0);
-      for (const t of [a.cap.zc - a.cap.hl, a.cap.zc + a.cap.hl]) { const z = a.pos.z + fz * t; if (z < zmin) { zmin = z; x = a.pos.x + fx * t; } }
-    }
-    const swim = sp.kind === 'swim' || a.swimming;
-    // (at its feet and at the top of its back: the relief is not flat, and a small walker hugs it at either height)
-    const y0 = swim ? a.pos.y - (a.bh ?? 0.5) * 0.5 : Math.max(a.pos.y, T.heightAt(a.pos.x, a.pos.z)) + 0.1, y1 = y0 + Math.max(0.3, a.bh ?? 1);
-    const need = Math.max(Wl.zAt(x, y0), Wl.zAt(x, y1)) + Math.max(0.3, r * 0.9) - zmin;
+    const swim = sp.kind === 'swim' || a.swimming, need = this.wallNeed(a, a.pos.x, a.pos.y, a.pos.z, a.yaw, swim);
     if (need > 0) {
       a.pos.z += need;
-      if (!swim) a.pos.y = Math.max(a.pos.y, T.heightAt(a.pos.x, a.pos.z) - 0.3);
+      if (!swim) a.pos.y = Math.max(a.pos.y, this.world.terrain.heightAt(a.pos.x, a.pos.z) - 0.3);
+    }
+  }
+
+  // How far a body at (x, y, z) facing `yaw` would have to come forward to be clear of the relief (clearOfWall; hopCheck asks it
+  // of a landing, so a frog does not land where it is then pushed off a ledge).
+  wallNeed(a, x, y, z, yaw, swim) {
+    const Wl = this.world.wall, T = this.world.terrain, r = a.rad ?? 0.4;
+    let wx = x, zmin = z;
+    if (a.cap) {
+      const fx = Math.sin(yaw ?? 0), fz = Math.cos(yaw ?? 0);
+      for (const t of [a.cap.zc - a.cap.hl, a.cap.zc + a.cap.hl]) { const zt = z + fz * t; if (zt < zmin) { zmin = zt; wx = x + fx * t; } }
+    }
+    // (at its feet and at the top of its back: the relief is not flat, and a small walker hugs it at either height)
+    const y0 = swim ? y - (a.bh ?? 0.5) * 0.5 : Math.max(y, T.heightAt(x, z)) + 0.1, y1 = y0 + Math.max(0.3, a.bh ?? 1);
+    return Math.max(Wl.zAt(wx, y0), Wl.zAt(wx, y1)) + Math.max(0.3, r * 0.9) - zmin;
+  }
+
+  // The drawn body's box at its size (util/contain.js): half its width with the legs out, its tail and snout ends along its heading,
+  // its height. Before its mesh is measured: a round body of its radius. (A shared object: read it before the next call.)
+  bodyBox(a, sp) {
+    // (a swimming frog is drawn in its swimming-pose model, hind legs stretched out behind)
+    const b = (a.swimming && !a.hop && (sp.kind === 'frog' || sp.kind === 'toad') && this.meshes?.[`${a.sp}#swim`] && this.bodyOf(`${a.sp}#swim`)) || this.bodyOf(a.sp), sc = drawScale(a, sp);
+    if (!b) { const r = a.rad ?? this.radiusOf(a, sp); _bb.X = r; _bb.z0 = -r; _bb.z1 = r; _bb.H = r; return _bb; }
+    _bb.X = (b.hw / 0.6) * sc; _bb.z0 = (b.zc - b.hlen) * sc; _bb.z1 = (b.zc + b.hlen) * sc; _bb.H = b.hh * sc;
+    return _bb;
+  }
+
+  // The frame its body is drawn in (as draw() turns it): belly to the background, the glass or a leaf, or by heading and pitch.
+  frameOf(a) {
+    const N = a.wallMode || (a.perch && a.perch.ph !== 'go') ? a.normal : null;
+    return N ? surfaceFrame(N.x, N.y, N.z, a.yaw ?? 0, _fr) : pitchFrame(a.pitch ?? 0, a.yaw ?? 0, _fr);
+  }
+
+  // Never beyond the glass: the whole drawn body, turned as it is drawn, inside the inner glass box (not only its middle: a frog
+  // facing the front glass at the edge of the ground had its head through it, one in a corner its flank). A walker moved in from
+  // the glass stands on the ground there; a gecko on the background stays on it.
+  inGlass(a, sp) {
+    const d = glassPush(a.pos.x, a.pos.y, a.pos.z, this.frameOf(a), this.bodyBox(a, sp), TANK.w / 2, TANK.d / 2, TANK.h, 0.1, _gp);
+    if (!d[0] && !d[1] && !d[2]) return false;
+    const Wl = this.world.wall, z0 = a.wallMode ? Wl.zAt(a.pos.x, a.pos.y) : 0;
+    a.pos.x += d[0]; a.pos.y += d[1];
+    if (a.wallMode) a.pos.z += Wl.zAt(a.pos.x, a.pos.y) - z0;            // (along the relief, as far off it as it was)
+    else a.pos.z += d[2];
+    if (!a.wallMode && !a.onWall && !a.hop && !a.perch && !a.swimming && sp.kind !== 'swim' && sp.kind !== 'fly') a.pos.y = this.world.terrain.heightAt(a.pos.x, a.pos.z);
+    return true;
+  }
+
+  // Is there room for a perching frog's body at a perch top: inside the glass and in front of the background relief all round it,
+  // whichever way it turns while it sits (its reach from its middle, a circle), at its feet and at the top of its back. A leaf by
+  // the background had the frog sitting half inside the relief.
+  // Clinging to a stem (N, its outward normal): head up, its hind end may not reach into the ground.
+  perchFits(a, sp, top, N = null, yaws = null) {
+    const bx = this.bodyBox(a, sp), R = Math.max(bx.X, -bx.z0, bx.z1) + 0.1, H = bx.H, Wl = this.world.wall;
+    if (Math.abs(top.x) > TANK.w / 2 - R || Math.abs(top.z) > TANK.d / 2 - R || top.y + H > TANK.h - 0.2) return false;
+    for (const dy of [0, H]) for (const dx of [-R, 0, R]) if (top.z - R < Wl.zAt(top.x + dx, top.y + dy) + 0.15) return false;
+    // and clear of the ground all round (a stem by a raised bank had the frog half inside the bank)
+    const T = this.world.terrain;
+    if (N) {
+      // Clinging to a stem: every corner and edge of its box as it clings (head up, or turned by `yaws` as it shuffles round on it while
+      // it sits, perchFrog), above the ground there (five points round the perch missed a bank beside the stem's foot).
+      const zm = (bx.z0 + bx.z1) / 2;
+      for (const yaw of yaws ?? [clingYaw(N)]) {
+        const f = surfaceFrame(N.x, N.y, N.z, yaw, _fr);
+        for (const u of [-bx.X, 0, bx.X]) for (const v of [bx.z0, zm, bx.z1]) for (const w of [0, H]) {
+          const x = top.x + f[3] * u + f[0] * v + f[6] * w, y = top.y + f[4] * u + f[1] * v + f[7] * w, z = top.z + f[5] * u + f[2] * v + f[8] * w;
+          if (y < T.heightAt(x, z) + 0.2) return false;
+        }
+      }
+      return true;
+    }
+    for (const [dx, dz] of [[0, 0], [R, 0], [-R, 0], [0, R], [0, -R]]) if (top.y < T.heightAt(top.x + dx, top.z + dz) + 0.2) return false;
+    return true;
+  }
+
+  // A gecko on the background lies on the plane through the relief under its four feet (as footing() does on the ground), not on
+  // the slope under its middle: the gradient of one cell of the relief rocked it as it walked. The plane's normal is held through
+  // small changes and turns at most 5 rad/s (util/contain.js steadyNormal), and the body stands that plane's height off the relief.
+  wallFrame(a, sp, dt) {
+    const Wl = this.world.wall, b = this.bodyOf(a.sp), sc = drawScale(a, sp);
+    const n0 = a.normal ?? V(0, 0, 1), f = surfaceFrame(n0.x, n0.y, n0.z, a.yaw ?? 0, _fr);
+    const zc = b ? b.zc * sc : 0, fore = b ? zc + b.hlen * sc * 0.5 : 0.8, hind = b ? zc - b.hlen * sc * 0.45 : -0.8, side = b ? (b.hw / 0.6) * sc * 0.75 : 0.6;
+    const foot = (al, ac) => { const x = a.pos.x + f[0] * al + f[3] * ac, y = a.pos.y + f[1] * al + f[4] * ac; return [x, y, Wl.zAt(x, y)]; };
+    const F = foot(fore, 0), B = foot(hind, 0), R = foot(0, side), L = foot(0, -side);
+    const pl = feetPlane(F, B, R, L, [0, 0, 1]);
+    const zMid = Wl.zAt(a.pos.x, a.pos.y);
+    let want = null, z = zMid;
+    if (pl && pl.n[2] > 0.25) {
+      want = pl.n;
+      // that plane, moved out until each foot is on the relief
+      const zp = (x, y) => pl.p[2] - (pl.n[0] * (x - pl.p[0]) + pl.n[1] * (y - pl.p[1])) / pl.n[2];
+      let lift = zMid - zp(a.pos.x, a.pos.y) - 0.2;                    // (its middle may press into a bump a little, as its belly would)
+      for (const q of [F, B, R, L]) lift = Math.max(lift, q[2] - zp(q[0], q[1]));
+      z = zp(a.pos.x, a.pos.y) + Math.max(0, lift);
+    } else { const [gx, gy] = Wl.field.gradient(a.pos.x, a.pos.y); const l = Math.hypot(gx, gy, 1); want = [-gx / l, -gy / l, 1 / l]; }
+    a._wn = steadyNormal(a._wn, want, dt);
+    a.pos.z = z + 0.12;                                                  // (its feet on the relief, not 0.35 cm off it)
+    a.normal = V(a._wn.n[0], a._wn.n[1], a._wn.n[2]);
+  }
+
+  // A climber's drawn frame turns smoothly: onto the background or the glass, up a stem, over the lip of a leaf, and back onto the
+  // ground, at most 5 rad/s and easing in (util/contain.js easeAngle), rather than in one frame. Off its climb it follows its frame
+  // exactly again once it has caught up, so walking and turning on the ground are untouched.
+  steadyFrame(a, q, dt, climbing) {
+    const c = a._cq;
+    if (!c) { a._cq = q.clone(); return; }
+    if (!climbing && !a._cqOn) { c.copy(q); return; }
+    const ang = c.angleTo(q);
+    if (ang > 1e-5) c.rotateTowards(q, easeAngle(ang, dt));
+    q.copy(c);
+    a._cqOn = climbing || ang > 0.02;
+  }
+
+  // The ground is solid too: a walker does not step onto a face of the ground steeper than it can stand on (the cliff of a raised
+  // bank: it was drawn tipped on its side with half its body in the bank), nor push its nose into one. It stays where it was; its
+  // walk then turns or gives up as it does at a rock. Off such a face it may always step.
+  // (A gecko climbs: steep ground is a surface to it, drawn on the plane under its feet.)
+  cliffAt(x, z) { const [gx, gz] = this.world.terrain.field.gradient(x, z); return gx * gx + gz * gz > 3; }      // (ground normal y < 0.5)
+  offCliff(a, sp, px, py, pz) {
+    if (a.hop || a.perch || a.onWall || a.wallMode || a.swimming || sp.kind === 'gecko') return;
+    const T = this.world.terrain, bx = this.bodyBox(a, sp), ux = Math.sin(a.yaw ?? 0), uz = Math.cos(a.yaw ?? 0), nose = bx.z1 * 0.8;
+    const bad = (x, z) => this.cliffAt(x, z) || this.cliffAt(x + ux * nose, z + uz * nose);
+    if ((a.pos.x !== px || a.pos.z !== pz) && bad(a.pos.x, a.pos.z) && !bad(px, pz)) { a.pos.set(px, py, pz); return; }
+    // Standing on a cliff face however it got there (put there, the ground dug or raised under it): it slides down off it.
+    if (this.cliffAt(a.pos.x, a.pos.z) && sp.kind !== 'crab') {
+      const [gx, gz] = T.field.gradient(a.pos.x, a.pos.z), l = Math.hypot(gx, gz), nx = a.pos.x - gx / l * 0.3, nz = a.pos.z - gz / l * 0.3;
+      if (this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = T.heightAt(nx, nz); }
+      return;
+    }
+  }
+
+  // Its snout, tail or a flank inside a bank of the ground (a tail swung into it as it turned at the foot, a frog landed or swimming
+  // against it): the ground at the ends of its body stands above the plane it stands on (footing: a slope it stands on is fine) by
+  // more than half its height. It steps away from those points, 0.3 cm a tick, to where it is free. (Not a crab in the pit it digs, nor
+  // a body boxed in on all sides: a burrow. A crab anywhere else does: one going for water at the foot of a cliff stood with its back
+  // half in it for minutes.)
+  outOfBank(a, sp) {
+    if (a.hop || a.perch || a.onWall || a.wallMode) return;
+    if (sp.kind === 'crab' && a.home && Math.hypot(a.home.x - a.pos.x, a.home.z - a.pos.z) < BURROW.r * 1.4 && pitDepth(this.world.terrain.field, a.home.x, a.home.z) > 0.3) return;
+    // (a frog wedged in a crevice narrower than itself, banks higher than its body at its ends, climbs out: frogOut)
+    const frog = (sp.kind === 'frog' || sp.kind === 'toad') && !a.swimming;
+    if (frog && !this.sitFits(a, sp, a.pos.x, a.pos.y, a.pos.z, a.yaw ?? 0, false)) this.frogOut(a, sp);
+    const T = this.world.terrain, bx = this.bodyBox(a, sp), X = bx.X * 0.8, z0 = bx.z0 * 0.85, z1 = bx.z1 * 0.85, H = bx.H;
+    const fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0), x0 = a.pos.x, z0w = a.pos.z;
+    const ft = a.swimming ? null : this.footing(a, sp);
+    const y0 = a.pos.y + (ft ? ft.dy : 0), up = ft?.up;
+    const plane = (x, z) => (up ? y0 - (up.x * (x - x0) + up.z * (z - z0w)) / up.y : y0);
+    // (how deep its snout, tail and flanks are in banks, standing there facing (ux, uz); mx, mz: the way away from them)
+    let mx = 0, mz = 0, n = 0;
+    // (a tail lies on the ground from the hips back, groundBend: on a steep footing plane, a gecko with its fore feet up a bank, the
+    // plane drawn on behind the hips lay far under the ground and the tail counted as in a bank, which pushed it into the bank ahead)
+    const hips = TAILED.has(sp.kind) ? (this.bodyOf(a.sp)?.feet?.hind ?? 0) * drawScale(a, sp) : null;
+    const bank = (ux, uz, away) => {
+      let d = 0, i = 0;
+      for (const [ox, oz] of [[ux * z1, uz * z1], [ux * z0, uz * z0], [uz * X, -ux * X], [-uz * X, ux * X]]) {
+        const tail = i++ === 1 && hips != null, px = x0 + ox, pz = z0w + oz;
+        // (and lies up a gentle rise behind it, its tip lifted, groundBend: only ground rising more steeply than about 20 degrees is a bank)
+        const e = T.heightAt(px, pz) - (tail ? Math.max(plane(px, pz), plane(x0 + ux * hips, z0w + uz * hips)) + Math.max(H * 0.5, -z0 * 0.4) : plane(px, pz) + H * 0.5);
+        if (e > 0) { d += e; if (away) { mx -= ox; mz -= oz; n++; } }
+      }
+      return d;
+    };
+    const d0 = bank(fx, fz, true);
+    if (!n) return;
+    // Boxed in on all sides (a burrow, for a crab or a newt), or no step out: a frog in a crevice narrower than itself climbs out.
+    if (n === 4) { if (frog) this.frogOut(a, sp); return; }
+    const l = Math.hypot(mx, mz), ux = l < 1e-6 ? 0 : mx / l, uz = l < 1e-6 ? 0 : mz / l;
+    // A long body in a gully, its snout in the bank ahead and its tail in the one behind, stepped back and forth every tick for minutes
+    // (each step only put its other end in): it turns where it stands instead, toward the heading with less of it in the banks.
+    const prev = a._oob, back = !!prev && this.t - prev.t < 0.15 && ux * prev.x + uz * prev.z < -0.5;
+    if (TAILED.has(sp.kind) && (l < 1e-6 || back)) {
+      let best = d0 - 1e-3, turn = 0;
+      for (const dy of [0.1, -0.1]) { const y = (a.yaw ?? 0) + dy, d = bank(Math.sin(y), Math.cos(y), false); if (d < best) { best = d; turn = dy; } }
+      if (turn) a.yaw = (a.yaw ?? 0) + turn;
+      return;
+    }
+    const nx = x0 + ux * 0.3, nz = z0w + uz * 0.3;
+    if (l < 1e-6 || Math.abs(nx) > TANK.w / 2 - 0.5 || Math.abs(nz) > TANK.d / 2 - 0.5 || (!a.swimming && this.cliffAt(nx, nz)) || (this.occ.count && this.occ.solidAt(nx, T.heightAt(nx, nz) + 0.5, nz))
+      || (!a.swimming && !(this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)))) { if (frog) this.frogOut(a, sp); return; }
+    a.pos.x = nx; a.pos.z = nz;
+    if (!a.swimming) a.pos.y = T.heightAt(nx, nz);
+    a._oob = { t: this.t, x: ux, z: uz };
+  }
+
+  // A frog wedged where it cannot sit (a crevice between stones narrower than its body, where it was put or fell): once a second it
+  // looks for the nearest place it can sit (sitFits) within 8 cm and scrambles up onto it, as a frog climbs out of a gap.
+  frogOut(a, sp) {
+    if (a.hop || a.perch || (a.outT ?? -1) > this.t) return;
+    a.outT = this.t + 1;
+    const W = this.world, T = W.terrain;
+    for (let r = 2; r <= 8; r += 1.5) {
+      for (let k = 0; k < 12; k++) {
+        const ang = (k / 12) * TAU + r, x = a.pos.x + Math.sin(ang) * r, z = a.pos.z + Math.cos(ang) * r;
+        if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2 || W.water.surfaceAt(x, z, 0.3) !== -Infinity) continue;
+        const y = T.heightAt(x, z), rise = y - a.pos.y;
+        if (rise > 6 * sp.size || T.normalAt(x, z).y < 0.6 || !this.sitFits(a, sp, x, y, z, ang) || this.stemDepth(a, x, y, z, ang) > 0.02
+          || (this.occ.count && this.occ.solidAt(x, y + 0.5, z)) || this.wallNeed(a, x, y, z, ang, false) > 0.05) continue;
+        this.startHop(a, V(x, y, z), 0.5 + r * 0.25 + Math.max(0, rise));
+        return;
+      }
     }
   }
 
@@ -1053,7 +1292,10 @@ export class Animals {
     const nf = this.occ.count ? this.occ.nearestFree(a.pos.x, this.bodyY(a, sp), a.pos.z, null, 4) : null;
     const ang = nf && (nf[0] !== a.pos.x || nf[2] !== a.pos.z) ? Math.atan2(nf[0] - a.pos.x, nf[2] - a.pos.z) : Math.random() * Math.PI * 2;
     a.target = null; a.shore = null; a.hop = null; a.timer = 0; a.hopFail = 0; a.fs = null; a.st = null;
-    a.wander = ang; a.yaw = ang; a.side = -(a.side ?? 1);
+    a.wander = ang; a.side = -(a.side ?? 1);
+    // A swimmer swings round to its new course (its heading follows the velocity through turnTo); a walker, nudged aside
+    // below, faces the free way at once.
+    if (!(sp.kind === 'swim' || a.swimming)) a.yaw = ang;
     if (sp.kind === 'swim' || a.swimming) {
       a.vel.set(Math.sin(ang), 0, Math.cos(ang)).multiplyScalar(sp.speed);
       a.home = this.randomWater(2) ?? a.home;
@@ -1062,6 +1304,55 @@ export class Animals {
       const nx = a.pos.x + Math.sin(ang) * 0.8, nz = a.pos.z + Math.cos(ang) * 0.8;
       if (this.okFor(this.mediumOf(sp), nx, nz)) { a.pos.x = nx; a.pos.z = nz; }
     }
+  }
+
+  // --- Turning (util/turn.js, util/bodyplan.js: docs/SKELETON.md) ---------------------------------------------------------------
+  // How a species turns: its body plan's pivot (the hips of a frog, salamander or lizard; the middle of a crab or an insect), the
+  // distance of its farthest foot from it and its fastest yaw, measured on the drawn mesh (the plan's numbers until it has arrived).
+  turnFrameOf(id) {
+    const sp = SPECIES[id], m = this.meshes?.[id], geo = (m?._lo ?? m)?.geometry ?? null;
+    const c = (this._turnF ??= {})[id];
+    if (c && c.geo === geo) return c;
+    const b = geo ? this.bodyOf(id) : null;
+    const f = geo ? limbFrame(geo.attributes.position.array, geo.attributes.rig?.array ?? null) : null;
+    return (this._turnF[id] = { ...turnFrame(PLANS[planOf(sp)], f, sp.anim?.stride ?? 0, b?.tc ?? 0), geo, span: b?.span ?? 0 });
+  }
+
+  // How far the feet travel a radian of yaw (cm, world): the frame's R, or half the leg span of an animal without four walking legs.
+  turnRadius(a, sp) {
+    const tf = this.turnFrameOf(a.sp);
+    return (tf.legs ? tf.R : Math.max(tf.span, a.rad ?? 0.3)) * drawScale(a, sp);
+  }
+
+  // Turns toward heading `want` the way the animal can (util/turn.js turnStep): no faster than its legs step round (swimming: its
+  // body bends round), easing in, and on the ground about its pivot, which stays where it is (`pivot` false: about the origin).
+  // Returns the new yaw.
+  turnTo(a, sp, want, dt, gain = 8, pivot = true) {
+    const tf = this.turnFrameOf(a.sp), st = (a.turnSt ??= { w: 0, t: -1 });
+    if (this.t - st.t > 0.3) st.w = 0;           // a new turn starts from rest
+    st.t = this.t;
+    const swim = a.swimming || sp.kind === 'swim';
+    let rate = tf.maxRate * (swim && tf.legs ? 1.5 : 1);
+    if (a.dart || a.hm?.mode === 'flee' || a.sk?.mode === 'flee') rate *= 1.8;      // an escape: the legs (or the tail) at full tilt
+    const y0 = a.yaw ?? 0;
+    a.yaw = turnStep(y0, want, dt, rate, st, gain);
+    if (pivot && tf.legs && tf.pz && !swim && !a.hop && !a.wallMode && !a.onWall) {
+      const [dx, dz] = pivotShift(y0, a.yaw, tf.pz, drawScale(a, sp));
+      const nx = a.pos.x + dx, nz = a.pos.z + dz;
+      if (!(this.avoid && this.occ.count && this.occ.solidAt(nx, this.bodyY(a, sp), nz))) { a.pos.x = nx; a.pos.z = nz; a.pivotMoved = (a.pivotMoved ?? 0) + Math.hypot(dx, dz); }
+    }
+    return a.yaw;
+  }
+
+  // The turn's pose, once a step (move()): the yaw rate (smoothed), the legs' turning mix and the spine's bend, head lead and tail
+  // lag (util/turn.js turnPose), inside the body plan's joint limits. draw() hands them to the rig.
+  turnPoseStep(a, sp, dyaw, tau, dtR) {
+    if (!(dtR > 0)) return;
+    const tf = this.turnFrameOf(a.sp);
+    a.turnW = (a.turnW ?? 0) + (dyaw / dtR - (a.turnW ?? 0)) * Math.min(1, dtR / 0.12);
+    a.turnMix = (a.turnMix ?? 0) + (tau - (a.turnMix ?? 0)) * Math.min(1, dtR / 0.03);
+    if (!tau && Math.abs(a.turnMix) < 1e-3) a.turnMix = 0;
+    a.turnPose = turnPose(tf.plan, a.turnW, tf.maxRate, dtR, (a.turnPs ??= {}));
   }
 
   mediumOf(sp) {
@@ -1228,6 +1519,8 @@ export class Animals {
       a.wander = Math.atan2(a.home.x - a.pos.x, a.home.z - a.pos.z);
     }
     if (a.nib) desired.multiplyScalar(0.1);
+    // (a swimmer swings round an arc, util/turn.js steerLimit: it does not stop and spin when the way it wants is behind it)
+    if (!blocked) steerLimit(a.vel, desired, ctl ? 1.6 : 1.2, desired);
     a.vel.lerp(desired, Math.min(1, dt * (a.dart ? 4 : 1.8)));
     const maxS = ctl ? Math.max(0.1, ctl.speed * 1.1) : sp.speed * (a.dart ? 2.1 : a.hunger > 0.25 ? 1.5 : 1);
     if (a.vel.length() > maxS) a.vel.setLength(maxS);
@@ -1250,7 +1543,7 @@ export class Animals {
       a.wander += (Math.random() < 0.5 ? -1 : 1) * (0.8 + Math.random());
     }
     const hs = Math.hypot(a.vel.x, a.vel.z);
-    if (hs > 0.05) a.yaw = Math.atan2(a.vel.x, a.vel.z);
+    if (hs > 0.05) this.turnTo(a, sp, Math.atan2(a.vel.x, a.vel.z), dt, 12, false);
     a.pitch = lerp(a.pitch, a.nib ? 0.5 : -Math.atan2(a.vel.y, Math.max(0.3, hs)) * 0.6, Math.min(1, dt * 4));
     a.swimSpeed = a.vel.length();
   }
@@ -1345,7 +1638,7 @@ export class Animals {
           if (!moved || a.blockedN > 40 || a.blockT > 1.5) { a.timer = 0; a.blockedN = 0; a.blockT = 0; }
         }
         const want = Math.atan2(dirx, dirz) + (sp.kind === 'crab' ? Math.PI / 2 : 0);
-        a.yaw = angLerp(a.yaw, want, Math.min(1, dt * 6));
+        this.turnTo(a, sp, want, dt, 6);
         // A heavy crawler that cannot swim, walking along a steep bank, now and then loses its footing and tumbles in.
         if (sp.drowns && medium === 'land' && Math.random() < dt * 0.02 && this.slipsIn(a, a.pos.x + dirx, a.pos.z + dirz)) return;
       }
@@ -1418,7 +1711,7 @@ export class Animals {
     else if (it.goal && it.swim && Math.hypot(it.goal.x - x, it.goal.z - z) > 4) {
       if (!this.takeOff(a, sp, 'water', 'swim', null, it.goal)) { m.goal = null; m.left = Math.min(m.left ?? 9, 3); }
     } else if (it.goal && it.speed > 0) this.shrimpWalk(a, it.goal, it.speed, dt, m);
-    else if (it.face) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - x, it.face.z - z), Math.min(1, dt * 3));
+    else if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - x, it.face.z - z), dt, 3);
     if (!a.hop) { a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.normal = T.normalAt(a.pos.x, a.pos.z); }
     // Eating: every shrimp at a flake takes its share; the flake goes when it has been picked clean.
     if (it.eating && a.sFood) {
@@ -1447,7 +1740,7 @@ export class Animals {
     const dx = goal.x - a.pos.x, dz = goal.z - a.pos.z, d = Math.hypot(dx, dz);
     if (d < 0.05) return;
     const want = Math.atan2(dx, dz), diff = ((want - (a.yaw ?? 0) + Math.PI) % TAU + TAU) % TAU - Math.PI;
-    a.yaw = (a.yaw ?? 0) + clamp(diff, -dt * 4, dt * 4);
+    this.turnTo(a, SPECIES[a.sp], want, dt, 6);
     const fwd = clamp(1 - Math.abs(diff) / 1.2, 0, 1), step = Math.min(d, speed * dt * fwd);
     if (step <= 0) return;
     let ux = Math.sin(a.yaw), uz = Math.cos(a.yaw);
@@ -1749,7 +2042,10 @@ export class Animals {
       a.pos.copy(P.top); a.pitch = 0;
       a.crouch = 0.6;                                                    // pressed flat on the leaf, the wood or the glass
       a.normal = P.glassN ?? P.up ?? UP;                                 // (on a leaf: tilted with it)
-      if (P.glassN) { if (Math.random() < dt * 0.03) a.yaw = P.glassYaw + (Math.random() - 0.5) * 0.9; }
+      if (P.glassN) {
+        // (it shuffles round where its body stays clear of the ground: perchFits at the new heading)
+        if (Math.random() < dt * 0.03) { const y = P.glassYaw + (Math.random() - 0.5) * 0.9; if (!P.plant || this.perchFits(a, sp, P.top, P.glassN, [y])) a.yaw = y; }
+      }
       else if (Math.random() < dt * 0.05) a.yaw += (Math.random() - 0.5) * 0.6;   // shuffles round now and then
       return true;
     }
@@ -1791,7 +2087,7 @@ export class Animals {
       const c = kind === 'stem' ? this.stemPerch(a, p) : this.leafPerch(p);
       if (!c) continue;
       const top = c.top;
-      if (Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1) continue;
+      if (Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1 || !this.perchFits(a, sp, top, kind === 'stem' ? c.glassN : null)) continue;
       const gy = T.heightAt(top.x, top.z);
       if (top.y - gy < 3) continue;
       const wet = W.nearWater(V(top.x, gy, top.z), 12) ? 6 : 0;
@@ -1815,7 +2111,7 @@ export class Animals {
         const hit = _ray.intersectObject(m, false)[0];
         if (hit && (!top || hit.point.y > top.y)) top = V(hit.point.x, hit.point.y + 0.35, hit.point.z);
       }
-      if (!top || Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1 || taken(top)) continue;
+      if (!top || Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1 || taken(top) || !this.perchFits(a, sp, top)) continue;
       const gy = T.heightAt(top.x, top.z), over = W.water.surfaceAt(top.x, top.z) > gy;
       if (top.y - gy < 2) continue;
       const sc = Math.min(20, top.y - gy) + (over || W.nearWater(V(top.x, gy, top.z), 12) ? 6 : 0) - Math.hypot(top.x - a.pos.x, top.z - a.pos.z) * 0.25 + Math.random() * 6 + fav('piece');
@@ -1833,6 +2129,11 @@ export class Animals {
       const gy = T.heightAt(bx, bz), y = Math.min(TANK.h - 4, Math.max(gy, W.water.level) + 5 + Math.random() * 14);
       const top = V(x, y, z);
       if (y - gy < 4 || taken(top)) continue;
+      // (in front of the background relief by its body all the way up, its back too: on a side pane by the back a frog climbed inside it)
+      const bb = this.bodyBox(a, sp), R = Math.max(bb.X, -bb.z0, bb.z1) + 0.3, dH = n.x * bb.H;
+      let clear = true;
+      for (let yy = gy; clear && yy <= y + R; yy += 1.5) clear = z - R >= Math.max(W.wall.zAt(x, yy), W.wall.zAt(x + dH, yy)) + 0.15;
+      if (!clear) continue;
       const sc = Math.min(20, y - gy) + (W.nearWater(V(bx, gy, bz), 12) ? 5 : 0) - Math.hypot(x - a.pos.x, z - a.pos.z) * 0.25 + Math.random() * 6 - 2 + fav('glass');
       if (sc <= bs) continue;
       const r = this.perchRoute(a, sp, { top, glassN: n, glassYaw: yaw });
@@ -1852,10 +2153,13 @@ export class Animals {
     let base, path;
     if (c.glassN) {
       // The glass, or a reed stem (`plant`): from the ground in front of it straight up, belly to it.
-      const n = c.glassN, off = c.plant ? coreR(c.plant) + (a.rad ?? 0.5) * 0.7 + 0.3 : 1.2;
+      // (to the glass until its snout touches it, not through it: then up, turning belly to it)
+      const reach = c.plant ? 0 : this.bodyBox(a, sp).z1 + 0.15;
+      const n = c.glassN, off = c.plant ? coreR(c.plant) + (a.rad ?? 0.5) * 0.7 + 0.3 : Math.max(1.2, reach + 0.4);
       const bx = top.x + n.x * off, bz = front(bx, T.heightAt(bx, top.z + n.z * off) + 0.1, top.z + n.z * off);
       base = V(bx, T.heightAt(bx, bz), bz);
-      path = [base, V(top.x, Math.max(T.heightAt(top.x, top.z), base.y), top.z), top];
+      const fx = top.x + n.x * reach, fz = top.z + n.z * reach;
+      path = [base, V(fx, Math.max(T.heightAt(fx, fz), base.y), fz), top];
     } else if (c.plant) {
       const p = c.plant, gy = T.heightAt(p.pos.x, p.pos.z);
       if (p.pos.y - gy > 1.5) {
@@ -1947,14 +2251,25 @@ export class Animals {
   }
 
   // A reed or sedge stem to cling to, belly to it and head up (as on the glass), on the frog's side of it, half to four fifths up.
+  // The frog's side first, then round the stem either way: the first side with room for its whole body as it clings (perchFits) and
+  // a foot of the climb that is not a cliff (a side away from a bank left a frog starting up from a 60 degree slope). None: not this stem.
   stemPerch(a, p) {
-    const W = this.world, h = W.plants.heightOf(p);
+    const W = this.world, T = W.terrain, h = W.plants.heightOf(p), sp = SPECIES[a.sp];
     let nx = a.pos.x - p.pos.x, nz = a.pos.z - p.pos.z;
     const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
-    if (nz < -0.3) { nz = -0.3; const k = Math.hypot(nx, nz); nx /= k; nz /= k; }   // (not round the back, against the background)
-    const N = V(nx, 0, nz);
-    const top = V(p.pos.x + nx * 0.7, p.pos.y + h * (0.5 + Math.random() * 0.3), p.pos.z + nz * 0.7);
-    return { top, plant: p, glassN: N, glassYaw: clingYaw(N) };
+    const a0 = Math.atan2(nx, nz), off = coreR(p) + (a.rad ?? 0.5) * 0.7 + 0.3, f0 = 0.5 + Math.random() * 0.3;
+    for (const da of [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4]) {
+      let ux = Math.sin(a0 + da), uz = Math.cos(a0 + da);
+      if (uz < -0.3) { if (da) continue; uz = -0.3; const k = Math.hypot(ux, uz); ux /= k; uz /= k; }   // (not round the back, against the background)
+      if (this.cliffAt(p.pos.x + ux * off, p.pos.z + uz * off)) continue;
+      const N = V(ux, 0, uz);
+      // (half to four fifths up; higher up the stem where the ground beside it is high)
+      for (const f of f0 < 0.8 ? [f0, 0.8] : [f0]) {
+        const top = V(p.pos.x + ux * 0.7, p.pos.y + h * f, p.pos.z + uz * 0.7);
+        if (this.perchFits(a, sp, top, N)) return { top, plant: p, glassN: N, glassYaw: clingYaw(N) };
+      }
+    }
+    return null;
   }
 
   // --- Crocodile skink ------------------------------------------------------------------------------------------
@@ -2013,7 +2328,7 @@ export class Animals {
         }
         a.pos.x += ux * step; a.pos.z += uz * step;
         a.speedNow = (ux || uz) ? step / Math.max(1e-4, dt) : 0;
-        if (ux || uz) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(ux, uz), Math.min(1, dt * 5));
+        if (ux || uz) this.turnTo(a, sp, Math.atan2(ux, uz), dt, 5);
       }
     }
     a.pos.y = T.heightAt(a.pos.x, a.pos.z);
@@ -2124,11 +2439,11 @@ export class Animals {
           // Keep the leading side through a burst; choose again when it starts from a standstill.
           if ((a.speedNow ?? 0) < 0.3) m.lead = h.lead;
           const want = Math.atan2(ux, uz) + (m.lead > 0 ? Math.PI / 2 : -Math.PI / 2);
-          a.yaw = angLerp(a.yaw ?? want, want, Math.min(1, dt * 8));
+          this.turnTo(a, sp, want, dt, 8);
         }
       }
     } else if (it.face) {
-      a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - x, it.face.z - z), Math.min(1, dt * 5));
+      this.turnTo(a, sp, Math.atan2(it.face.x - x, it.face.z - z), dt, 5);
     }
     a.pos.y = T.heightAt(a.pos.x, a.pos.z);
     a.normal = T.normalAt(a.pos.x, a.pos.z);
@@ -2174,6 +2489,13 @@ export class Animals {
     if (this.badHomes?.some((b) => b.until > (W.env.minute ?? 0) && Math.hypot(b.x - x, b.z - z) < 3)) return 0;
     // Ground it can dig is a burrow to be: better by a stone or a root (it digs in under the edge, and the face holds).
     const T = W.terrain, root = W.water.erosion?.root, rate = digRate(T.field, x, z, root);
+    // Room for its body: a home at the foot of a cliff (the stone face of a raised bank, a rock) had the crab resting and digging with
+    // half its body and its legs inside the cliff (the ground is a height field: a burrow cannot run in under a bank). Round it, at its
+    // trunk's and its legs' reach, the ground may not rise above the pit's rim more steeply than about 40 degrees.
+    const bx = this.bodyBox(a, sp), rim = g + Math.max(0, pitDepth(T.field, x, z)), reach = Math.max(bx.X, bx.z1, -bx.z0);
+    for (const d of [reach * 0.4, reach * 0.85]) {
+      for (let k = 0; k < 8; k++) if (T.heightAt(x + Math.sin(k * Math.PI / 4) * d, z + Math.cos(k * Math.PI / 4) * d) > rim + d * 0.85) return 0;
+    }
     let edge = 0;
     if (rate > 0.15) for (let k = 0; k < 8 && !edge; k++) { const t = k * Math.PI / 4; if (digRate(T.field, x + Math.sin(t) * 2.2, z + Math.cos(t) * 2.2, root) < 0.15) edge = 1; }
     const cover = Math.max(this.crabCover(x, z), rate * (0.35 + 0.3 * edge));
@@ -2271,6 +2593,8 @@ export class Animals {
       const t = Math.min(1, hp.t);
       a.pos.lerpVectors(hp.from, hp.to, t);
       a.pos.y += 4 * hp.h * t * (1 - t);
+      // (the twist toward the landing is made as the legs push off and in the first part of the flight, not in one frame)
+      if (hp.y1 != null) a.yaw = hp.y0 + angDiff(hp.y1, hp.y0) * Math.min(1, t / 0.3);
       a.pitch = -Math.atan2(hp.to.y - hp.from.y + 4 * hp.h * (1 - 2 * t), Math.max(0.1, hp.from.distanceTo(hp.to))) * 0.6;
       if (t >= 1) {
         a.hop = null;
@@ -2283,7 +2607,7 @@ export class Animals {
     }
     const g = T.heightAt(a.pos.x, a.pos.z);
     const s = W.water.surfaceAt(a.pos.x, a.pos.z, 0.2);
-    const inWater = s > g + 0.9 * sp.size;
+    const inWater = s > g + (a.swimming ? 0.5 : 0.9) * sp.size;      // (once swimming, it swims on through the shallows to its bank)
     a.swimming = inWater;
     a.timer -= dt;
     if (inWater) { this.frogSwim(a, sp, dt, s, toad); a.fs = null; return; }
@@ -2299,15 +2623,18 @@ export class Animals {
         break;
       }
       case 'turn': {
-        // Face the way first (a deliberate turn on the spot), then crouch or walk.
-        const d = angDiff(a.faceTo, a.yaw), rate = (toad ? 2.4 : 3.2) * dtS;
-        if (Math.abs(d) <= rate) {
+        // Face the way first (a deliberate turn on the spot, stepping round about the hips: turnTo), then crouch or walk.
+        this.turnTo(a, sp, a.faceTo, dtS, 10);
+        if (Math.abs(angDiff(a.faceTo, a.yaw)) < 0.02) {
           a.yaw = a.faceTo;
+          // (turning about the hips carried the body's middle round: the planned leap or walk goes with it, so it still runs straight ahead)
+          const p = a.plan;
+          if (p?.x0 != null) { p.to.x += a.pos.x - p.x0; p.to.z += a.pos.z - p.z0; p.x0 = a.pos.x; p.z0 = a.pos.z; }
           a.fs = a.afterTurn ?? 'sit';
           a.walkT = 0;
           if (a.fs === 'crouch') a.fsT = 0.22 + Math.random() * 0.25;
           else if (a.fs === 'sit') a.fsT = a.order ? 0.2 : this.pickSit(a, sp, true);
-        } else a.yaw += Math.sign(d) * rate;
+        }
         break;
       }
       case 'crouch': {
@@ -2396,7 +2723,7 @@ export class Animals {
       if (plan) chain = plan.type === 'hop' ? (Math.random() * 2.6 | 0) + (uneasy ? 1 : 0) : Math.random() < 0.4 ? 1 : 0;
     }
     if (!plan) { a.hopFail = (a.hopFail ?? 0) + 1; a.fsT = 1.5 + Math.random() * 3; a.chain = 0; a.chainNext = false; return; }
-    a.plan = plan; a.hd = plan.ang; a.chain = chain;
+    a.plan = plan; a.hd = plan.ang; a.chain = chain; plan.x0 = a.pos.x; plan.z0 = a.pos.z;
     a.faceTo = plan.ang; a.afterTurn = plan.type === 'hop' ? 'crouch' : 'walk';
     a.fs = 'turn'; a.crouch = 0; a.walkT = 0;
   }
@@ -2423,9 +2750,9 @@ export class Animals {
       const v = sp.speed * 2.0 * p.v * Math.min(1, 0.35 + d * 0.5);       // about 2 cm/s, easing in to the stop
       const step = Math.min(d, v * dtS);
       const nx = a.pos.x + dx / d * step, nz = a.pos.z + dz / d * step;
-      if (this.okFor(this.mediumOf(sp), nx, nz) && !this.crowded(a, sp, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = this.world.terrain.heightAt(nx, nz); a.hopFail = 0; }
+      if (this.okFor(this.mediumOf(sp), nx, nz) && !this.crowded(a, sp, nx, nz) && !this.walkBlocked(a, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = this.world.terrain.heightAt(nx, nz); a.hopFail = 0; }
       else ok = false;
-      a.yaw = angLerp(a.yaw, Math.atan2(dx, dz), Math.min(1, dtS * 6));
+      this.turnTo(a, sp, Math.atan2(dx, dz), dtS, 6);
     }
     if (!ok) this.frogEnd(a, sp, false);
   }
@@ -2451,15 +2778,33 @@ export class Animals {
     a.normal = null;
     if (!a.shore || a.timer <= 0) {
       a.timer = 4 + Math.random() * 4;
-      a.shore = null;
+      a.shore = null; a.shoreLand = null; a.roam = false;
       if (!toad || Math.random() < 0.35) {
         a.floating = false;
-        for (let r = 2; r < 30 && !a.shore; r += 2) {
-          for (let k = 0; k < 16; k++) {
-            const ang = (k / 16) * Math.PI * 2;
-            const x = a.pos.x + Math.sin(ang) * r, z = a.pos.z + Math.cos(ang) * r;
-            if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2) continue;
-            if (W.water.surfaceAt(x, z, 0.3) === -Infinity && T.normalAt(x, z).y > 0.6) { a.shore = V(x, 0, z); break; }
+        // The way out: along each of 16 lines the first dry ground (the bank it would swim into: land beyond a bank is not reached by
+        // swimming, and swimming at it had a frog pushed back off that bank for minutes), and the nearest of those it can climb
+        // (shoreLand). Nowhere to climb out within reach: it swims on along the open water and looks again from there.
+        let best = Infinity;
+        for (let k = 0; k < 16; k++) {
+          const ang = (k / 16) * TAU, ux = Math.sin(ang), uz = Math.cos(ang);
+          for (let r = 1; r < 30 && r < best; r++) {
+            const x = a.pos.x + ux * r, z = a.pos.z + uz * r;
+            if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2) break;
+            if (W.water.surfaceAt(x, z, 0.3) !== -Infinity) { if (this.avoid && this.occ.solidAt(x, a.pos.y, z)) break; continue; }   // (a rock in the way; one out of the water is a bank)
+            const land = a.badShore?.some(([bx, bz]) => Math.hypot(x - bx, z - bz) < 2) ? null : this.shoreLand(a, sp, x, z, ang);
+            if (land) { best = r; a.shore = V(x, 0, z); a.shoreLand = land; }
+            break;
+          }
+        }
+        if (!a.shore && !toad) {
+          for (let k = 0; k < 8 && !a.shore; k++) {
+            const ang = Math.random() * TAU, r = 5 + Math.random() * 6;
+            let ok = true;
+            for (let i = 1; ok && i <= r; i++) {
+              const x = a.pos.x + Math.sin(ang) * i, z = a.pos.z + Math.cos(ang) * i;
+              ok = Math.abs(x) < TANK.w / 2 - 2 && Math.abs(z) < TANK.d / 2 - 2 && W.water.surfaceAt(x, z, 0.3) - T.heightAt(x, z) > 0.5 * sp.size && !(this.avoid && this.occ.solidAt(x, a.pos.y, z));
+            }
+            if (ok) { a.shore = V(a.pos.x + Math.sin(ang) * r, 0, a.pos.z + Math.cos(ang) * r); a.roam = true; }
           }
         }
       } else {
@@ -2476,38 +2821,93 @@ export class Animals {
     if (!a.shore) return;
     const dir = V(a.shore.x - a.pos.x, 0, a.shore.z - a.pos.z);
     const dist = dir.length();
-    a.yaw = angLerp(a.yaw, Math.atan2(dir.x, dir.z), Math.min(1, dt * 3));
+    this.turnTo(a, sp, Math.atan2(dir.x, dir.z), dt, 3, false);
     const v = sp.speed * (a.floating ? 1.2 : toad ? 4.6 : 5.4) * kickSpeed(a.kick);   // a stroke's average comes to about 2 cm/s for a dart frog
     const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt;
-    if (this.avoid && this.occ.solidAt(nx, a.pos.y, nz)) { a.shore = null; a.timer = 0; }
-    else if (Math.abs(nx) < TANK.w / 2 - 1 && Math.abs(nz) < TANK.d / 2 - 1) { a.pos.x = nx; a.pos.z = nz; }
+    if (this.avoid && this.occ.solidAt(nx, a.pos.y, nz)) {
+      if (!a.roam) { (a.badShore ??= []).push([a.shore.x, a.shore.z]); if (a.badShore.length > 8) a.badShore.shift(); }   // (a rock on the way)
+      a.shore = null; a.timer = 0;
+    } else if (Math.abs(nx) < TANK.w / 2 - 1 && Math.abs(nz) < TANK.d / 2 - 1) { a.pos.x = nx; a.pos.z = nz; }
     if (!a.shore) return;
-    // Close to the bank: climb out with a hop.
+    if (a.roam) { if (dist < 1) { a.shore = null; a.timer = 0; } return; }
+    // Close to the bank: climb out with a hop. A clean one if it can (hopCheck: the arc clears the bank, it lands clear of stems, the
+    // relief and a cliff), at the spot it swam for or one beside it; else it scrambles up onto the bank there (an arc over the lip),
+    // unless the relief or a plant's stems would push it straight back off (hopping up anywhere dry put a frog on a ledge by the
+    // background, pushed off it into the water again, for minutes); then that bit of shore is no good and it looks for another.
     if (dist < 2.5 * sp.size) {
-      const to = a.shore.clone();
-      if (W.water.surfaceAt(to.x, to.z, 0.3) === -Infinity) {
-        to.y = T.heightAt(to.x, to.z);
-        if (to.y - a.pos.y < 6 * sp.size) this.startHop(a, to, 1);
+      const sx = a.shore.x, sz = a.shore.z, a0 = Math.atan2(sx - a.pos.x, sz - a.pos.z);
+      let out = !!a.shoreLand && this.hopTo(a, sp, a.shoreLand.clone());
+      for (let k = 0; k < 14 && !out; k++) {
+        const ang = a0 + (k % 7 ? ((k % 7) % 2 ? 1 : -1) * Math.ceil((k % 7) / 2) * 0.35 : 0), r = dist + (k < 7 ? 0 : 1);
+        const to = V(a.pos.x + Math.sin(ang) * r, 0, a.pos.z + Math.cos(ang) * r);
+        if (W.water.surfaceAt(to.x, to.z, 0.3) === -Infinity) out = this.hopTo(a, sp, to);
       }
+      const to = (a.shoreLand ?? a.shore).clone();
+      if (!out && W.water.surfaceAt(to.x, to.z, 0.3) === -Infinity) {
+        to.y = T.heightAt(to.x, to.z);
+        const rise = to.y - a.pos.y;
+        if (rise < 6 * sp.size && this.wallNeed(a, to.x, to.y, to.z, a0, false) <= 0.05 && !this.stemDepth(a, to.x, to.y, to.z, a0)) { this.startHop(a, to, 0.5 + dist * 0.25 + Math.max(0, rise)); out = true; }
+      }
+      if (out) a.badShore = null;
+      else { (a.badShore ??= []).push([sx, sz]); if (a.badShore.length > 8) a.badShore.shift(); }
       a.shore = null;
     }
+  }
+
+  // Where a swimming frog can climb out at the bank it meets at (x, z), swimming along heading `ang`: there or up to 3 cm inland, a
+  // place it can sit (a slope it can stand on, clear of stems, as far out from the background as the relief keeps a body) no higher
+  // above it than it can hop. The bank's own face may be steep where it is low (a step up out of the water, a root, the edge of a
+  // stone): a slope over 53 degrees right at the waterline left the frogs of a karst tank swimming most of the time. V or null.
+  shoreLand(a, sp, x, z, ang) {
+    const W = this.world, T = W.terrain, ux = Math.sin(ang), uz = Math.cos(ang);
+    for (let d = 0; d <= 3; d += 0.75) {
+      const px = x + ux * d, pz = z + uz * d;
+      const zs = pz + Math.max(0, this.wallNeed(a, px, T.heightAt(px, pz), pz, ang, false)), gs = T.heightAt(px, zs);
+      if (gs - a.pos.y >= 6 * sp.size) return null;                     // (a cliff: inland only gets higher)
+      if (W.water.surfaceAt(px, zs, 0.3) === -Infinity && T.normalAt(px, zs).y > 0.6 && !this.stemDepth(a, px, gs, zs, ang)
+        && this.wallNeed(a, px, gs, zs, ang, false) <= 0.05 && this.sitFits(a, sp, px, gs, zs, ang, false)) return V(px, gs, zs);
+    }
+    return null;
+  }
+
+  // Room to sit at (x, y, z) facing `yaw`: at its snout, tail and flanks no bank higher than its body (a slope it can stand on, not
+  // against a cliff nor down a crevice between stones, where a tree frog sat for minutes trying to turn round) and, with `feet`, the
+  // ground no further below than a third of its height at two of them at least (the top of a stone spire narrower than its body had
+  // it sitting on a point, all four feet in the air).
+  sitFits(a, sp, x, y, z, yaw, feet = true) {
+    const T = this.world.terrain, bx = this.bodyBox(a, sp), ux = Math.sin(yaw), uz = Math.cos(yaw), H = bx.H, tol = Math.max(0.6, H * 0.33);
+    let n = 0;
+    for (const [ox, oz] of [[ux * bx.z1, uz * bx.z1], [ux * bx.z0, uz * bx.z0], [uz * bx.X, -ux * bx.X], [-uz * bx.X, ux * bx.X]]) {
+      const gh = T.heightAt(x + ox * 0.85, z + oz * 0.85);
+      if (gh > y + Math.max(H, 0.9 * Math.hypot(ox, oz))) return false;
+      if (gh > y - tol) n++;
+    }
+    return !feet || n >= 2;
   }
 
   // Can the frog hop to `to` from here? Returns { h, wet } (and sets to.y), or null.
   hopCheck(a, sp, to, intoWater = false) {
     const W = this.world, T = W.terrain;
     if (Math.abs(to.x) > TANK.w / 2 - 1.5 || Math.abs(to.z) > TANK.d / 2 - 1.5) return null;
+    // The whole body where it lands, facing the way it hops, inside the glass (the middle 1.5 cm in left a frog's head through it).
+    const hd = Math.atan2(to.x - a.pos.x, to.z - a.pos.z), ux = Math.sin(hd), uz = Math.cos(hd), bx = this.bodyBox(a, sp), nose = bx.z1, H = bx.H;
+    const gp = glassPush(to.x, a.pos.y, to.z, pitchFrame(0, hd, _fr), bx, TANK.w / 2, TANK.d / 2, TANK.h, 0.15, _gp);
+    if (gp[0] || gp[2]) return null;
     const g = T.heightAt(to.x, to.z);
     const s = W.water.surfaceAt(to.x, to.z, 0.3);
     const wet = s > g + 0.2;
     // Dart frogs never hop into water; toads only when they mean to.
     if (wet && !(sp.kind === 'toad' && intoWater)) return null;
     if (!wet && T.normalAt(to.x, to.z).y < 0.6) return null;       // too steep to land on
-    if (this.avoid && to.z < W.wall.zAt(to.x, g + 1) + 0.4) return null;
+    if (this.avoid && this.wallNeed(a, to.x, g, to.z, hd, false) > 0.05) return null;     // (nor where the relief would push it off)
     if (!wet && W.water.nearestFall(V(to.x, g, to.z), 1.5)) return null;
     to.y = wet ? Math.max(s - 0.35 * sp.size, g) : g;
     if (this.avoid && this.occ.solidAt(to.x, to.y + 0.5, to.z)) return null;
     if (!wet && this.crowded(a, sp, to.x, to.z)) return null;      // nobody sits where it would land
+    if (!wet && this.stemDepth(a, to.x, to.y, to.z, hd) > 0.02) return null;     // nor in a plant's stems (its trunk, as outOfStems)
+    // nor with its snout, tail or a flank in a bank of the ground (it lands on a slope it can stand on, not against a cliff)
+    // (and on dry ground with ground under its feet, sitFits)
+    if (!this.sitFits(a, sp, to.x, to.y, to.z, hd, !wet)) return null;
     const rise = to.y - a.pos.y;
     if (rise > 5 * sp.size || rise < -14 * sp.size) return null;
     const dist = Math.hypot(to.x - a.pos.x, to.z - a.pos.z);
@@ -2521,7 +2921,8 @@ export class Animals {
       const y = y0 + (to.y - y0) * t + 4 * h * t * (1 - t);
       const under = Math.max(T.heightAt(x, z), W.water.surfaceAt(x, z, 0.3));
       if (y < under + 0.3 && !(wet && t > 0.75)) return null;
-      if (this.avoid && this.occ.solidAt(x, y + 0.4, z)) return null;
+      // (its nose and the top of its back too, not only its middle: the arc may not pass through wood or a rock)
+      if (this.avoid && (this.occ.solidAt(x, y + 0.4, z) || this.occ.solidAt(x + ux * nose, y + 0.4, z + uz * nose) || this.occ.solidAt(x, y + H, z))) return null;
     }
     return { h, wet };
   }
@@ -2536,8 +2937,7 @@ export class Animals {
   startHop(a, to, h, splash = false) {
     const d = a.pos.distanceTo(to);
     a.hopFail = 0;
-    a.hop = { from: a.pos.clone(), to, t: 0, dur: (0.22 + Math.sqrt(d) * 0.09) * (0.9 + Math.random() * 0.2), h: Math.max(h, 0.5), splash };
-    a.yaw = Math.atan2(to.x - a.pos.x, to.z - a.pos.z);
+    a.hop = { from: a.pos.clone(), to, t: 0, dur: (0.22 + Math.sqrt(d) * 0.09) * (0.9 + Math.random() * 0.2), h: Math.max(h, 0.5), splash, y0: a.yaw ?? 0, y1: Math.atan2(to.x - a.pos.x, to.z - a.pos.z) };
     a.floating = false;
     a.crouch = 0;
   }
@@ -2695,7 +3095,7 @@ export class Animals {
         case 'aim': {
           const dx = p.pos.x - a.pos.x, dz = p.pos.z - a.pos.z;
           const want = a.wallMode ? Math.atan2(dx, -(p.pos.y - a.pos.y)) : Math.atan2(dx, dz);
-          a.yaw = angLerp(a.yaw, want, Math.min(1, dtS * 9));
+          this.turnTo(a, sp, want, dtS, 9);
           a.crouch = Math.min(1, st.t / 0.25) * 0.8;
           if (st.t >= st.dur) {
             this.mouth(a, sp, _m);
@@ -2832,9 +3232,9 @@ export class Animals {
     if (!P) return null;
     const c = (this.bodies ??= {})[id];
     if (c && c.geo === geo) return c;
-    const b = bodyFootprint(P, geo.attributes.rig?.array ?? null);
+    const R = geo.attributes.rig?.array ?? null, b = bodyFootprint(P, R);
     if (!b) return null;
-    return (this.bodies[id] = { ...b, geo });
+    return (this.bodies[id] = { ...b, feet: feetOf(P, R), geo });
   }
 
   // The body as the separation sees it, from the drawn mesh (bodyOf) at the animal's size: a.rad, the trunk's half width (a crab
@@ -2843,7 +3243,7 @@ export class Animals {
   // straight part and how far its middle sits ahead of a.pos (cm). A circle either let two long bodies lie across each other or
   // kept them a body length apart. Before the mesh arrives: the old circle per kind.
   capsuleOf(a, sp, g, b = this.bodyOf(a.sp)) {
-    a.cap = null;
+    a.cap = null; a.trunk = null;
     if (g !== 'land' && g !== 'water' && g !== 'wall') return;
     if (!b) return;
     const sc = drawScale(a, sp);
@@ -2851,6 +3251,8 @@ export class Animals {
     a.bh = Math.max(b.hh, 0.1) * sc;
     const hl = b.tl * sc - a.rad;
     if (hl > 0.15 && g !== 'wall') a.cap = { hl, zc: b.tc * sc };
+    // (the trunk alone, legs left out: a capsule of its half width along the heading, what outOfStems keeps out of plants' stems)
+    a.trunk = { zc: b.tc * sc, hl: Math.max(0, b.tl - b.tw) * sc, r: b.tw * sc };
   }
 
   // The stems of the plants on the ground, which a frog or salamander walks round rather than through (it may sit under the
@@ -2871,6 +3273,65 @@ export class Animals {
       if (!l) G.set(k, l = []);
       l.push({ x: q.pos.x, y: q.pos.y, z: q.pos.z, r, q });
     }
+  }
+
+  // How deep a body at (x, y, z) facing `yaw` is in plants' stems (plantCores): its trunk (a.trunk: a capsule along the heading, its
+  // own half width, at least 0.7 of the body's radius with the legs) against the deepest stem core, or 0 when clear; out[1], out[2]:
+  // the way out of all of them together (a long body between two plants is not pushed from one into the other). Not the plant it is
+  // climbing.
+  stemDepth(a, x, y, z, yaw, out = _sd) {
+    out[0] = out[1] = out[2] = 0;
+    if (!this.cores?.size || a.rad == null) return 0;
+    const tr = a.trunk, fx = Math.sin(yaw ?? 0), fz = Math.cos(yaw ?? 0), hl = tr ? tr.hl : 0, rr = Math.max(tr ? tr.r : 0, a.rad * 0.7);
+    const mx = x + fx * (tr ? tr.zc : 0), mz = z + fz * (tr ? tr.zc : 0), u = Math.floor(x / CELLG), v = Math.floor(z / CELLG);
+    for (let du = -1; du <= 1; du++) for (let dv = -1; dv <= 1; dv++) {
+      const l = this.cores.get((u + du) * 1000 + (v + dv));
+      if (l) for (const c of l) {
+        if (Math.abs(c.y - y) > 4 || c.q === a.perch?.plant) continue;
+        const t = clamp((c.x - mx) * fx + (c.z - mz) * fz, -hl, hl), dx = mx + fx * t - c.x, dz = mz + fz * t - c.z, d = Math.hypot(dx, dz);
+        if (d >= c.r + rr) continue;
+        const p = c.r + rr - d;
+        out[0] = Math.max(out[0], p); out[1] += p * (d < 1e-3 ? Math.cos(a.id * 2.4) : dx / d); out[2] += p * (d < 1e-3 ? Math.sin(a.id * 2.4) : dz / d);
+      }
+    }
+    return out[0];
+  }
+
+  // Out of plants' stems at the end of the tick, as out of the glass: separate() pushes a little at a time, but a walker held against
+  // that push (walking at a hide among the stems, a push the ground refused) stayed inside them for minutes. Its trunk (stemDepth)
+  // is moved straight out to the stems' edge, so it slides round them; where that way is shut (the glass, the background, a rock, the
+  // water for a walker or the bank for a swimmer) it slides round the stem sideways instead (a frog between the front pane and a
+  // bamboo, a newt between a fern and a rock stayed in the stems for minutes). A swimmer keeps its height.
+  outOfStems(a, sp) {
+    const T = this.world.terrain, hx = TANK.w / 2 - 0.5, hz = TANK.d / 2 - 0.5;
+    const free = (nx, nz) => {
+      if (Math.abs(nx) > hx || Math.abs(nz) > hz || (this.avoid && this.wallNeed(a, nx, a.pos.y, nz, a.yaw, a.swimming) > 0.05)) return false;
+      if (this.occ.count && this.occ.solidAt(nx, (a.swimming ? a.pos.y : T.heightAt(nx, nz)) + 0.5, nz)) return false;
+      const dep = this.world.water.surfaceAt(nx, nz, 0.3) - T.heightAt(nx, nz);
+      return a.swimming ? dep > 0.5 * sp.size : !(dep > 0.9 * sp.size);
+    };
+    for (let k = 0; k < 3; k++) {
+      if (!this.stemDepth(a, a.pos.x, a.pos.y, a.pos.z, a.yaw)) return;
+      const px = _sd[1], pz = _sd[2], s = a.id % 2 ? 1 : -1;
+      let ok = false;
+      for (const [ux, uz] of [[px, pz], [-pz * s, px * s], [pz * s, -px * s]]) {
+        const nx = a.pos.x + ux, nz = a.pos.z + uz;
+        if (!free(nx, nz)) continue;
+        a.pos.x = nx; a.pos.z = nz;
+        if (!a.swimming) a.pos.y = T.heightAt(nx, nz);
+        ok = true; break;
+      }
+      if (!ok) return;
+    }
+  }
+
+  // Is a step to (nx, nz) into a plant's stems or onto a cliff of the ground (from outside them)? The walk then goes round, as round a
+  // rock, or gives up: walking at a hide in a plant's middle held a gecko inside the stems against the push out, and one walking at a
+  // bank's cliff was drawn half inside it. (The same trunk as outOfStems: a step that takes it no deeper is allowed.)
+  walkBlocked(a, nx, nz) {
+    const d1 = this.stemDepth(a, nx, a.pos.y, nz, a.yaw);
+    if (d1 > 0.02 && d1 > this.stemDepth(a, a.pos.x, a.pos.y, a.pos.z, a.yaw) + 1e-3) return true;
+    return SPECIES[a.sp].kind !== 'gecko' && this.cliffAt(nx, nz) && !this.cliffAt(a.pos.x, a.pos.z);
   }
 
   // Would a step to (nx, nz) take this walker further into a neighbour's body? Crawlers go round one another the way they go round
@@ -2993,7 +3454,7 @@ export class Animals {
         return true;
       }
       if (g === 'land') {
-        if (!this.okFor(this.mediumOf(sp), x, z)) continue;
+        if (!this.okFor(this.mediumOf(sp), x, z) || (CORE_WALKERS.has(sp.kind) && sp.kind !== 'gecko' && this.cliffAt(x, z) && !this.cliffAt(a.pos.x, a.pos.z))) continue;
         a.pos.x = x; a.pos.z = z; a.pos.y = T.heightAt(x, z);
         return true;
       }
@@ -3045,6 +3506,9 @@ export class Animals {
       if (v.yawT === 0 && calm) {
         const big = Math.random() < 0.15;
         v.yawT = (Math.random() < 0.5 ? -1 : 1) * (big ? 0.45 + Math.random() * 0.4 : 0.08 + Math.random() * 0.22);
+        // A body with a neck (rig2) looks round with its head (draw); one without (a frog, a crab, a bug) turns on the spot to look,
+        // stepping round about its pivot (move(): a.lookTo), never by the body spinning on its own.
+        if (!sp.anim?.rig2) a.lookTo = (a.yaw ?? 0) + v.yawT;
         v.rollT = Math.random() < 0.5 ? (Math.random() - 0.5) * 0.1 : 0;
         v.twT = big ? 1.5 + Math.random() * 2 : 0.7 + Math.random() * 1.8;
       } else { v.yawT = 0; v.rollT = 0; v.twT = 3 + Math.random() * 11; }
@@ -3248,7 +3712,7 @@ export class Animals {
       const medium = axo ? 'water' : a.sp === 'firesal' ? (m.mode === 'soak' ? 'any' : 'land') : amph || depth <= 0.3 ? 'any' : 'water';
       const maxD = a.sp === 'firesal' ? (m.mode === 'soak' ? 1.8 : 0.6) : 99;
       if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, medium, maxD);
-      else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - x, it.face.z - z), Math.min(1, dt * 4)); }
+      else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - x, it.face.z - z), dt, 4); }
       const gy = T.heightAt(a.pos.x, a.pos.z);
       a.pos.y = a.pos.y > gy + 0.05 ? Math.max(gy, lerp(a.pos.y, gy, Math.min(1, dt * 6))) : gy;
       a.normal = T.normalAt(a.pos.x, a.pos.z);
@@ -3263,8 +3727,8 @@ export class Animals {
     const dx = goal.x - x, dz = goal.z - z, dist = Math.hypot(dx, dz);
     if (dist < 0.15) { a.hsp = (a.hsp ?? 0) * 0.5; return; }
     const want = Math.atan2(dx, dz), diff = angDiff(want, a.yaw ?? 0);
-    // Pivot on the spot when the goal is well off the heading; the legs step round (move() counts the turn).
-    a.yaw = (a.yaw ?? 0) + clamp(diff, -dt * 3.2, dt * 3.2);
+    // Pivot on the spot (about the hips) when the goal is well off the heading; the legs step round (move() counts the turn).
+    this.turnTo(a, sp, want, dt, 8);
     const fwd = clamp(1 - Math.abs(diff) / 1.1, 0, 1);
     a.hsp = (a.hsp ?? 0) + (speed * fwd - (a.hsp ?? 0)) * Math.min(1, dt * 5);
     const step = Math.min(dist, a.hsp * dt);
@@ -3272,7 +3736,7 @@ export class Animals {
     if (fwd > 0.95) { ux = dx / dist; uz = dz / dist; }
     // (An animal standing where it is not allowed, in the margin by the glass, may step toward the middle.)
     const here = this.okFor(medium, x, z, maxD, a.rad);
-    const free = (nx, nz) => this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02);
+    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02)) && !this.walkBlocked(a, nx, nz);
     const probe = Math.max(step, 0.15);       // (the first step of a start has no length yet)
     if (!free(x + ux * probe, z + uz * probe)) {
       const sd = a.side ?? 1, base = Math.atan2(ux, uz);
@@ -3318,13 +3782,11 @@ export class Animals {
       else a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8);
       lift(Math.min(loAt(a.pos.x, a.pos.y), hi));
       if (it.face && !goal) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - a.pos.x, -(-it.face.z - a.pos.y)), Math.min(1, dt * 6));
-      a.pos.z = Wl.zAt(a.pos.x, a.pos.y) + 0.35;
-      const [gx, gy] = Wl.field.gradient(a.pos.x, a.pos.y);
-      a.normal = V(-gx, -gy, 1).normalize();
+      this.wallFrame(a, sp, dt);
       a.wallMode = true;
       // Off the wall at its lowest point: it steps down onto the ground in front.
       if (!it.wantWall && a.pos.y < low + 0.3) {
-        a.onWall = false; a.wallMode = false; a.target = null;
+        a.onWall = false; a.wallMode = false; a.target = null; a._wn = null;
         let fz = Wl.zAt(a.pos.x, ground + 1) + Math.max(1.5, (a.rad ?? 0.5) + 0.6);
         for (let k = 0; k < 4 && this.crowded(a, sp, a.pos.x, fz); k++) fz += (a.rad ?? 0.5) * 1.2;      // not onto a frog sitting at the foot of the wall
         a.pos.set(a.pos.x, T.heightAt(a.pos.x, fz), fz);
@@ -3338,10 +3800,10 @@ export class Animals {
       if (a.pos.z < wz + 2.6) { a.onWall = true; a.pos.y += 1; a.hsp = 0; return; }
       this.herpStep(a, sp, P, { x: a.pos.x, z: wz + 1.5 }, goal ? it.speed : P.walk, dt, 'land', 5);
     } else if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, 'land', 0.3);
-    else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - a.pos.x, it.face.z - a.pos.z), Math.min(1, dt * 5)); }
+    else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - a.pos.x, it.face.z - a.pos.z), dt, 5); }
     a.pos.y = T.heightAt(a.pos.x, a.pos.z);
     a.normal = T.normalAt(a.pos.x, a.pos.z);
-    a.wallMode = false;
+    a.wallMode = false; a._wn = null;
   }
 
   // --- What they sense ---
@@ -3568,19 +4030,27 @@ export class Animals {
     if (!b) return null;
     const T = this.world.terrain, sc = drawScale(a, sp);
     const fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0), rx = fz, rz = -fx;
-    const zc = b.zc * sc, fore = zc + b.hlen * sc * 0.5, hind = zc - b.hlen * sc * 0.45, side = (b.hw / 0.6) * sc * 0.75;
+    // (a gecko's or a newt's tail is not a foot: the hind point half the length back lay on the tail, on the ground behind it, and a
+    // gecko in a hollow was drawn 2.3 cm up in the air on its tail and snout, or sunk into the rise ahead; they stand on their feet)
+    const ff = TAILED.has(sp.kind) && b.feet, zc = b.zc * sc, side = (b.hw / 0.6) * sc * 0.75;
+    const fore = ff ? ff.fore * sc : zc + b.hlen * sc * 0.5, hind = ff ? ff.hind * sc : zc - b.hlen * sc * 0.45;
     const x = a.pos.x, z = a.pos.z;
-    const hF = T.heightAt(x + fx * fore, z + fz * fore), hB = T.heightAt(x + fx * hind, z + fz * hind);
-    const hR = T.heightAt(x + rx * side, z + rz * side), hL = T.heightAt(x - rx * side, z - rz * side);
+    // (standing on level ground at the foot of a bank, ground rising beside it steeper than it can stand on, as cliffAt, is the bank,
+    // not a foothold: a frog there, a flank's point up it, was drawn tipped on its side and lifted 2.6 cm, floating, a gecko 3.9 cm; it
+    // stands on what is under it until it is on the slope.)
+    const [gx, gz] = T.field.gradient(x, z), h0 = T.heightAt(x, z), wall = gx * gx + gz * gz < 0.56;
+    const foot = (h, d) => (wall && h - h0 > 1.73 * Math.max(0.3, Math.abs(d)) ? h0 : h);
+    const hF = foot(T.heightAt(x + fx * fore, z + fz * fore), fore), hB = foot(T.heightAt(x + fx * hind, z + fz * hind), hind);
+    const hR = foot(T.heightAt(x + rx * side, z + rz * side), side), hL = foot(T.heightAt(x - rx * side, z - rz * side), side);
     const span = Math.max(0.3, fore - hind);
     // Up from the two tangents of the plane: along the body (hind to fore) and across it (left to right).
     const t1x = fx * span, t1y = hF - hB, t1z = fz * span, t2x = rx * 2 * side, t2y = hR - hL, t2z = rz * 2 * side;
     const up = _fu.set(t1y * t2z - t1z * t2y, t1z * t2x - t1x * t2z, t1x * t2y - t1y * t2x);
     if (up.y < 0) up.negate();
     up.normalize();
-    if (up.y < 0.35) return null;                                      // a cliff edge: leave it to the old tilt
+    if (up.y < 0.35 && sp.kind !== 'gecko') return null;               // a cliff edge: leave it to the old tilt (a gecko climbs it)
     const yPlane = 0.5 * (hB + (hF - hB) * (-hind / span)) + 0.25 * (hL + hR);
-    const dy = Math.max(yPlane - T.heightAt(x, z), -b.hh * sc * 0.33);     // a.pos.y is the ground under its middle
+    const dy = Math.max(yPlane - h0, -b.hh * sc * 0.33);     // a.pos.y is the ground under its middle
     return { up, dy };
   }
 
@@ -3627,6 +4097,8 @@ export class Animals {
           e.set(sw ? sw.pitch : a.pitch ?? 0, a.yaw, sw ? sw.roll : 0, 'YXZ');
           q.setFromEuler(e);
         }
+        // A gecko or a perching frog: its frame turns smoothly while it climbs, gets on and gets off (steadyFrame).
+        if (sp.kind === 'gecko' || sp.perch) this.steadyFrame(a, q, dt / this.tf, !!(a.wallMode || a.onWall || (a.perch && a.perch.ph !== 'go')));
         const rel = Math.min(1.5, (a.speedNow ?? 0) / Math.max(0.1, sp.speed));
         const walker = sp.kind === 'newt' || sp.kind === 'axolotl' || sp.kind === 'gecko' || sp.kind === 'skink';
         // Undulation: strong when swimming; walking salamanders, newts and geckos bend sideways in step with the legs.
@@ -3665,7 +4137,9 @@ export class Animals {
             if (sw) { pos = _p.copy(a.pos); pos.y += bob(this.t + a.phase, sp.size, frac(a.kick ?? 0), a.floating ? 0 : 1); }
           }
           if (!sw) {
-            if (!a.hop && !a.wallMode) _qo.setFromEuler(_e.set(v.pitch, v.yaw + v.yawN, v.roll, 'YXZ')); else _qo.setFromEuler(_e.set(v.pitch, v.yaw + v.yawN, 0, 'YXZ'));
+            // (the look-round and nosing yaw is not a spin of the whole body: the head turns it, a.visYaw, or the animal steps round)
+            a.visYaw = v.yaw + v.yawN;
+            if (!a.hop && !a.wallMode) _qo.setFromEuler(_e.set(v.pitch, 0, v.roll, 'YXZ')); else _qo.setFromEuler(_e.set(v.pitch, 0, 0, 'YXZ'));
             if (!a.hop) q.multiply(_qo);
           }
           if (invRig) {
@@ -3686,7 +4160,7 @@ export class Animals {
           const cb = a.cb, i = a.ci ?? {};
           cb.wph = (cb.wph ?? 0) + dt * (i.mode === 'eat' ? 4 : 2.6);
           amp = -cb.lead; a.wph = cb.wph;
-          packed = packAnim(0, 0, 0, 0, i.claw ?? 0, i.calm ?? 1);
+          packed = packAnim(0, 0, 0, 0, i.claw ?? 0, Math.min(i.calm ?? 1, 1 - Math.min(1, Math.abs(a.turnW ?? 0) / 0.6)));   // (the legs step while it turns)
           if (cb.sinkNow > 0.01) { pos = _p.copy(pos); pos.y -= cb.sinkNow * 1.35 * sc; }
         }
         // The swimming-pose model flexes a little in time with the stroke; everything else is the rig's business.
@@ -3702,7 +4176,10 @@ export class Animals {
           const kb = Math.min(1, dt * 7);
           a.tLift = (a.tLift ?? 0) + ((gb ? gb.lift : 0) - (a.tLift ?? 0)) * kb;
           a.hLift = (a.hLift ?? 0) + ((gb ? gb.head : 0) - (a.hLift ?? 0)) * kb;
-          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy, r[1] + a.hLift, r[2], r[3], a.hm?.tailF ?? 1, a.hm?.dull ?? 0, 0, a.tLift);
+          // A turn adds its own pose (turnPoseStep): the spine bends into it, the head leads, the tail follows; all of it inside the
+          // body plan's joint limits (util/bodyplan.js), whatever the mind and the gait ask for on top.
+          const tp = a.turnPose ?? NO_TURN, [hy2, bend2, tail2] = limitRig(planOf(sp), hy + tp[0] + (a.visYaw ?? 0), r[2] + tp[1], r[3] + tp[2]);
+          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy2, r[1] + a.hLift, bend2, tail2, a.hm?.tailF ?? 1, a.hm?.dull ?? 0, 0, a.tLift, a.turnMix ?? 0);
           if (a.dropNow) {
             // The tail has just come off: a piece of it stays where it was, falls and thrashes.
             a.dropNow = false;
@@ -3710,7 +4187,11 @@ export class Animals {
             if (n >= 6) this.tails.splice(this.tails.findIndex((t) => t.sp === id), 1);
             this.tails.push({ sp: id, pos: pos.clone(), q: q.clone(), sc, age: 0, phase: 0, vy: 0, wall: !!a.wallMode, cut: 0.5 + 0.5 * 0.1, lie: false });
           }
-        } else cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);
+        } else if (cm?._lo?.finish?.rig2) {
+          // A body that bends without a mind steering its head (a fish, the skink): the turn's C-bend and tail, and the legs' turning mix.
+          const tp = a.turnPose ?? NO_TURN, [hy2, bend2, tail2] = limitRig(planOf(sp), tp[0] + (a.visYaw ?? 0), tp[1], tp[2]);
+          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy2, 0, bend2, tail2, 1, 0, 0, 0, a.turnMix ?? 0);
+        } else cm.put(pos, q, sc, a.wph, cm?._lo?.finish?.turnSweep?.inY ? a.turnMix ?? 0 : amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (a frog's anim.y: the turning mix)
         // Its contact shadow: the body's outline (or a disc for the small and the unmeasured), fading as it leaves the ground.
         if (!swimming && !a.wallMode && !a.perch && !a.onWall && sp.kind !== 'egg' && (a.rad ?? 0) >= 0.25) {
           const b = this.bodyOf(id), fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0);
@@ -3804,6 +4285,8 @@ function pick(o, keys) {
   for (const k of keys) if (o[k] !== undefined) r[k] = o[k];
   return Object.keys(r).length ? r : undefined;
 }
+
+const NO_TURN = [0, 0, 0];
 
 function angDiff(to, from) {
   return ((to - from + Math.PI) % TAU + TAU) % TAU - Math.PI;

@@ -41,6 +41,9 @@ nearest one (`profileFor`).
 
 ## The rig: `rig2` in `render/creatures/instanced.js`
 
+(Skeletons, joint limits, muscles and turning for every animal: docs/SKELETON.md. The head, bend and tail below are kept inside the
+body plan's ranges, and a turn adds its own bend, head lead and tail lag.)
+
 A species whose `anim.rig2` is set (`{ neck, s0, s1, neckY, len }`) gets a second per-instance vector, `iAnim2` = head yaw, head pitch,
 body bend, tail swing. The vertex shader turns the part ahead of the neck about the neck (weight 1 at `s0`, 0 at `s1`, never the
 legs), curves the body in a C about the shoulders and swings the tail. Nothing is allocated for other species. The mind sets them

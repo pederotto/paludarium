@@ -8,16 +8,20 @@
 // window.bench.setView(name) etc. drive it from tools/bench.mjs, which builds contact sheets.
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { SPECIES, createSpeciesMesh, paletteFinish } from '../sim/animals.js';
+import { SPECIES, createSpeciesMesh, paletteFinish, turnRigFinish } from '../sim/animals.js';
+import { PLANS, planOf } from '../util/bodyplan.js';
+import { pivotShift } from '../util/turn.js';
 import { U } from '../render/uniforms.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { CreatureLOD } from '../render/creatures/instanced.js';
+import { SKIN } from '../render/creatures/skin.js';
 import { FINISH } from '../render/creatures/material.js';
 import { BODIES } from '../render/creatures/bodies/index.js';
 import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, hopLegs, TAU } from '../util/gait.js';
 
 const q = new URLSearchParams(location.search);
+if (q.has('noskin')) SKIN.on = false;              // (the near mesh drawn by the vertex rig, as before runtime skinning)
 const fullId = q.get('sp') ?? 'dartfrog';
 const [id, morph] = fullId.split(':');      // species id and optional morph id
 const size = +(q.get('size') ?? 640);
@@ -61,7 +65,7 @@ function makeLod() {
   const src = make();
   const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
   const a = sp.anim ?? {};
-  return new CreatureLOD(scene, src, { cap: 4, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, finish: { ...FINISH[group], ...(src.finish ?? {}), ...(a.rig2 ? { rig2: a.rig2 } : {}) }, near: 34 + sp.size * 10 });
+  return new CreatureLOD(scene, src, { cap: 4, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, finish: { ...FINISH[group], ...(src.finish ?? {}), ...(a.rig2 ? { rig2: a.rig2 } : {}), ...turnRigFinish(sp) }, near: 34 + sp.size * 10 });
 }
 let lod = makeLod();
 if (q.get('src') === 'glb') {
@@ -72,7 +76,7 @@ if (q.get('src') === 'glb') {
   if (g) {
     lod.lo.mesh.removeFromParent();
     const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
-    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, legAxis: sp.anim?.legAxis ?? 'z', limb: sp.anim?.limb ?? 1, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(man[key].finish ?? {}), ...pal, ...(sp.anim?.rig2 ? { rig2: sp.anim.rig2 } : {}) }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
+    lod = new CreatureLOD(scene, g.lo, { cap: 4, wave: sp.anim?.wave ?? 1, legLift: sp.anim?.lift ?? 0.25, legStride: sp.anim?.stride ?? 0.35, legAxis: sp.anim?.legAxis ?? 'z', limb: sp.anim?.limb ?? 1, finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(man[key].finish ?? {}), ...pal, ...(sp.anim?.rig2 ? { rig2: sp.anim.rig2 } : {}), ...(q.has('body') ? {} : turnRigFinish(sp)) }, near: 1e6, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures });
     hiReady = true;
   } else console.warn('no GLB for', key);
 }
@@ -110,7 +114,7 @@ function setView(name) {
 let animOn = q.get('anim') === '1', t0 = performance.now();
 const quat = new THREE.Quaternion(), euler = new THREE.Euler(0, 0, 0, 'YXZ');
 // The animal's state as the game would hand it to the rig: pose (hop, pose, calm …) plus body angles and height.
-const state = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, phase: 0, amp: 0, gait: 0, hop: 0, breath: 0, throat: 0, eye: 0, pose: 0, calm: 1, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0 };   // hy hp bend tail: the rig2 channel; tf dull piece: iAnim3 (tail length, skin dullness, tail piece)
+const state = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, phase: 0, amp: 0, gait: 0, hop: 0, breath: 0, throat: 0, eye: 0, pose: 0, calm: 1, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0, turn: 0 };   // turn: the legs' turning mix (util/turn.js); hy hp bend tail: the rig2 channel; tf dull piece: iAnim3 (tail length, skin dullness, tail piece)
 // Named poses at phase t (0 … 1). `swim` is a frog kick (or a salamander's glide for kinds that undulate), `walk` a leg cycle.
 const POSES = {
   stand: () => ({ calm: 1 }),
@@ -128,6 +132,15 @@ const POSES = {
   stump: (t) => ({ calm: 1, tf: 0.1 + 0.9 * (1 - t) }),                 // the tail cut short, growing back (t = 0: a stump, 1: whole)
   piece: (t) => ({ calm: 1, piece: 0.55, tail: 0.26 * Math.sin(t * TAU * 2) }),   // the dropped tail alone, thrashing
   dull: (t) => ({ calm: 1, dull: 0.85 * t }),                         // the skin going milky before a shed
+  // A turn on the spot toward +x over one leg cycle, as the game draws it (util/turn.js, Animals.turnTo / turnPoseStep): the body
+  // pivots about the hips (which stay put), the feet swing round the pivot so the planted ones stay where they are, the spine bends
+  // into the turn and the head leads, at the species' fastest turn.
+  turn: (t) => {
+    const ts = lod._lo?.finish?.turnSweep, P = PLANS[planOf(sp)], stride = sp.anim?.stride ?? 0.35;
+    if (!ts) return { calm: 0, gait: t * TAU };
+    const yaw = t * (4 * stride) / ts.R, [dx, dz] = pivotShift(0, yaw, ts.pz, sp.scale ?? 1);
+    return { calm: 0, gait: t * TAU, turn: 1, yaw, x: dx, z: dz, hy: P.turn.head * P.rig.head, bend: P.turn.bend * P.rig.bend, tail: P.turn.tail * P.rig.tail };
+  },
 };
 function frame() {
   const t = (performance.now() - t0) / 1000;
@@ -139,7 +152,7 @@ function frame() {
   const pos = new THREE.Vector3(state.x, state.y, state.z);
   const packed = packAnim(state.hop, state.breath, state.throat, state.eye, state.pose, state.calm);
   if (animOn) lod.put(pos, quat, scale, t * 8, a.amp ?? 0, t * 6, 0, 0);
-  else lod.put(pos, quat, scale, state.phase, state.amp, state.gait, packed, 0, state.hy, state.hp, state.bend, state.tail, state.tf, state.dull, state.piece, 0);
+  else lod.put(pos, quat, scale, state.phase, lod._lo?.finish?.turnSweep?.inY ? state.turn : state.amp, state.gait, packed, 0, state.hy, state.hp, state.bend, state.tail, state.tf, state.dull, state.piece, 0, state.turn);
   lod.end();
   renderer.render(scene, cam);
 }
@@ -148,11 +161,13 @@ window.bench = {
   water: (on) => { U.waterLevel.value = on ? 1000 : -1000; },
   anim: (on) => { animOn = on; },
   state, setState: (o) => { Object.assign(state, o); animOn = false; },
-  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0 }, POSES[name]?.(t) ?? {}, extra); animOn = false; },
+  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0, x: 0, z: 0, yaw: 0, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0, turn: 0 }, POSES[name]?.(t) ?? {}, extra); animOn = false; },
   ready: true,
 };
 setView(q.get('view') ?? 'three');
 await setLod(q.get('lod') ?? 'lo');
 const v = window.bench.verts();
 info.textContent = `${sp.name}  [${fullId}]  lo ${v.lo} verts${v.hi ? `, hi ${v.hi}` : ''}`;
-renderer.setAnimationLoop(frame);
+// ?proto=skin|rig: the skinning prototype (bench/skinproto.js, measured by tools/skin-proto.mjs) instead of the one-animal bench.
+if (q.has('proto')) await (await import('./skinproto.js')).start({ renderer, scene, cam, lod, sp, q, info });
+else renderer.setAnimationLoop(frame);

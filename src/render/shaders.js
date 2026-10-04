@@ -9,6 +9,7 @@ import {
 } from 'three/tsl';
 import { noise3 } from './noise3.js';
 import { TEX } from './assets.js';
+import { positionView, cross } from 'three/tsl';   // (the floor's moss relief, substrateMaterial)
 import { U, SOIL } from './uniforms.js';
 import { AIR } from './airflow.js';
 import { causticLight } from './waterfx.js';
@@ -92,8 +93,34 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
   const w0 = attribute('w0', 'vec3'), w1 = attribute('w1', 'vec3');
   const ws = [w0.x, w0.y, w0.z, w1.x, w1.y, w1.z];
   let base = vec3(0);
+  // (2026-10-04) The floor's soil and moss. The soil photo repeated every 20 cm across the land as one print: a second read,
+  // turned and scaled, is blended in by a slow noise, and the tone drifts with it. The moss was a lawn-grass photo tinted
+  // yellow-green, a repeating speckle close up and a flat green from across the room: now cushions of moss (a 2 cm noise:
+  // lit tops, dark crevices) in greens that drift from deep to yellowish and brown where it is drier, the grass photo only a
+  // fine fuzz on them, and the soil showing between cushions where the moss is thin.
+  // The cushions are the lumps of a noise, shaded a little darker along its zero lines (the crevices between them), its
+  // lattice warped by the slow noise so its 19 cm period does not show.
+  const slow = perVertexWater ? noise3(pw.mul(0.06)) : null;
+  const cn = perVertexWater ? noise3(pw.mul(0.42).add(vec3(slow, slow.mul(-0.7), slow.mul(0.9)).mul(2.2))) : null;
+  const cushion = perVertexWater ? cn.mul(0.5).add(0.5).mul(smoothstep(0.0, 0.14, abs(cn)).mul(0.3).add(0.7)) : null;
+  let soilC = null, mossH = null;
   GROUND.forEach((g, k) => {
-    let c = triplanar(TEX.ground[k], g.scale, pw, bf).mul(vec3(...g.tint));
+    let c = perVertexWater && k === 4 ? null : triplanar(TEX.ground[k], g.scale, pw, bf).mul(vec3(...g.tint));
+    if (perVertexWater && k === 0) {
+      const q = pw.xz.mul(0.8).add(pw.mul(vec3(1, 0, -1)).zx.mul(0.6)).mul(g.scale * 0.71).add(0.37);   // turned 37 degrees
+      const turned = texture(TEX.ground[0], q).rgb.mul(vec3(...g.tint));
+      c = mix(c, turned, smoothstep(-0.2, 0.2, slow).mul(bf.y)).mul(slow.mul(0.3).add(1));
+      soilC = c;
+    }
+    if (perVertexWater && k === 4) {
+      // Fine fuzz: the grass photo at 2 cm, and tufts of a few millimetres (a fine noise on the same warped lattice).
+      const fuzz = mix(float(1), dot(triplanar(TEX.ground[4], 1 / 2.2, pw, bf), vec3(0.3, 0.59, 0.11)).div(0.12), 0.75);
+      const tuft = noise3(pw.mul(1.9).add(vec3(slow.mul(3.1), cn.mul(0.6), slow.mul(-2.3)))).mul(0.5).add(0.5);
+      const hue = mix(mix(vec3(0.03, 0.08, 0.014), vec3(0.085, 0.165, 0.028), smoothstep(-0.45, 0.45, slow)), vec3(0.09, 0.08, 0.034), smoothstep(0.35, 0.75, slow).mul(0.55));
+      const moss = hue.mul(cushion.mul(0.65).add(0.45)).mul(tuft.mul(0.6).add(0.7)).mul(fuzz);
+      mossH = cushion.mul(0.35).add(tuft.mul(0.07)).mul(ws[4]);   // cm of relief, for the normal below
+      c = mix(soilC.mul(0.75), moss, smoothstep(-0.05, 0.2, cushion.mul(0.5).add(slow).add(0.35)));
+    }
     // (2026-10-03) The dark stone's lichen scan is pale specks on brown: the specks are pressed down (a power curve keeps the
     // dark rock and lowers the bright flecks), so a wall of it reads as weathered stone rather than a camouflage print.
     if (k === 5) c = pow(c, vec3(1.45)).mul(1.35);
@@ -153,11 +180,21 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
   m.emissiveNode = emissive;
   m.roughnessNode = mix(float(0.95), float(0.45), wetBand.mul(2));
   // Relief on rock: a triplanar rock normal map (three texture reads), as the spires have; soil, sand and moss stay as they were.
+  // Its blend weights are its own nodes, not `bf`: shared, three declared their sum inside this branch and the colour above
+  // divided by it, so with the branch off (the Low preset) the sum was never set and the whole wall and floor drew near black.
   m.normalNode = Fn(() => {
     const nOut = normalView.toVar();
+    if (mossH) {
+      // The moss's cushions and tufts in relief: a bump from the screen-space slope of their height (Mikkelsen 2010), no
+      // extra reads. Worked out before the branch below (slopes need every pixel of the quad).
+      const pv = positionView, sx = pv.dFdx(), sy = pv.dFdy(), r1 = cross(sy, normalView), r2 = cross(normalView, sx);
+      const det = dot(sx, r1), grad = r1.mul(mossH.dFdx()).add(r2.mul(mossH.dFdy())).mul(sign(det));
+      nOut.assign(normalize(normalView.mul(abs(det)).sub(grad)));
+    }
+    const nBase = nOut.toVar();
     If(U.surfaceDetail.greaterThan(0.5), () => {
-      const nd = triplanar(TEX.rockNormal, 1 / 16, pw, bf).mul(2).sub(vec3(1, 1, 2));
-      nOut.assign(normalize(normalView.add(cameraViewMatrix.mul(vec4(nd, 0)).xyz.mul(rockW.mul(1.1)))));
+      const nd = triplanar(TEX.rockNormal, 1 / 16, pw, blendWeights()).mul(2).sub(vec3(1, 1, 2));
+      nOut.assign(normalize(nBase.add(cameraViewMatrix.mul(vec4(nd, 0)).xyz.mul(rockW.mul(1.1)))));
     });
     return nOut;
   })();

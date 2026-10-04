@@ -27,6 +27,16 @@ function Meter({ label, value, tone }) {
   );
 }
 
+// Where a flowering plant is in its bloom cycle (sim/bloom.js: rest → bud → open → fade, the petals dropping at the end of fade),
+// and while it rests, what keeps it from setting a bud.
+function FlowerLine({ b }) {
+  const pc = (t) => Math.round(Math.max(0, Math.min(1, t)) * 100) + '%';
+  if (b.stage === 'bud') return <div class="bn-line">Flower: <b>in bud</b> <span class="dim">({pc(b.t)} of the way to opening)</span></div>;
+  if (b.stage === 'open') return <div class="bn-line">Flower: <b>in bloom</b></div>;
+  if (b.stage === 'fade') return <div class="bn-line">Flower: <b>{b.t < 0.55 ? 'fading' : 'dropping its petals'}</b></div>;
+  return b.why ? <div class="bn-line warn">Flower: resting, {b.why}</div> : <div class="bn-line">Flower: <b>resting</b> <span class="dim">(next bud {pc(b.t)} of the way)</span></div>;
+}
+
 // An animal's colour morph and genes: what it looks like, what it carries, which generation it is, and who it is paired with.
 function GeneCard({ a }) {
   const id = a.gsp ?? a.sp, info = morphInfo(id, a.morph);
@@ -151,6 +161,7 @@ export function InfoBanner() {
         <div class="bn-sub">{info?.sci ? <i>{info.sci}</i> : sp.habitat.split('|').join(' / ')}{info?.role ? ` · ${info.role}` : ''}</div>
         <div class="bn-meters"><Meter label="Health" value={p.health} tone={good(p.health)} /><Meter label="Grown" value={p.grown} tone="#8fd6a4" /></div>
         {p.why?.length ? <div class="bn-line warn">Struggling: {p.why.join(', ')}</div> : <div class="bn-line ok">Thriving.</div>}
+        {p.bloom ? <FlowerLine b={p.bloom} /> : null}
         {p.bodyName ? <div class="bn-line">Water: {p.bodyName}</div> : p.fert != null ? <div class="bn-line">Soil: fertility {Math.round(p.fert * 100)}% · humus {Math.round((p.humusHere ?? 0) * 100)}% · litter {Math.round((p.litterHere ?? 0) * 100)}%</div> : null}
         <p class="bn-fact">{info?.facts?.[0] ? (info.facts[0].length > 170 ? info.facts[0].slice(0, 168).replace(/\s\S*$/, '') + '…' : info.facts[0]) : sp.note}</p>
         {acts('plant:' + p.id)}

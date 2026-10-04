@@ -46,7 +46,7 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     if (!o.isMesh) return;
     let g = o.geometry.clone();
     // Meshopt/quantised files store positions as normalised integers: make them real floats before scaling.
-    for (const k of ['position', 'normal', 'uv', 'color', '_rig']) {
+    for (const k of ['position', 'normal', 'uv', 'color', '_rig', '_skin']) {
       const a = g.attributes[k];
       if (!a || a.array instanceof Float32Array) continue;
       const f = new Float32Array(a.count * a.itemSize);
@@ -55,7 +55,7 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     }
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(sc, new THREE.Matrix4().multiplyMatrices(rot, o.matrixWorld)));
     // Keep only what the shader uses; a missing uv becomes zeros so parts can merge.
-    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', '_rig'].includes(k)) g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', '_rig', '_skin'].includes(k)) g.deleteAttribute(k);
     if (g.attributes.color && g.attributes.color.itemSize === 4) {   // RGBA: keep RGB
       const c4 = g.attributes.color, c3 = new Float32Array(c4.count * 3);
       for (let i = 0; i < c4.count; i++) { c3[i * 3] = c4.getX(i); c3[i * 3 + 1] = c4.getY(i); c3[i * 3 + 2] = c4.getZ(i); }
@@ -87,6 +87,15 @@ function bakedRig(geo, legDiv = 8) {
   geo.setAttribute('rig', new THREE.BufferAttribute(rig, 4));
   geo.deleteAttribute('_rig');
   geo.deleteAttribute('matId');
+  // The runtime skin binding of a model with a skeleton (tools/bake-creature.mjs `_SKIN`: bone ids / 32 and the first bone's weight),
+  // back to whole bone ids: render/creatures/skin.js.
+  const s = geo.attributes._skin;
+  if (s) {
+    const sk = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) { sk[i * 4] = Math.round(s.getX(i) * 32); sk[i * 4 + 1] = Math.round(s.getY(i) * 32); sk[i * 4 + 2] = s.getZ(i); }
+    geo.setAttribute('skin', new THREE.BufferAttribute(sk, 4));
+    geo.deleteAttribute('_skin');
+  }
   return geo;
 }
 
@@ -124,6 +133,7 @@ export async function loadCreatureGLB(id, meta) {
     const lo = meta.lo ? await geometryFrom(new URL(meta.lo, base).href, opt) : hi;
     addRig(hi.geo, rigOpt);
     if (lo !== hi) addRig(lo.geo, rigOpt);
+    if (meta.skeleton && hi.geo.attributes.skin) hi.geo.userData.skeleton = meta.skeleton;   // (skinned near the camera: skin.js)
     const m = hi.material;
     const tex = (t, srgb) => { if (!t) return null; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.flipY = t.flipY; return t; };
     const textures = { map: tex(m?.map, true), normalMap: tex(m?.normalMap, false), roughnessMap: meta.ignoreRoughMap ? null : tex(m?.roughnessMap, false) };

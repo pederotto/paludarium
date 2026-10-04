@@ -2,8 +2,9 @@
 // contact sheet (test-output/bench/<id>.png) plus per-view PNGs.
 //
 //   node tools/bench.mjs <id> [<id> …] [--lod=lo|hi] [--water=1] [--views=front,side,back,top,three,low] [--size=520]
+//   --query=noskin adds to the bench's URL (here: the near mesh drawn by the rig instead of its skeleton); --tag=x names the strip
 //   node tools/bench.mjs <id> --body=sleep        a pose model ('<id>.sleep' in the manifest) instead of the standing one
-//   node tools/bench.mjs <id> --pose=swim|walk|hop|claw|stand [--phases=6] [--views=side,top] [--wl=<cm>] [--extra='{"pitch":0.3}']
+//   node tools/bench.mjs <id> --pose=swim|walk|hop|claw|stand|turn [--phases=6] [--views=side,top] [--wl=<cm>] [--extra='{"pitch":0.3}']
 //       a strip of one animation cycle: a row per view, a column per phase (the rig inputs come from util/gait.js, as in the
 //       game); --wl puts a water surface at that height; --extra overrides any rig input (hop, pose, calm, pitch, roll, y …)
 //
@@ -45,7 +46,7 @@ const shotsById = {};
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
 page.on('pageerror', (e) => errors.push(String(e.message ?? e).slice(0, 300)));
 for (const id of ids) {
-  await page.goto(`${url}/bench.html?sp=${encodeURIComponent(id)}&src=${src}&lod=${lod}&water=${water}&size=${size}${wlOpt ? '&wl=' + wlOpt : ''}${body ? '&body=' + body : ''}`, { waitUntil: 'load' });
+  await page.goto(`${url}/bench.html?sp=${encodeURIComponent(id)}&src=${src}&lod=${lod}&water=${water}&size=${size}${wlOpt ? '&wl=' + wlOpt : ''}${body ? '&body=' + body : ''}${opt('query', '') ? '&' + opt('query', '') : ''}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.bench?.ready, null, { timeout: 60000 }).catch(() => {});
   if (!(await page.evaluate(() => !!window.bench))) { console.log(id, 'FAILED to load\n' + errors.slice(0, 5).join('\n')); continue; }
   if (poseName) {
@@ -67,7 +68,7 @@ for (const id of ids) {
       comps.push({ input: png, left: c * size, top: r * size });
       labels.push({ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${lab}"><text x="10" y="18" font-family="sans-serif" font-size="14" fill="#9fd">${id} · ${poseName} ${(c / phases).toFixed(2)} · ${views[r]}</text></svg>`), left: c * size, top: r * size + size - lab });
     }));
-    const file = `test-output/bench/${id.replace(':', '_')}${body ? '.' + body : ''}-${poseName}.png`;
+    const file = `test-output/bench/${id.replace(':', '_')}${body ? '.' + body : ''}-${poseName}${opt('tag', '') ? '-' + opt('tag', '') : ''}.png`;
     await sharp({ create: { width: phases * size, height: views.length * size, channels: 3, background: '#050607' } }).composite([...comps, ...labels]).png().toFile(file);
     console.log(`${id}: ${poseName} x ${phases} phases x ${views.length} views → ${file}`);
     continue;

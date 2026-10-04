@@ -33,6 +33,9 @@ export const TEX = {
   mossyRock: load('ground/mossy_rock.jpg'),
   mossyRockNormal: load('ground/mossy_rock_normal.jpg', { srgb: false }),
   rockNormal: load('ground/rock_normal.jpg', { srgb: false }),
+  // Furrowed bark for every wood piece, baked by tools/bake-bark.mjs (the height is in the alpha channel; sim/decor.js barkMaterial).
+  bark: load('ground/bark_furrowed.webp'),
+  barkNormal: load('ground/bark_furrowed_normal.webp', { srgb: false }),
   cards: {
     fern: load('cards/fern.png', { repeat: false }),
     cattail: load('cards/cattail.png', { repeat: false }),
@@ -40,6 +43,11 @@ export const TEX = {
     bilberry: load('cards/bilberry.png', { repeat: false }),
   },
 };
+
+// A binary file under assets/ as an ArrayBuffer, or null when it cannot be had (the caller draws without it).
+export async function loadBinary(path) {
+  try { const r = await fetch(new URL(path, base).href); return r.ok ? await r.arrayBuffer() : null; } catch { return null; }
+}
 
 // glTF models (Poly Haven), loaded once and shared.
 // Meshes are meshopt-compressed and textures WebP (tools/compress-models.mjs): 3.1 MB instead of 5 MB to download.

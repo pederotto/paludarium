@@ -26,8 +26,12 @@ export class Builder {
   // `sway` is a number or function (worldPosition) → 0..1 used by plants.
   // `leaf`: (localPosition) → [u, v] leaf coordinates (see `this.leaf`); without it the part is not a leaf.
   add(geo, { p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1], color = 0xffffff, sway = 0, jitter = 0, leaf = null } = {}) {
-    const g = geo.index ? geo.toNonIndexed() : geo.clone();
-    g.computeVertexNormals();
+    // A leaf is one smooth sheet: its normals are averaged over the vertices its triangles share before they are split.
+    // Split first, every triangle of a curved, cupped leaf (a ShapeGeometry fan of long thin triangles) was lit as a flat
+    // facet of its own, bright or dark (the user's photo, 2026-10-04). Other parts keep their low-poly facets.
+    let g;
+    if (leaf && geo.index) { const sm = geo.clone(); sm.computeVertexNormals(); g = sm.toNonIndexed(); sm.dispose(); }
+    else { g = geo.index ? geo.toNonIndexed() : geo.clone(); g.computeVertexNormals(); }
     const sc = typeof s === 'number' ? [s, s, s] : s;
     _m.compose(_p.set(...p), _q.setFromEuler(_e.set(...r)), _s.set(...sc));
     const nm = new THREE.Matrix3().getNormalMatrix(_m);

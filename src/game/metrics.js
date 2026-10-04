@@ -99,8 +99,10 @@ export function computeMetrics(world) {
   };
 
   // Feature flags used by the biotopes (content/biotopes.js `features`).
+  const cups = Object.entries(pById).reduce((n, [id, c]) => n + (id === 'bromeliad' || PLANTS[id]?.phytotelma ? c : 0), 0);
   m.features = {
-    bromeliad2: (pById.bromeliad ?? 0) >= 2, bromeliad3: (pById.bromeliad ?? 0) >= 3,
+    // (cup bromeliads: the bromeliad and the flowering ones that hold water, PLANTS[id].phytotelma)
+    bromeliad2: cups >= 2, bromeliad3: cups >= 3,
     leaflitter: mossPct >= 8, shallowpool: pools >= 1 || (litres > 1 && W.water.level < 6),
     moss15: mossPct >= 15, stream: streamCells >= 8 || (falls >= 1 && H.outlets.length >= 1), wood: wood >= 1, deep: W.water.level >= 10,
     cycled, falls: falls >= 1, oxygen: E.oxygen >= 7, stones: stone >= 3, cool: E.temp <= 22, tall4: heights.tall >= 4,

@@ -30,7 +30,8 @@ const MAY = {
 // Debt: sim entities own their scene objects (meshes, materials, views), and two content/game modules read the species and
 // plant tables that live beside the entities. Splitting views from models would pay these down.
 const KNOWN = [
-  'sim/plants.js -> render/geo.js', 'sim/plants.js -> render/shaders.js', 'sim/plants.js -> render/assets.js',
+  'sim/plants.js -> render/geo.js', 'sim/plants.js -> render/shaders.js', 'sim/plants.js -> render/assets.js', 'sim/plants.js -> render/flowers.js',
+  'sim/flowering.js -> render/geo.js',
   'sim/terrain.js -> render/shaders.js',
   'sim/sim.js -> render/fruit.js', 'sim/sim.js -> render/uniforms.js',
   'sim/world.js -> render/water.js',

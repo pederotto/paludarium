@@ -42,7 +42,7 @@ export const BIOTOPES = {
   },
   suriname: {
     id: 'suriname', name: 'Suriname forest island', country: 'Suriname', level: 4,
-    animals: ['dartfrog', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'fernph', 'fern', 'pothos', 'grass'],
+    animals: ['dartfrog', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'fernph', 'fern', 'pothos', 'grass', 'guzmania'],
     climate: { temp: [23, 28], humidity: [80, 97] },
     features: ['bromeliad2', 'leaflitter', 'shallowpool'],
     blurb: 'Islands of forest in open savanna. Days are warm and humid, nights cooler, and there is a clear wet and dry season. The blue poison frog lives among the roots and leaf litter of these islands and its tadpoles grow in bromeliad cups.',
@@ -51,7 +51,7 @@ export const BIOTOPES = {
   },
   bocas: {
     id: 'bocas', name: 'Bocas del Toro lowland forest', country: 'Panama', level: 5,
-    animals: ['strawberry', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'fern', 'fernph', 'grass', 'pothos'],
+    animals: ['strawberry', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'fern', 'fernph', 'grass', 'pothos', 'guzmania', 'columnea'],
     climate: { temp: [24, 29], humidity: [85, 100] },
     features: ['bromeliad3', 'moss15', 'stream'],
     blurb: 'Rain falls on more than 200 days a year on the Caribbean coast of Panama. Strawberry poison frogs live in leaf litter and low bromeliads. Each island has its own colour, from red with blue legs to green, orange and white.',

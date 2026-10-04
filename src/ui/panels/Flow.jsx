@@ -45,24 +45,43 @@ function chainFrom(L, B, startKey) {
   return rows;
 }
 
-// The filter's own loop: its pump pulls the main pool's water in, through the filter, and pushes it back cleaned.
+// The filter's own loop: its pump pulls the main pool's water in, through the filter, and pushes it back cleaned. The hoses
+// with their size and the water's speed in them, the head its pump works against and how clogged each media stage is
+// (sim/filterflow.js, Env.filterFlow).
+const speed = (v) => (v >= 10 ? Math.round(v) : v.toFixed(1)) + ' cm/s';
 function FilterLoop({ E }) {
   const F = filterOf(E), clog = filterClog(E), ext = (E.filterKind ?? 'sponge') !== 'matten';
   const where = ext ? 'in the cabinet' : 'in the pool';
+  const ff = E.filterFlow, on = !!E.filter, q = on ? E.filterLph ?? 0 : 0;
+  const hose = (role) => { const h = ff?.hoses.find((x) => x.role === role); return h ? <span style={{ display: 'block', color: 'var(--dim)' }}>{h.id}/{h.od} mm, {on ? speed(h.v) : 'still'} {h.dir}</span> : null; };
   return (
     <div class="fl-chain">
       <h4 style={{ margin: 0, fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
         <span>Filter <span class="tag">{F.name.toLowerCase()} {where}</span></span>
-        <b>{E.filter ? lph(E.filterLph ?? 0) : 'off'}</b>
+        <b>{on ? lph(q) : 'off'}</b>
       </h4>
       <div class="fl-chain-row">
         <div class="fl-node sump">Main pool</div>
-        <div class="fl-arrow"><b>{lph(E.filter ? E.filterLph ?? 0 : 0)}</b>{ext ? 'intake' : 'through the foam'}</div>
+        <div class="fl-arrow"><b>{lph(q)}</b>{ext ? 'overflow drain' : 'through the foam'}{ext ? hose('intake') : null}</div>
         <div class={'fl-node' + (clog > 0.6 ? ' bad' : '')}>{F.name}{clog > 0.15 ? ` · ${Math.round(clog * 100)}% clogged` : ''}</div>
-        <div class="fl-arrow"><b>{lph(E.filter ? E.filterLph ?? 0 : 0)}</b>{ext ? 'return' : 'cleaned'}</div>
+        <div class="fl-arrow"><b>{lph(q)}</b>{ext ? 'return' : 'riser'}{hose(ext ? 'return' : 'riser')}</div>
         <div class="fl-node sump">Main pool</div>
       </div>
-      <small>Its own pump pushes the water through the media, which keep the particles and the bacteria. {E.filter ? (clog > 0.6 ? 'Rinse it soon (Care > Water).' : '') : 'Switched off: nothing is filtered.'}</small>
+      {ff ? (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {ff.stages.map((s) => (
+            <div class={'fl-node' + (s.clog > 0.7 ? ' bad' : '')} style={{ flex: '1 1 110px' }} title={`${{ mech: 'Mechanical', bio: 'Biological', chem: 'Chemical' }[s.id] ?? ''} stage: ${Math.round(s.clog * 100)}% clogged`}>
+              {s.name} <span style={{ color: 'var(--dim)' }}>{{ mech: 'mechanical', bio: 'biological', chem: 'chemical' }[s.id]}</span>
+              <div class="bar" title="How clogged"><i style={{ width: Math.round(s.clog * 100) + '%' }} /></div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <small>
+        Its own pump pushes the water through the media, which keep the particles and the bacteria.
+        {ff && on ? ` The pump (${F.pump.lph} L/h free, ${F.pump.hmax} cm at most) works against ${Math.round(ff.head)} cm: ${ext ? 'the lift from the cabinet to the water line' : 'the lift over the foam'} (${Math.round(ff.lift)} cm), the media and the hose; clogged media and a higher lift cost it flow.` : ''}
+        {on ? (clog > 0.6 ? ' Rinse it soon (Care > Water).' : '') : ' Switched off: nothing is filtered.'}
+      </small>
     </div>
   );
 }

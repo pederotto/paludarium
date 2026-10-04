@@ -566,15 +566,15 @@ export class ToolController {
     const err = this.charge('piece', type);
     if (err) { toast(err, 'bad'); return; }
     this.pushUndo();
-    const onTop = piece || !PIECES[type].stamp;
+    const onTop = !!piece;      // Shift+click on a piece: the new one rests on it (Decor.settle `rest`)
     // The variant and yaw are chosen here so that the mirror copy can match them.
     // One seeded roll (variant, little scale differences, flip, tint, yaw) so no two rocks match;
     // the mirror copy uses the same roll, drawn flipped. Cliffs snap to a wall or slope (face mode).
     const look = W.decor.look(type, Math.floor(Math.random() * 2 ** 31)), face = !!PIECES[type].face && !piece;
     const { variant, rot } = look;
-    const p = W.decor.addPiece(type, hit.point.x, hit.point.z, { size, variant, rot, scale: look.scale, flip: look.flip, tint: look.tint, face, y: onTop && !face ? hit.point.y - size * 0.08 : undefined });
+    const p = W.decor.addPiece(type, hit.point.x, hit.point.z, { size, variant, rot, scale: look.scale, flip: look.flip, tint: look.tint, face, rest: onTop && !face });
     if (!p) { toast('Still loading models…', 'bad'); this.game.career?.refund('piece', type); return; }
-    if (this.mirrored(hit.point.x, 1)) this.mirrorPiece({ type, size, variant, rot, onTop: !!onTop, x: hit.point.x, z: hit.point.z, look });
+    if (this.mirrored(hit.point.x, 1)) this.mirrorPiece({ type, size, variant, rot, onTop, x: hit.point.x, z: hit.point.z, look });
     W.groundChanged();
     this.selectPiece(p);
     this.game.events.emit('placed', 'piece', type);

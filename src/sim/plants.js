@@ -10,8 +10,12 @@ import { MAT, TANK } from './tank.js';
 import { plantFit } from './placement.js';
 import { waterCondition, emergentBoost } from './plantpond.js';
 import { TEX, modelParts } from '../render/assets.js';
+import { FLOWERING, BROMELIAD_FLOWER, headMatrix } from './flowering.js';
+import { FlowerMesh, flowerGeometry, packRGB, packSway, FLOWER } from '../render/flowers.js';
+import { newBloom, stepBloom, bloomLook, cycleOf, dayOpen, AFTER, packBloom, unpackBloom } from './bloom.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const _seatRay = new THREE.Raycaster(), _seatO = V(0, 0, 0), _seatD = V(0, -1, 0);
 // How close two plants' stems may stand, as a fraction of their two crowns' reach added: closer, and one grows out of the other
 // (plants of one kind may stand at about half of it: a clump of grass or a stand of vallisneria).
 export const PLANT_ROOM = 0.35;
@@ -228,7 +232,7 @@ export const PLANTS = {
   },
   bromeliad: {
     name: 'Bromeliad', habitat: 'land|wall', humidity: [55, 100], light: 0.5, size: 6,
-    note: 'Epiphyte. Grows on the background too.',
+    note: 'Epiphyte. Grows on the background too. Its heart blushes red when it flowers.',
     build() {
       const b = new Builder();
       const r = rng(11);
@@ -239,13 +243,15 @@ export const PLANTS = {
           const up = ring ? 2.2 : 1.1;
           blade(b, {
             dir: V(Math.cos(a), up, Math.sin(a)), len: ring ? 4 : 5.5, width: 1.1, droop: ring ? 0.25 : 0.45, segs: 4,
-            color: ring ? 0xb3263c : 0x4c7a2e, tip: ring ? 0xe0506a : 0x7e3a3f, twist: r() * 0.4,
+            // the inner leaves are flushed red at the base; the full blush and the flowers come with the bloom (flower)
+            color: ring ? 0x8a3040 : 0x4c7a2e, tip: ring ? 0x4f7a32 : 0x7e3a3f, twist: r() * 0.4,
           });
         }
       }
       return b.build();
     },
     material: { veins: { kind: 'parallel', n: 5, rib: 0.03, k: 0.6 } },
+    flower: BROMELIAD_FLOWER,
   },
   pothos: {
     name: 'Creeping fig', habitat: 'wall|land', humidity: [50, 100], light: 0.3, size: 1,
@@ -540,15 +546,47 @@ export const PLANTS = {
           leaf: (lv) => [Math.atan2(lv.y, lv.x) / Math.PI * 0.7, Math.min(1, Math.hypot(lv.x, lv.y))],
         });
       }
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * Math.PI * 2;
-        blade(b, { dir: V(Math.cos(a), 1.1, Math.sin(a)), len: 1.8, width: 0.8, droop: -0.1, segs: 2, color: 0xf4d7e4, tip: 0xe07aa6 });
-      }
-      b.add(PRIM.sphereLo, { p: [0, 0.4, 0], s: 0.4, color: 0xf2c53d });
       return b.build();
     },
     material: { amp: 0.1, underwaterAmp: 0.2, speed: 0.5, veins: { kind: 'parallel', n: 44, rib: 0.004, k: 0.6 } },
+    // Nymphaea: four sepals, three whorls of pointed, cupped petals, a boss of golden petal-like stamens round the stigma. Each
+    // flower lasts about three days, opening in the morning and shutting in the afternoon, then sinks; a well-lit plant sends up
+    // the next bud every week or two. Mask colours: r main petal, g accent (sepals, tips), b centre (sim/bloom.js, render/flowers.js).
+    flower: {
+      build(b) {
+        const M = (r, g, bl) => new THREE.Color(r, g, bl);
+        const petal = (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 0.97 + 0.03)), 0.7) * (1 - 0.2 * t);
+        const whorl = (n, a0, elev, len, width, base, tip, cup) => {
+          for (let k = 0; k < n; k++) {
+            const a = a0 + (k / n) * Math.PI * 2, ce = Math.cos(elev);
+            shapedLeaf(b, { base: V(Math.cos(a) * 0.14, 0.04, Math.sin(a) * 0.14), dir: V(Math.cos(a) * ce, Math.sin(elev), Math.sin(a) * ce), len, width, droop: -0.12, outline: petal, color: base, tip, n: 9, cup });
+          }
+        };
+        whorl(4, 0.4, 0.12, 1.75, 0.36, M(0.15, 0.85, 0), M(0.55, 0.45, 0), 0.25);          // sepals
+        whorl(8, 0, 0.32, 1.7, 0.3, M(0.8, 0.1, 0.1), M(0.55, 0.45, 0), 0.35);               // outer petals, tips flushed
+        whorl(8, 0.39, 0.62, 1.45, 0.27, M(0.85, 0, 0.15), M(0.75, 0.25, 0), 0.4);
+        whorl(6, 0.2, 0.92, 1.1, 0.22, M(0.85, 0, 0.15), M(0.9, 0.1, 0), 0.45);
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * Math.PI * 2 + (k % 2) * 0.2, e = 1.05 + (k % 2) * 0.2;
+          blade(b, { base: V(Math.cos(a) * 0.1, 0.06, Math.sin(a) * 0.1), dir: V(Math.cos(a) * Math.cos(e), Math.sin(e), Math.sin(a) * Math.cos(e)), len: 0.5, width: 0.09, droop: -0.2, segs: 2, color: M(0.05, 0, 0.95), tip: M(0.15, 0, 0.85) });
+        }
+        b.add(PRIM.sphereLo, { p: [0, 0.1, 0], s: [0.17, 0.07, 0.17], color: M(0, 0.15, 0.85) });   // the stigma's disc
+      },
+      palettes: [
+        [0xf2bfd2, 0xd65a88, 0xf1bd3a],   // pink
+        [0xf6f3ec, 0xd8e0c2, 0xf2c53d],   // white
+        [0xd3304a, 0x9a1d36, 0xefb03a],   // red
+        [0xf4e07c, 0xd9c35a, 0xe9a92a],   // yellow (N. mexicana)
+        [0xb4b8ef, 0x7a80d4, 0xf2c64a],   // blue (a tropical lily)
+      ],
+      heads: () => [[0, 0.3, 0, 0, 1, 0, 1]],
+      translucent: 0.6,
+      daily: 'day',
+      cycle: { budDays: 5, openDays: 3, fadeDays: 2, restDays: 8, season: 'any', minLight: 0.6, minHumidity: 0 },
+      after: 'seed',
+    },
   },
+  ...FLOWERING,
 };
 
 // How plants spread once grown: [chance per day, reach in cm, most plants of that kind].
@@ -557,6 +595,9 @@ const SPREAD = {
   pothos: [0.08, 6, 20], bromeliad: [0.02, 6, 10], cattail: [0.04, 5, 10], bamboo: [0.03, 6, 8],
   vallisneria: [0.12, 5, 40], sword: [0.02, 8, 6], javafern: [0.05, 4, 16], frogbit: [0.35, 5, 40], lily: [0.03, 9, 6],
   anubias: [0.02, 4, 10], javamoss: [0.12, 4, 40], monstera: [0.04, 8, 10], fissidens: [0.05, 3, 30], rotala: [0.1, 4, 24],
+  // flowering plants: bromeliads pup, the sinningia seeds itself, orchids are divided slowly
+  neoregelia: [0.03, 5, 12], guzmania: [0.015, 6, 6], tillandsia: [0.02, 4, 12], masdevallia: [0.01, 4, 6], dracula: [0.01, 4, 6],
+  pleurothallis: [0.015, 4, 8], lepanthes: [0.01, 3, 8], cuthbertsonii: [0.01, 3, 6], sinningia: [0.08, 4, 20], columnea: [0.02, 6, 6], begonia: [0.03, 5, 10],
 };
 
 export class Plants {
@@ -566,6 +607,14 @@ export class Plants {
     this.meshes = {};
     this.variants = {};
     this.cap = 300;
+    // Flowers (sim/bloom.js, render/flowers.js): a mesh per flowering species, made with its first head; species whose heads
+    // changed are redrawn at the end of a step (or at once outside one). `live`: stepped by a running tank (portraits never are,
+    // so their flowers stay open whatever the hour).
+    this.flowers = {};
+    this.flowerSrc = {};
+    this._dirty = new Set();
+    this._stepping = false;
+    this.live = false;
     // Procedural species are built when first used (the first plant of that species, a portrait): a tank pays the mesh,
     // the material and its shader build only for the species it grows. Reading this.meshes[id] builds it.
     for (const [id, sp] of Object.entries(PLANTS)) {
@@ -661,7 +710,7 @@ export class Plants {
     return 'Can’t place here.';
   }
 
-  add(id, pos, { normal = null, scale = null, rot = null, grown = 0.35, surface = 'terrain', health = 1, variant = null } = {}) {
+  add(id, pos, { normal = null, scale = null, rot = null, grown = 0.35, surface = 'terrain', health = 1, variant = null, bloom = null } = {}) {
     const nv = this.variants[id] ?? 1;
     const v = variant ?? Math.floor(Math.random() * nv);
     const im = this.meshes[PLANTS[id].model ? id + '#' + v : id];
@@ -671,15 +720,18 @@ export class Plants {
     const reach = this.reachOf(im, id, scaleV);
     pos = pos.clone();
     const fit = plantFit(pos.x, pos.z, reach, TANK, { clampZ: surface !== 'wall' });
+    const onGround = surface === 'terrain' && PLANTS[id].habitat !== 'floating' && this.world;
     if (fit.x !== pos.x || fit.z !== pos.z) {
       pos.x = fit.x; pos.z = fit.z;
-      if (surface === 'terrain' && PLANTS[id].habitat !== 'floating' && this.world) pos.y = this.world.terrain.heightAt(pos.x, pos.z);
-    }
+      if (onGround) pos.y = this.seatY(pos.x, pos.z);
+    } else if (onGround && Math.abs(pos.y - this.world.terrain.heightAt(pos.x, pos.z)) < 0.05) pos.y = this.seatY(pos.x, pos.z);   // (set on the stamped height)
     const p = {
       id, pos, reach, normal: normal ? normal.clone() : new THREE.Vector3(0, 1, 0), surface,
       rot: rot ?? Math.random() * Math.PI * 2, scale: scaleV,
       grown, health, age: 0, index: im.count, variant: v,
     };
+    const F = PLANTS[id].flower;
+    if (F) p.bloom = unpackBloom(bloom, F) ?? newBloom(F, grown);
     im.count++;
     this.list.push(p);
     this.writeInstance(p);
@@ -705,6 +757,7 @@ export class Plants {
     im.count--;
     this.list.splice(this.list.indexOf(p), 1);
     im.instanceMatrix.needsUpdate = true;
+    if (p.bloom) this.flowerDirty(p.id);
   }
 
   writeInstance(p) {
@@ -727,6 +780,7 @@ export class Plants {
       if (f.lean > 0.01) q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(f.dz, 0, -f.dx), f.lean));
     }
     const s = p.scale * (0.3 + 0.7 * p.grown) * (PLANTS[p.id].modelSize ?? 1);
+    p._q = q; p._s = s;     // (the flower heads follow the plant)
     const m = new THREE.Matrix4().compose(p.pos, q, new THREE.Vector3(s, s, s));
     im.setMatrixAt(p.index, m);
     // Healthy plants are green; dying ones yellow and brown.
@@ -734,11 +788,30 @@ export class Plants {
     im.setColorAt(p.index, c);
     im.instanceMatrix.needsUpdate = true;
     im.instanceColor.needsUpdate = true;
+    if (p.bloom) this.flowerDirty(p.id);
   }
 
   // The plant whose base a new plant of species `id` at `point` would stand in, or null. Two plants may brush leaves, but a stem
   // inside another plant's crown reads as two models pushed into each other. Plants on the water, on the background and in
   // the ground only meet their own layer; `skip` is a plant to ignore (the parent of an offshoot is not, it is a neighbour).
+  // What a plant on the ground stands on at (x, z): the ground as it is drawn (terrain.js `hv`), or the top of a piece under it. The
+  // stamped height `h` is that wherever the drawn ground rises with a stamp, but at the rim of a stone's footprint the drawn ground
+  // stays low and `h` runs straight from the stone's top to the ground beside it: a grass there stood 2 cm up in the air.
+  seatY(x, z) {
+    const W = this.world, T = W?.terrain;
+    if (!T) return 0;
+    const f = T.field, h = T.heightAt(x, z), hv = f.hv ? f.sample(x, z, f.hv) : h;
+    if (h - hv < 0.05) return h;
+    let y = hv;
+    _seatRay.set(_seatO.set(x, h + 2, z), _seatD);
+    for (const pc of W.decor?.pieces ?? []) {
+      if (!pc.stamp || !pc.mesh) continue;
+      const hit = _seatRay.intersectObject(pc.mesh, false)[0];
+      if (hit && hit.point.y > y) y = hit.point.y;
+    }
+    return y;
+  }
+
   crowdingAt(id, point, { scale = 1, surface = 'terrain', skip = null } = {}) {
     const layer = (pid, surf) => (surf === 'wall' ? 'wall' : PLANTS[pid].habitat === 'floating' ? 'float' : 'ground');
     const mine = layer(id, surface);
@@ -793,11 +866,15 @@ export class Plants {
     this.world = world;
     const out = { nitrateUse: 0, shade: 0, deaths: [], born: [] };
     const bodies = world.water.bodies, humus = world.humus, days = dtMin / 1440;
+    // Day flowers open after the lamp comes on and shut before it goes off; night flowers the other way round (render/flowers.js).
+    FLOWER.day.value = dayOpen(env.minute % 1440, env);
+    if (!this.live) { this.live = true; for (const q of this.list) if (q.bloom) this._dirty.add(q.id); }
+    this._stepping = true;
     for (const p of [...this.list]) {
       const sp = PLANTS[p.id];
       p.age += dtMin;
       p.why = [];
-      let ok = 1, boost = 0;
+      let ok = 1, boost = 0, hum = null;
       const hab = sp.habitat;
       const size = p.grown * p.scale;
       if (hab === 'aquatic' || hab === 'floating') {
@@ -816,7 +893,7 @@ export class Plants {
         // reaches them under the canopy, how wet the soil is and how fertile.
         const [hmin] = sp.humidity;
         const C = world.climate;
-        const hum = C.humidityAt(p.pos.x, p.pos.y, p.pos.z);
+        hum = C.humidityAt(p.pos.x, p.pos.y, p.pos.z);
         if (hum < hmin) { ok = Math.min(ok, 1 - (hmin - hum) / 25); p.why.push('air too dry here'); }
         if (hab !== 'emergent' && world.water.surfaceAt(p.pos.x, p.pos.z) > p.pos.y + 0.5) { ok = 0; p.why.push('under water'); }
         if (p.surface !== 'wall') {
@@ -860,6 +937,7 @@ export class Plants {
         out.deaths.push(p);
         continue;
       }
+      if (sp.flower) this.bloomStep(p, sp, env, world, days, { light: lightHere / 0.55, humidity: hum }, out);
       if (Math.random() < 0.02) this.writeInstance(p);
       // Healthy, full-grown plants spread: runners, plantlets, spores. Fertile ground favours them.
       const sprd = SPREAD[p.id];
@@ -870,12 +948,122 @@ export class Plants {
       }
     }
     for (const p of out.deaths) this.remove(p);
+    this._stepping = false;
+    this.flushFlowers();
     return out;
+  }
+
+  // --- Flowers ---------------------------------------------------------------------------------------------------------
+  // One plant's bloom cycle (sim/bloom.js) from its light at its spot (on the scale of a species' light need), the air at it
+  // (land and wall plants), its health and size and the tank's season. Petals that drop become litter (or detritus in water);
+  // a finished bloom may leave a keiki, a pup or a seedling (AFTER).
+  bloomStep(p, sp, env, world, days, c, out) {
+    const F = sp.flower;
+    const b = p.bloom ??= newBloom(F, p.grown);
+    const ev = stepBloom(b, cycleOf(F), { ...c, season: env.season, health: p.health, grown: p.grown }, days);
+    if (ev === 'drop' || ev === 'blast') {
+      const k = (ev === 'drop' ? 0.04 : 0.01) * this.headsOf(p).length;
+      if (sp.habitat === 'floating' || sp.habitat === 'aquatic') env.detritus = (env.detritus ?? 0) + k;
+      else world.humus?.drop(p.pos.x, p.pos.z, k);
+      if (ev === 'drop') this.afterBloom(p, sp, world, out);
+    }
+    const look = bloomLook(b), was = p._look;
+    if (ev || !was || Math.abs(look.open - was.open) > 0.01 || Math.abs(look.scale - was.scale) > 0.01 || Math.abs(look.fade - was.fade) > 0.01
+      || Math.abs(look.petals - was.petals) > 0.01 || Math.abs(look.green - was.green) > 0.02) {
+      p._look = look;
+      this.flowerDirty(p.id);
+    }
+  }
+
+  afterBloom(p, sp, world, out) {
+    const kind = sp.flower.after, a = AFTER[kind];
+    if (!a || Math.random() >= a.chance) return;
+    const child = this.offshoot(p, [0, a.reach, SPREAD[p.id]?.[2] ?? 8], world, a.grown);
+    if (child) { child.from = kind; out.born.push(child); }
+    // a fallen berry is fruit for the fruit flies (sim/flylife.js)
+    if (kind === 'berry' && world.flies && sp.habitat !== 'floating') world.flies.addFruit(p.pos.x, p.pos.z, 0.25);
+  }
+
+  flowerDirty(id) {
+    this._dirty.add(id);
+    if (!this._stepping) this.flushFlowers();
+  }
+
+  flushFlowers() {
+    for (const id of this._dirty) this.drawFlowers(id);
+    this._dirty.clear();
+  }
+
+  // Where plant p's heads sit (plant-local, before its instance transform; species flower.heads) and how much the stalk under
+  // each sways (the nearest vertex of the plant's own mesh): kept until the plant has grown a little more.
+  headsOf(p) {
+    const c = p._heads;
+    if (c && Math.abs(c.g - p.grown) < 0.03) return c.list;
+    const F = PLANTS[p.id].flower, r = rng(1 + Math.floor((p.bloom?.j ?? 0.5) * 1e6));
+    const raw = F.heads ? F.heads(r, p.grown) : [[0, 0, 0, 0, 1, 0, 1]];
+    const g = this.meshes[this.key(p)]?.geometry, pa = g?.attributes.position, sa = g?.attributes.sway;
+    const UP = V(0, 1, 0);
+    const list = raw.map(([x, y, z, dx = 0, dy = 1, dz = 0, s = 1]) => {
+      const local = V(x, y, z);
+      let sw = 0;
+      if (pa && sa) {
+        let best = Infinity;
+        for (let i = 0; i < pa.count; i++) {
+          const d = (pa.getX(i) - x) ** 2 + (pa.getY(i) - y) ** 2 + (pa.getZ(i) - z) ** 2;
+          if (d < best) { best = d; sw = sa.getX(i); }
+        }
+      }
+      // Head frame as flowering.js headMatrix: +Y the facing, +Z (the dorsal sepal of a bilateral flower) as near plant-local
+      // up as the facing allows; only a head that faces straight up (no top) gets a random turn about its axis.
+      const spin = r() * Math.PI * 2, dir = V(dx, dy, dz).normalize();
+      const q = new THREE.Quaternion().setFromRotationMatrix(headMatrix([0, 0, 0, dir.x, dir.y, dir.z, 1]));
+      if (Math.abs(dir.y) > 0.95) q.multiply(new THREE.Quaternion().setFromAxisAngle(UP, spin));
+      return { local, q, s, sw };
+    });
+    p._heads = { g: p.grown, list };
+    return list;
+  }
+
+  drawFlowers(id) {
+    const OPEN = { stage: 'open', t: 0.5 };
+    const sp = PLANTS[id], F = sp.flower;
+    if (!F) return;
+    const show = this.list.filter((p) => p.id === id && p.bloom && p._q && bloomLook(p.bloom).show);
+    let fm = this.flowers[id];
+    if (!fm && !show.length) return;
+    let need = 0;
+    for (const p of show) need += this.headsOf(p).length;
+    if (!fm || need > fm.cap) {
+      // the species' flower geometry is built once; a mesh that has run out of room is replaced by one twice the size
+      const src = this.flowerSrc[id] ??= (() => { const b = new Builder(); F.build(b, rng(97)); return b.build(); })();
+      const cap = Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(1, need))), (fm?.cap ?? 0) * 2);
+      fm?.dispose();
+      fm = this.flowers[id] = new FlowerMesh(this.scene, flowerGeometry(src), cap, 'flower:' + id);
+    }
+    const MODE = { day: 1, night: 2 };
+    const mode = this.live ? (MODE[F.daily] ?? 0) : 0, tr = clamp(F.translucent ?? 0.5, 0, 0.999);
+    const amp = sp.material?.amp ?? 0.6, speed = sp.material?.speed ?? 1;
+    const hp = new THREE.Vector3(), hq = new THREE.Quaternion();
+    fm.begin();
+    for (const p of show) {
+      // (a portrait shows the flower open, in the species' first colours)
+      const b = p.bloom, look = bloomLook(this.live ? b : OPEN), pi = this.live ? b.palette : 0, j = this.live ? b.j : 0.5;
+      const pal = F.palettes?.[pi] ?? [0xf4f0e8, 0xe0a0b0, 0xf0c040];
+      if (p._pal?.k !== pi + j) p._pal = { k: pi + j, v: pal.map((h) => packRGB(h, j)) };
+      const P = [p._pal.v[0], p._pal.v[1], p._pal.v[2], mode * 2 + tr];
+      const ph = p.index * 1.618;
+      for (const h of this.headsOf(p)) {
+        hp.copy(h.local).multiplyScalar(p._s).applyQuaternion(p._q).add(p.pos);
+        hq.copy(p._q).multiply(h.q);
+        fm.put(hp, hq, p._s * h.s * look.scale, P, [look.open, look.fade > 0 ? look.fade : -look.green, look.petals, packSway(amp * h.sw * h.sw, speed, ph, ph * 1.3)]);
+      }
+    }
+    fm.end();
   }
 
   count(id) { let n = 0; for (const p of this.list) if (p.id === id) n++; return n; }
 
-  offshoot(p, [, r, max], world) {
+  offshoot(p, [, r, max], world, grown = 0.15) {
     if (this.count(p.id) >= max) return null;
     const sp = PLANTS[p.id];
     for (let k = 0; k < 6; k++) {
@@ -895,13 +1083,13 @@ export class Plants {
       const crowd = this.list.some((q) => q.id === p.id && q.pos.distanceTo(hit.point) < r * 0.35) || this.crowdingAt(p.id, hit.point, { surface: hit.surface });
       if (crowd) continue;
       if (sp.habitat === 'floating') hit.point.y = world.water.surfaceAt(hit.point.x, hit.point.z, 0.2);
-      return this.add(p.id, hit.point, { normal: hit.normal, surface: hit.surface, grown: 0.15 });
+      return this.add(p.id, hit.point, { normal: hit.normal, surface: hit.surface, grown });
     }
     return null;
   }
 
   serialize() {
-    return this.list.map((p) => ({ id: p.id, pos: p.pos.toArray().map((v) => +v.toFixed(2)), n: p.normal.toArray().map((v) => +v.toFixed(3)), s: p.surface, v: p.variant, r: +p.rot.toFixed(2), sc: +p.scale.toFixed(2), g: +p.grown.toFixed(2), h: +p.health.toFixed(2) }));
+    return this.list.map((p) => ({ id: p.id, pos: p.pos.toArray().map((v) => +v.toFixed(2)), n: p.normal.toArray().map((v) => +v.toFixed(3)), s: p.surface, v: p.variant, r: +p.rot.toFixed(2), sc: +p.scale.toFixed(2), g: +p.grown.toFixed(2), h: +p.health.toFixed(2), ...(p.bloom ? { b: packBloom(p.bloom) } : {}) }));
   }
 
   clear() {

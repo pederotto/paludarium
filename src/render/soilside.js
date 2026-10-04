@@ -1,17 +1,20 @@
 // The soil profile seen through the front and side glass: what a keeper sees of the build below the surface. From the
-// bottom up: the drainage (none, a layer of LECA clay balls, or a false bottom: the white egg-crate grid with bio-rings in
+// bottom up: the drainage (none, a layer of LECA clay balls, or a false bottom: the white egg-crate grid on PVC legs, bio-rings in
 // the plenum's water), the fibreglass mesh over it, then the substrate (content/equipment.js SUBSTRATES: topsoil, ABG mix,
 // coco coir, coir under sphagnum) with its leaf litter on top. Where the plenum's water is over the mesh the soil above it
-// shows dark and soaked (mud). The water in the drainage stands at the pool's level (they are one body of water).
+// shows dark and soaked (mud). The plenum's water stands at its own simulated level (sim/plenum.js E.plenumLevel): it fills
+// from the soil, the pump in the tower draws it down, and it is open to the pool through a screen.
 //
 // One mesh of vertical strips just inside the glass, from the floor to the ground (the sculpted base, not the rocks on it),
 // rebuilt when the ground changes; one material whose layers are all drawn from uniforms in the fragment, so changing the
-// build or the substrate costs no rebuild and no shader compile. The patterns are cheap hashes (no noise per fragment).
+// build or the substrate costs no rebuild and no shader compile. The patterns are cheap hashes (no noise per fragment) over
+// one read of the soil photo, and each fragment works out only its own zone and the chosen substrate (branches on uniforms).
 
 import * as THREE from 'three/webgpu';
-import { uniform, attribute, positionWorld, vec2, vec3, float, fract, floor, sin, dot, mix, smoothstep, step, length, abs, max, min, clamp } from 'three/tsl';
+import { Fn, If, uniform, attribute, positionWorld, texture, vec2, vec3, float, fract, floor, sin, dot, mix, smoothstep, step, length, abs, max, min, clamp } from 'three/tsl';
 import { TANK } from '../sim/tank.js';
 import { U } from './uniforms.js';
+import { TEX } from './assets.js';
 import { SUBSTRATE_ORDER } from '../content/equipment.js';
 
 const STEP = 0.75;       // cm between columns
@@ -22,7 +25,7 @@ const hash = (p) => fract(sin(dot(p, vec2(12.9898, 78.233))).mul(43758.5453));
 export class SoilSide {
   constructor(parent, world) {
     this.world = world;
-    this.u = { L: uniform(0), mode: uniform(0), water: uniform(0), sub: uniform(0), wet: uniform(0.5), mud: uniform(0) };
+    this.u = { L: uniform(0), mode: uniform(0), water: uniform(0), sub: uniform(0), wet: uniform(0.5), mud: uniform(0), pool: uniform(0) };
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material());
     this.mesh.name = 'soil-profile';
     this.mesh.frustumCulled = false;
@@ -32,83 +35,113 @@ export class SoilSide {
   }
 
   material() {
-    const { L: Ltrue, mode, water: wTrue, sub, wet, mud } = this.u;
-    const pw = positionWorld, y = pw.y, a = pw.x.add(pw.z);       // a: along the glass
-    const top = attribute('top', 'float');
+    const { L: Ltrue, mode, water: wTrue, sub, wet, mud, pool } = this.u;
+    const pw = positionWorld, top0 = attribute('top', 'float');
     // A cut-away: generated tanks slope the ground down to a few centimetres at the front glass, so the drainage is drawn at
-    // most about half as deep as the ground there (its true depth where there is room), and the water line keeps its true
-    // distance from the mesh. L and water below are those drawn heights.
-    const L = min(Ltrue, top.mul(0.55)), water = L.sub(Ltrue.sub(wTrue));
-
-    // --- Substrates ------------------------------------------------------------------------------------------------
-    // Rounded particles: in each cell of a grid (cells per cm `k`, stretched by `sx`, `sy`) a jittered ellipse of random size.
-    // Returns [mask 0 … 1, the cell's random number].
-    const blob = (k, sx, sy, rMin, rMax, seed) => {
+    // most about half as deep as the ground there (its true depth where there is room). The water in it is drawn at the same
+    // share of that depth as it really fills; over the mesh, at its true height over the mesh.
+    const drawnL = (t) => min(Ltrue, t.mul(0.55));
+    const drawnWater = (Ld) => wTrue.lessThan(Ltrue).select(wTrue.mul(Ld).div(max(Ltrue, 0.01)), Ld.add(wTrue.sub(Ltrue)));
+    // The water part of the tank has no drainage under it (the ground there is lower than the layer); a false bottom lies
+    // under the land only (the pool is walled off from it, open through a screen).
+    const drainOn = (t) => step(0.5, mode).mul(step(1.6, t)).mul(max(step(mode, 1.5), step(pool.add(0.3), t)));
+    // (Everything the branches below share is made a variable at the top of the function, before the first branch: a
+    // variable first used inside one branch is not set in the others.)
+    let y, a, top, L, water, under, inDrain, meshBand;
+    // Particles: in each cell of a grid (cells per cm `k`, stretched by `sx`, `sy`) a jittered blob of random size, round or
+    // (`ang` 1) angular like a broken chunk; about a third of the cells left empty (`fill`), so no rows show.
+    // Returns [mask 0 … 1, the cell's random number, distance from its centre over its radius].
+    const blob = (k, sx, sy, rMin, rMax, seed, ang = 0, fill = 0.32, jit = 0.6) => {
       const q = vec2(a.mul(k * sx), y.mul(k * sy)), c = floor(q), h = hash(c.add(seed));
-      // Jittered well off the grid, and about a third of the cells left empty, so no rows show.
-      const f = fract(q).sub(0.5).add(vec2(hash(c.add(seed + 1.7)), hash(c.add(seed + 3.1))).sub(0.5).mul(0.6));
+      const f = fract(q).sub(0.5).add(vec2(hash(c.add(seed + 1.7)), hash(c.add(seed + 3.1))).sub(0.5).mul(jit));
       const r = h.mul(rMax - rMin).add(rMin);
-      return [smoothstep(r, r.sub(0.08), length(f)).mul(step(0.32, hash(c.add(seed + 5.3)))), h];
+      const d = ang ? mix(length(f), abs(f.x).add(abs(f.y)).mul(0.8), h.mul(0.6).add(0.3)) : length(f);
+      return [smoothstep(r, r.sub(0.06), d).mul(step(fill, hash(c.add(seed + 5.3)))), h, d.div(r)];
     };
-    const [grain, gh] = blob(5, 1, 1, 0.22, 0.42, 0);
-    const [grain2] = blob(9, 1, 1, 0.2, 0.38, 11);
-    const fineC = (c) => c.mul(grain.mul(gh.mul(0.35).add(0.05)).add(grain2.mul(0.08)).add(0.9));
-    const [perl, ph] = blob(2.2, 1, 1, 0.12, 0.26, 21);
-    const perlite = perl.mul(step(0.9, ph));
-    const soilC = fineC(vec3(0.13, 0.085, 0.055));
-    const [bark, bh] = blob(1.3, 0.8, 1.7, 0.2, 0.44, 31);
-    let abgC = fineC(vec3(0.15, 0.095, 0.058));
-    abgC = mix(abgC, vec3(0.33, 0.18, 0.09).mul(bh.mul(0.4).add(0.75)), bark.mul(step(0.42, bh)));
-    abgC = mix(abgC, vec3(0.03, 0.028, 0.026), bark.mul(step(bh, 0.13)));                          // charcoal
-    const [fib, fh] = blob(4, 0.16, 4.5, 0.14, 0.36, 41), [fib2] = blob(6, 0.2, 5, 0.12, 0.3, 45);
-    const coirC = mix(fineC(vec3(0.19, 0.105, 0.058)), vec3(0.33, 0.185, 0.095).mul(fh.mul(0.3).add(0.85)), max(fib, fib2.mul(0.7)).mul(0.6));
-    const [strand, sh] = blob(2.4, 0.5, 1.6, 0.18, 0.4, 51);
-    const sphagC = mix(coirC, mix(vec3(0.34, 0.33, 0.2), vec3(0.55, 0.52, 0.34), sh).mul(strand.mul(0.4).add(0.65)), smoothstep(top.sub(3.4), top.sub(2.8), y));
-    const w1 = step(0.5, sub).mul(step(sub, 1.5)), w2 = step(1.5, sub).mul(step(sub, 2.5)), w3 = step(2.5, sub);
-    let subC = soilC.mul(float(1).sub(w1).sub(w2).sub(w3)).add(abgC.mul(w1)).add(coirC.mul(w2)).add(sphagC.mul(w3));
-    subC = mix(subC, vec3(0.78, 0.78, 0.74), perlite.mul(float(1).sub(w2)).mul(0.85));
-    // Damp soil is darker, more so near the bottom where water wicks up; a flooded false bottom soaks it to mud.
-    const wick = smoothstep(L.add(4), L, y).mul(0.25);
-    subC = subC.mul(float(1).sub(clamp(wet.mul(0.3).add(wick), 0, 0.55)));
-    subC = mix(subC, vec3(0.07, 0.05, 0.035), mud.mul(smoothstep(water.add(3), water.sub(0.5), y)).mul(0.85));
-    // Leaf litter: the top centimetre, dark leaf fragments.
-    const [leafM, leafH] = blob(1.6, 0.35, 2.2, 0.25, 0.45, 61);
-    const litter = mix(vec3(0.06, 0.04, 0.025), mix(vec3(0.13, 0.075, 0.035), vec3(0.2, 0.12, 0.05), leafH), leafM);
-    subC = mix(subC, litter, smoothstep(top.sub(1.3), top.sub(0.7), y).mul(0.9));
 
-    // --- LECA: clay balls in offset rows, dark gaps, water in the bottom -------------------------------------------------
-    const p = vec2(a, y).div(0.95);
-    const row = floor(p.y), px = p.x.add(row.mul(0.5));
-    const cell = vec2(floor(px), row);
-    const f = vec2(fract(px), fract(p.y)).sub(0.5).add(vec2(hash(cell), hash(cell.add(7))).sub(0.5).mul(0.16));
-    const dd = length(f);
-    const ball = smoothstep(0.47, 0.4, dd);
-    let lecaC = mix(vec3(0.05, 0.035, 0.025), vec3(0.62, 0.33, 0.17).mul(float(1).sub(dd.mul(0.9))).mul(hash(cell.add(3)).mul(0.3).add(0.85)), ball);
-    const under = step(y, water);
-    lecaC = mix(lecaC, lecaC.mul(vec3(0.55, 0.75, 0.8)).add(vec3(0.02, 0.05, 0.06)), under);
-
-    // --- False bottom: the egg-crate lattice, bio-rings in the plenum, its water ------------------------------------------
-    const g = vec2(a, y).div(1.3);
-    const bars = max(step(fract(g.x), 0.12), step(fract(g.y.add(0.5)), 0.12));
-    const rp = vec2(a, y).div(0.8), rc = floor(rp);
-    const rr = length(fract(rp).sub(0.5).add(vec2(hash(rc), hash(rc.add(5))).sub(0.5).mul(0.2)));
-    const ring = smoothstep(0.09, 0.04, abs(rr.sub(0.27))).mul(step(0.35, hash(rc.add(11))));
-    const voidC = mix(vec3(0.035, 0.035, 0.04), vec3(0.08, 0.19, 0.21), under);
-    const crateC = mix(mix(voidC, vec3(0.62, 0.58, 0.52).mul(mix(float(1), float(0.7), under)), ring), vec3(0.86, 0.88, 0.85), bars);
-    const drainC = mix(lecaC, crateC, step(1.5, mode));
-
-    // --- Zones ------------------------------------------------------------------------------------------------------
-    // The water part of the tank has no drainage under it (the ground there is lower than the layer).
-    const on = step(0.5, mode).mul(step(1.6, top));
-    const inDrain = on.mul(step(y, L));
-    const meshBand = on.mul(step(L, y)).mul(step(y, L.add(0.3)));
-    const hatch = max(step(fract(a.mul(5)), 0.3), step(fract(y.mul(5)), 0.3));
-    let col = mix(subC, drainC, inDrain);
-    col = mix(col, vec3(0.12, 0.12, 0.11).mul(hatch.mul(0.6).add(0.6)), meshBand);
+    const col = Fn(() => {
+      y = pw.y.toVar(); a = pw.x.add(pw.z).toVar(); top = top0.toVar();
+      L = drawnL(top).toVar(); water = drawnWater(L).toVar(); under = step(y, water).toVar();
+      const on = drainOn(top);
+      inDrain = on.mul(step(y, L)).toVar();
+      meshBand = on.mul(step(L, y)).mul(step(y, L.add(0.2))).toVar();
+      const out = vec3(0).toVar();
+      If(inDrain.greaterThan(0.5), () => {
+        If(mode.lessThan(1.5), () => {
+          // --- LECA: clay pebbles of every size from 8 to 16 mm, packed at random, dark gaps, water in the bottom ----------
+          // (The pebbles' rough, porous skin: the soil photo's grain.)
+          const grit = texture(TEX.ground[0], vec2(a, y).mul(1 / 6)).g.mul(6).add(0.4);
+          const [b1, h1, d1] = blob(0.85, 1, 1, 0.37, 0.45, 71, 0, 0.05, 0.12), [b2, h2, d2] = blob(1.4, 1, 1, 0.36, 0.44, 77, 0, 0.05, 0.12);
+          const shade = (d, h) => vec3(0.36, 0.16, 0.07).mul(h.mul(0.45).add(0.7)).mul(float(1).sub(d.mul(d).mul(0.7))).mul(grit);
+          const c1 = mix(vec3(0.05, 0.03, 0.018).mul(grit), shade(d2, h2).mul(0.7), b2);   // the smaller ones further back
+          out.assign(mix(c1, shade(d1, h1), b1));
+          out.assign(mix(out, out.mul(vec3(0.5, 0.42, 0.3)).add(vec3(0.02, 0.016, 0.008)), under));
+        }).Else(() => {
+          // --- False bottom, seen edge-on: the plenum's water at its level (tea-coloured by the soil's tannins), white
+          // PVC legs every 12 cm, a single layer of bio-rings on the glass, then the egg-crate grid under the mesh ------
+          const ct = min(float(1), L.mul(0.3)), crateY = L.sub(ct);
+          const legX = fract(a.div(12)).sub(0.5).mul(12), legR = 1.05;
+          const leg = smoothstep(legR, legR - 0.06, abs(legX));
+          const legC = vec3(0.62, 0.63, 0.6).mul(float(1).sub(legX.div(legR).pow(2).mul(0.55))).add(smoothstep(0.35, 0.05, abs(legX.add(0.4))).mul(0.12));
+          const [ring, rh, rd] = blob(0.7, 1, 1.25, 0.34, 0.46, 81, 0, 0.45);
+          const ringC = vec3(0.5, 0.46, 0.4).mul(rh.mul(0.25).add(0.8)).mul(mix(float(1), float(0.35), smoothstep(0.32, 0.25, rd)));
+          const voidC = mix(vec3(0.03, 0.032, 0.034), vec3(0.06, 0.06, 0.06), smoothstep(crateY, 0, y));
+          const plen = mix(mix(voidC, ringC, ring.mul(step(y, 1.4))), legC, leg).toVar();
+          plen.assign(mix(plen, plen.mul(vec3(0.62, 0.5, 0.32)).add(vec3(0.034, 0.024, 0.01)), under));
+          const meniscus = smoothstep(0.1, 0.0, abs(y.sub(water))).mul(step(0.05, water)).mul(step(water, crateY));
+          plen.addAssign(vec3(0.16, 0.15, 0.12).mul(meniscus));
+          // The egg-crate: 1.27 cm cells, 2 mm walls; through its cells the dark under the soil.
+          const gx = fract(a.div(1.27)), cy = y.sub(crateY).div(max(ct, 0.01));
+          const wall = max(smoothstep(0.17, 0.12, gx), max(step(cy, 0.14), step(0.86, cy)));
+          // Through a cell: its white walls running back into the dark, lit from below.
+          const crate = mix(mix(vec3(0.3, 0.3, 0.29), vec3(0.08, 0.08, 0.075), cy), vec3(0.8, 0.81, 0.78), wall);
+          out.assign(mix(plen, mix(crate, crate.mul(vec3(0.62, 0.5, 0.32)), under), step(crateY, y)));
+        });
+      }).Else(() => {
+        // --- Substrates: a photographed soil (sampled side-on) under the particles that make each mix --------------------
+        const soil = texture(TEX.ground[0], vec2(a, y).mul(1 / 11)).rgb;
+        const fine = (tint) => soil.mul(tint);
+        const c = vec3(0).toVar();
+        If(sub.lessThan(0.5), () => {
+          // Topsoil and peat: dark, fine, with flecks of perlite.
+          const [perl] = blob(2.2, 1, 1, 0.12, 0.24, 21, 1, 0.86);
+          c.assign(mix(fine(vec3(0.55, 0.45, 0.36)), vec3(0.62, 0.62, 0.58), perl.mul(0.8)));
+        }).ElseIf(sub.lessThan(1.5), () => {
+          // ABG mix: chunks of fir bark (some dark: charcoal) in peat and tree-fern fibre.
+          const [bark, bh, bd] = blob(1.15, 1, 1.25, 0.22, 0.44, 31, 1, 0.5);
+          const barkC = mix(vec3(0.15, 0.075, 0.035), vec3(0.24, 0.12, 0.055), bh).mul(soil.r.mul(3).add(0.55)).mul(float(1).sub(bd.mul(0.4)));
+          c.assign(mix(fine(vec3(0.5, 0.4, 0.3)), mix(barkC, vec3(0.022, 0.021, 0.02).mul(soil.r.mul(3).add(0.6)), step(bh, 0.12)), bark.mul(0.9)));
+        }).Else(() => {
+          // Coco coir (and the coir under sphagnum): reddish fibre, stringy along the glass.
+          const [fib, fh] = blob(3, 0.45, 2.2, 0.14, 0.3, 41, 1, 0.45);
+          c.assign(mix(fine(vec3(0.66, 0.44, 0.3)), vec3(0.22, 0.11, 0.05).mul(fh.mul(0.4).add(0.75)).mul(soil.g.mul(4).add(0.6)), fib.mul(0.4)));
+          If(sub.greaterThan(2.5), () => {
+            // Living sphagnum in the top three centimetres: pale straw and green strands.
+            const [strand, sh] = blob(2.4, 0.5, 1.6, 0.2, 0.42, 51, 0, 0.15);
+            const sph = mix(vec3(0.3, 0.29, 0.16), vec3(0.42, 0.44, 0.2), sh).mul(strand.mul(0.45).add(0.55));
+            c.assign(mix(c, sph, smoothstep(top.sub(3.4), top.sub(2.8), y)));
+          });
+        });
+        // Damp soil is darker, more so near the bottom where water wicks up; a flooded false bottom soaks it to mud.
+        const wick = smoothstep(L.add(4), L, y).mul(0.25);
+        c.assign(c.mul(float(1).sub(clamp(wet.mul(0.3).add(wick), 0, 0.55))));
+        c.assign(mix(c, c.mul(0.35).add(vec3(0.02, 0.014, 0.008)), mud.mul(smoothstep(water.add(3), water.sub(0.5), y)).mul(0.9)));
+        // Leaf litter: the top centimetre, brown leaf fragments lying flat.
+        const [leafM, leafH] = blob(1.4, 0.45, 2.4, 0.22, 0.4, 61, 0, 0.35);
+        const litter = mix(fine(vec3(0.4, 0.3, 0.22)), mix(vec3(0.1, 0.055, 0.025), vec3(0.2, 0.11, 0.045), leafH).mul(soil.r.mul(3).add(0.6)), leafM.mul(0.85));
+        c.assign(mix(c, litter, smoothstep(top.sub(1.3), top.sub(0.7), y).mul(0.9)));
+        // The fibreglass mesh: a dark screen between the drainage and the soil.
+        out.assign(mix(c, vec3(0.045, 0.045, 0.042), meshBand));
+      });
+      return out;
+    })();
 
     const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0 });
     m.colorNode = col;
-    m.roughnessNode = mix(float(0.92), float(0.35), max(inDrain.mul(under), mud.mul(0.6)));
+    // Light from the planted tank and the room reaches the glass even where the lamp does not: the build never goes black.
+    m.emissiveNode = col.mul(U.daylight.mul(0.22).add(0.03));
+    const Lr = drawnL(top0), yr = pw.y;
+    m.roughnessNode = mix(float(0.92), float(0.35), max(drainOn(top0).mul(step(yr, Lr)).mul(step(yr, drawnWater(Lr))), mud.mul(0.6)));
     return m;
   }
 
@@ -123,7 +156,9 @@ export class SoilSide {
     const mode = E.drainage >= 1 ? 2 : E.drainage > 0 ? 1 : 0;
     u.mode.value = mode;
     u.L.value = mode === 2 ? E.plenumH || W.water.level + 1 : mode === 1 ? 3 : 0;
-    u.water.value = mode === 2 ? Math.min(W.water.level, u.L.value + 6) : mode === 1 ? 1.2 : -10;   // a drainage layer keeps a little water in its bottom
+    u.pool.value = W.water.level;
+    // The plenum's own water (sim/plenum.js); a drainage layer keeps a little water in its bottom.
+    u.water.value = mode === 2 ? Math.min(E.plenumLevel ?? W.water.level, u.L.value + 6) : mode === 1 ? 1.2 : -10;
     u.sub.value = Math.max(0, SUBSTRATE_ORDER.indexOf(E.substrate ?? 'soil'));
     U.backdrop.value = E.backdrop === 'foam' ? 1 : 0;
     u.wet.value = E.soil ?? 0.5;

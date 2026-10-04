@@ -1,5 +1,5 @@
-// Mist: soft sprites rising from where waterfalls land and drifting over the
-// water and moss. More humidity (or misting) means more and denser mist.
+// Mist: soft sprites rising from where waterfalls land, round the fogger, and
+// drifting over the tank after a misting. More humidity means denser mist.
 // The sprite texture is generated (a blurred noise puff), so there is nothing
 // to download.
 
@@ -67,14 +67,17 @@ export class Mist {
     this.mesh.renderOrder = 8;
     this.mesh.name = 'mist';
     scene.add(this.mesh);
-    this.sprites = Array.from({ length: N }, () => ({ pos: new THREE.Vector3(), life: 0, max: 1, vel: new THREE.Vector3(), size: 1, alpha: 0, rot: 0 }));
+    this.sprites = Array.from({ length: N }, () => ({ pos: new THREE.Vector3(), life: 0, max: 1, vel: new THREE.Vector3(), size: 1, alpha: 0, rot: 0, k: 1 }));
     this.acc = 0;
   }
 
-  spawn(p, size, up = 0.6) {
+  // `k` scales the puff's opacity: where many are born in one place (a fall's foot, the fogger) they overlap, and a stack of
+  // full-strength puffs is a white blob, not a haze.
+  spawn(p, size, up = 0.6, k = 1) {
     const q = this.sprites.find((q) => q.life <= 0);
     if (!q) return;
     q.pos.copy(p);
+    q.k = k;
     q.vel.set((Math.random() - 0.5) * 0.8, up * (0.5 + Math.random()), (Math.random() - 0.3) * 0.6);
     q.max = q.life = 5 + Math.random() * 6;
     q.size = size;
@@ -85,15 +88,24 @@ export class Mist {
     const W = this.world, E = W.env;
     const hum = Math.min(1, Math.max(0, (E.humidity - 55) / 40)) * 0.8 + E.mist;
     U.mist.value = hum;
-    // Emitters: the foot of each waterfall, plus the open water and moss.
+    // Emitters: the spray at the foot of each waterfall, the fogger (low fog round it) and a misting (drifting everywhere).
+    // Humid air by itself is clear: puffs spawned all over the floor of any humid tank read as white blobs at the foot of
+    // the rocks and plants (the user's photos, 2026-10-04).
     this.acc += dt * (3 + hum * 6);
+    const fog = E.fogger > 0 ? W.equipment?.pos?.fogger : null;
     while (this.acc > 1) {
       this.acc -= 1;
       const fall = W.water.falls[Math.floor(Math.random() * Math.max(1, W.water.falls.length))];
       if (fall && Math.random() < 0.6) {
         const e = fall.pts[fall.pts.length - 1];
-        this.spawn(new THREE.Vector3(e.x + (Math.random() - 0.5) * 3, e.y + 0.8, e.z + (Math.random() - 0.5) * 3), 5 + Math.random() * 5, 0.8);
-      } else if (Math.random() < hum) {
+        this.spawn(new THREE.Vector3(e.x + (Math.random() - 0.5) * 6, e.y + 0.8, e.z + (Math.random() - 0.5) * 6), 5 + Math.random() * 5, 0.8, 0.5);
+      } else if (fog && Math.random() < E.fogger) {
+        // (over the fogger's reach, as sim/climate.js spreads its humidity; lifted by a third of its size, so the quad does
+        // not cut into the ground under it in a hard line)
+        const x = fog.x + (Math.random() - 0.5) * 24, z = fog.z + (Math.random() - 0.5) * 24, size = 10 + Math.random() * 8;
+        const y = Math.max(W.terrain.heightAt(x, z), W.water.level) + size * 0.3 + Math.random() * 2;
+        this.spawn(new THREE.Vector3(x, y, z), size, 0.15, 0.4);
+      } else if (Math.random() < E.mist) {
         const x = (Math.random() - 0.5) * (TANK.w - 8), z = (Math.random() - 0.7) * (TANK.d - 8);
         const y = Math.max(W.terrain.heightAt(x, z), W.water.level) + 1 + Math.random() * 3;
         this.spawn(new THREE.Vector3(x, y, z), 8 + Math.random() * 10, 0.25);
@@ -111,7 +123,7 @@ export class Mist {
       const t = 1 - q.life / q.max;
       const grow = q.size * (0.6 + t * 0.9);
       // Fade in, then out.
-      q.alpha = Math.sin(Math.PI * t) * (0.035 + hum * 0.07);
+      q.alpha = Math.sin(Math.PI * t) * (0.035 + hum * 0.07) * q.k;
       P[k * 4] = q.pos.x; P[k * 4 + 1] = q.pos.y; P[k * 4 + 2] = q.pos.z; P[k * 4 + 3] = grow;
       F[k * 2] = q.alpha; F[k * 2 + 1] = q.rot;
       k++;

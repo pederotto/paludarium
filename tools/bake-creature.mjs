@@ -23,7 +23,24 @@ import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer
 
 const OUT = 'public/assets/creatures';
 // rotY: degrees about y that turn the mesh's head towards +z. lengthCm: nose-to-tail length of the real animal.
-const FROG = { src: 'frog_mesh', rotY: -90, pre: 22000, rig: 'frog', legs: true, matId: 0, texture: 1024, aoReach: 0.35 };
+// The frog scan's skeleton (tools/rig/skeleton.mjs frogBones), measured on the scan in the rig's frame (scan units after rotY, head +z,
+// about 2 long) with tools/rig/joints-view.mjs: a sitting Dendrobates, the hind leg folded in a Z (thigh forward and out to the knee
+// at the front of the lobe, shin back to the heel at its rear tip, the foot forward along the ground), the arm straight down with the
+// elbow back. `radius`: each bone's capsule for the runtime binding (bindCapsules: two bones a vertex, written as `_SKIN` into the
+// detailed file, which the game skins near the camera: render/creatures/skin.js). Every frog job shares it; the species' warp
+// carries the joints with the skin (carryJoints).
+const FROG_SKELETON = {
+  bones: 'frog', poses: {},
+  joints: {
+    vent: [0, -0.28, -0.72], mid: [0, -0.15, -0.25], chest: [0, -0.1, 0.25], neck: [0, 0, 0.4], snout: [0, 0.15, 1.0],
+    hipL: [-0.2, -0.3, -0.7], kneeL: [-0.62, -0.3, -0.28], heelL: [-0.32, -0.45, -0.92], ankleL: [-0.7, -0.58, -0.4], toeL: [-0.83, -0.59, -0.07],
+    hipR: [0.2, -0.3, -0.7], kneeR: [0.62, -0.3, -0.27], heelR: [0.32, -0.45, -0.92], ankleR: [0.7, -0.58, -0.4], toeR: [0.84, -0.59, -0.07],
+    shoulderL: [-0.45, -0.08, 0.2], elbowL: [-0.6, -0.28, 0.2], wristL: [-0.57, -0.55, 0.38], fingerL: [-0.4, -0.59, 0.85],
+    shoulderR: [0.4, -0.08, 0.22], elbowR: [0.6, -0.28, 0.2], wristR: [0.55, -0.55, 0.4], fingerR: [0.43, -0.59, 0.85],
+  },
+  radius: { pelvis: 0.22, spine: 0.38, head: 0.33, thigh: 0.14, shin: 0.12, foot: 0.06, toes: 0.04, arm: 0.08, forearm: 0.07, hand: 0.05 },
+};
+const FROG = { src: 'frog_mesh', rotY: -90, pre: 22000, rig: 'frog', legs: true, matId: 0, texture: 1024, aoReach: 0.35, skeleton: FROG_SKELETON };
 const SHRIMP = { src: 'shrimp_mesh', rotY: 90, lengthCm: 1.6, tris: [11000, 3200], rig: 'shrimp', rigLeg: 16, legs: true, matId: 7, texture: 512, aoReach: 0.1 };
 const JOBS = {
   // The frogs: one scan (frog_mesh, a sitting Dendrobates) decimated to 30k triangles, rigged (tools/rig/frog.mjs: limbs measured
@@ -60,6 +77,11 @@ const JOBS = {
     } },
     skeleton: {
       bones: 'frog',
+      // `muscles`: the sleep pose's folded thighs, calves and shoulders swell (src/util/bodyplan.js anuran muscles). Not skinned at run
+      // time yet (no `radius`): its hind legs lie folded flat with thigh and shin fused in one lobe and the long toes beside the hands,
+      // and walking on these joints tore the lobe and left toe tips behind (tools/rig/skin-stretch.mjs: 2.7 % of triangles past 2x
+      // in a walk, 11 % in a hop); the joints need measuring again with the lobe split before it can be.
+      muscles: true,
       joints: {
         vent: [0.02, -0.18, -0.82], mid: [0, -0.12, -0.2], chest: [0, -0.05, 0.3], neck: [0, -0.02, 0.42], snout: [0, 0.1, 0.9],
         hipL: [-0.14, -0.2, -0.74], kneeL: [-0.54, -0.25, -0.24], heelL: [-0.24, -0.33, -0.9], ankleL: [-0.47, -0.38, -0.5], toeL: [-0.88, -0.4, 0.12],
@@ -165,7 +187,8 @@ async function build(id, job, paint, level, geo, fullNormals, rig = null, spineZ
 }
 
 // The textured variant of build(): positions, normals, UVs and the baked rig; the hi level embeds the colour texture.
-async function buildTextured(id, job, level, g, rig, image, spineZ = null) {
+// `skin` (bindCapsules, per scan vertex): the runtime skin binding as `_SKIN` = (bone 0 / 32, bone 1 / 32, bone 0's weight, 0).
+async function buildTextured(id, job, level, g, rig, image, spineZ = null, skin = null) {
   const { pos, nor, uv, idx, from } = g, n = pos.length / 3;
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
   for (let i = 0; i < n; i++) { x0 = Math.min(x0, pos[i*3]); x1 = Math.max(x1, pos[i*3]); y0 = Math.min(y0, pos[i*3+1]); y1 = Math.max(y1, pos[i*3+1]); z0 = Math.min(z0, pos[i*3+2]); z1 = Math.max(z1, pos[i*3+2]); }
@@ -186,6 +209,11 @@ async function buildTextured(id, job, level, g, rig, image, spineZ = null) {
     .setAttribute('_RIG', doc.createAccessor().setType('VEC4').setArray(r).setBuffer(buf))
     .setIndices(doc.createAccessor().setType('SCALAR').setArray(idx).setBuffer(buf))
     .setMaterial(mat);
+  if (skin) {
+    const sk = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) { const j = from[i]; sk[i*4] = skin.idx[j*2] / 32; sk[i*4+1] = skin.idx[j*2+1] / 32; sk[i*4+2] = skin.w[j]; }
+    prim.setAttribute('_SKIN', doc.createAccessor().setType('VEC4').setArray(sk).setBuffer(buf));
+  }
   doc.createScene().addChild(doc.createNode(id).setMesh(doc.createMesh(id).addPrimitive(prim)));
   await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 16, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   const fid = id.replace(':', '-'), file = path.join(OUT, level === 'hi' ? `${fid}.glb` : `${fid}.lo.glb`);
@@ -193,7 +221,7 @@ async function buildTextured(id, job, level, g, rig, image, spineZ = null) {
   return { file, verts: n, tris: idx.length / 3, bytes: fs.statSync(file).size, size: [(x1 - x0) * 100, (y1 - y0) * 100, (z1 - z0) * 100] };
 }
 
-async function bakeTextured(id, job, pos, srcIdx, fullN, rig, eye = null, spineZ = null, poses = {}) {
+async function bakeTextured(id, job, pos, srcIdx, fullN, rig, eye = null, spineZ = null, poses = {}, skin = null) {
   const { unwrap, paintTexture, simplifyKeepingSeams, uvStats } = await import('./rig/texture.mjs');
   const texel = job.texelFn;
   const U = await unwrap(pos, srcIdx, job.texture);
@@ -221,7 +249,7 @@ async function bakeTextured(id, job, pos, srcIdx, fullN, rig, eye = null, spineZ
   fs.mkdirSync('test-output/bake', { recursive: true });
   await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).png().toFile(`test-output/bake/${id.replace(':', '-')}_color.png`);
   console.log(`  texture ${job.texture}px painted in ${Date.now() - t0} ms, ${(webp.length / 1024) | 0} KB webp (preview test-output/bake/${id}_color.png)`);
-  const hi = await buildTextured(id, job, 'hi', { pos: P, nor: N, uv: U.uv, idx: U.idx, from: U.from }, rig, webp, spineZ);
+  const hi = await buildTextured(id, job, 'hi', { pos: P, nor: N, uv: U.uv, idx: U.idx, from: U.from }, rig, webp, spineZ, skin);
   const L = simplifyKeepingSeams(P, U.idx, job.tris[1], U.uv);
   const m = L.from.length, LP = new Float32Array(m * 3), LN = new Float32Array(m * 3), LU = new Float32Array(m * 2), LF = new Uint32Array(m);
   for (let i = 0; i < m; i++) { const j = L.from[i]; for (let k = 0; k < 3; k++) { LP[i*3+k] = P[j*3+k]; LN[i*3+k] = N[j*3+k]; } LU[i*2] = U.uv[j*2]; LU[i*2+1] = U.uv[j*2+1]; LF[i] = U.from[j]; }
@@ -319,14 +347,23 @@ for (const [id, job] of Object.entries(JOBS)) {
   if (rig?.eggs) console.log('  egg fold point (cm)', JSON.stringify({ y: +((rig.eggs.y - y0) * k * 100).toFixed(3), z: +((rig.eggs.z - cz) * k * 100).toFixed(3) }));
   // Skeleton poses (tools/rig/skeleton.mjs), skinned in the scan's units like the rig, then carried into the baked frame below.
   const poseSrc = {}, poseHead = {};
+  let skinBind = null, skelBones = null, scanPos = null;
   if (job.skeleton) {
     const S = await import('./rig/skeleton.mjs');
     const bones = S[`${job.skeleton.bones}Bones`](job.skeleton.joints);
     const bind = S.bindSkin(pos, bones, rig);
+    // the runtime binding (two bones a vertex) and the scan positions, to carry the joints into the baked frame below
+    if (job.skeleton.radius) { skinBind = S.bindCapsules(pos, bones, { radius: job.skeleton.radius, rig, tris: idx0, smooth: job.skeleton.smooth ?? 6 }); skelBones = bones; scanPos = Float32Array.from(pos); }
     const nScan = normals(pos, idx0);
+    // (every joint kept inside its body plan's range, src/util/bodyplan.js; `muscles: true` swells the posed skin as its joints bend:
+    // docs/SKELETON.md. Off until a pose has been checked with them in the bench.)
+    const plan = job.skeleton.plan ?? (job.skeleton.bones === 'frog' ? 'anuran' : null);
     for (const [name, def] of Object.entries(job.skeleton.poses)) {
-      const mats = S.poseMatrices(bones, def);
-      poseSrc[name] = S.skin(pos, nScan, bind, mats).pos;
+      const mats = S.poseMatrices(bones, def, { plan });
+      if (mats.clamped.length) console.log(`  pose ${name}: kept inside the ${plan} joint ranges: ${mats.clamped.join(', ')}`);
+      const sk = S.skin(pos, nScan, bind, mats);
+      if (job.skeleton.muscles && plan) S.applyMuscles(sk.pos, sk.nor, pos, bind, bones, mats, plan);
+      poseSrc[name] = sk.pos;
       poseHead[name] = { m: mats.world[mats.byName.head], r: mats.rot[mats.byName.head] };
     }
   }
@@ -352,13 +389,22 @@ for (const [id, job] of Object.entries(JOBS)) {
     for (let i = 1; i < pos.length; i += 3) pos[i] -= ymin;
     warpEye = (c) => { const q = W(c, { leg: 0, legT: 0, part: 'body' }); return [q[0], q[1] - ymin * 100, q[2]]; };
   }
+  // The skeleton in the baked frame (cm), for the game's runtime skinning: bones with their capsule radius and the body plan.
+  let skeletonOut = null;
+  if (skinBind) {
+    const { carryJoints, frogBones } = await import('./rig/skeleton.mjs');
+    const J = carryJoints(job.skeleton.joints, scanPos, pos);
+    const cmB = frogBones(Object.fromEntries(Object.entries(J).map(([kk, v]) => [kk, v.map((x) => +(x * 100).toFixed(3))])));
+    const rOf = (b) => job.skeleton.radius[b.name] ?? job.skeleton.radius[b.name.replace(/[LR]$/, '')] ?? 0.05;
+    skeletonOut = { plan: job.skeleton.plan ?? 'anuran', bones: cmB.map((b, i) => ({ ...b, r: +(rOf(skelBones[i]) * k * 100).toFixed(3) })) };
+  }
   const extra = { ...(EYES[id] ?? {}) };
   if (extra.finish) extra.finish = { ...extra.finish, eyes: Array.isArray(extra.finish.eyes) ? extra.finish.eyes.map((e) => ({ ...e })) : extra.finish.eyes };
   if (eyesOut && typeof extra.finish?.eyes === 'function') extra.finish = { ...extra.finish, eyes: extra.finish.eyes(eyesOut) };
   if (warpEye && Array.isArray(extra.finish?.eyes)) for (const e of extra.finish.eyes) e.c = warpEye(e.c).map((v) => +v.toFixed(3));
   const fullN = normals(pos, idx0);
   const { hi, lo, posed = {} } = job.texture && rig
-    ? await bakeTextured(id, job, pos, idx0, fullN, rig, extra.finish?.eyes?.[0] ?? null, spineZ, poseSrc)
+    ? await bakeTextured(id, job, pos, idx0, fullN, rig, extra.finish?.eyes?.[0] ?? null, spineZ, poseSrc, skinBind)
     : { hi: await build(id, job, paint, 'hi', simplified(pos, idx0, job.tris[0]), fullN, rig, spineZ), lo: await build(id, job, paint, 'lo', simplified(pos, idx0, job.tris[1]), fullN, rig, spineZ) };
   if (process.argv.includes('--eyes')) {
     // Candidate eye bulges: clusters of the highest vertices on each side of the midline (cm).
@@ -373,7 +419,7 @@ for (const [id, job] of Object.entries(JOBS)) {
     console.log('  eye candidates (mean of the 40 highest vertices per side, cm)', JSON.stringify(out));
   }
   manifest[id] = { file: `${id.replace(':', '-')}.glb`, lo: `${id.replace(':', '-')}.lo.glb`, legs: job.legs, ...(job.rig ? { rig: 'baked' } : {}), ...(job.rigLeg ? { rigLeg: job.rigLeg } : {}),
-    ...(job.palette ? { palette: true } : {}), ...(spineZ ? { bodyZ: spineZ.map((v) => +(v * 100).toFixed(3)) } : {}), tris: { hi: hi.tris, lo: lo.tris }, sizeCm: hi.size.map((v) => +v.toFixed(2)), ...extra };
+    ...(job.palette ? { palette: true } : {}), ...(spineZ ? { bodyZ: spineZ.map((v) => +(v * 100).toFixed(3)) } : {}), tris: { hi: hi.tris, lo: lo.tris }, sizeCm: hi.size.map((v) => +v.toFixed(2)), ...extra, ...(skeletonOut ? { skeleton: skeletonOut } : {}) };
   console.log(`${id}: hi ${hi.tris} tris ${(hi.bytes / 1024) | 0} KB, lo ${lo.tris} tris ${(lo.bytes / 1024) | 0} KB, ${hi.size.map((v) => v.toFixed(2)).join(' x ')} cm (x y z)`);
   // Pose models: drawn by the game instead of the standing one while the animal holds that pose (Animals.draw); the analytic eye
   // goes where the head bone took it.
@@ -400,4 +446,7 @@ const LINE = { blueshrimp: ['shrimp', 'blue'] };
 for (const [k, [v, line]] of Object.entries(LINE)) if (manifest[v]) manifest[k] = { ...manifest[v], paletteMorph: line };
 for (const k of ['shrimp:red', 'shrimp:wild', 'shrimp:yellow', 'shrimp:orange']) delete manifest[k];     // (per-line files before the palette)
 for (const [k, v] of Object.entries(ALIAS)) if (manifest[v]) manifest[k] = { ...manifest[v] };
-fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));
+// (a skeleton is written on one line: the manifest's one-number-a-line layout would add hundreds of lines a species)
+const SK = [];
+fs.writeFileSync(manifestPath, JSON.stringify(manifest, (key, v) => (key === 'skeleton' && v && typeof v === 'object' ? `@@skeleton${SK.push(v) - 1}@@` : v), 1)
+  .replace(/"@@skeleton(\d+)@@"/g, (_, i) => JSON.stringify(SK[+i])));

@@ -47,9 +47,13 @@ export const rig2Unpack = (a2) => {
 //   grain      frequency of the fine skin noise (per cm); bump its normal strength; tone the colour speckle
 //   grainAmt   0…1 multiplier on the fine pebbling and speckle (default 1); 0 skips the noise completely
 //   eyes       analytic eyes drawn in the fragment shader (see analyticEyes); replaces the M.EYE id for the species
+//   moist      amphibian skin (read from the species' own finish, which starts from FINISH[group]): a thin mucus film over finely
+//              granular skin. The film (the clear coat) follows the granules (coatBump: its share of the grain's slope), so its
+//              highlight breaks into small wet glints; it fades toward the silhouette, where the granules hide it; and thin parts
+//              (toe discs, the throat) let a little warm light through (sss). Real frog skin is satin, not lacquer.
 export const FINISH = {
   fish: { rough: 0.5, coat: 0.12, coatRough: 0.4, grain: 10, bump: 0.03, tone: 0.05, flutter: 0.05, sheen: 0 },
-  amphibian: { rough: 0.5, coat: 0.35, coatRough: 0.3, grain: 8, bump: 0.05, tone: 0.06, flutter: 0.03, sheen: 0 },
+  amphibian: { rough: 0.5, coat: 0.35, coatRough: 0.3, grain: 8, bump: 0.05, tone: 0.06, flutter: 0.03, sheen: 0, moist: 1, coatBump: 0.01, sss: 0.3 },
   reptile: { rough: 0.55, coat: 0.15, coatRough: 0.4, grain: 14, bump: 0.12, tone: 0.07, flutter: 0, sheen: 0 },
   invert: { rough: 0.4, coat: 0.45, coatRough: 0.22, grain: 12, bump: 0.05, tone: 0.05, flutter: 0, sheen: 0 },
 };
@@ -109,8 +113,10 @@ function analyticEyes(eyes) {
   return { k, col, glint };
 }
 
-export function creatureMaterial(finish = {}, { map = null, normalMap = null, roughnessMap = null, pass = 'all' } = {}) {
+// `nrm`: the vertex normal to shade with (a skinned mesh passes its posed normal as a varying); the attribute otherwise.
+export function creatureMaterial(finish = {}, { map = null, normalMap = null, roughnessMap = null, pass = 'all', nrm: nrmIn = null } = {}) {
   const f = { ...FINISH.amphibian, ...finish };
+  const moist = !!finish.moist;                    // (not f.moist: f falls back on the amphibian defaults whatever the group)
   const m = new THREE.MeshPhysicalNodeMaterial({ roughness: f.rough, metalness: 0.0, side: f.doubleSided ? THREE.DoubleSide : THREE.FrontSide });
   const id = attribute('rig', 'vec4').w;
   // Procedural bodies paint per-vertex colour; scanned or generated models bring a texture.
@@ -153,8 +159,8 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   const ga = f.grainAmt ?? 1;
   // (The vertex normal is read as a plain attribute: the shared `normalLocal` variable is a vertex-stage var and reads as
   // zero in the fragment stage, which turned the shading normal into the noise gradient alone.)
-  const nrm = attribute('normal', 'vec3');
-  let n = normalize(nrm), n0 = float(0);
+  const nrm = nrmIn ?? attribute('normal', 'vec3');
+  let n = normalize(nrm), n0 = float(0), nCoat = n;
   if (ga > 0) {
     const e = 0.02;
     n0 = noise3(P.mul(g));
@@ -163,7 +169,11 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
     const gz = noise3(P.add(vec3(0, 0, e)).mul(g)).sub(n0);
     const grad = vec3(gx, gy, gz).div(e);
     const bumpAmt = select(eye, float(0), select(fin, float(f.bump * 0.3), select(chitin, float(f.bump * 0.5), float(f.bump)))).mul(ga).mul(eyeOff);
-    n = normalize(nrm.sub(grad.sub(nrm.mul(dot(grad, nrm))).mul(bumpAmt.mul(0.018))));
+    const slope = grad.sub(nrm.mul(dot(grad, nrm)));
+    n = normalize(nrm.sub(slope.mul(bumpAmt.mul(0.018))));
+    // The mucus film lies on the granules, so it tilts with them much more than the diffuse skin does (that grain is kept faint
+    // so the painted pattern stays clean): the coat's highlight breaks up into small wet glints instead of one mirror streak.
+    if (moist) nCoat = normalize(nrm.sub(slope.mul(select(eye, float(0), float(f.coatBump ?? 0.01)).mul(eyeOff))));
   }
 
   // Fine colour variation, stronger on skin than on eyes.
@@ -181,10 +191,30 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   // Membranes glow a little where the lamp shines through them; the film stripe fluoresces.
   let emis = emissive.add(select(fin, base.mul(0.12), select(glass, base.mul(0.1), select(iri, film.mul(0.22), vec3(0)))));
   if (A) emis = emis.add(vec3(1, 1, 0.96).mul(A.glint(nW, toEye)).mul(1.6));
+  const skinK = select(is(id, 0), float(1), float(0)).mul(eyeOff);              // plain skin, not the eyes
+  if (moist) {
+    // Thin parts pass the lamp's light through: the toe discs and webbing (the last third of a leg) and the throat (the underside
+    // of the head) are lit a little from inside, warmer (blood under thin skin), most on their shaded undersides. Scaled by the
+    // daylight, so nothing glows at night; a few multiplies, no extra pass.
+    const R = attribute('rig', 'vec4');
+    const toes = select(R.y.greaterThan(0.5).and(R.y.lessThan(4.5)), smoothstep(0.6, 0.95, R.z), float(0));
+    const throat = float(1).sub(smoothstep(0.08, 0.26, R.x)).mul(smoothstep(0.2, 0.7, nrm.y.negate()));
+    const thin = max(toes, throat).mul(skinK);
+    const below = nW.y.negate().clamp(0, 1);
+    emis = emis.add(base.mul(vec3(1, 0.6, 0.45)).mul(thin.mul(below.mul(0.6).add(0.15))).mul(U.daylight).mul(f.sss ?? 0.3));
+  }
   m.emissiveNode = emis;
   let rough = select(eye, float(0.03), select(gloss, float(Math.min(f.rough, 0.22)), select(chitin, float(0.3), select(horn, float(0.8), select(iri, float(0.18), float(f.rough))))));
   let coat = select(eye, float(1), select(gloss, float(1), select(chitin, float(0.6), select(horn, float(0), float(f.coat)))));
   let coatRough = select(eye, float(0.02), float(f.coatRough));
+  if (moist) {
+    // Micro-shadowing: seen edge-on, the granules hide the film between them, so the coat and the skin's own sheen fade toward the
+    // silhouette instead of turning into a bright mirror rim (three.js takes the coat's Fresnel to 1 at grazing angles and lays it
+    // over the skin; under the LED and the room reflections that read as a glowing plastic outline).
+    const graze = mix(float(1), smoothstep(0.04, 0.42, ndv), skinK);
+    coat = coat.mul(graze);
+    m.specularIntensityNode = graze.mul(0.6).add(0.4);
+  }
   if (A) { rough = mix(rough, float(0.06), A.k); coat = mix(coat, float(0.8), A.k); coatRough = mix(coatRough, float(0.04), A.k); }
   m.roughnessNode = rough;
   m.metalnessNode = select(iri, float(0.25), float(0));
@@ -217,7 +247,7 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   m.vertexColors = false;
   if (normalMap) { m.normalMap = normalMap; m.normalScale = new THREE.Vector2(1, 1); }
   if (roughnessMap) m.roughnessMap = roughnessMap;
-  return { material: m, n, is: { eye, fin, iri }, textured: !!map };
+  return { material: m, n, nCoat, is: { eye, fin, iri }, textured: !!map };
 }
 
 export { qrot, is };

@@ -355,16 +355,20 @@ class Gen {
   // Scales a count with the floor area of the tank (never below 1).
   cnt(n) { return Math.max(1, Math.round(n * this.sx * this.sz)); }
 
-  // Lowers the ground toward the front glass so the substrate reads as a slope, not a floating sheet.
-  sill(hgt, z, hFront = 4.5, reach = 8) {
+  // Lowers the ground toward the front glass so the substrate reads as a slope, not a floating sheet. In a tank built on a
+  // false bottom (`falseFloor`, with the water level L: the egg-crate's mesh is fitted a centimetre over the water,
+  // sim/plenum.js) land that meets the front glass keeps its own height up to a few centimetres of substrate over the mesh,
+  // so the build shows through the glass as it does in a real one; the pool's bed still drops to the sill.
+  sill(hgt, z, hFront = 4.5, reach = 8, L = null) {
     const k = smooth(this.d / 2 - reach, this.d / 2 - 1.5, z);
+    if (this.falseFloor && L != null) hFront = lerp(hFront, Math.max(hFront, L + 4.5), smooth(L - 1, L + 2, hgt));
     return lerp(hgt, Math.min(hgt, hFront), k);
   }
 
-  // A driftwood log lying across the ground with one end raised.
+  // A driftwood log lying across the ground with one end raised (decor.js settle rests it on its real lowest contact, or
+  // plants it when it stands steeper than it is long; it used to be put at a height worked out from its middle and floated).
   log(x, z, len, tilt = 0.25, rot = 0, o = {}) {
-    const gy = this.ground(x, z);
-    return this.piece('wood', x, z, { size: len, rot, tilt: [0, tilt], scale: [1, 1.5, 1.5], y: gy + (len / 2) * Math.sin(Math.abs(tilt)) + 1.6 + (o.lift ?? 0), ...o });
+    return this.piece('wood', x, z, { size: len, rot, tilt: [0, tilt], scale: [1, 1.5, 1.5], ...o });
   }
 
   // --- Environment ----------------------------------------------------------------------
@@ -696,7 +700,7 @@ BUILDERS.blackwater = (g) => {
     let hgt = lerp(L + 3 + nz * 2, bedLow + 2.2 * g.n(x, z, 0.06) + n2 * 0.7 + smooth(0.6, 0, (z + d / 2) / d) * 3, lag);
     hgt = lerp(hgt, Math.max(hgt, bl.H), mound(g, x, z, bl));
     hgt = lerp(hgt, Math.max(hgt, br.H), mound(g, x, z, br));
-    return g.sill(hgt, z, 3.5, 6);
+    return g.sill(hgt, z, 3.5, 6, L);
   });
   groundPaint(g, L, { moss: 0.5 });
   rockWall(g, { L, style: 'boulders', moss: 0.9, rock: 0.5, calm: (x, y) => 0.25 });
@@ -916,7 +920,7 @@ BUILDERS.swamp = (g) => {
     const vx = bx - ax, vz = bz - az, t = clamp(((x - ax) * vx + (z - az) * vz) / (vx * vx + vz * vz), 0, 1);
     const c = smooth(3.6, 1.4, Math.hypot(x - ax - vx * t, z - az - vz * t));
     hgt = lerp(hgt, Math.min(hgt, L - 1.4), c);
-    return g.sill(hgt, z, 3.6, 6);
+    return g.sill(hgt, z, 3.6, 6, L);
   });
   T.digBasin(seep.x, seep.z, seep.R, 2);
   T.carveChannel([V(seep.x, 0, seep.z + seep.R), V(g.X(0.12), 0, g.Z(0.3)), V(g.X(0.02), 0, g.Z(0.46)), V(g.X(0.02), 0, g.Z(0.56))], 1.6, 0.6);
@@ -958,6 +962,7 @@ function restock(g, out, env, gear = []) {
   if (env.ph != null || env.gh != null) g.W.water.bodies?.resetChem?.();
 }
 BUILDERS.streambank = (g) => {
+  g.falseFloor = true;   // (built on a false bottom: the land at the front glass stands over its mesh, Gen.sill)
   BUILDERS.swamp(g);
   restock(g, ['crab', 'shrimp'], { setpoint: 25, basking: 0.55, uvb: 0.5, fogger: 0.6, drainage: 1, filterKind: 'matten', ph: 7.0, gh: 6, waterSource: 'remin' }, ['basking', 'uvb', 'falseBottom', 'filterMatten']);
   const Z = g.zones(g.info.L);
@@ -969,6 +974,7 @@ BUILDERS.streambank = (g) => {
   g.animal('pandaking', g.cnt(4), Z.ledge);
 };
 BUILDERS.reedpool = (g) => {
+  g.falseFloor = true;
   BUILDERS.blackwater(g);
   restock(g, ['cardinal', 'cory', 'shrimp'], { setpoint: 26, fogger: 0.4, drainage: 1, filterKind: 'matten', waterSource: 'remin', ph: 7.0, gh: 6 }, ['fogger', 'falseBottom', 'filterMatten']);
   const Z = g.zones(g.info.L);

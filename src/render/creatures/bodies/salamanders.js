@@ -509,7 +509,7 @@ export function axolotlBody(morph = 'leucistic') {
   };
 
   const def = { sdf, lo: [-3.4, -0.25, -8.1], hi: [3.4, 2.5, 4.7], color, mat, rig, finish: {
-    rough: 0.36, coat: 0.7, coatRough: 0.12, grain: 14, bump: 0.0005, tone: 0.02, flutter: 0.045, finOpacity: 0.55,
+    rough: 0.36, coat: 0.55, coatRough: 0.2, coatBump: 0.004, grain: 14, bump: 0.0005, tone: 0.02, flutter: 0.045, finOpacity: 0.55,
     eyes: [eyeSpec(eyes[1], { pupil: [0.5, 0.5], inner: C(m.ring), outer: C(m.iris), rim: C(m.eye), seed: 5 })],
   } };
   return lodDef(def, 0.1, 0.5, st);
@@ -713,7 +713,7 @@ function newtBody() {
   const rig = (x, y, z) => { const a = analyze(x, y, z); return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT]; };
   // Smooth, slick, wet skin (a faint grain, a clear coat), and small dark eyes with a gold-flecked iris.
   const def = { sdf, lo: [-2.6, -0.25, -6.6], hi: [2.6, 1.8, 5.0], color, mat, rig, finish: {
-    rough: 0.46, coat: 0.3, coatRough: 0.24, grain: 9, bump: 0.12, tone: 0.04, flutter: 0.02,
+    rough: 0.46, coat: 0.3, coatRough: 0.3, grain: 9, bump: 0.12, tone: 0.04, flutter: 0.02,
     eyes: [eyeSpec(eyes[1], { pupil: [0.4, 0.4], inner: C(0x9a7a30), outer: C(0x3a2410), rim: C(0x040302), limb: C(0x140d06), seed: 7 })],
   } };
   return lodDef(def, 0.08, 0.5, st);

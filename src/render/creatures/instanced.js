@@ -29,6 +29,9 @@
 //             instance of the same mesh with the piece set, which shows only the part beyond the cut and thrashes about it. The dullness
 //             is a milky tint in the material before a shed. The tail's lift (rig2Pack) curves the tail up or down, so a body standing
 //             on a stone or a slope lays its tail along the ground instead of through it.
+//   turn      (finish.turnSweep, a body plan: frogs, salamanders, lizards) in a turn the legs swing round the pivot (the hips, measured
+//             on the mesh) instead of back along the body, by the turning mix tau (util/turn.js footRig: a planted foot stays put while
+//             the body turns over it). tau rides in rig2's A word, or in anim.y for a body without rig2 (frogs). See turnFinish.
 //   legAxis   'x' for a sideways walker (crab): the gait swings feet along the body's x axis, in the direction given
 //             by the sign of anim.y (the body wave is not used).
 //   invert    (finish.invert = { antenna, wave, curl }) insects, isopods and shrimp. The packed bits a frog spends on breath,
@@ -43,17 +46,33 @@
 //             instead of in diagonal pairs (seven pairs of isopod legs or five of a shrimp's walking in two groups shuffled).
 
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, positionLocal, normalLocal, float, vec3, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView, varyingProperty } from 'three/tsl';
+import { Fn, attribute, positionLocal, normalLocal, float, vec3, vec4, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView, varyingProperty } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
-import { packAnim, rig2Pack } from '../../util/gait.js';
+import { packAnim, unpackAnim, rig2Pack, TURN_Q } from '../../util/gait.js';
+import { limbFrame, turnFrame } from '../../util/turn.js';
+import { PLANS } from '../../util/bodyplan.js';
 import { requestBody } from './meshpool.js';
 import { creatureMaterial, qrot, rig2Unpack } from './material.js';
+import { skeletonRig, poseBones, ROW_FLOATS } from './skeleton.js';
+import { SKIN, boneData, boneTexture, rows, live, skinGeometry, skinVertex } from './skin.js';
 
 // anim.w carries the hop extension and, above it, the packed pose bits (packAnim, in util/gait.js, which says how).
 export { packAnim };
 
 export class CreatureMesh {
-  constructor(scene, geometry, { cap = 64, wave = 2.2, legLift = 0.25, legStride = 0.35, finish = {}, material = null, textures = null, legAxis = 'z', limb = 1 } = {}) {
+  // `skin` (a skeleton, skeleton.js; the geometry from skin.js skinGeometry): this mesh draws its instances skinned by their
+  // bones (the near level of detail), up to SKIN.cap of them; null if no rows of the bone texture were free.
+  constructor(scene, geometry, { cap = 64, wave = 2.2, legLift = 0.25, legStride = 0.35, finish = {}, material = null, textures = null, legAxis = 'z', limb = 1, skin = null } = {}) {
+    finish = turnFinish(finish, geometry);
+    if (skin) {
+      this.skinRig = skeletonRig(skin, { legLift, legStride, limb, turn: finish.turnSweep && typeof finish.turnSweep === 'object' ? finish.turnSweep : null });
+      this.skinCap = Math.min(cap, SKIN.cap);
+      this.row0 = this.skinRig ? rows.take(this.skinCap) : -1;
+      if (this.row0 < 0) { this.skinRig = null; this.skinCap = 0; }
+      else { cap = this.skinCap; live.add(this); }
+      this.inY = !!finish.turnSweep?.inY;
+    }
+    this.finish = finish;                 // (as resolved for this geometry: Animals.draw reads which turning channels it has)
     const g = new THREE.InstancedBufferGeometry();
     for (const k of Object.keys(geometry.attributes)) g.setAttribute(k, geometry.attributes[k]);
     g.setIndex(geometry.index);
@@ -71,7 +90,7 @@ export class CreatureMesh {
     this.geometry = g;
 
     if (material) this.material = material;
-    else this.material = buildMaterial(finish, wave, legLift, legStride, textures, hasTranslucent(geometry, finish), legAxis, limb);
+    else this.material = buildMaterial(finish, wave, legLift, legStride, textures, hasTranslucent(geometry, finish), legAxis, limb, !!this.skinRig);
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.userData.keepGeometry = true;   // its attributes are shared with the species' cached geometry: never dispose them on unload
@@ -94,13 +113,19 @@ export class CreatureMesh {
 
   begin() { this.n = 0; }
 
-  put(pos, quat, scale, a0 = 0, a1 = 0, a2 = 0, a3 = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0) {
+  put(pos, quat, scale, a0 = 0, a1 = 0, a2 = 0, a3 = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0, c4 = 0) {
     if (this.n >= this.cap) return;
     const i = this.n++;
     this.iPos.setXYZW(i, pos.x, pos.y, pos.z, scale);
     this.iRot.setXYZW(i, quat.x, quat.y, quat.z, quat.w);
+    if (this.skinRig) {
+      // the bones from the state the rig would have drawn (anim.y then carries the instance's row of the bone texture)
+      const u = unpackAnim(a3), row = this.row0 + i;
+      poseBones(this.skinRig, { phase: a2, tau: this.inY ? a1 : c4, hop: u.hop, calm: u.calm, pose: u.pose }, boneData, row * ROW_FLOATS);
+      a1 = row;
+    }
     this.iAnim.setXYZW(i, a0, a1, a2, a3);
-    if (this.iAnim2) { const [pa, pb] = rig2Pack(b2, b3, c0, c1, c2, c3); this.iAnim2.setXYZW(i, b0, b1, pa, pb); }
+    if (this.iAnim2) { const [pa, pb] = rig2Pack(b2, b3, c0, c1, c2, c3, c4); this.iAnim2.setXYZW(i, b0, b1, pa, pb); }
   }
 
   end() {
@@ -111,9 +136,13 @@ export class CreatureMesh {
       a.addUpdateRange(0, this.n * a.itemSize);
       a.needsUpdate = true;
     }
+    if (this.skinRig && this.n) boneTexture.needsUpdate = true;
   }
 
-  dispose() { this.geometry.dispose(); this.mesh.removeFromParent(); }
+  // (gives its rows of the bone texture back)
+  releaseSkin() { if (this.skinRig) { rows.free(this.row0, this.skinCap); live.delete(this); this.skinRig = null; this.skinCap = 0; } }
+
+  dispose() { this.releaseSkin(); this.geometry.dispose(); this.mesh.removeFromParent(); }
 }
 
 // Does the geometry carry membrane (2) or glass (7) material ids? Then it needs the second, blended pass.
@@ -124,6 +153,29 @@ function hasTranslucent(geometry, finish) {
   const glass = (finish.glassOpacity ?? 0.55) < 0.9;
   for (let i = 0; i < rig.count; i++) { const id = rig.getW(i); if (id > 1.5 && id < 2.5 || glass && id > 6.5) return true; }
   return false;
+}
+
+// The turning rig's numbers, measured on the geometry (they are part of the finish, so they key the material):
+//   finish.turnSweep = 'anuran' | 'caudate' | 'lizard' (a body plan, util/bodyplan.js) → { pz, R, inY }: in a turn the legs swing
+//     round the pivot (the hips, mesh z `pz`) instead of back along the body, by the turning mix tau (util/turn.js footRig), so a
+//     planted foot stays where it was put; R is the farthest foot's distance from the pivot. tau rides in the rig2 vector (A's
+//     top bits, util/gait.js rig2Pack) or, for a body without one (`inY`: frogs, whose body wave is unused), in anim.y.
+//   finish.rig2 without `len`: the body's length along z, from the geometry (a fish's C-bend in a turn).
+// A mesh without the rig attribute (or without four legs) gets neither.
+function turnFinish(finish, geometry) {
+  if (!finish.turnSweep && !(finish.rig2 && finish.rig2.len == null)) return finish;
+  const P = geometry.attributes.position?.array, R = geometry.attributes.rig?.array;
+  const out = { ...finish };
+  if (finish.rig2 && finish.rig2.len == null) {
+    if (!R) delete out.rig2;
+    else { let z0 = Infinity, z1 = -Infinity; for (let i = 2; i < P.length; i += 3) { if (P[i] < z0) z0 = P[i]; if (P[i] > z1) z1 = P[i]; } out.rig2 = { ...finish.rig2, len: +(z1 - z0).toFixed(3) }; }
+  }
+  if (typeof finish.turnSweep === 'string') {
+    const tf = turnFrame(PLANS[finish.turnSweep], limbFrame(P, R), 1);
+    if (tf.legs) out.turnSweep = { pz: +tf.pz.toFixed(3), R: +tf.R.toFixed(3), inY: !out.rig2 };
+    else delete out.turnSweep;
+  }
+  return out;
 }
 
 // Species whose finish, animation numbers and textures are identical draw with ONE material: building a node graph
@@ -137,24 +189,27 @@ let nextTexId = 1;
 const texId = (t) => { if (!t) return 0; if (!texIds.has(t)) texIds.set(t, nextTexId++); return texIds.get(t); };
 const finishKey = (_, v) => (v && v.isTexture ? 'tex' + texId(v) : v);
 
-function buildMaterial(finish, wave, legLift, legStride, textures = null, translucent = false, legAxis = 'z', limb = 1) {
-  const key = JSON.stringify([finish, wave, legLift, legStride, translucent, textures && Object.entries(textures).map(([k, t]) => [k, texId(t)]), legAxis, limb], finishKey);
+function buildMaterial(finish, wave, legLift, legStride, textures = null, translucent = false, legAxis = 'z', limb = 1, skin = false) {
+  const key = JSON.stringify([finish, wave, legLift, legStride, translucent, textures && Object.entries(textures).map(([k, t]) => [k, texId(t)]), legAxis, limb, ...(skin ? ['skin'] : [])], finishKey);
   let m = MATERIALS.get(key);
-  if (!m) { m = buildUncached(finish, wave, legLift, legStride, textures, translucent, legAxis, limb); MATERIALS.set(key, m); }
+  if (!m) { m = buildUncached(finish, wave, legLift, legStride, textures, translucent, legAxis, limb, skin); MATERIALS.set(key, m); }
   return m;
 }
 
-function buildUncached(finish, wave, legLift, legStride, textures = null, translucent = false, legAxis = 'z', limb = 1) {
-  const m = buildPass(finish, wave, legLift, legStride, textures, translucent ? 'opaque' : 'solid', legAxis, limb);
-  if (translucent) m.userData.blendMaterial = buildPass(finish, wave, legLift, legStride, textures, 'blend', legAxis, limb);
+function buildUncached(finish, wave, legLift, legStride, textures = null, translucent = false, legAxis = 'z', limb = 1, skin = false) {
+  const m = buildPass(finish, wave, legLift, legStride, textures, translucent ? 'opaque' : 'solid', legAxis, limb, skin);
+  if (translucent) m.userData.blendMaterial = buildPass(finish, wave, legLift, legStride, textures, 'blend', legAxis, limb, skin);
   return m;
 }
 
 // `limb` scales the leg numbers below (hop reach, swim tuck, kick splay) for animals whose legs are shorter or longer than a
 // 4 cm frog's; they are in centimetres of the mesh, applied before the instance scale. `finish.waveHead` (0 … 1) is how much of
 // the body wave's amplitude the head keeps: 0 for a fish (the head is still), about 0.3 for a salamander walking in S-curves.
-function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = 'z', limb = 1) {
-  const { material: m, n } = creatureMaterial(finish, { ...(textures ?? {}), pass });
+// `skin`: the bones place the vertex (skin.js skinVertex) instead of the rig's legs, hop, swim pose, body wave and head channel; the
+// breathing, throat, eyes and membranes still move the rest pose first, and the shading normal is the skinned one.
+function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = 'z', limb = 1, skin = false) {
+  const vSkinN = skin ? varyingProperty('vec3', 'vSkinN') : null;
+  const { material: m, n, nCoat } = creatureMaterial(finish, { ...(textures ?? {}), pass, ...(skin ? { nrm: vSkinN } : {}) });
   const rig = attribute('rig', 'vec4');
   const anim = attribute('iAnim', 'vec4');
   const q = attribute('iRot', 'vec4');
@@ -171,8 +226,14 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     const spineW = spine.toVar();      // the spine position the body wave sees (the part of a cut tail is folded into what is left)
     const p = positionLocal.toVar();
     // Head and body steering (finish.rig2): the head turns about the neck on its own, the body curves into a C, the tail swings.
-    if (rig2) {
-      const a2 = attribute('iAnim2', 'vec4');
+    const ts = finish.turnSweep && !finish.invert && !side ? finish.turnSweep : null;
+    let tau = float(0);
+    if (rig2 && !skin) {
+      // (A's top bits carry the turning mix, util/gait.js rig2Pack: taken off before the rest is unpacked)
+      const a2r = attribute('iAnim2', 'vec4');
+      const tq = floor(a2r.z.mul(1 / TURN_Q));
+      const a2 = vec4(a2r.x, a2r.y, a2r.z.sub(tq.mul(TURN_Q)), a2r.w);
+      if (ts) tau = tq.sub(floor(tq.mul(0.125)).mul(8)).div(7).mul(select(tq.greaterThanEqual(8), float(-1), float(1)));
       const { neck, s0, s1, neckY, len } = rig2;
       const noLeg = leg.lessThan(0.5).select(float(1), float(0));
       const hw = float(1).sub(smoothstep(s0, s1, spine)).mul(noLeg);
@@ -217,7 +278,8 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     const pose = n3.sub(n4.mul(16)).div(15), calm = n4.div(7);
     // Body wave: a travelling sine along the spine, growing toward the tail (the head keeps `waveHead` of the amplitude).
     // A sideways walker (crab) has no body wave: anim.y is its direction of travel.
-    if (!side) {
+    if (skin) { /* (anim.y is the bone row: the bones carry the turn) */ } else if (ts?.inY) tau = anim.y;    // (a frog: no body wave, anim.y is the turning mix)
+    else if (!side) {
       const profile = spineW.mul(spineW).mul(1 - waveHead).add(waveHead);
       p.x.addAssign(sin(spineW.mul(wave * 3.14159).sub(anim.x)).mul(anim.y).mul(profile));
     }
@@ -235,10 +297,20 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     const go = float(1).sub(calm);
     const lift = max(sin(lp), 0).mul(legT).mul(legLift).mul(go);
     const u = fract(lp.mul(1 / 6.283185));
-    const swing = select(u.lessThan(0.5), cos(u.mul(6.283185)).negate(), float(3).sub(u.mul(4))).mul(legT).mul(legStride).mul(go);
+    const sn = select(u.lessThan(0.5), cos(u.mul(6.283185)).negate(), float(3).sub(u.mul(4)));
+    const swing = sn.mul(legT).mul(legStride).mul(go);
+    if (!skin) {
     p.y.addAssign(isWalk.select(lift, float(0)));
     if (side) p.x.addAssign(isWalk.select(swing.mul(sign(anim.y)), float(0)));
-    else p.z.addAssign(isWalk.select(swing, float(0)));
+    else if (ts) {
+      // Walking and turning (util/turn.js footRig): the walk's share of the sweep goes back along the body, the turn's swings the
+      // leg round the pivot by the same fraction of the yaw per cycle, so a planted foot stays put while the body turns over it.
+      p.z.addAssign(isWalk.select(swing.mul(float(1).sub(abs(tau))), float(0)));
+      const al = isWalk.select(sn.mul(legT).mul(go).mul(tau).mul(legStride / ts.R), float(0));
+      const ca = cos(al), sa = sin(al), xr = p.x.toVar(), zr = p.z.sub(ts.pz).toVar();
+      p.x.assign(xr.mul(ca).add(zr.mul(sa)));
+      p.z.assign(zr.mul(ca).sub(xr.mul(sa)).add(ts.pz));
+    } else p.z.addAssign(isWalk.select(swing, float(0)));
     const sgn = sign(positionLocal.x);
     const hind = (inv ? jump : isHind).select(float(1), float(0));
     // Hop (or one frog kick): the back legs stretch out behind.
@@ -311,6 +383,7 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       p.y.addAssign(fore.mul(0.5 * limb));
       p.x.subAssign(sgn.mul(fore).mul(0.45 * limb));
     }
+    }
     // Breathing: the flanks swell and sink; throat: the underside of the head bulges (to 0.32 cm: a calling frog's vocal sac; the
     // everyday throat pumping uses about 0.6 of that, util/gait.js callSac and Animals.vis); eyes sink into the head.
     const flank = sin(min(max(spine.sub(0.15).mul(2), float(0)), float(1)).mul(3.14159));
@@ -325,11 +398,20 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     // Membranes (fins, gills, tail fringes) ripple along the normal.
     const isFin = abs(matId.sub(2)).lessThan(0.5);
     p.addAssign(normalLocal.mul(sin(anim.x.mul(1.7).add(positionLocal.z.mul(4)).add(positionLocal.y.mul(3))).mul(flutter).mul(isFin.select(float(1), float(0)))));
+    if (skin) {
+      const sv = skinVertex(p, normalLocal);
+      vSkinN.assign(sv.nrm);
+      return qrot(q, sv.pos.mul(iPos.w)).add(iPos.xyz);
+    }
     return qrot(q, p.mul(iPos.w)).add(iPos.xyz);
   })();
   // A curled body turns its normals with it (about x, by the angle at the vertex), or a rolled isopod is lit as if still flat.
-  const nc = vCurl ? vec3(n.x, n.y.mul(cos(vCurl)).sub(n.z.mul(sin(vCurl))), n.z.mul(cos(vCurl)).add(n.y.mul(sin(vCurl)))) : n;
-  m.normalNode = transformNormalToView(qrot(q, nc));
+  const curl = (v) => (vCurl ? vec3(v.x, v.y.mul(cos(vCurl)).sub(v.z.mul(sin(vCurl))), v.z.mul(cos(vCurl)).add(v.y.mul(sin(vCurl)))) : v);
+  m.normalNode = transformNormalToView(qrot(q, curl(n)));
+  // The clear coat gets the turned normal too: left alone, three.js lights it with the mesh's own normal in the model's unturned
+  // frame, so on any animal not facing the default way the coat's highlights, reflections and Fresnel rim sat in the wrong places
+  // (lit where the skin faced away: the chrome streaks and grazing glow on frogs).
+  m.clearcoatNormalNode = transformNormalToView(qrot(q, curl(nCoat)));
   return m;
 }
 
@@ -381,6 +463,13 @@ export class CreatureLOD {
     else if (this.def && HI.has(this.def)) this.hi = new CreatureMesh(this.scene, HI.get(this.def), { ...opts, material: this._lo.material });
     else if (this.pendingHi) this.setHi(this.pendingHi);
     this.pendingHi = null;
+    // A scanned vertebrate with a baked skeleton (glb.js: the fine mesh's userData.skeleton and its `skin` binding): near instances
+    // are drawn by their bones (skin.js), made now so its shader builds with the species' others while the tank loads.
+    const hg = opts.hiGeometry;
+    if (hg?.userData?.skeleton && hg.attributes.skin) {
+      const sm = new CreatureMesh(this.scene, skinGeometry(hg), { ...opts, finish: this._lo.finish, skin: hg.userData.skeleton });
+      if (sm.skinRig) this.skinned = sm; else sm.dispose();
+    }
   }
 
   setHi(geo) {
@@ -406,21 +495,24 @@ export class CreatureLOD {
     return true;
   }
 
-  begin() { this._lo?.begin(); this.hi?.begin(); }
+  begin() { this._lo?.begin(); this.hi?.begin(); this.skinned?.begin(); }
   // `d2` is the squared distance from the camera to the animal.
-  // b0 … b3, c0 … c3: the second and third channels (finish.rig2: head yaw, head pitch, body bend, tail swing; tail length, skin dullness, tail piece).
-  put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0) {
+  // b0 … b3, c0 … c4: the second and third channels (finish.rig2: head yaw, head pitch, body bend, tail swing; tail length, skin dullness,
+  // tail piece, tail lift, turning mix).
+  put(pos, quat, scale, a0, a1, a2, a3, d2 = 1e9, b0 = 0, b1 = 0, b2 = 0, b3 = 0, c0 = 1, c1 = 0, c2 = 0, c3 = 0, c4 = 0) {
     const lo = this._lo;
     if (!lo) return;
     if (d2 < this.near2) {
-      if (this.hi) { this.hi.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3); return; }
+      const sk = this.skinned;
+      if (sk && SKIN.on && sk.n < sk.skinCap) { sk.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3, c4); return; }
+      if (this.hi) { this.hi.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3, c4); return; }
       this.wants = true;
     }
-    lo.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3);
+    lo.put(pos, quat, scale, a0, a1, a2, a3, b0, b1, b2, b3, c0, c1, c2, c3, c4);
   }
-  end() { this._lo?.end(); this.hi?.end(); }
+  end() { this._lo?.end(); this.hi?.end(); this.skinned?.end(); }
   get mesh() { return this._lo?.mesh; }
   // Takes the meshes out of the scene without freeing the (shared) geometry; anything still in flight is dropped.
-  remove() { this.removed = true; this._lo?.mesh.removeFromParent(); this.hi?.mesh.removeFromParent(); }
-  dispose() { this.removed = true; this._lo?.dispose(); this.hi?.dispose(); }
+  remove() { this.removed = true; this._lo?.mesh.removeFromParent(); this.hi?.mesh.removeFromParent(); this.skinned?.mesh.removeFromParent(); this.skinned?.releaseSkin(); }
+  dispose() { this.removed = true; this._lo?.dispose(); this.hi?.dispose(); this.skinned?.dispose(); }
 }

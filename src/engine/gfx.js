@@ -24,6 +24,7 @@ import {
 } from 'three/tsl';
 import { FOLIAGE, setFoliageMRT } from '../render/shaders.js';
 import { U } from '../render/uniforms.js';
+import { SKIN } from '../render/creatures/skin.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { smaa } from 'three/addons/tsl/display/SMAANode.js';
@@ -66,6 +67,20 @@ function loadProfile() {
 }
 function saveProfile(o) { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(o)); } catch { /* private mode */ } }
 
+// A remembered level must prove itself: the boot that uses it (or the hand-picked preset that saves it) leaves BOOT_KEY set
+// until PROBATION frames have been drawn. Still set at the next boot means that one never got going (froze compiling, went
+// black, was reloaded): its profile is dropped, so a level that broke the page (Safari went black on every reload) is not reused.
+const BOOT_KEY = 'paludarium.gfx.boot', PROBATION = 300;
+// Reloads after the GPU dropped the context, this tab (session storage), with their times.
+const LOST_KEY = 'paludarium.gfx.lost';
+const store = (s, k, v) => { try { if (v === null) s.removeItem(k); else s.setItem(k, v); } catch { /* private mode */ } };
+function lostReloads() { try { return JSON.parse(sessionStorage.getItem(LOST_KEY) ?? '[]').filter((t) => Date.now() - t < 60000); } catch { return []; } }
+function bootFailed() {
+  try { if (!localStorage.getItem(BOOT_KEY)) return false; } catch { return false; }
+  store(localStorage, PROFILE_KEY, null); store(localStorage, BOOT_KEY, null);
+  return true;
+}
+
 // The graphics adapter's own name, as far as the browser says (WebGL's debug info, or the WebGPU adapter).
 function gpuName(r) {
   try {
@@ -96,7 +111,7 @@ export class Gfx {
     this.measuring = true;       // false while something else makes frames slow (a time-lapse)
     this.governor = null;
     this.onChange = null;        // (level) => void: the governor moved the render scale, preset or frame cap
-    this._stable = 0; this._saved = false;
+    this._stable = 0; this._saved = false; this._trial = 0;
     this.shadowEvery = Math.max(1, +params.get('shadowevery') || 2);   // redraw the shadow map every Nth frame (1 = every frame)
     this._shadowLights = []; this._frameNo = 0;
     this.phone = false;
@@ -115,6 +130,8 @@ export class Gfx {
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFShadowMap;
     this.host.appendChild(r.domElement);
+    const lostDefault = r.onDeviceLost.bind(r);
+    r.onDeviceLost = (info) => { lostDefault(info); this.lost(info); };
     await r.init();
     // Shaders build in the background and under a per-frame budget (engine/compiler.js); ?synccompile turns it off.
     this.compiler = new ShaderCompiler(r);
@@ -132,10 +149,12 @@ export class Gfx {
     // WebGPU starts on High, except on an integrated or mobile GPU: Balanced (no ambient occlusion), from where the governor
     // raises it to High if the machine proves fast. Starting high and stepping down cost a few slow seconds on such machines.
     else if (!p.has('lowres') && (WEAK_GPU.test(this.gpu) || this.phone)) this.quality = 'balanced';
+    // Reloaded after a lost context: Low, and on WebGL 2 Auto stays there (its ceiling is the start).
+    if (!forced && lostReloads().length) this.quality = 'low';
     const capMax = this.maxFps;
     this.qCeil = autoCeiling(this.backend, this.quality);     // how high Auto may take the preset by itself (see governor.js)
-    const saved = forced ? null : loadProfile();
-    if (saved) { this.quality = saved.quality; this.adapt = saved.scale; this.auto = saved.auto !== false; if (!p.get('fps') && saved.cap) this.maxFps = Math.min(capMax, saved.cap); }
+    const saved = forced || bootFailed() ? null : loadProfile();
+    if (saved) { this.quality = saved.quality; this.adapt = saved.scale; this.auto = saved.auto !== false; if (!p.get('fps') && saved.cap) this.maxFps = Math.min(capMax, saved.cap); this.probation(); }
     if (forced) this.auto = false;
     if (this.auto && PRESETS.indexOf(this.quality) > this.qCeil) this.quality = PRESETS[this.qCeil];   // a profile saved on a faster path
     this.governor = new Governor({ cap: this.maxFps, capMax, scale: this.adapt, q: Math.max(0, PRESETS.indexOf(this.quality)), qMax: this.qCeil, autoQuality: this.auto, warm: 300 });
@@ -184,9 +203,10 @@ export class Gfx {
     return Math.min(window.devicePixelRatio || 1, Math.max(q.dpr, Math.sqrt(q.mp * 1e6 / Math.max(1, w * h))));
   }
 
-  // However slow the GPU: half a pixel a CSS pixel on a computer; on a phone one, below which a picture next to its
-  // three-times-sharper interface is blocks (the frame cap gives the GPU its rest instead).
-  ratioFloor() { return this.phone ? Math.min(window.devicePixelRatio || 1, 1) : 0.5; }
+  // However slow the GPU: on a phone one pixel a CSS pixel, below which a picture next to its three-times-sharper interface is
+  // blocks; on a computer never coarser than 2x2 device pixels (a retina Mac at 0.6 drew 3x3 blocks, and Safari's frames were
+  // no faster for it). The frame cap gives the GPU its rest instead.
+  ratioFloor() { const d = window.devicePixelRatio || 1; return this.phone ? Math.min(d, 1) : Math.min(1, Math.max(0.5, d / 2)); }
 
   pixelRatio() { return Math.max(this.ratioFloor(), this.ratioCap() * this.adapt); }
 
@@ -196,7 +216,7 @@ export class Gfx {
     this.renderer.setSize(w, h);
     this.aspect = w / h;
     // Scale steps below the floor would change nothing: the governor moves on to the preset and the cap sooner.
-    if (this.governor) this.governor.scaleMin = Math.min(0.85, Math.max(0.6, this.ratioFloor() / this.ratioCap()));
+    if (this.governor) this.governor.scaleMin = Math.min(1, Math.max(0.6, this.ratioFloor() / this.ratioCap()));
     this.governor?.warm(60);          // the first frames at a new size build render targets: not a measure of the GPU
     return [w, h];
   }
@@ -212,6 +232,23 @@ export class Gfx {
     if (scene) this.build(scene, camera);
     this._saved = false; this._stable = 0;
     saveProfile(this.profile());
+    this.probation();
+  }
+
+  // Marks the remembered level as on trial (see BOOT_KEY); render() clears it after PROBATION drawn frames.
+  probation() { store(localStorage, BOOT_KEY, '1'); this._trial = PROBATION; }
+
+  // The GPU dropped the context: a GPU reset, the browser reclaiming memory, a watchdog on a frame that took too long. three.js
+  // cannot rebuild its resources in place, so the canvas would stay black. Forget the level in force and reload into Low, at
+  // most twice a minute; after that, say what happened instead of leaving a black page.
+  lost(info) {
+    store(localStorage, PROFILE_KEY, null); store(localStorage, BOOT_KEY, null);
+    const n = lostReloads();
+    if (n.length < 2) { store(sessionStorage, LOST_KEY, JSON.stringify([...n, Date.now()])); location.reload(); return; }
+    const m = document.createElement('div');
+    m.style.cssText = 'position:absolute;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:#050806;color:#cfd8d2;font:15px/1.5 system-ui,sans-serif;text-align:center';
+    m.textContent = `The graphics card stopped drawing for this page (${info?.api ?? 'GPU'}: ${info?.message ?? 'context lost'}). Close other heavy tabs and reload; the game will start on Low.`;
+    this.host.appendChild(m);
   }
 
   // (Re)builds the post-processing graph for the current quality. Cheap, so
@@ -221,6 +258,7 @@ export class Gfx {
     const q = this.q;
     const useAO = q.ao && !this.params.has('noao');
     U.surfaceDetail.value = this.quality === 'low' ? 0 : 1;           // rock relief and cracks (render/shaders.js substrateMaterial)
+    SKIN.on = !this.params.has('noskin') && this.quality !== 'low' && !WEAK_GPU.test(this.gpu ?? '');   // skinned near vertebrates (render/creatures/skin.js)
     const bloomOn = q.bloom && !this.params.has('nobloom');
     this.pipeline?.dispose?.();
     // Foliage skips the AO darkening (see FOLIAGE in render/shaders.js); that needs the MRT, so only while there is one.
@@ -258,7 +296,7 @@ export class Gfx {
     if (bloomOn) {
       // A glow is soft: below High it is worked out at a quarter of the resolution (a quarter of the cost: the bloom chain is
       // most of the post-processing on a weak GPU).
-      const b = bloom(color, GRADE.bloomStrength, 0.4, 0.9);
+      const b = bloom(color, GRADE.bloomStrength, 0.4, 1.2);
       b.setResolutionScale(q.bloomScale ?? 0.5);
       color = color.add(b);
     }
@@ -324,6 +362,7 @@ export class Gfx {
     const c = this.compiler;
     c.inFrame = true;
     try { this.pipeline.render(); } finally { c.inFrame = false; }
+    if (this._trial > 0 && --this._trial === 0) store(localStorage, BOOT_KEY, null);
     this.latency?.after();
   }
 

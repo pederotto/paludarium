@@ -739,8 +739,8 @@ export const FROGS = {
   leucomelas: () => frogDef({ size: 4.5, cell: 0.072, paint: leucomelas, eyePal: EYE_LEU, geo: scaleGeo(DART, { kx: 1.03, ky: 1.03, kz: 1.0, kr: 1.06 }) }),
   auratus: () => frogDef({ size: 4.0, cell: 0.066, paint: auratus, eyePal: EYE_AUR, geo: scaleGeo(DART, { kx: 0.97, ky: 0.98, kz: 1.03, kr: 0.95 }) }),
   bumblebee: () => frogDef({ size: 2.8, cell: 0.052, paint: melanophryniscus, eyePal: EYE_MEL, legK: 0.85, geo: scaleGeo(TOAD, { kx: 0.86, ky: 1.05, kz: 1.02, kr: 0.9, ke: 0.9, kd: 0.6, hind: 0.8, fore: 0.9 }), finish: { rough: 0.6, coat: 0.12, coatRough: 0.5, grain: 10, bump: 0.04, grainAmt: 0.6, tone: 0.03 } }),
-  reedfrog: () => { const g = scaleGeo(DART, { kx: 0.9, ky: 0.92, kz: 1.1, kr: 0.92, ke: 1.08, kd: 1.5, hind: 1.25, fore: 1.15 }); g.box = [2.05, g.box[1], g.box[2] * 1.08, g.box[3]]; return frogDef({ size: 3.0, cell: 0.056, paint: heterixalus, eyePal: EYE_HET, geo: g, finish: { rough: 0.3, coat: 0.6, coatRough: 0.12 } }); },
-  redeye: () => { const g = scaleGeo(DART, { kx: 0.92, ky: 0.88, kz: 1.12, kr: 1.1, ke: 1.3, kd: 1.6, hind: 1.4, fore: 1.3 }); g.box = [2.1, g.box[1], g.box[2] * 1.1, g.box[3]]; return frogDef({ size: 5.5, cell: 0.08, paint: callidryas, eyePal: EYE_CAL, geo: g, finish: { rough: 0.36, coat: 0.55, coatRough: 0.18 } }); },
+  reedfrog: () => { const g = scaleGeo(DART, { kx: 0.9, ky: 0.92, kz: 1.1, kr: 0.92, ke: 1.08, kd: 1.5, hind: 1.25, fore: 1.15 }); g.box = [2.05, g.box[1], g.box[2] * 1.08, g.box[3]]; return frogDef({ size: 3.0, cell: 0.056, paint: heterixalus, eyePal: EYE_HET, geo: g, finish: { rough: 0.38, coat: 0.45, coatRough: 0.28 } }); },
+  redeye: () => { const g = scaleGeo(DART, { kx: 0.92, ky: 0.88, kz: 1.12, kr: 1.1, ke: 1.3, kd: 1.6, hind: 1.4, fore: 1.3 }); g.box = [2.1, g.box[1], g.box[2] * 1.1, g.box[3]]; return frogDef({ size: 5.5, cell: 0.08, paint: callidryas, eyePal: EYE_CAL, geo: g, finish: { rough: 0.52, coat: 0.3, coatRough: 0.34 } }); },
   toad: () => frogDef({ size: 4.5, cell: 0.072, paint: bombina, eyePal: EYE_BOMB, geo: TOAD, finish: { rough: 0.55, coat: 0.18, coatRough: 0.45, grain: 10, bump: 0.05, grainAmt: 0.8, tone: 0.03 } }),
 };
 

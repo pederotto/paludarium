@@ -45,16 +45,26 @@ function FeedingGuide() {
   );
 }
 
-// The false bottom's egg-crate height against the water line (content/equipment.js plenumState).
+// The false bottom: its egg-crate height and the water under it. That water is simulated (sim/plenum.js, E.plenum): the soil
+// drains into it, the pump in the tower draws it down, and where there is a pool it is open to it through a screen.
 function PlenumControls({ E }) {
   const level = ctx.game.world.water.level;
-  const pl = plenumState(E, level);
-  const msg = !pl ? '' : pl.state === 'mud' ? `The water is ${pl.rel.toFixed(1)} cm over the mesh: the land soaks it up and turns to mud. Raise the egg-crate or lower the water.`
-    : pl.state === 'low' ? `The water line is ${(-pl.rel).toFixed(1)} cm under the mesh: most of the plenum is dry, and so is its filter bed.`
-      : `The water line is ${(-pl.rel).toFixed(1)} cm under the mesh: right.`;
+  const pl = E.plenum ?? plenumState(E, E.plenumLevel ?? level);
+  const f = pl?.flows, lph = (v) => `${Math.abs(v * 60).toFixed(Math.abs(v * 60) < 1 ? 2 : 1)} L/h`;
+  const msg = !pl ? '' : pl.state === 'mud' ? `The water is ${pl.rel.toFixed(1)} cm over the mesh: the land soaks it up and turns to mud. ${pl.open === false ? 'Siphon it out through the tower.' : 'Raise the egg-crate or lower the water.'}`
+    : pl.state === 'low' ? `The water is ${(-pl.rel).toFixed(1)} cm under the mesh: most of the plenum is dry, and so is its filter bed.`
+      : `The water is ${(-pl.rel).toFixed(1)} cm under the mesh: right.`;
+  const siphon = () => { const L = E.plenumL ?? 0; E.plenumLevel = 0.5; toast(`Siphoned about ${Math.max(0, L - (pl?.full ?? 0) * 0.5 / (E.plenumH || 1)).toFixed(1)} L out of the false bottom.`); };
   return (
     <>
       <Slider label="Egg-crate height" value={E.plenumH || Math.round(level + 1)} min={2} max={Math.max(6, Math.round(TANK.h * 0.5))} step={0.5} set={(v) => { E.plenumH = v; }} fmt={(v) => v.toFixed(1) + ' cm'} />
+      {pl?.L != null ? (
+        <div class="note" style={{ margin: '4px 0' }}>
+          <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.12)', overflow: 'hidden' }}><div style={{ height: '100%', width: `${Math.min(100, pl.level / (E.plenumH || 1) * 100)}%`, background: pl.state === 'mud' ? '#e0805a' : '#c9a25a' }} /></div>
+          Under the land: <b>{pl.level.toFixed(1)} cm</b> of water ({pl.L.toFixed(1)} of {pl.full.toFixed(1)} L to the mesh). From the soil {lph(f.drip)}, pump in the tower {lph(f.pump)}, {pl.open ? `${f.gap >= 0 ? 'from' : 'to'} the pool through the screen ${lph(f.gap)}` : 'no pool to drain into'}.
+          {!pl.open && pl.level > 1 ? <> <button class="btn sm" onClick={() => { siphon(); refresh(); }} title="Pump it out through the access tower with a hose">Siphon it out</button></> : null}
+        </div>
+      ) : null}
       <p class="note" style={pl?.state === 'mud' ? { color: '#e0805a' } : null}>{msg}</p>
     </>
   );

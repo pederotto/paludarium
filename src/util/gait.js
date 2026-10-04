@@ -184,14 +184,21 @@ export function unpackAnim(w) {
 //       piece's cut 0 … 1, and the tail's lift -0.3 … 0.3 (a fraction of the body length at the tip, in 30 steps: 0 is exact), which
 //       curves the tail up or down so it lies along the ground behind a body that stands on a slope or a stone
 // render/creatures/material.js rig2Unpack is the same arithmetic as a node graph.
+// A also carries the turning mix tau (-1 … 1, util/turn.js) in its top bits: A += TURN_Q * (|tau| * 7 + (tau < 0 ? 8 : 0)), in
+// sevenths, 0 when not turning (so a vector packed without it reads as no turn). The largest A is just under 2^24. The vertex
+// shader (render/creatures/instanced.js) takes it off before material.js unpacks the rest.
 export const LIFT_MAX = 0.3;
-export function rig2Pack(bend, tail, tailF = 1, dull = 0, piece = 0, lift = 0) {
+export const TURN_Q = 1048576;
+export function rig2Pack(bend, tail, tailF = 1, dull = 0, piece = 0, lift = 0, turn = 0) {
   const q = (v, n) => Math.round(clamp01(v) * n);
-  return [q((bend + 1) / 2, 1022) + 1024 * q(tail + 0.5, 1022), q(tailF, 63) + 64 * (q(dull, 63) + 64 * (q(piece, 127) + 128 * q((lift + LIFT_MAX) / (2 * LIFT_MAX), 30)))];
+  const tm = Math.round(Math.min(1, Math.abs(turn)) * 7), tq = tm + (turn < 0 && tm ? 8 : 0);
+  return [q((bend + 1) / 2, 1022) + 1024 * q(tail + 0.5, 1022) + TURN_Q * tq, q(tailF, 63) + 64 * (q(dull, 63) + 64 * (q(piece, 127) + 128 * q((lift + LIFT_MAX) / (2 * LIFT_MAX), 30)))];
 }
 export function rig2Unpack(a, b) {
+  const uq = Math.floor(a / TURN_Q), turn = ((uq % 8) / 7) * (uq >= 8 ? -1 : 1);
+  a -= uq * TURN_Q;
   const tq = Math.floor(a / 1024), bq = a - tq * 1024;
   const hq = Math.floor(b / 4096), r = b - hq * 4096, dq = Math.floor(r / 64), fq = r - dq * 64;
   const lq = Math.floor(hq / 128), pq = hq - lq * 128;
-  return { bend: (bq / 1022) * 2 - 1, tail: tq / 1022 - 0.5, tailF: fq / 63, dull: dq / 63, piece: pq / 127, lift: (lq / 30) * 2 * LIFT_MAX - LIFT_MAX };
+  return { bend: (bq / 1022) * 2 - 1, tail: tq / 1022 - 0.5, tailF: fq / 63, dull: dq / 63, piece: pq / 127, lift: (lq / 30) * 2 * LIFT_MAX - LIFT_MAX, turn };
 }

@@ -13,6 +13,12 @@
 //    bottleneck; a smaller picture helps neither, and taking it down to the floor there is how a phone ended up blocky. When
 //    the GPU's latency is known (gpu(ms), see engine/gpulatency.js) and it was idle half the time, a slow window is 'paced'
 //    (nothing changes) or, with the main thread busy, 'cpu' (only the frame cap may drop). Without it, as before.
+//  * A smaller picture has to make the frames faster. A GPU can be busy with something other than pixels (vertices: a tank
+//    draws a million triangles or more, two million with the shadow pass; a driver, as Safari's WebGL can be), and then every
+//    step down the scale only made the picture blockier: in a recording of Safari on the Mac the frames were as slow at
+//    0.6 as at 1 while the governor walked down to 0.6. So a step down the scale is a trial: if the next window is not
+//    faster by at least a quarter of the share of pixels it took away, the scale goes back and stays there (`pixelFloor`)
+//    while the preset and the cap do the rest.
 
 export const PRESETS = ['low', 'balanced', 'high'];   // what Auto may choose between (Ultra is only ever picked by hand)
 
@@ -33,6 +39,8 @@ export class Governor {
     this.level = { q, scale, cap };
     this.buf = []; this.cpuBuf = []; this.gpuBuf = [];
     this.why = null;                // what bounded the last slow window: 'gpu', 'cpu' or 'paced'
+    this.trial = null;              // a scale step down on probation: { scale (the one before), med (its window's median) }
+    this.pixelFloor = 0;            // the scale below which fewer pixels proved not to help
     this.skip = warm;               // frames still to ignore
     this.slowRun = 0; this.fastRun = 0;
     this.bad = null;                // the most expensive level that was too slow, and until when it is not retried
@@ -56,7 +64,7 @@ export class Governor {
   gpu(ms) { if (this.skip <= 0 && this.gpuBuf.length < 256) this.gpuBuf.push(ms); }
 
   // Takes the level somebody set by hand (the player chose a preset, a saved profile was loaded).
-  set(level) { Object.assign(this.level, level); this.warm(); this.bad = null; this.remember(this.level); }
+  set(level) { Object.assign(this.level, level); this.warm(); this.bad = null; this.trial = null; this.pixelFloor = 0; this.remember(this.level); }
 
   // Call once for every frame that was drawn, `dt` seconds after the previous one, with the main thread's time for the frame
   // before it (`cpuMs`, optional). Returns the new level when it moves, else null.
@@ -65,10 +73,15 @@ export class Governor {
     this.buf.push(dt * 1000);
     if (cpuMs >= 0) this.cpuBuf.push(cpuMs);
     if (this.buf.length < this.window) return null;
-    const med = median(this.buf), p90 = this.buf[Math.floor(this.buf.length * 0.9)];
+    const med = this._med = median(this.buf), p90 = this.buf[Math.floor(this.buf.length * 0.9)];
     const cpu = this.cpuBuf.length >= this.window / 2 ? median(this.cpuBuf) : null;
     const gpu = this.gpuBuf.length >= 6 ? median(this.gpuBuf) : null;
     this.buf.length = 0; this.cpuBuf.length = 0; this.gpuBuf.length = 0;
+    if (this.trial) {
+      const t = this.trial; this.trial = null;
+      const took = 1 - (this.level.scale / t.scale) ** 2;          // the share of the pixels the step took away
+      if (1 - med / t.med < took * 0.25) { this.pixelFloor = t.scale; return this.commit({ ...this.level, scale: t.scale }, this.now(), 'no-gain'); }
+    }
     const budget = 1000 / Math.min(this.level.cap, 60);   // no display shows more than 60 of them to this game's measure
     const slow = med > budget * 1.3;
     this.why = !slow ? null : gpu === null || gpu >= med * 0.5 ? 'gpu' : cpu !== null && cpu >= med * 0.6 ? 'cpu' : 'paced';
@@ -84,7 +97,7 @@ export class Governor {
 
   stepDown(now) {
     const L = this.level; let to = null;
-    if (L.scale > this.scaleMin + 1e-6) to = { ...L, scale: Math.max(this.scaleMin, +(L.scale - this.scaleStep).toFixed(3)) };
+    if (L.scale > Math.max(this.scaleMin, this.pixelFloor) + 1e-6) to = { ...L, scale: Math.max(this.scaleMin, +(L.scale - this.scaleStep).toFixed(3)) };
     else if (this.autoQuality && L.q > 0) to = { ...L, q: L.q - 1, scale: Math.max(L.scale, 0.85) };   // a cheaper preset gets some resolution back
     else if (L.cap > this.capMin) to = { ...L, cap: this.capMin };
     this.slowRun = 0;
@@ -92,6 +105,7 @@ export class Governor {
     // A level that was tried again soon after it failed is a level that fails: wait longer before the next try.
     if (now - this.lastUp < 30000) this.badFor = Math.min(this.badFor * 2, 600000); else this.badFor = this.badBase;
     this.bad = { ...L }; this.badUntil = now + (to.cap < L.cap ? 300000 : this.badFor);
+    if (to.scale < L.scale && to.q === L.q) this.trial = { scale: L.scale, med: this._med };
     return this.commit(to, now, 'slow');
   }
 
@@ -112,6 +126,7 @@ export class Governor {
     this.fastRun = 0;
     if (!to) return null;
     if (this.bad && now < this.badUntil && this.cost(to) >= this.cost(this.bad) * 0.97) return null;   // that was too much a moment ago
+    if (to.q > L.q) this.pixelFloor = 0;                          // a dearer preset: its pixels may be what costs
     this.lastUp = now;
     return this.commit(to, now, 'fast');
   }

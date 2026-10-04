@@ -76,9 +76,11 @@ What the first pass listed as not built or simplified, now in:
   the plenum's water at its true distance under the mesh, the fibreglass mesh, the substrate's grains, bark, charcoal,
   fibres or sphagnum, the litter, mud when flooded. Drawn as a cut-away scaled to the ground at the glass (generated tanks
   slope down to ~4 cm at the front).
-- **Filter hardware** (`render/plumbing.js filterGear`, same merged mesh and material as the pump): sponge filter with
-  air-lift and airline, corner foam block across a back corner with its lift tube, canister intake (strainer or foam
-  pre-filter) and spray bar with hoses over the rim, the false bottom's slotted PVC pump tower with tubing up the back.
+- **Filter hardware** (`render/plumbing.js filterGear`, same merged mesh and material as the pump): pump-driven, no air.
+  Sponge box and canister stand in the cabinet under the tank, fed by an overflow standpipe through the floor, the return
+  jetting back through a second bulkhead; corner foam block with its pump and riser; the false bottom's open slotted tower
+  shows the plenum's water line. `sim/filterflow.js` (2026-10-04): each pump's curve against the lift from the cabinet, the
+  media stages' clog and the hose; real hose sizes (9/12 to 19/27 mm), the water's speed in each hose drawn as v = Q / A.
 - **Pieces**: `bamboopole` (upright or leaning), `floatlog` (rides the water level: `Decor.settle`/`refloat`), `pebbles`
   (smooth river pebbles, stamped: a gentle textured slope). **Plants**: `fissidens`, `rotala` (stem plant, pink tips);
   monstera leaves with real holes, anubias with stalks and oval leaves, java moss as branching strands (`shapedLeaf`).

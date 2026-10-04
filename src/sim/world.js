@@ -262,8 +262,10 @@ export class World {
     spires.forEach(([x, z, h, w], i) => D.addPiece('spire', x, z, { size: Math.min(h, (TANK.h - 3 - T.heightAt(x, z)) / 0.9), variant: i % 5, rot: r() * 6.28, scale: [w, 1, w * 0.85], tilt: [(r() - 0.5) * 0.1, (r() - 0.5) * 0.1], sink: 0.1 }));
     const boulders = [[-9, 4, 8], [-17, 7, 6], [9, -1, 6], [24, 6, 7], [30, 10, 5], [-28, 9, 7], [-4, 13, 4], [11, 14, 3.5], [38, 3, 6], [-33, -5, 7], [5, -8, 4]];
     boulders.forEach(([x, z, s], i) => D.addPiece('boulder', x, z, { size: s, variant: i * 3 + 1, sink: 0.25 }));
-    D.addPiece('roots', -26, 1, { size: 16, rot: 0.6, y: L - 3 });
-    D.addPiece('wood', 28, 12, { size: 30, rot: 2.3, tilt: [0.3, 0.1], y: L + 1.2 });
+    // Seated by Decor.settle like every other piece (fixed heights left the log 10 cm in the air and the roots 4 cm over the
+    // lagoon floor); the roots stand a little out from the bank at (-26, 1), which swallowed them once seated.
+    D.addPiece('roots', -23, 4, { size: 16, rot: 0.6 });
+    D.addPiece('wood', 28, 12, { size: 30, rot: 2.3, tilt: [0.3, 0.1] });
     D.addPiece('stump', 38, -7, { size: 10 });
     this.groundChanged({ quick: true });
 
@@ -374,7 +376,7 @@ export class World {
     this.water.load(o.water);
     for (const p of o.plants) {
       if (!PLANTS[p.id]) continue;
-      this.plants.add(p.id, new THREE.Vector3(...p.pos), { normal: new THREE.Vector3(...p.n), surface: p.s, rot: p.r, scale: p.sc, grown: p.g, health: p.h, variant: p.v });
+      this.plants.add(p.id, new THREE.Vector3(...p.pos), { normal: new THREE.Vector3(...p.n), surface: p.s, rot: p.r, scale: p.sc, grown: p.g, health: p.h, variant: p.v, bloom: p.b });
     }
     for (const a of o.animals) {
       if (!SPECIES[a.sp]) continue;

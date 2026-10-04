@@ -6,10 +6,11 @@ import { Governor, PRESETS, autoCeiling } from '../src/engine/governor.js';
 
 // Drives a governor with frames of a given length for a given number of seconds of (fake) time. Returns the changes it made.
 // `cpu` is the main thread's time a frame, `gpu` the GPU latency sampled every fourth frame (both optional, in ms).
+// `ms` is a frame's length, or a function of the governor's level giving it (a machine that a smaller picture speeds up).
 function run(gov, clock, ms, seconds, { jitter = 0, stallEvery = 0, stallMs = 0, cpu, gpu } = {}) {
   const changes = []; let n = 0;
   for (let t = 0; t < seconds * 1000;) {
-    const dt = ms + (jitter ? ((n * 7) % 5 - 2) * jitter : 0) + (stallEvery && n % stallEvery === stallEvery - 1 ? stallMs : 0);
+    const dt = (typeof ms === 'function' ? ms(gov.level) : ms) + (jitter ? ((n * 7) % 5 - 2) * jitter : 0) + (stallEvery && n % stallEvery === stallEvery - 1 ? stallMs : 0);
     clock.t += dt; t += dt; n++;
     if (gpu !== undefined && n % 4 === 0) gov.gpu(gpu);
     const c = gov.frame(dt / 1000, cpu);
@@ -17,6 +18,8 @@ function run(gov, clock, ms, seconds, { jitter = 0, stallEvery = 0, stallMs = 0,
   }
   return changes;
 }
+// A GPU that pixels keep busy: at full scale 60 % of its frame is per-pixel work, which shrinks with the scale squared.
+const pixels = (base) => (L) => base * (0.4 + 0.6 * L.scale * L.scale);
 const make = (opts = {}) => { const clock = { t: 0 }; return { clock, gov: new Governor({ now: () => clock.t, ...opts }) }; };
 
 test('a comfortable level is left alone', () => {
@@ -38,7 +41,7 @@ test('a stall in a window does not trigger a change (the window is judged by its
 
 test('a slow machine steps down the ladder: scale first, then preset, then the 30 fps cap, one rung at a time', () => {
   const { gov, clock } = make();
-  const ch = run(gov, clock, 38, 240);
+  const ch = run(gov, clock, pixels(38), 240);
   const seq = ch.map((c) => `${PRESETS[c.q]}@${c.scale}/${c.cap}`);
   assert.deepEqual(seq.slice(0, 3), ['high@0.85/60', 'high@0.7/60', 'high@0.6/60']);
   assert.ok(seq.includes('balanced@0.85/60'), seq.join(' '));
@@ -83,7 +86,7 @@ test('a lowered frame-rate cap is not tried again soon (frames at the cap say no
 
 test('Auto off: the preset is never touched (scale and cap still move)', () => {
   const { gov, clock } = make({ autoQuality: false });
-  const ch = run(gov, clock, 38, 300);
+  const ch = run(gov, clock, pixels(38), 300);
   for (const c of ch) assert.equal(c.q, 2);
   assert.equal(gov.level.q, 2);
   assert.ok(gov.level.scale <= 0.6 + 1e-9 && gov.level.cap === 30);
@@ -133,7 +136,7 @@ test('a main thread that is the bottleneck lowers only the frame cap, never the 
 
 test('a GPU that is the bottleneck (its latency a frame or more) still steps down as before', () => {
   const { gov, clock } = make();
-  const ch = run(gov, clock, 38, 240, { cpu: 6, gpu: 45 });
+  const ch = run(gov, clock, pixels(38), 240, { cpu: 6, gpu: 45 });
   const seq = ch.map((c) => `${PRESETS[c.q]}@${c.scale}/${c.cap}`);
   assert.deepEqual(seq.slice(0, 3), ['high@0.85/60', 'high@0.7/60', 'high@0.6/60']);
   assert.equal(gov.level.cap, 30, 'and ends at the bottom of the ladder');
@@ -147,6 +150,18 @@ test('a busy main thread that delays the GPU answer reads as a busy GPU (the old
 
 test('the scale floor the graphics set (a phone: one render pixel a CSS pixel) is where the scale steps stop', () => {
   const { gov, clock } = make({ scaleMin: 0.82 });
-  const seq = run(gov, clock, 38, 240).map((c) => `${PRESETS[c.q]}@${c.scale}/${c.cap}`);
+  const seq = run(gov, clock, pixels(38), 240).map((c) => `${PRESETS[c.q]}@${c.scale}/${c.cap}`);
   assert.deepEqual(seq.slice(0, 3), ['high@0.85/60', 'high@0.82/60', 'balanced@0.85/60'], seq.join(' '));
+});
+
+test('a GPU busy with something other than pixels (frames as slow at any scale) gets its resolution back: the preset and the cap do the rest', () => {
+  const { gov, clock } = make();
+  const ch = run(gov, clock, 38, 300, { cpu: 6, gpu: 30 });     // as Safari on the Mac recorded it: 0.6 no faster than 1
+  const seq = ch.map((c) => `${PRESETS[c.q]}@${c.scale}/${c.cap}`);
+  assert.deepEqual(seq.slice(0, 2), ['high@0.85/60', 'high@1/60'], seq.join(' '));
+  assert.equal(ch[1].reason, 'no-gain');
+  for (const c of ch.slice(2)) assert.equal(c.scale, 1, `no second try at fewer pixels: ${seq.join(' ')}`);
+  assert.deepEqual(gov.level, { q: 0, scale: 1, cap: 30 }, seq.join(' '));
+  gov.set({ q: 2, scale: 1, cap: 60 });
+  assert.equal(gov.pixelFloor, 0, 'a level set by hand forgets it');
 });

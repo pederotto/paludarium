@@ -20,9 +20,11 @@ import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../util/math.js';
 import { TANK, tankLitres } from './tank.js';
 import { HABITAT } from '../content/habitats.js';
-import { filterOf, filterClog, filterEff, plenumState, substrateOf } from '../content/equipment.js';
+import { filterOf, filterClog, filterEff, substrateOf } from '../content/equipment.js';
+import { filterFlow } from './filterflow.js';
 import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from './genetics.js';
 import { morphName, morphRarity } from '../content/morphs.js';
+import { stepPlenum } from './plenum.js';
 
 export { Env };
 
@@ -108,8 +110,10 @@ export class Sim {
     // The filter: its own pump pushes the main pool's water through the media, which keep a share of the particles: the
     // detritus floating in it here, the silt the water carries in erosion.js (filterK). What it keeps clogs it, a little more
     // every day it runs (fish waste, biofilm), until it is rinsed (Care > Water); the dirt in it still rots into the water.
+    // Its flow is its pump's working point against the lift from the cabinet, the media's clog and the hoses (sim/filterflow.js).
+    E.filterFlow = filterFlow(E, W.water.level);
     const F = filterOf(E), eff = filterEff(E);
-    E.filterLph = F.lph * eff;
+    E.filterLph = E.filterFlow.lph;
     const poolL = Math.max(1, W.water.hydro.resVol / 1000);
     const passed = 1 - Math.exp(-E.filterLph / 60 * d / poolL);
     const caught = E.detritus * 0.02 * passed * F.catch;
@@ -130,11 +134,10 @@ export class Sim {
     E.biofilm = clamp(E.biofilm + d * 0.0004 * light * clamp(E.nitrate / 10, 0.2, 1.5), 0, 1);
     // The false bottom: fitted, its mesh sits just over the water; water over the mesh floods the land (mud), a plenum run
     // dry loses most of its filter bed (waterbodies.js).
-    if (E.drainage >= 1 && !(E.plenumH > 0)) E.plenumH = Math.round((W.water.level + 1) * 2) / 2;
-    const pl = plenumState(E, W.water.level);
+    const pl = stepPlenum(W, E, d);   // sim/plenum.js: its own water, drained into from the soil, pumped, open to the pool
     E.plenum = pl;
     E.drainEff = pl?.state === 'mud' ? 0 : E.drainage;
-    if (pl?.state === 'mud' && E.day !== E._mudLogged) { E._mudLogged = E.day; W.log('The water is over the false bottom\'s mesh: the soil above is soaking it up and turning to mud. Lower the water or raise the egg-crate.', 'warn'); }
+    if (pl?.state === 'mud' && E.day !== E._mudLogged) { E._mudLogged = E.day; W.log('The water is over the false bottom\'s mesh: the soil above is soaking it up and turning to mud. ' + (pl.open ? 'Lower the water or raise the egg-crate.' : 'Siphon it out through the access tower (Care > Foundation).'), 'warn'); }
     // Surface film: a skin of protein and oil on still water (rotting food, detritus). It slows the oxygen the water takes up
     // (waterbodies.js). Current at the surface breaks it; seashore springtails (`film`) graze it off.
     let grazers = 0;

@@ -39,6 +39,8 @@ export const KID_PLANTS = [
   { id: 'grass', n: 'Grass', where: 'ground' },
   { id: 'bilberry', n: 'Berry bush', where: 'ground' },
   { id: 'bromeliad', n: 'Spiky flower', where: 'ground' },
+  { id: 'guzmania', n: 'Star flower', where: 'ground' },
+  { id: 'masdevallia', n: 'Little orchid', where: 'wall' },
   { id: 'pothos', n: 'Vine', where: 'wall' },
   { id: 'cattail', n: 'Cattail', where: 'water' },
   { id: 'bamboo', n: 'Tall reeds', where: 'water' },

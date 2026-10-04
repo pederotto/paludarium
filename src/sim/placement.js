@@ -72,6 +72,66 @@ export function boxInside(box, tank, eps = 1e-6) {
     && box.min[2] >= -tank.d / 2 - eps && box.max[2] <= tank.d / 2 + eps && box.min[1] >= -eps;
 }
 
+// --- Sitting on the ground ---------------------------------------------------------------------
+// `pts`: a flat xyz array of the piece's points in world space as it hangs at height 0; `ground(x, z)`: the height it
+// settles on there. Both return how far to move the piece up (negative: down).
+
+// Resting: as low as it can go with no point under the ground, so it lies on its lowest contact (a log, a slab, a cork tube).
+export function restLift(pts, ground) {
+  let up = -Infinity;
+  for (let i = 0; i < pts.length; i += 3) { const d = ground(pts[i], pts[i + 2]) - pts[i + 1]; if (d > up) up = d; }
+  return up;
+}
+
+// Lying along a slope steeper than the piece may tilt (followSlope stops at 0.6 rad: a slab or a cork tube on a bank), resting
+// on its highest contact leaves its lower end in the air. Here the lowest `band` cm of it comes down to within `hang` cm of the
+// ground and its high end digs in; never higher than resting, and on ground it can lie on it is resting.
+export function lieLift(pts, ground, band, hang = 0.25) {
+  let lo = Infinity, low = -Infinity;
+  for (let i = 1; i < pts.length; i += 3) if (pts[i] < lo) lo = pts[i];
+  for (let i = 0; i < pts.length; i += 3) {
+    if (pts[i + 1] > lo + band) continue;
+    const d = ground(pts[i], pts[i + 2]) - pts[i + 1];
+    if (d > low) low = d;
+  }
+  return Math.min(restLift(pts, ground), low + hang);
+}
+
+// Planted: the whole base (the points within `band` cm of the lowest) at or under the ground, so on a slope no edge of it
+// hangs in the air; the uphill side goes into the ground (a stone, a stump, a root ball, a trunk stood on end).
+export function plantLift(pts, ground, band = 0.5) {
+  let lo = Infinity;
+  for (let i = 1; i < pts.length; i += 3) if (pts[i] < lo) lo = pts[i];
+  let up = Infinity;
+  for (let i = 0; i < pts.length; i += 3) {
+    if (pts[i + 1] > lo + band) continue;
+    const d = ground(pts[i], pts[i + 2]) - pts[i + 1];
+    if (d < up) up = d;
+  }
+  return up;
+}
+
+// The plane through the ground under a footprint: least squares over samples [x, y, z, ...] of y = a x + b z + c.
+// Returns its unit normal [nx, ny, nz] (pointing up), tilted at most `maxTilt` radians from vertical.
+export function groundNormal(samples, maxTilt = 0.6) {
+  let n = 0, sx = 0, sz = 0, sy = 0, sxx = 0, szz = 0, sxz = 0, sxy = 0, szy = 0;
+  for (let i = 0; i < samples.length; i += 3) {
+    const x = samples[i], y = samples[i + 1], z = samples[i + 2];
+    n++; sx += x; sz += z; sy += y; sxx += x * x; szz += z * z; sxz += x * z; sxy += x * y; szy += z * y;
+  }
+  if (n < 3) return [0, 1, 0];
+  // Centred normal equations: [cxx cxz; cxz czz] [a b] = [cxy czy].
+  const cxx = sxx - sx * sx / n, czz = szz - sz * sz / n, cxz = sxz - sx * sz / n, cxy = sxy - sx * sy / n, czy = szy - sz * sy / n;
+  const det = cxx * czz - cxz * cxz;
+  if (Math.abs(det) < 1e-9) return [0, 1, 0];
+  const a = (cxy * czz - czy * cxz) / det, b = (czy * cxx - cxy * cxz) / det;
+  let nx = -a, ny = 1, nz = -b;
+  const t = Math.atan(Math.hypot(nx, nz));
+  if (t > maxTilt) { const k = Math.tan(maxTilt) / Math.hypot(nx, nz); nx *= k; nz *= k; }
+  const l = Math.hypot(nx, ny, nz);
+  return [nx / l, ny / l, nz / l];
+}
+
 // --- Plants ----------------------------------------------------------------------------------
 // A plant whose canopy reaches `reach` cm sideways from its stem. The stem is kept at least
 // 0.8 x reach from the glass (never more than a third of the tank), and what still overhangs

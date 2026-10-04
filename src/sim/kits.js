@@ -107,14 +107,10 @@ export function placeSpec(W, s, placed = []) {
   let [x, z] = s.atTop != null && placed[s.atTop] ? topOf(T, placed[s.atTop]) : [s.x, s.z];
   x = clamp(x, -TANK.w / 2 + m, TANK.w / 2 - m); z = clamp(z, -TANK.d / 2 + m, TANK.d / 2 - m);
   const sink = s.sink ?? 0.08;
-  const yFor = (size) => {
-    if (s.bridge) {
-      const tops = s.bridge.map((i) => placed[i]).filter(Boolean).map((p) => T.heightAt(p.mesh.position.x, p.mesh.position.z));
-      if (tops.length) return Math.max(...tops) - size * sink;
-    }
-    if (s.stack || s.atTop != null || !def.stamp || s.bridge) return T.heightAt(x, z) - size * sink;
-    return undefined;
-  };
+  // Every piece is seated by Decor.settle on what is under it (the ground, the stamps of the pieces placed before it and the
+  // tops of unstamped ones); a stacked, bridged or summit piece rests on its highest contact there. (Before 2026-10-04 those
+  // and every unstamped piece got a fixed height from the ground at one point, so wood and roots could hang in the air.)
+  const rest = !!(s.stack || s.bridge || s.atTop != null);
   const make = (size) => {
     let sc = s.scale ?? [1, 1, 1];
     if (s.width) {        // a spire: `size` is the height, `width` the base width
@@ -122,7 +118,7 @@ export function placeSpec(W, s, placed = []) {
       sc = [s.width / (ext[0] * k), 1, (s.width * 0.85) / (ext[2] * k)];
     }
     sc = [sc[0] * jit[0], sc[1] * jit[1], sc[2] * jit[2]];
-    return D.addPiece(s.type, x, z, { variant, size, rot: s.rot, tilt: s.tilt, scale: sc, flip, tint, y: yFor(size), sink, snap: s.snap ?? (def.face ? 30 * kitScale() : undefined) });
+    return D.addPiece(s.type, x, z, { variant, size, rot: s.rot, tilt: s.tilt, scale: sc, flip, tint, rest, sink, snap: s.snap ?? (def.face ? 30 * kitScale() : undefined) });
   };
   let size = s.size;
   let p = make(size);

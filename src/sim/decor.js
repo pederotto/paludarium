@@ -2,7 +2,8 @@
 //
 //  - Photoscanned pieces from Poly Haven (CC0): 13 mossy boulders, a cliff
 //    face, a root cluster, a tree stump and a piece of driftwood. They keep
-//    their scanned textures and grow moss on their upper faces.
+//    their scanned textures (but the driftwood, which wears the baked bark of
+//    the procedural wood: barkMaterial) and grow moss on their upper faces.
 //  - Stone spires: tall, layered rocks like the "dragon stone" cliffs of
 //    aquascapes. Their shape is adapted from SeedThree's rocks.js (MIT,
 //    https://github.com/SkyeShark/SeedThree): a welded icosahedron displaced
@@ -19,20 +20,23 @@
 // makes re-stamping fast enough to follow a piece while you drag it.
 
 import * as THREE from 'three/webgpu';
-import { float, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWorld, smoothstep, normalWorld, mix } from 'three/tsl';
+import { float, vec2, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWorld, positionView, smoothstep, normalWorld, mix, texture, uv, modelScale, varying, normalMap, attribute } from 'three/tsl';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
-import { TEX, modelParts } from '../render/assets.js';
+import { TEX, modelParts, loadBinary } from '../render/assets.js';
 import { plantMaterial, hardscapeMaterial, mouldMix, wet, triplanar, blendWeights, noise3 } from '../render/shaders.js';
 import { U } from '../render/uniforms.js';
 import { MAT, NMAT, TANK } from './tank.js';
 import { rng, clamp, hash3 } from '../util/math.js';
-import { TINTS, PROC, rollLook, hullPoints, transformedBox, boxShift, nearestWall, faceQuat, faceOrigin, FACE_EMBED, SLOPE_NORMAL_Y } from './placement.js';
+import { TINTS, PROC, rollLook, hullPoints, transformedBox, boxShift, nearestWall, faceQuat, faceOrigin, FACE_EMBED, SLOPE_NORMAL_Y, restLift, lieLift, plantLift, groundNormal } from './placement.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-// Catalogue of placeable pieces. `size` is the default largest dimension in cm.
+// Catalogue of placeable pieces. `size` is the default largest dimension in cm. How a piece meets the ground (settle):
+// `lie` pieces rest on their lowest contact and sink by a share of their thickness (unless stood on end, then they are
+// planted like the rest: the whole base at or under the ground, sunk by a share of the height); `slope` pieces placed
+// without a tilt turn to the slope of the ground under them (a slab, a cork tube, a log, a patch of pebbles).
 export const PIECES = {
   boulder: { name: 'Mossy boulder', model: ['rock_moss_set_01', 'rock_moss_set_02'], size: 10, stamp: true, moss: 0.55 },
   spire: { name: 'Stone spire', procedural: true, size: 30, stamp: true, moss: 0.5 },
@@ -41,21 +45,23 @@ export const PIECES = {
   // instead of hanging over a slope or in the water)
   roots: { name: 'Roots', model: ['root_cluster_01'], size: 30, stamp: false, moss: 0.25, sink: 0.3 },
   stump: { name: 'Tree stump', model: ['tree_stump_01'], size: 16, stamp: true, moss: 0.4 },
-  wood: { name: 'Driftwood', model: ['dead_tree_trunk'], size: 36, stamp: false, moss: 0.3 },
+  wood: { name: 'Driftwood', model: ['dead_tree_trunk'], size: 36, stamp: false, moss: 0.3, lie: true, slope: true },
   // From the keeper's care sheets (2026-10): a hide and a cave-or-ramp stone. Not stamped, so animals walk under them
   // (the occupancy grid keeps an arch's inside free) and count them as cover.
-  cork: { name: 'Cork bark tube', procedural: true, size: 16, stamp: false, moss: 0.2 },
-  slate: { name: 'Slate slab', procedural: true, size: 18, stamp: false, moss: 0.15 },
+  cork: { name: 'Cork bark tube', procedural: true, size: 16, stamp: false, moss: 0.2, lie: true, slope: true },
+  slate: { name: 'Slate slab', procedural: true, size: 18, stamp: false, moss: 0.15, lie: true, slope: true },
   // A bamboo pole for reed frogs to perch on (upright or leaning), and a log that floats at the water line (`float`: it rides
   // the water level and rests on the bottom only where the water is too shallow to hold it).
   bamboopole: { name: 'Bamboo pole', procedural: true, size: 40, stamp: false, moss: 0.05 },
-  floatlog: { name: 'Floating log', procedural: true, size: 22, stamp: false, moss: 0.25, float: true },
+  floatlog: { name: 'Floating log', procedural: true, size: 22, stamp: false, moss: 0.25, float: true, lie: true, slope: true },
   // Smooth river pebbles: a low patch that makes a gentle, textured slope out of the water (bumblebee toads, isopods).
-  pebbles: { name: 'River pebbles', procedural: true, size: 14, stamp: true, moss: 0.05 },
+  pebbles: { name: 'River pebbles', procedural: true, size: 14, stamp: true, moss: 0.05, slope: true },
 };
 
 export { TINTS, PROC, rollLook };
 const HULLS = new WeakMap();
+const UP = new THREE.Vector3(0, 1, 0);
+const IDENTITY = new THREE.Matrix4().elements;
 // cm between a piece's underside and what is below it beyond which the piece overhangs there (see restamp).
 const STAMP_GAP = 1.2;
 const ROUND_BOULDERS = [6, 7, 8, 10, 11, 12];
@@ -78,7 +84,8 @@ function warp(src, fn) {
 // A weathered tree stump: a flared, uneven cylinder with a ragged top.
 // A split cork-bark tube lying on its side: half a rough cylinder, bark outside and in, open underneath so an animal can
 // creep in. Length 1 along x, radius 0.3, base at y = 0. r: seeded random (rng).
-function corkGeo(r, { arc = Math.PI, rad = 0.3, wall = 0.05, n = 26, m = 14 } = {}) {
+function corkGeo(r, { arc = Math.PI, rad = 0.3, wall = 0.05, n = 26, m = 14, cmPer = PIECES.cork.size } = {}) {
+  const k = cmPer / BARK_TILE_CM;
   const pos = [], uv = [], idx = [];
   const bump = Array.from({ length: 5 }, () => ({ k: 3 + Math.floor(r() * 6), ph: r() * 6.28, a: 0.02 + r() * 0.04 }));
   const sag = (r() - 0.5) * 0.12, a0 = (Math.PI - arc) / 2;
@@ -92,7 +99,9 @@ function corkGeo(r, { arc = Math.PI, rad = 0.3, wall = 0.05, n = 26, m = 14 } = 
         if (!inner) for (const b of bump) R += b.a * rad * Math.sin(b.k * th + b.ph + u * 3);   // furrowed bark
         R *= 1 - 0.08 * Math.cos(u * Math.PI * 2);                                           // a little waist
         pos.push(x, Math.sin(th) * R + sag * Math.sin(u * Math.PI) * 0.3, Math.cos(th) * R);
-        uv.push(u * 2, j / n);
+        // Bark coordinates (barkMaterial): u round the arc, v along the tube, the grain of cork-oak bark; the inside has the
+        // same coordinates as the outside, so the cut edges between them carry the bark's streaks straight through.
+        uv.push(th * rad * k, u * k);
       }
     }
     for (let i = 0; i < m; i++) for (let j = 0; j < n; j++) {
@@ -202,10 +211,7 @@ function logGeo(r, { rad = 0.12, bend = 0 } = {}) {
 }
 
 function stumpGeo(r, { flare = 0.5, rag = 0.2, taper = 0.12 } = {}) {
-  const g = new THREE.CylinderGeometry(0.5, 0.5, 1, 64, 28);
-  // the bark tiles three times round (it was stretched to one tile round a 3-units-around trunk)
-  const uva = g.attributes.uv;
-  for (let i = 0; i < uva.count; i++) uva.setX(i, uva.getX(i) * 3);
+  const g = new THREE.CylinderGeometry(0.5, 0.5, 1, 64, 28);   // (bark coordinates: tubeBarkUV, once it has its height)
   const lobes = Array.from({ length: 4 }, () => ({ k: 2 + Math.floor(r() * 5), ph: r() * 6.28, a: 0.04 + r() * 0.07 }));
   const topPh = r() * 6.28, tilt = (r() - 0.5) * 0.25;
   const pos = g.attributes.position;
@@ -308,6 +314,205 @@ function spireMaterial(tint = null) {
   return m;
 }
 
+// --- Bark ------------------------------------------------------------------------------------------------
+// Every wood piece but the two scans that keep their photo (the root ball and the stump on its patch of forest floor) wears
+// one baked, tileable furrowed bark (tools/bake-bark.mjs: colour, height in alpha, normal map). The geometry carries bark
+// coordinates in tiles of BARK_TILE_CM: u round the wood, a whole number of tiles round a closed trunk so the seam
+// closes, v along the grain, laid out at the piece's catalogue size (so a piece drawn bigger or smaller has bark a little
+// coarser or finer, like a real thicker or thinner trunk). Before 2026-10-04 these pieces sampled the stump scan's photo
+// atlas (mostly forest floor, with the atlas' smeared island edges) at 2-3x stretch.
+export const BARK_TILE_CM = 10;
+const barkMats = new Map();
+
+// `along`: the local axis of the grain ('x' logs, cork, driftwood; 'y' stumps). A piece scaled more along its length than
+// round it (the generator draws logs 1.5x thicker) gets its v rescaled from the object's scale, so the plates keep their
+// shape (u, which closes round the trunk, is left alone). Moss grows in the furrows first, on faces turned up and in the
+// wet band just above the water line, from the bark's own height at two scales (no noise lookups).
+export function barkMaterial(along, tint = null, moss = 0.3) {
+  const key = along + '/' + moss + '/' + (tint ? tint.join() : '');
+  if (barkMats.has(key)) return barkMats.get(key);
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
+  m.shadowSide = THREE.BackSide;
+  const S = modelScale.abs();
+  const stretch = along === 'x' ? S.x.mul(2).div(S.y.add(S.z)) : S.y.mul(2).div(S.x.add(S.z));
+  const buv = varying(uv().mul(vec2(1, stretch)), 'vBarkUV');
+  const tx = texture(TEX.bark, buv);
+  const pw = positionWorld;
+  let base = tx.rgb;
+  if (tint) base = base.mul(vec3(tint[0], tint[1], tint[2]));
+  const above = pw.y.sub(U.waterLevel);
+  const patches = texture(TEX.bark, buv.mul(0.21).add(vec2(0.37, 0.11))).a;          // coarse patches: the bark's height, 5x larger
+  const want = normalWorld.y.mul(0.6)
+    .add(float(1).sub(smoothstep(0.5, 9, above)).mul(0.45))                          // wet band above the water line
+    .add(float(1).sub(tx.a).mul(0.4))                                                // furrows before ridges
+    .add(patches.mul(0.35)).add(moss * 0.5)
+    .sub(float(1).sub(U.rockMoss).mul(0.9));
+  const cover = smoothstep(0.85, 1.15, want).mul(smoothstep(0, 1, above));
+  const mossCol = texture(TEX.ground[4], buv.mul(1.6)).rgb.mul(vec3(0.5, 0.74, 0.38));
+  base = mix(base, mossCol, cover);
+  const film = float(1).sub(smoothstep(-0.5, 0.2, above)).mul(U.algaeFilm).mul(patches.mul(0.4).add(0.6));
+  base = mix(base, U.algaeColor, film.clamp(0, 0.7));
+  base = mouldMix(base, pw);
+  const [color, emissive] = wet(base, pw);
+  m.colorNode = color;
+  m.emissiveNode = emissive;
+  m.normalNode = normalMap(texture(TEX.barkNormal, buv), vec2(float(1).sub(cover.mul(0.7))));
+  m.userData.barkUV = { size: 512, along };     // for tools/steps/decor-ground.mjs (texel density)
+  barkMats.set(key, m);
+  return m;
+}
+
+// The scanned root ball (an open sheet of soil, a bank face, with roots on it): its photo is 512 px for 4 m of scan, so on the
+// roots it was a few smeared texels across (17 texels/cm at the catalogue size, in the soil's colour). tools/bake-bark.mjs
+// (`roots`) finds the root strands and lays bark coordinates along each, in tiles of 3 cm (finer plates than a trunk's, as on
+// a thin root), stored per vertex: they go in as 'uv1' and how much of a strand each vertex is as 'barkMask'. Returns false
+// (and the piece keeps its photo) when the file is missing or was made for another mesh.
+function rootBarkAttributes(g, buf) {
+  if (!buf || buf.byteLength < 8) return false;
+  const dv = new DataView(buf), n = dv.getUint32(0, true);
+  if (n !== g.attributes.position.count || buf.byteLength < 8 + n * 5) return false;
+  const step = dv.getFloat32(4, true), u = new Int16Array(buf, 8, n), v = new Int16Array(buf, 8 + n * 2, n), s = new Uint8Array(buf, 8 + n * 4, n);
+  const uv1 = new Float32Array(n * 2), k = new Float32Array(n);
+  for (let i = 0; i < n; i++) { uv1[i * 2] = u[i] * step; uv1[i * 2 + 1] = v[i] * step; k[i] = s[i] / 255; }
+  g.setAttribute('uv1', new THREE.BufferAttribute(uv1, 2));
+  g.setAttribute('barkMask', new THREE.BufferAttribute(k, 1));
+  return true;
+}
+
+// Its material: the scan's photo and normal map on the soil (moss, algae, mould and wetness as hardscapeMaterial), the furrowed
+// bark on the strands, warmed toward the scan's root colour. The bark's normal map is turned into the strand's own frame from
+// the screen derivatives of 'uv1' (three's normal map takes its frame from the first uv set, the photo's atlas).
+const ROOT_TINT = [1.6, 1.15, 0.82];
+function rootsMaterial(src, moss, tint) {
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0 });
+  m.shadowSide = THREE.BackSide;
+  if (src.roughnessMap) m.roughnessMap = src.roughnessMap;
+  const pw = positionWorld, buv = uv(1), k = smoothstep(0.3, 0.8, attribute('barkMask', 'float'));
+  const bark = texture(TEX.bark, buv);
+  let base = mix(src.map ? texture(src.map, uv()).rgb : vec3(0.3, 0.17, 0.1), bark.rgb.mul(vec3(...ROOT_TINT)), k);
+  if (tint) base = base.mul(vec3(tint[0], tint[1], tint[2]));
+  const n = noise3(pw.mul(0.25)).mul(0.5).add(noise3(pw.mul(0.9)).mul(0.25));
+  const aboveWater = smoothstep(0.0, 1.5, pw.y.sub(U.waterLevel));
+  const cover = smoothstep(0.75 - moss * 0.6, 0.95 - moss * 0.5, normalWorld.y.add(n).add(float(1).sub(bark.a).mul(k).mul(0.25)).sub(float(1).sub(U.rockMoss).mul(0.9))).mul(aboveWater);
+  base = mix(base, triplanar(TEX.ground[4], 1 / 9, pw, blendWeights()).mul(vec3(0.55, 0.8, 0.42)), cover);
+  const film = smoothstep(0.2, -0.5, pw.y.sub(U.waterLevel)).mul(U.algaeFilm).mul(noise3(pw.mul(0.5)).mul(0.4).add(0.6));
+  base = mix(base, U.algaeColor, film.clamp(0, 0.7));
+  const [color, emissive] = wet(mouldMix(base, pw), pw);
+  m.colorNode = color;
+  m.emissiveNode = emissive;
+  // Bark normal in the strand's frame (http://www.thetenthplanet.de/archives/1180, as three's TangentUtils, on uv1).
+  const q0 = positionView.dFdx(), q1 = positionView.dFdy(), s0 = buv.dFdx(), s1 = buv.dFdy(), N = normalView;
+  const q1p = q1.cross(N), q0p = N.cross(q0);
+  const T = q1p.mul(s0.x).add(q0p.mul(s1.x)), B = q1p.mul(s0.y).add(q0p.mul(s1.y));
+  const sc = T.dot(T).max(B.dot(B)).max(1e-20).inverseSqrt();
+  const tn = texture(TEX.barkNormal, buv).xyz.mul(2).sub(1);
+  const barkN = T.mul(sc.mul(tn.x)).add(B.mul(sc.mul(tn.y))).add(N.mul(tn.z));
+  const soilN = src.normalMap ? normalMap(texture(src.normalMap, uv())) : N;
+  m.normalNode = normalize(mix(soilN, barkN, k));
+  m.userData.barkUV = { size: 512, attr: 'uv1', mask: 'barkMask' };     // for tools/steps/decor-ground.mjs (texel density)
+  return m;
+}
+
+// v along a trunk whose girth changes (a flared foot, a tapering log): with a whole number of tiles round it, the bark keeps
+// its shape only if v advances by tiles / girth per unit of length where it is. `along[i]`, `rad[i]`: each vertex's position
+// along the axis and distance from it. Returns v(position), integrated over 40 slabs (each slab's girth smoothed over its
+// neighbours), so plates are smaller on the thin parts and larger on the thick ones, as on a real trunk.
+function barkV(along, rad, tiles) {
+  let lo = Infinity, hi = -Infinity;
+  for (const a of along) { if (a < lo) lo = a; if (a > hi) hi = a; }
+  const nb = 40, w = Math.max((hi - lo) / nb, 1e-6), rs = new Float64Array(nb), rn = new Float64Array(nb);
+  for (let i = 0; i < along.length; i++) { const j = Math.min(nb - 1, Math.floor((along[i] - lo) / w)); rs[j] += rad[i]; rn[j]++; }
+  const cum = new Float64Array(nb + 1);
+  for (let j = 0; j < nb; j++) {
+    let r = 0, c = 0;
+    for (let d = -2; d <= 2; d++) { const q = j + d; if (q >= 0 && q < nb) { r += rs[q]; c += rn[q]; } }
+    cum[j + 1] = cum[j] + (tiles / (2 * Math.PI * Math.max(r / Math.max(c, 1), 1e-6))) * w;
+  }
+  return (a) => { const f = Math.min(nb, Math.max(0, (a - lo) / w)), j = Math.min(nb - 1, Math.floor(f)); return cum[j] + (cum[j + 1] - cum[j]) * (f - j); };
+}
+
+// Bark coordinates on a tube round local `axis` ('x' or 'y'), from a three.js cylinder whose own u runs 0 … 1 round it:
+// u becomes a whole number of tiles round (the mean girth at `cmPer` cm per local unit), v the position along the axis.
+// Vertices from `capFrom` on are the end caps, laid flat across the axis.
+function tubeBarkUV(g, axis, cmPer, capFrom = Infinity) {
+  const pos = g.attributes.position, uvA = g.attributes.uv, n = pos.count, k = cmPer / BARK_TILE_CM;
+  const at = (i, c) => (c === 0 ? pos.getX(i) : c === 1 ? pos.getY(i) : pos.getZ(i));
+  const a = axis === 'x' ? 0 : 1, b = axis === 'x' ? 1 : 0, c = 2;
+  const m = Math.min(n, capFrom);
+  let cb = 0, cc = 0;
+  for (let i = 0; i < m; i++) { cb += at(i, b); cc += at(i, c); }
+  cb /= m; cc /= m;
+  let rs = 0;
+  for (let i = 0; i < m; i++) rs += Math.hypot(at(i, b) - cb, at(i, c) - cc);
+  // A thin trunk has its girth rounded to a whole number of tiles; v follows the rounded u, so the plates keep their shape and
+  // only the bark's scale moves off the nominal one.
+  const girth = 2 * Math.PI * (rs / m), tiles = Math.max(1, Math.round(girth * k)), kv = tiles / girth;
+  const al = [], rd = [];
+  for (let i = 0; i < m; i++) { al.push(at(i, a)); rd.push(Math.hypot(at(i, b) - cb, at(i, c) - cc)); }
+  const vAt = barkV(al, rd, tiles);
+  const out = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    if (i < capFrom) { out[i * 2] = uvA.getX(i) * tiles; out[i * 2 + 1] = vAt(at(i, a)); } else { out[i * 2] = (at(i, b) - cb) * kv; out[i * 2 + 1] = (at(i, c) - cc) * kv; }
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(out, 2));
+  return g;
+}
+
+// Bark coordinates for the scanned driftwood (long along local x; its own UVs are a photo atlas): u from the angle round a
+// smoothed centre line (the seam on the underside, where triangles that straddle it get their own copies of the vertices
+// on one side), v along x. Returns a new indexed geometry with plain attributes.
+export function logBarkUV(src, cmPer) {
+  const pos = src.attributes.position, n = pos.count, k = cmPer / BARK_TILE_CM;
+  src.computeBoundingBox();
+  const x0 = src.boundingBox.min.x, len = src.boundingBox.max.x - x0, slab = Math.max(len / 40, 1e-6), nb = Math.ceil(len / slab) + 1;
+  // Centre per slab: the middle of the slab's extent (a mean would lean toward where the scan has more vertices), smoothed
+  // over its neighbours (empty slabs borrow from them).
+  const y0 = new Float64Array(nb).fill(Infinity), y1 = new Float64Array(nb).fill(-Infinity), z0 = new Float64Array(nb).fill(Infinity), z1 = new Float64Array(nb).fill(-Infinity);
+  for (let i = 0; i < n; i++) {
+    const j = Math.min(nb - 1, Math.floor((pos.getX(i) - x0) / slab)), y = pos.getY(i), z = pos.getZ(i);
+    if (y < y0[j]) y0[j] = y; if (y > y1[j]) y1[j] = y; if (z < z0[j]) z0[j] = z; if (z > z1[j]) z1[j] = z;
+  }
+  const cy = new Float64Array(nb), cz = new Float64Array(nb);
+  for (let j = 0; j < nb; j++) {
+    let y = 0, z = 0, w = 0;
+    for (let d = -2; d <= 2; d++) { const q = j + d; if (q < 0 || q >= nb || y0[q] === Infinity) continue; const k2 = d === 0 ? 2 : 1; y += (y0[q] + y1[q]) / 2 * k2; z += (z0[q] + z1[q]) / 2 * k2; w += k2; }
+    cy[j] = w ? y / w : 0; cz[j] = w ? z / w : 0;
+  }
+  const centre = (x) => { const f = Math.min(nb - 1.001, Math.max(0, (x - x0) / slab - 0.5)), j = Math.floor(f), t = f - j; return [cy[j] + (cy[j + 1] - cy[j]) * t, cz[j] + (cz[j + 1] - cz[j]) * t]; };
+  const ang = new Float64Array(n), rd = new Float64Array(n), al = new Float64Array(n);
+  let rs = 0;
+  for (let i = 0; i < n; i++) { const [yc, zc] = centre(pos.getX(i)), dy = pos.getY(i) - yc, dz = pos.getZ(i) - zc; ang[i] = Math.atan2(dz, dy); rd[i] = Math.hypot(dy, dz); al[i] = pos.getX(i); rs += rd[i]; }
+  const tiles = Math.max(1, Math.round(2 * Math.PI * (rs / n) * k)), vAt = barkV(al, rd, tiles);   // (as tubeBarkUV)
+  // θ = 0 on top, ±π underneath: u runs 0 … tiles from the underside round over the top and back.
+  const u = Array.from(ang, (t) => (t / (2 * Math.PI) + 0.5) * tiles), v = Array.from(al, vAt);
+  const idx = Array.from(src.index ? src.index.array : Array.from({ length: n }, (_, i) => i));
+  const copy = new Map(), from = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const tri = [idx[t], idx[t + 1], idx[t + 2]], us = tri.map((i) => u[i]);
+    if (Math.max(...us) - Math.min(...us) <= tiles / 2) continue;
+    for (let e = 0; e < 3; e++) {
+      const i = tri[e];
+      if (u[i] >= tiles / 2) continue;
+      if (!copy.has(i)) { copy.set(i, u.length); from.push(i); u.push(u[i] + tiles); v.push(v[i]); }
+      idx[t + e] = copy.get(i);
+    }
+  }
+  const total = n + from.length, g = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(src.attributes)) {
+    if (name === 'uv') continue;
+    const s = attr.itemSize, out = new Float32Array(total * s);
+    const get = (i, c) => attr.getComponent(i, c);
+    for (let i = 0; i < total; i++) { const o = i < n ? i : from[i - n]; for (let c = 0; c < s; c++) out[i * s + c] = get(o, c); }
+    g.setAttribute(name, new THREE.BufferAttribute(out, s));
+  }
+  const uvs = new Float32Array(total * 2);
+  for (let i = 0; i < total; i++) { uvs[i * 2] = u[i]; uvs[i * 2 + 1] = v[i]; }
+  g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeBoundingBox(); g.computeBoundingSphere();
+  return g;
+}
+
 export class Decor {
   constructor(scene, world) {
     this.scene = scene;
@@ -361,6 +566,7 @@ export class Decor {
       return stoneMats.get(k);
     };
     const part = (geometry, make, name) => ({ geometry, make, name, mats: new Map(), get material() { return this.mats.get(0) ?? (this.mats.set(0, make(null)), this.mats.get(0)); } });
+    const rootBin = loadBinary('ground/root_cluster_01_bark.bin');
     for (const [type, def] of Object.entries(PIECES)) {
       if (def.procedural) continue;
       const list = [];
@@ -375,6 +581,11 @@ export class Decor {
           g.computeBoundsTree();
           list.push({ ...part(g, scanned(p.material, def.moss), p.name), src: p.material });
         }
+      }
+      // The root ball's strands in bark (rootBarkAttributes); its warped variants below copy the attributes and material.
+      if (type === 'roots' && list[0] && rootBarkAttributes(list[0].geometry, await rootBin)) {
+        const r = list[0], mats = new Map();
+        list[0] = { ...part(r.geometry, (tint) => { const k = tint ? tint.join() : ''; if (!mats.has(k)) mats.set(k, rootsMaterial(r.src, def.moss, tint)); return mats.get(k); }, r.name), src: r.src };
       }
       this.parts[type] = list;
     }
@@ -416,25 +627,29 @@ export class Decor {
       P.boulder.push(part(geometry, sm, 'boulderx' + i));
     });
 
-    // Stumps: a broad flared one, a slim tall one and a ragged broken one.
+    // Stumps: a broad flared one, a slim tall one and a ragged broken one, in bark (barkMaterial).
     const r4 = R(719);
-    const stumpSrc = P.stump[0];
+    const bark = (along, moss) => (tint) => barkMaterial(along, tint, moss);
+    const torso = (radial, height) => (radial + 1) * (height + 1);      // vertices of a three.js cylinder's side
     [{ flare: 0.7, rag: 0.12, taper: 0.05, h: 0.5 }, { flare: 0.3, rag: 0.1, taper: 0.2, h: 1.1 }, { flare: 0.5, rag: 0.4, taper: 0.1, h: 0.8 }].forEach((o, i) => {
       const geometry = stumpGeo(r4, o);
       geometry.scale(1, o.h, 1);
-      geometry.computeBoundingBox(); geometry.computeBoundingSphere(); geometry.computeBoundsTree();
+      geometry.computeBoundingBox();
       const bb = geometry.boundingBox;
       geometry.translate(0, -bb.min.y, 0);
-      geometry.computeBoundingBox(); geometry.computeBoundsTree();
-      P.stump.push({ ...part(geometry, stumpSrc.make, 'stumpx' + i), src: stumpSrc.src });
+      geometry.computeBoundingBox();
+      const s = geometry.boundingBox.getSize(new THREE.Vector3());
+      tubeBarkUV(geometry, 'y', PIECES.stump.size / Math.max(s.x, s.y, s.z), torso(64, 28));
+      geometry.computeBoundingSphere(); geometry.computeBoundsTree();
+      P.stump.push(part(geometry, bark('y', PIECES.stump.moss), 'stumpx' + i));
     });
 
-    // Cork bark tubes (bark material of the stump scan) and slate slabs (dark stone).
+    // Cork bark tubes and slate slabs (dark stone).
     const r6 = R(1201);
     P.cork = [{ arc: Math.PI }, { arc: Math.PI * 1.25, rad: 0.34 }, { arc: Math.PI * 0.85, rad: 0.27 }].map((o, i) => {
       const geometry = corkGeo(r6, o);
       geometry.computeBoundingSphere(); geometry.computeBoundsTree();
-      return { ...part(geometry, stumpSrc.make, 'cork' + i), src: stumpSrc.src };
+      return part(geometry, bark('x', PIECES.cork.moss), 'cork' + i);
     });
     const r7 = R(1301), slateTint = [0.55, 0.58, 0.62];
     P.slate = [0.07, 0.1, 0.06].map((thick, i) => {
@@ -443,7 +658,7 @@ export class Decor {
       return part(geometry, (tint) => sm(tint ?? slateTint), 'slate' + i);
     });
 
-    // Bamboo poles (upright, leaning, steep) and floating logs (bark of the stump scan).
+    // Bamboo poles (upright, leaning, steep) and floating logs (in bark).
     const r8 = R(1409), bambooMats = new Map();
     const bambooMat = (tint) => {
       const k = tint ? tint.join() : '';
@@ -456,9 +671,9 @@ export class Decor {
       return part(geometry, bambooMat, 'bamboopole' + i);
     });
     P.floatlog = [{ rad: 0.12 }, { rad: 0.1, bend: 0.06 }, { rad: 0.14, bend: -0.04 }].map((o, i) => {
-      const geometry = logGeo(r8, o);
+      const geometry = tubeBarkUV(logGeo(r8, o), 'x', PIECES.floatlog.size, torso(20, 16));
       geometry.computeBoundingSphere(); geometry.computeBoundsTree();
-      return { ...part(geometry, stumpSrc.make, 'floatlog' + i), src: stumpSrc.src };
+      return part(geometry, bark('x', PIECES.floatlog.moss), 'floatlog' + i);
     });
 
     const r9 = R(1511);
@@ -467,6 +682,15 @@ export class Decor {
       geometry.computeBoundingSphere(); geometry.computeBoundsTree();
       return part(geometry, (tint) => sm(tint ?? [0.72, 0.7, 0.66]), 'pebbles' + i);
     });
+
+    // The driftwood scan in bark: coordinates round its length (its photo atlas was smeared and 20 texels/cm).
+    const w0 = P.wood[0];
+    if (w0) {
+      const wb = w0.geometry.boundingBox, ext = Math.max(wb.max.x - wb.min.x, wb.max.y - wb.min.y, wb.max.z - wb.min.z);
+      const geometry = logBarkUV(w0.geometry, PIECES.wood.size / ext);
+      geometry.computeBoundsTree();
+      P.wood[0] = part(geometry, bark('x', PIECES.wood.moss), w0.name);
+    }
 
     // Scanned shapes bent, sheared and rippled into new silhouettes.
     const derive = (type, count, seed, fn) => {
@@ -503,7 +727,8 @@ export class Decor {
   }
 
   // Adds a piece at (x, z) sitting on the ground (or on whatever is there,
-  // so pieces stack). opt: variant, size, rot, tilt, scale [sx, sy, sz], y, sink,
+  // so pieces stack). opt: variant, size, rot, tilt, scale [sx, sy, sz], y, sink, rest (stacked on another piece: rests
+  // on its highest contact instead of being planted, see settle),
   // and for variety: seed (or vary: true) rolls variant, scale, flip, tint and yaw for whatever
   // is not given; flip, tint set those directly. Face pieces (cliffs) snap to a wall or slope
   // (opt.face = false stamps them like a boulder).
@@ -524,6 +749,8 @@ export class Decor {
     const tilt = opt.tilt ?? [0, 0];
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt[0], rot, tilt[1], 'YXZ'));
     const piece = this.placePiece(type, variant, new THREE.Vector3(x, 0, z), q, scale, tint);
+    // Given no tilt, a slab, tube, log or pebble patch lies along the slope under it (settle), until it is turned by hand.
+    if (def.slope && opt.tilt === undefined && opt.y === undefined) { piece.follow = true; piece.yaw = rot; }
     if (def.face && opt.face !== false) {
       piece.rot = rot;
       piece.snap = opt.snap;
@@ -532,9 +759,9 @@ export class Decor {
       return piece;
     }
     if (opt.y !== undefined) piece.mesh.position.y = opt.y;
-    else this.settle(piece, opt.sink ?? def.sink ?? 0.08);
+    else this.settle(piece, opt.sink ?? def.sink ?? 0.08, !!opt.rest);
     // Inside the glass, whatever the size, turn and scale; re-seat after a sideways move.
-    if (this.clampPiece(piece) && opt.y === undefined) { this.settle(piece, opt.sink ?? def.sink ?? 0.08); this.clampPiece(piece); }
+    if (this.clampPiece(piece) && opt.y === undefined) { this.settle(piece, opt.sink ?? def.sink ?? 0.08, !!opt.rest); this.clampPiece(piece); }
     this.restamp(piece);
     return piece;
   }
@@ -563,28 +790,104 @@ export class Decor {
     piece.mesh.material = this.partMaterial(part, piece.tint);
   }
 
-  // Sits the piece on the lowest ground under its footprint, sunk in a
-  // little, ignoring its own stamp.
-  settle(piece, sink = 0.08) {
-    const T = this.world.terrain;
+  // Sits the piece on the ground (ignoring its own stamp), from its real vertices: a `lie` piece rests on its lowest contact,
+  // sunk by `sink` of its thickness; anything else (and a lying piece stood on end) is planted, its whole base at or under the
+  // ground, sunk by `sink` of its height. The ground is the substrate with the other pieces' stamps, and the tops of the
+  // unstamped pieces (logs, roots, cork) under it, so a piece put on a log rests on it instead of sinking into it.
+  // `rest`: a piece stacked on another (a kit's bridge or stack, Shift+click in the editor) rests on its highest contact
+  // like a lying piece, sunk by `sink` of its thickness; planted, its base would sink to the lowest ground round the piece
+  // under it. (Before 2026-10-04 it took the lowest of five ground samples and the bounding box's bottom, which hangs below a
+  // tilted piece's real bottom: logs floated up to 6 cm; kits, the starter tank and the editor set a height of their own.)
+  settle(piece, sink = 0.08, rest = false) {
+    const T = this.world.terrain, def = PIECES[piece.type];
     const own = piece.stamp;
     if (own) { piece.stamp = null; T.compose(this.stamps()); }
     const m = piece.mesh;
     m.position.y = 0;
+    // (A log afloat lies level on the water, not along the bottom.)
+    const afloat = def.float && (this.world.water?.level ?? -Infinity) > T.heightAt(m.position.x, m.position.z) + 1;
+    if (piece.follow) this.followSlope(piece, afloat);
     m.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(m);
-    const cx = m.position.x, cz = m.position.z;
-    const fr = Math.min(box.max.x - box.min.x, box.max.z - box.min.z) * 0.35;
-    let g = Infinity;
-    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) g = Math.min(g, T.heightAt(cx + dx * fr, cz + dz * fr));
-    m.position.y = g - box.min.y - sink * (box.max.y - box.min.y);
+    const pts = this.hullWorld(piece);
+    const box = transformedBox(pts, IDENTITY);
+    const h = box.max[1] - box.min[1], wide = Math.max(box.max[0] - box.min[0], box.max[2] - box.min[2]);
+    const ground = this.groundFn(piece, box);
+    if (rest || (def.lie && h <= wide)) {
+      const bb = m.geometry.boundingBox, sc = m.scale;
+      const thick = Math.min((bb.max.x - bb.min.x) * Math.abs(sc.x), (bb.max.y - bb.min.y) * Math.abs(sc.y), (bb.max.z - bb.min.z) * Math.abs(sc.z));
+      // (A piece turned to the slope under it that is steeper than it may tilt digs its high end in: lieLift.)
+      m.position.y = (piece.follow && !rest ? lieLift(pts, ground, Math.max(1, 0.25 * h)) : restLift(pts, ground)) - sink * thick;
+    } else m.position.y = plantLift(pts, ground, Math.max(0.5, 0.05 * h)) - sink * h;
     // A floating log rides the water with about 45% of it under, unless the water there is too shallow to float it.
-    if (PIECES[piece.type].float) {
-      const lvl = this.world.water?.level ?? -Infinity, h = box.max.y - box.min.y, fy = lvl - box.min.y - 0.45 * h;
+    if (def.float) {
+      const lvl = this.world.water?.level ?? -Infinity, fy = lvl - box.min[1] - 0.45 * h;
       if (fy > m.position.y) m.position.y = fy;
     }
     m.updateMatrixWorld(true);
     if (own) piece.stamp = own;
+  }
+
+  // Turns a `follow` piece to the plane of the ground under its footprint (its own yaw kept, at most 0.6 rad of tilt). A piece
+  // turned by hand since (its rotation is not the one set here) keeps its rotation.
+  followSlope(piece, level = false) {
+    const m = piece.mesh;
+    if (piece.followQ && m.quaternion.angleTo(piece.followQ) > 1e-3) { piece.follow = false; return; }
+    const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, piece.yaw ?? 0);
+    m.quaternion.copy(yawQ);
+    piece.followQ = m.quaternion.clone();
+    if (level) return;
+    m.updateMatrixWorld(true);
+    const b = transformedBox(this.hullWorld(piece), IDENTITY), T = this.world.terrain, smp = [];
+    for (let i = 0; i <= 3; i++) for (let j = 0; j <= 3; j++) {
+      const x = b.min[0] + ((b.max[0] - b.min[0]) * i) / 3, z = b.min[2] + ((b.max[2] - b.min[2]) * j) / 3;
+      smp.push(x, T.heightAt(x, z), z);
+    }
+    const n = groundNormal(smp);
+    m.quaternion.setFromUnitVectors(UP, new THREE.Vector3(n[0], n[1], n[2])).multiply(yawQ);
+    piece.followQ = m.quaternion.clone();
+  }
+
+  // The piece's sparse hull points in world space, as it is placed now (see pieceBox).
+  hullWorld(piece) {
+    const m = piece.mesh;
+    m.updateMatrixWorld(true);
+    const p = this.hullOf(m.geometry), e = m.matrixWorld.elements, out = new Float32Array(p.length);
+    for (let i = 0; i < p.length; i += 3) {
+      const x = p[i], y = p[i + 1], z = p[i + 2];
+      out[i] = e[0] * x + e[4] * y + e[8] * z + e[12];
+      out[i + 1] = e[1] * x + e[5] * y + e[9] * z + e[13];
+      out[i + 2] = e[2] * x + e[6] * y + e[10] * z + e[14];
+    }
+    return out;
+  }
+
+  // What a piece settles on at (x, z): the substrate with the other pieces' stamps, or the top of an unstamped piece (wood,
+  // roots, cork, slate) whose box overlaps the footprint `box`. Ray hits are cached on a half-centimetre grid.
+  groundFn(piece, box) {
+    const T = this.world.terrain, under = [];
+    for (const q of this.pieces) {
+      if (q === piece || PIECES[q.type].stamp) continue;
+      const b = this.pieceBox(q);
+      if (b.max[0] < box.min[0] || b.min[0] > box.max[0] || b.max[2] < box.min[2] || b.min[2] > box.max[2]) continue;
+      under.push({ q, b });
+    }
+    if (!under.length) return (x, z) => T.heightAt(x, z);
+    const cache = new Map(), o = new THREE.Vector3(), down = new THREE.Vector3(0, -1, 0);
+    return (x, z) => {
+      const g = T.heightAt(x, z), key = Math.round(x * 2) * 100003 + Math.round(z * 2);
+      let top = cache.get(key);
+      if (top === undefined) {
+        top = -Infinity;
+        for (const { q, b } of under) {
+          if (x < b.min[0] || x > b.max[0] || z < b.min[2] || z > b.max[2]) continue;
+          this.ray.set(o.set(x, b.max[1] + 1, z), down);
+          const hit = this.ray.intersectObject(q.mesh, false)[0];
+          if (hit && hit.point.y > top) top = hit.point.y;
+        }
+        cache.set(key, top);
+      }
+      return Math.max(g, top);
+    };
   }
 
   // The water level changed: floating pieces rise or sink with it.
@@ -691,9 +994,14 @@ export class Decor {
   // The world-space box of the piece (its rotated, scaled, flipped mesh), from a sparse sample of
   // the vertices that is cached per geometry.
   pieceBox(piece) {
-    const m = piece.mesh, g = m.geometry;
+    const m = piece.mesh;
     m.updateMatrixWorld(true);
-    // Cached per geometry (not in userData: clone() copies that), and re-made if the geometry changed.
+    return transformedBox(this.hullOf(m.geometry), m.matrixWorld.elements);
+  }
+
+  // A sparse set of a geometry's vertices (placement.js hullPoints), cached per geometry (not in userData: clone() copies
+  // that) and re-made if the geometry changed.
+  hullOf(g) {
     const sig = g.boundingBox ? g.boundingBox.min.toArray().concat(g.boundingBox.max.toArray()).join() : '';
     let h = HULLS.get(g);
     if (!h || h.sig !== sig || h.n !== g.attributes.position.count) {
@@ -703,7 +1011,7 @@ export class Decor {
       h = { sig, n: a.count, pts: hullPoints(flat) };
       HULLS.set(g, h);
     }
-    return transformedBox(h.pts, m.matrixWorld.elements);
+    return h.pts;
   }
 
   // Keep the whole piece inside the glass (not just its centre) after it was dragged, scaled,

@@ -2,7 +2,7 @@
 // the face placement frame. Run with: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hullPoints, transformedBox, boxShift, boxInside, plantFit, nearestWall, faceQuat, faceOrigin, GLASS_MARGIN, FACE_EMBED, rollLook, TINTS } from '../src/sim/placement.js';
+import { hullPoints, transformedBox, boxShift, boxInside, plantFit, nearestWall, faceQuat, faceOrigin, GLASS_MARGIN, FACE_EMBED, rollLook, TINTS, restLift, lieLift, plantLift, groundNormal } from '../src/sim/placement.js';
 
 const TANKS = [{ w: 90, d: 45, h: 60 }, { w: 30, d: 30, h: 30 }, { w: 150, d: 60, h: 70 }];
 
@@ -144,4 +144,71 @@ test('rollLook is deterministic, covers every variant, and varies scale, flip an
   assert.ok(tints.size >= 5 && flips.size === 2);
   // a pool restricts the choice
   for (let s = 1; s < 50; s++) assert.ok([3, 5].includes(rollLook('boulder', s, 17, [3, 5]).variant));
+});
+
+// --- Sitting on the ground (decor.js settle) ---
+// A flat slab 10 x 10 cm, 1 cm thick, its bottom at y = 0, as points; and a log lying along x, radius 2, tilted up by `t`.
+const slab = () => { const a = []; for (let i = 0; i <= 10; i++) for (let j = 0; j <= 10; j++) a.push(i - 5, 0, j - 5, i - 5, 1, j - 5); return a; };
+function log(t) {
+  const a = [];
+  for (let i = 0; i <= 20; i++) for (let k = 0; k < 12; k++) {
+    const x = i - 10, th = (k / 12) * Math.PI * 2, y = 2 + 2 * Math.cos(th), z = 2 * Math.sin(th);
+    a.push(x * Math.cos(t) - y * Math.sin(t), x * Math.sin(t) + y * Math.cos(t), z);
+  }
+  return a;
+}
+const lowestGap = (pts, lift, ground) => { let g = Infinity; for (let i = 0; i < pts.length; i += 3) g = Math.min(g, pts[i + 1] + lift - ground(pts[i], pts[i + 2])); return g; };
+
+test('restLift: a piece rests on its lowest contact, nothing under the ground, on flat and sloped ground', () => {
+  for (const ground of [() => 3, (x) => 3 + 0.4 * x, (x, z) => 2 + 0.2 * x - 0.3 * z]) {
+    for (const pts of [slab(), log(0), log(0.6), log(-1.3)]) {
+      const up = restLift(pts, ground);
+      assert.ok(Math.abs(lowestGap(pts, up, ground)) < 1e-9, 'touches, no gap and no point under the ground');
+    }
+  }
+  // a tilted log on flat ground: its lowest end touches (the old way, the box of its middle, left a raised log hanging)
+  const pts = log(0.5), up = restLift(pts, () => 0);
+  let lo = Infinity; for (let i = 1; i < pts.length; i += 3) lo = Math.min(lo, pts[i]);
+  assert.ok(Math.abs(lo + up) < 1e-9);
+});
+
+test('plantLift: the whole base sits at or under the ground, so no edge hangs over a slope', () => {
+  const ground = (x) => 5 + 0.5 * x;                 // a steep slope rising toward +x
+  const pts = slab(), up = plantLift(pts, ground, 0.5);
+  for (let i = 0; i < pts.length; i += 3) if (pts[i + 1] <= 0.5) assert.ok(pts[i + 1] + up <= ground(pts[i]) + 1e-9, 'base point above the ground');
+  // the downhill edge just touches: the piece is not sunk deeper than it must be
+  assert.ok(Math.abs(up - ground(-5)) < 1e-9);
+  // on flat ground it sits exactly on it
+  assert.ok(Math.abs(plantLift(pts, () => 2, 0.5) - 2) < 1e-9);
+  // planted goes deeper than resting on a slope, resting never goes under the ground
+  assert.ok(plantLift(pts, ground) < restLift(pts, ground));
+});
+
+test('lieLift: on a bank steeper than the piece lies, its low end comes down to the ground; elsewhere it rests', () => {
+  // a slab tilted 0.6 rad up toward +x (as followSlope leaves it) on a 1.2 rad bank rising the same way: resting, it hangs on its high end
+  const t = 0.6, pts = slab().map((v, i, a) => (i % 3 === 0 ? v * Math.cos(t) - a[i + 1] * Math.sin(t) : i % 3 === 1 ? a[i - 1] * Math.sin(t) + v * Math.cos(t) : v));
+  const bank = (x) => 10 + Math.tan(1.2) * x, band = 1;
+  const rest = restLift(pts, bank), lie = lieLift(pts, bank, band);
+  let lo = Infinity; for (let i = 1; i < pts.length; i += 3) lo = Math.min(lo, pts[i]);
+  let near = Infinity;
+  for (let i = 0; i < pts.length; i += 3) if (pts[i + 1] <= lo + band) near = Math.min(near, pts[i + 1] + lie - bank(pts[i]));
+  assert.ok(lie < rest - 1, 'digs in instead of hanging');
+  assert.ok(near <= 0.25 + 1e-9, 'its low end reaches the ground');
+  // on flat ground, a gentle slope and for a tilted log it is just resting
+  for (const ground of [() => 3, (x) => 3 + 0.2 * x]) for (const p of [slab(), log(0.5)]) assert.ok(Math.abs(lieLift(p, ground, 1) - restLift(p, ground)) < 1e-9);
+});
+
+test('groundNormal fits the plane under a footprint and limits the tilt', () => {
+  const smp = (f) => { const a = []; for (let i = 0; i <= 3; i++) for (let j = 0; j <= 3; j++) { const x = i * 4 - 6, z = j * 4 - 6; a.push(x, f(x, z), z); } return a; };
+  assert.deepEqual(groundNormal(smp(() => 4)).map((v) => +v.toFixed(9)), [0, 1, 0]);
+  const n = groundNormal(smp((x, z) => 1 + 0.3 * x - 0.2 * z));
+  const want = [-0.3, 1, 0.2], l = Math.hypot(...want);
+  n.forEach((v, i) => assert.ok(Math.abs(v - want[i] / l) < 1e-9, `normal ${n}`));
+  // a cliff is clamped to the largest tilt
+  const c = groundNormal(smp((x) => 5 * x), 0.6);
+  assert.ok(Math.abs(Math.acos(c[1]) - 0.6) < 1e-9 && c[0] < 0 && Math.abs(c[2]) < 1e-9);
+  // noise around a plane averages out
+  let seed = 7; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32 - 0.5) * 0.2;
+  const m = groundNormal(smp((x) => 0.25 * x + rnd()));
+  assert.ok(Math.abs(Math.atan2(-m[0], m[1]) - Math.atan(0.25)) < 0.05);
 });

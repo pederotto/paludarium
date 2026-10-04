@@ -126,6 +126,18 @@ export const PLANTS = {
   fissidens: { name: 'Fissidens moss', price: 6, rank: 2 },
   rotala: { name: 'Rotala (stem plant)', price: 5, rank: 2 },
   monstera: { name: 'Monstera vine', price: 16, rank: 4 },
+  // flowering plants (sim/flowering.js)
+  tillandsia: { name: 'Air plant', price: 6, rank: 2 },
+  begonia: { name: 'Fern-leaf begonia', price: 7, rank: 2 },
+  sinningia: { name: 'Miniature sinningia', price: 8, rank: 2 },
+  columnea: { name: 'Goldfish vine', price: 9, rank: 3 },
+  neoregelia: { name: 'Mini neoregelia', price: 12, rank: 3 },
+  guzmania: { name: 'Guzmania', price: 15, rank: 3 },
+  pleurothallis: { name: 'Heart-leaf orchid', price: 16, rank: 4 },
+  masdevallia: { name: 'Masdevallia orchid', price: 20, rank: 4 },
+  lepanthes: { name: 'Lepanthes orchid', price: 26, rank: 5 },
+  dracula: { name: 'Dracula orchid', price: 30, rank: 5 },
+  cuthbertsonii: { name: 'Dendrobium cuthbertsonii', price: 34, rank: 6 },
 };
 
 // ---------------------------------------------------------------------------

@@ -85,6 +85,7 @@ export class Portraits {
     U.waterLevel.value = -1000;
     // This renderer has no MRT, so foliage materials (built while the main view had one) must not write to it.
     this.scene.traverse((o) => { if (o.material?.userData?.foliage && o.material.mrtNode) setFoliageMRT(o.material, false); });
+    await this.renderer.compileAsync?.(this.scene, this.cam);     // (a mesh made just now, e.g. a plant's flowers, is drawn too)
     this.renderer.render(this.scene, this.cam);
     await new Promise((r) => requestAnimationFrame(r));
     this.renderer.render(this.scene, this.cam);
@@ -123,6 +124,19 @@ export class Portraits {
     const s = p.scale * (0.3 + 0.7 * p.grown) * (sp.modelSize ?? 1);
     bb.min.multiplyScalar(s); bb.max.multiplyScalar(s);
     bb.translate(new THREE.Vector3(0, 300, 0));
+    // A flowering plant's heads stand above its leaves: frame them too.
+    if (sp.flower) {
+      this.plants.drawFlowers(id);
+      const fg = this.plants.flowerSrc[id];
+      if (fg) {
+        fg.computeBoundingSphere();
+        const R = fg.boundingSphere.center.length() + fg.boundingSphere.radius;
+        for (const h of this.plants.headsOf(p)) {
+          const c = h.local.clone().multiplyScalar(s).applyQuaternion(p._q).add(p.pos);
+          bb.expandByPoint(c.clone().addScalar(R * s * h.s)).expandByPoint(c.clone().addScalar(-R * s * h.s));
+        }
+      }
+    }
     void box;
     this.frame(bb, new THREE.Vector3(0.35, 0.28, 0.9).normalize(), 2.1);
     const url = await this.shot();

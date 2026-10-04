@@ -5,7 +5,7 @@
 //        [--night=1|0|sense]   the game clock: 23:00 with the lamp off, or noon; `sense`: noon in the picture, night to the animals (a salamander or gecko is only out at night)
 //        [--force=walk|hop|turn|tap|call|go]   (go: a salamander, newt, axolotl or gecko ends its pause and sets off)
 //        [--force=walk|hop|turn|tap|call]   a frog or toad on land is made to do that right after the warm-up (a walk or hop of
-//        about 4 cm ahead, a half turn on the spot, toe tapping at a fly in front of it, a calling bout), so a short sequence shows it
+//        about 4 cm ahead, a half turn on the spot (a salamander, newt or gecko: turns to a goal 6 cm behind it), toe tapping at a fly in front of it, a calling bout), so a short sequence shows it
 //
 // Opens the starter tank, takes every other animal out, puts ONE animal of each requested species where the scenario
 // wants it (the deepest part of the main pool for `swim`; open ground near the pool for `walk`), pauses the world and
@@ -28,6 +28,7 @@ const cols = +arg('cols', 4);
 const force = arg('force', '');
 const cool = arg('cool', '');         // a temperature (°C) the air is held at, e.g. 15 for a fire salamander (the starter tank is about 24)
 const night = arg('night', '');       // 1: the lamp is off and it is 23:00 (salamanders and geckos are out); 0: noon
+const open = arg('open', '') === '1';  // walk: the most open level ground instead of ground near the water
 fs.mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
@@ -39,7 +40,7 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
 page.on('pageerror', (e) => errors.push('pageerror: ' + String(e.message ?? e).slice(0, 300)));
-await page.goto(url, { waitUntil: 'load' });
+await page.goto(url, { waitUntil: 'load', timeout: 240000 });
 await page.waitForFunction(() => document.getElementById('loading')?.classList.contains('gone'), null, { timeout: 120000 }).catch(() => {});
 await page.getByRole('button', { name: /starter paludarium/i }).click({ force: true, timeout: 90000 });
 await page.waitForFunction(() => window.game?.world?.animals && !document.querySelector('#title, .title'), null, { timeout: 90000 }).catch(() => {});
@@ -48,7 +49,7 @@ await page.addStyleTag({ content: '#ui{display:none!important}' });
 
 for (const id of species) {
   // Set the scene: one animal, in the right place, world paused.
-  const setup = await page.evaluate(({ id, scenario, night, cool }) => {
+  const setup = await page.evaluate(({ id, scenario, night, cool, open }) => {
     const g = window.game, W = g.world, A = W.animals;
     g.setSpeed(0);
     for (const arr of Object.values(A.by)) for (const a of [...arr]) A.remove(a, 'removed');
@@ -82,6 +83,12 @@ for (const id of species) {
           if (W.water.surfaceAt(xx, zz, 0.2) > T.heightAt(xx, zz) + 0.3) { near = r; break; }
         }
         score = -Math.abs(near - 9) - Math.abs(x) * 0.02 + (z > -10 ? 2 : 0);
+        if (open) {       // --open=1: the most open level ground (a turn seen from above, clear of water, plants and pieces)
+          if (!A.okFor('land', x, z, 0.3, 1)) continue;
+          let room = 0;
+          for (let k = 0; k < 16; k++) { const xx = x + Math.cos(k / 16 * 6.283) * 5, zz = z + Math.sin(k / 16 * 6.283) * 5; room += A.okFor('land', xx, zz, 0.3, 1) && T.normalAt(xx, zz).y > 0.8 && Math.abs(T.heightAt(xx, zz) - gnd) < 1.5 ? 1 : 0; }
+          score = room - Math.abs(x) * 0.02 - Math.abs(z) * 0.02;
+        }
         if (!A.occ.count || true) { /* open ground preferred */ }
       }
       if (score > bs) { bs = score; best = { x, z, gnd, s }; }
@@ -89,7 +96,7 @@ for (const id of species) {
     if (!best) return { error: 'no spot' };
     const ctor = A.food.constructor && (A.pos0 ?? null);
     return { best, level: W.water.level };
-  }, { id, scenario, night, cool });
+  }, { id, scenario, night, cool, open });
   if (setup.error) { console.log(id, setup.error); continue; }
   const placed = await page.evaluate(({ id, scenario, best }) => {
     const g = window.game, W = g.world, A = W.animals;
@@ -136,6 +143,16 @@ for (const id of species) {
     a.order = null; a.chain = 0;
     if (force === 'walk') { a.plan = { type: 'walk', to: ahead(4), ang: a.yaw, water: false, v: 1 }; a.fs = 'walk'; a.walkT = 0; }
     else if (force === 'hop') { const to = ahead(4); to.y = window.game.world.terrain.heightAt(to.x, to.z); A.startHop(a, to, 1.4); }
+    else if (force === 'turn' && a.hm) {
+      // a salamander, newt or gecko: a goal 6 cm behind it, walked to with the game's own step (the mind is held off for this animal)
+      const goal = { x: a.pos.x - Math.sin(a.yaw) * 6, z: a.pos.z - Math.cos(a.yaw) * 6 }, orig = A.herp, T = window.game.world.terrain;
+      A.herp = function (b, s2, arr, dt) {
+        if (b !== a) return orig.call(this, b, s2, arr, dt);
+        b.hr ??= [0, 0, 0, 0]; b.hr.fill(0); b.wantMove = true; b.state = 'walk'; b.target = new V3(goal.x, 0, goal.z);
+        this.herpStep(b, s2, {}, goal, 2.0, dt, 'any', 99);
+        b.pos.y = T.heightAt(b.pos.x, b.pos.z); b.normal = T.normalAt(b.pos.x, b.pos.z);
+      };
+    }
     else if (force === 'turn') { a.faceTo = a.yaw + Math.PI; a.afterTurn = 'sit'; a.fs = 'turn'; }
     else if (force === 'tap') { a.fs = 'sit'; a.fsT = 99; a.tapT = 99; }
     else if (force === 'go' && a.hm) { a.hm.pauseLeft = 0; a.hm.moveLeft = 0; a.hm.goal = null; a.hm.mode = 'forage'; a.hm.modeT = 0; }       // a salamander or gecko sets off now

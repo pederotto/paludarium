@@ -141,15 +141,26 @@ export const ACTUATORS = {
 // suction is how many baby shrimp and fry its intake takes (a pre-filter sponge on the intake cuts it to almost nothing).
 // lph is the water its pump moves (litres an hour, clean), catch the share of the particles in that water the media keeps,
 // hold how much dirt (detritus units) it takes before it is clogged solid (sim.js).
+// The hardware (sim/filterflow.js turns it into the flow it really gives): pump is the filter pump's rating, lph moved against no
+// head and hmax the lift (cm) at which it moves nothing; hose the inner/outer diameter (mm) of the drain from the overflow down
+// to the filter (in) and of the return up to the tank (out), standard aquarium hose sizes; media the head (cm) the clean media
+// cost at the rated flow; stages the media in the order the water meets them: id, name, share of that head.
 export const FILTERS = {
-  sponge: { gear: 'filterSponge', name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, lph: 120, catch: 0.5, hold: 24, blurb: 'A sponge in an external box, a strainer on its intake: gentle, shrimp-safe, small capacity; needs a rinse every few weeks.' },
-  matten: { gear: 'filterMatten', name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, lph: 150, catch: 0.45, hold: 60, blurb: 'A wall of coarse foam with a pump behind it: no suction, a huge surface, almost no current; goes months between rinses.' },
-  canister: { gear: 'filterCanister', name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.' },
+  sponge: { gear: 'filterSponge', name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, lph: 120, catch: 0.5, hold: 24, blurb: 'A sponge in an external box, a strainer on its intake: gentle, shrimp-safe, small capacity; needs a rinse every few weeks.',
+    pump: { lph: 190, hmax: 145 }, hose: { in: [16, 22], out: [12, 16] }, media: 17,
+    stages: [['mech', 'Coarse sponge', 0.5], ['bio', 'Fine bio sponge', 0.35], ['chem', 'Carbon pad', 0.15]] },
+  matten: { gear: 'filterMatten', name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, lph: 150, catch: 0.45, hold: 60, blurb: 'A wall of coarse foam with a pump behind it: no suction, a huge surface, almost no current; goes months between rinses.',
+    pump: { lph: 150, hmax: 80 }, hose: { out: [12, 16] }, media: 7,
+    stages: [['mech', 'Coarse foam face', 0.6], ['bio', 'Foam core', 0.4]] },
+  canister: { gear: 'filterCanister', name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.',
+    pump: { lph: 560, hmax: 150 }, hose: { in: [19, 27], out: [16, 22] }, media: 22,
+    stages: [['mech', 'Coarse sponge', 0.3], ['bio', 'Ceramic rings', 0.2], ['chem', 'Fine floss and carbon', 0.5]] },
 };
 export const filterOf = (E) => FILTERS[E.filterKind] ?? FILTERS.sponge;
-// How clogged the filter is (0 clean … 1 solid) and how much of its rated flow it still passes (0 when it is off).
+// How clogged the filter is (0 clean … 1 solid) and how much of its rated flow it still passes (0 when it is off): the flow
+// sim/filterflow.js found for its pump, head and media (Env.filterFlow, every sim step), or a plain estimate before the first.
 export const filterClog = (E) => Math.max(0, Math.min(1, (E.filterDirt ?? 0) / filterOf(E).hold));
-export const filterEff = (E) => (E.filter ? 1 - 0.75 * filterClog(E) : 0);
+export const filterEff = (E) => (!E.filter ? 0 : E.filterFlow?.kind === (E.filterKind ?? 'sponge') ? Math.min(1.25, E.filterFlow.lph / filterOf(E).lph) : 1 - 0.75 * filterClog(E));
 
 // The water you fill and change with: it sets the hardness (GH, °dH) and pH the tank drifts back to.
 export const WATER_SOURCES = {

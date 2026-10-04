@@ -235,7 +235,11 @@ select option { background: #101614; }
 .coach .acts { display: flex; gap: 6px; }
 
 /* --- Modal sheets ----------------------------------------------------------------- */
-.scrim { position: absolute; inset: 0; background: rgba(2, 5, 4, 0.55); backdrop-filter: blur(3px); z-index: 20; display: grid; place-items: center; padding: calc(14px + var(--st)) 14px calc(14px + var(--sb)); }
+/* No backdrop blur over the live canvas: WebKit re-blurs the whole canvas layer on every frame it draws, more GPU work on a GPU
+   that may already be the limit (Safari on the Mac, WebGL 2: frames up to 1.2 s), and the Settings sheet is where that went black. */
+.scrim { position: absolute; inset: 0; background: rgba(2, 5, 4, 0.66); isolation: isolate; contain: layout paint; z-index: 26;   /* above the title screen (25), under toasts (30) */ display: grid; place-items: center; padding: calc(14px + var(--st)) 14px calc(14px + var(--sb)); }
+.scrim .glass { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.scrim .glass.strong { background: rgba(12, 17, 15, 0.95); }
 .sheet { width: min(1120px, 100%); height: min(720px, 100%); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-l); }
 .sheet-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .sheet-head h2 { margin: 0; font: 600 21px var(--serif); font-variation-settings: 'opsz' 96; flex: 1; }
