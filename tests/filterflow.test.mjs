@@ -87,8 +87,8 @@ import { GEAR, plenumBio } from '../src/content/equipment.js';
 import { MOUNTS } from '../src/sim/filterflow.js';
 import { PLENUM } from '../src/sim/plenum.js';
 
-const KINDS = ['sponge', 'matten', 'canister', 'hob', 'internal', 'bed'];
-const bedE = (o = {}) => ({ filter: true, filterKind: 'bed', filterDirt: 0, mediaBio: 0.5, drainage: 1, ...o });
+const KINDS = ['sponge', 'matten', 'canister', 'hobS', 'hobM', 'hobL', 'internalS', 'internalM', 'internalL', 'bedS', 'bedM', 'bedL'];
+const bedE = (o = {}) => ({ filter: true, filterKind: 'bedM', filterDirt: 0, mediaBio: 0.5, drainage: 1, ...o });
 
 test('B5c: every kind is a row with a gear item, a mount, real hose sizes and a finite lift, and filterFlow answers for that kind', () => {
   assert.deepEqual(Object.keys(FILTERS).sort(), [...KINDS].sort());
@@ -117,14 +117,14 @@ test('B5c: filterEff follows the flow the sim found, and clogging lowers it, for
 
 test('B5c: where each one stands decides its lift', () => {
   // hang-on-back: the pump lifts from the pool to the box on the rim, so deeper water is less lift, more flow
-  assert.ok(run('hob', 0, 40).lph > run('hob', 0, 12).lph * 1.05 && run('hob', 0, 40).head < run('hob', 0, 12).head);
-  assert.deepEqual(run('hob').hoses.map((h) => [h.role, h.dir]), [['uptake', 'up']]);   // a rigid tube down the glass, no return hose: a spillway
+  assert.ok(run('hobM', 0, 40).lph > run('hobM', 0, 12).lph * 1.05 && run('hobM', 0, 40).head < run('hobM', 0, 12).head);
+  assert.deepEqual(run('hobM').hoses.map((h) => [h.role, h.dir]), [['uptake', 'up']]);   // a rigid tube down the glass, no return hose: a spillway
   // internal: it stands in the pool, its outlet under the surface: the level does not matter
-  assert.ok(Math.abs(run('internal', 0, 40).lph - run('internal', 0, 12).lph) < 3);
-  assert.deepEqual(run('internal').hoses.map((h) => [h.role, h.dir]), [['outlet', 'up']]);
+  assert.ok(Math.abs(run('internalM', 0, 40).lph - run('internalM', 0, 12).lph) < 3);
+  assert.deepEqual(run('internalM').hoses.map((h) => [h.role, h.dir]), [['outlet', 'up']]);
   // bed: the pump stands in the tower and lifts from the plenum's line to a spout over the pool, a few cm
-  assert.ok(run('bed').lift > 0 && run('bed').lift < 6);
-  assert.deepEqual(run('bed').hoses.map((h) => [h.role, h.dir]), [['riser', 'up']]);
+  assert.ok(run('bedM').lift > 0 && run('bedM').lift < 6);
+  assert.deepEqual(run('bedM').hoses.map((h) => [h.role, h.dir]), [['riser', 'up']]);
 });
 
 test('B5c: the bed filter needs a false bottom with water over its intake', () => {
@@ -138,8 +138,8 @@ test('B5c: the bed filter needs a false bottom with water over its intake', () =
 test('B5c: a running bed filter is the false bottom\'s bio media, not a second set on top of it', () => {
   const E = { drainage: 1, filter: true, filterKind: 'sponge' };
   assert.ok(Math.abs(plenumBio(E) - 0.3) < 1e-9, 'a false bottom is a bed of bio-rings');
-  assert.equal(plenumBio({ ...E, filterKind: 'bed' }), 0, 'running as the filter, it counts through the filter row');
-  assert.ok(plenumBio({ ...E, filterKind: 'bed', filter: false }) > 0, 'switched off it is still a passive bed');
+  assert.equal(plenumBio({ ...E, filterKind: 'bedM' }), 0, 'running as the filter, it counts through the filter row');
+  assert.ok(plenumBio({ ...E, filterKind: 'bedM', filter: false }) > 0, 'switched off it is still a passive bed');
   assert.equal(plenumBio({ drainage: 0 }), 0);
 });
 
@@ -155,7 +155,7 @@ test('B5c: the bed filter\'s pump holds the plenum under the pool\'s line, and t
         hydro: { pump: { on: false, running: false, lph: 0 }, volumeAt: (h) => 900 * h, solveLevel() { W.water.level = poolL / 0.9; },
           exchange(mL) { poolL += mL / 1000; return mL; } } },
     };
-    const E = { drainage: 1, plenumH: 12.5, filter: bed, filterKind: bed ? 'bed' : 'sponge', filterLph: bed ? 300 : 0, rain: 0, mist: 0, soil: 0.4 };
+    const E = { drainage: 1, plenumH: 12.5, filter: bed, filterKind: bed ? 'bedM' : 'sponge', filterLph: bed ? 300 : 0, rain: 0, mist: 0, soil: 0.4 };
     stepPlenum(W, E, 10);
     const total0 = poolL + E.plenumL;
     let expect = 0;
@@ -164,4 +164,19 @@ test('B5c: the bed filter\'s pump holds the plenum under the pool\'s line, and t
     if (bed) assert.ok(E.plenumLevel < W.water.level - 2 && E.plenumLevel > PLENUM.intake, `the pump (5 L/min, ${PLENUM.gap} L/min per cm) holds it about 2.5 cm under the pool: ${E.plenumLevel} vs ${W.water.level}`);
     else assert.ok(E.plenumLevel > W.water.level - 0.5, 'without the pump it settles at the pool\'s line');
   }
+});
+
+test('B5c: three sizes of each new family: more pump, more power, more money; plain names; the tower pumps as on the maker sheet', () => {
+  for (const fam of ['hob', 'internal', 'bed']) {
+    const rows = ['S', 'M', 'L'].map((z) => FILTERS[fam + z]);
+    assert.ok(rows.every((F) => F.mount === rows[0].mount && /^[A-Z][A-Za-z-]+( [A-Za-z-]+)+$/.test(F.name) && !/\d/.test(F.name)), fam + ': plain names, no model codes');
+    assert.equal(new Set(rows.map((F) => F.name)).size, 3);
+    for (let i = 1; i < 3; i++) {
+      assert.ok(rows[i].pump.lph > rows[i - 1].pump.lph && rows[i].lph > rows[i - 1].lph && rows[i].watts >= rows[i - 1].watts, `${fam}: size ${i} moves more`);
+      assert.ok(GEAR[rows[i].gear].price > GEAR[rows[i - 1].gear].price, `${fam}: and costs more`);
+    }
+    if (fam !== 'bed') assert.ok(rows.every((F) => F.tank?.[0] > 0), fam + ': rated tank volume');
+  }
+  assert.deepEqual(['bedS', 'bedM', 'bedL'].map((k) => [FILTERS[k].pump.lph, FILTERS[k].pump.hmax, FILTERS[k].watts]), [[300, 60, 7], [600, 100, 7], [1000, 140, 15]]);
+  assert.deepEqual(['bedS', 'bedM', 'bedL'].map((k) => FILTERS[k].hose.out), [[12, 16], [12, 16], [16, 22]]);
 });

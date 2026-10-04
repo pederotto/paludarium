@@ -167,7 +167,7 @@ export function CarePanel() {
                 <div key={id} class={'tile' + (owned ? '' : ' lock')}>
                   <h4>{F.name}</h4><p>{F.blurb}</p>
                   <div class="foot"><span class="price">{owned ? '' : `¤${GEAR[F.gear].price}`}</span>
-                    {owned ? <button disabled={id === 'bed' && !(E.drainage >= 1)} title={id === 'bed' && !(E.drainage >= 1) ? 'Needs a false bottom (Foundation)' : undefined} class={'btn sm' + (E.filterKind === id ? ' primary' : '')} onClick={() => { E.filterKind = id; E.mediaBio = Math.min(E.mediaBio, F.mediaMax); refresh(); }}>{E.filterKind === id ? 'In use' : 'Use'}</button> : <button class="btn sm" onClick={() => openModal('studio', 'shop')}>Shop</button>}</div>
+                    {owned ? <button disabled={F.mount === 'bed' && !(E.drainage >= 1)} title={F.mount === 'bed' && !(E.drainage >= 1) ? 'Needs a false bottom (Foundation)' : undefined} class={'btn sm' + (E.filterKind === id ? ' primary' : '')} onClick={() => { E.filterKind = id; E.mediaBio = Math.min(E.mediaBio, F.mediaMax); refresh(); }}>{E.filterKind === id ? 'In use' : 'Use'}</button> : <button class="btn sm" onClick={() => openModal('studio', 'shop')}>Shop</button>}</div>
                 </div>
               );
             })}

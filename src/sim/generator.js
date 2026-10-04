@@ -14,6 +14,7 @@
 // lives there is comfortable.
 
 import * as THREE from 'three/webgpu';
+import { FILTERS as FILTER_KINDS } from '../content/equipment.js';
 import { TANK, MAT, NMAT } from './tank.js';
 import { PLANTS } from './plants.js';
 import { SPECIES } from './animals.js';
@@ -375,7 +376,7 @@ class Gen {
   env(o = {}, gear = []) {
     const E = this.W.env;
     E.matureTank();
-    for (const [g, k] of [['filterCanister', 'canister'], ['filterHob', 'hob'], ['filterInternal', 'internal'], ['filterBed', 'bed']]) if (gear.includes(g)) E.filterKind = k;
+    for (const [k, F] of Object.entries(FILTER_KINDS)) if (k !== 'sponge' && k !== 'matten' && gear.includes(F.gear)) E.filterKind = k;
     Object.assign(E, o);
     for (const g of gear) this.gear.add(g);
   }
