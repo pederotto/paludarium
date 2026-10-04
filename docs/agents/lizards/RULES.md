@@ -40,5 +40,6 @@ Read this once at the start. The full brief is `BRIEF.md` in this folder (read s
 ## Reporting
 
 - Proposal: `BB/reports/<task>.proposal.md`, 15 lines at most. Report: `BB/reports/<task>.md`, 25 lines at most: result, files and lines changed, check command with three lines of output, open risks, noticed-not-touched.
+- An unrelated follow-up task may go to a fresh agent (small context). Your proposal or report is therefore also a hand-off: end it with a "Hand-off" section, 8 lines at most, giving the file:line pointers, commands and traps the next agent needs so it does not have to rediscover them. If you are that next agent: start from the hand-off, do not re-explore.
 - Reply to your parent in 8 lines at most: status plus the path of what you wrote.
 - Say "not found" or "not verified" plainly. A guess must be labelled as a guess.

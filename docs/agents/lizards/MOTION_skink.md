@@ -45,3 +45,13 @@ Not shown: a slow forage walk, a clean turn, soaking, basking, feeding, playing 
 1. `r1-skink-pose-crops.jpg` (stance, forelimb angles, head size and orange ring, keels, tail carriage)  2. `r1-skink-timeline-0-5s.jpg` (alert stand, head scan over 5 s)
 3. `r1-skink-dash-6.2-7.3s.jpg` (dash, low trunk, tail)  4. `r1-overview-4videos.jpg` row 4 (context, 8.5 s stance)
 Earlier sheets I did not open: `rec4.jpg`, `skink-dense.jpg`. No skink skeleton picture exists in `AG/refs` (gecko drawings only: `r1-skeletons-crested-tokay.jpg`).
+
+## Published gait numbers
+- Sources: only Autumn et al. 2006 (a gecko, Hemidactylus garnotii, 5.2 cm SVL, climbing a vertical wall at 31 C) could be read. Kim and Shin (lizard trot, motion capture) and the ResearchGate figure gave 403 to WebFetch and were not bypassed. No published ground-lizard walking numbers were obtained for the skink.
+- Applies to a ground lizard: trot pairing. Diagonal pairs alternate; diagonal limbs in phase 0.93+-0.06, same-side fore/hind antiphase 0.45+-0.05 of the cycle. The paper cites level-running lizards (Ritter 1996 Sceloporus; Reilly and Blob 2003) as the same trot, not read. Figure URL title (Kim and Shin): legs 1 and 4 up, 2 and 3 down = diagonal trot.
+- Trunk: on the wall the S-bend flips with each diagonal pair (convex right when LH+RF land, convex left for the other pair). Expect the same flip per step on the ground (guess); degrees not published in the text read.
+- Speed strategy: the paper cites a ground gecko (leopard gecko, Zaaf et al. 2001, not read) raising speed mainly by stride length, wall climbers by stride frequency. Guess for the skink: lengthen the stride first, then raise Hz.
+- Not transferable as is: duty 0.5, 12.5 Hz and 0.45-1.2 SVL strides were measured at 5.6-15 SVL/s, a wall dash. The sheet's skink speed is 1-2 SVL/s, below that range.
+- Scale (9 cm vs 5.2 cm, ratio 1.73, time by sqrt = 1.32 longer): an equal-Froude dash runs about 9.5 Hz, stance about 55 ms; stride 0.45-1.2 SVL = 4-11 cm if the 9 cm is SVL (smaller if it is total length). At 1-2 SVL/s with a mid stride of 0.8 SVL: about 1.3-2.5 Hz (arithmetic, labelled guess).
+- Replaces E lines of this sheet: none outright. Line 26 (speed) and line 30 (trunk wave +-15-20 deg guess) stay E. Anchors only the footfall order and phase, and the S-bend timing.
+- Still open: the Kim and Shin text (duty, Hz, bend degrees, joint ranges for a trotting lizard) would replace these guesses; the user can paste its abstract or table.

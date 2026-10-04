@@ -1,6 +1,6 @@
-# BOARD (lizard run). Status 2026-10-04: Round 1 done. Wave 1 (Z0, G1, C1, B5b) AUTHORIZED by the user ("be more strict with scouts and tokens"); later waves not yet. Budgets: S 80k, M 200k, L 400k tokens.
+# BOARD (lizard run). Status 2026-10-04: Round 1 done. ALL WAVES AUTHORIZED by the user (strict on tokens: caps in prompts, watchdog on tool calls). Budgets: S 80k, M 200k, L 400k tokens.
 
-Tree: one shared worktree `AG/wt-lizards` (= REPO), branch `feat/lizards` from 916eb5a. Dev server for browser checks: http://127.0.0.1:4630/ (the lead runs it). Wave 1 is managed by the lead directly (no pod managers); one checker cross-checks the wave.
+Tree: one shared worktree `AG/wt-lizards` (= REPO), branch `feat/lizards` from 916eb5a. Dev server for browser checks: http://127.0.0.1:4630/ (the lead runs it). The lead manages builders directly (no pod managers); one checker (opus), resumed per batch, cross-checks finished tasks and does the final QA. Only one builder at a time implements in animals.js (the lead schedules; the lock is the safety net): build the logic in its own module first, take the lock for the call-site hunk last. If a lock is taken: do not poll, finish the rest, reply "waiting for lock".
 Locks: a file named in more than one row is edited only while holding `BB/locks/<file>.lock` (`mkdir` to take, write your task id inside, `rmdir` after your commit). Applies to animals.js, herp.js, bodyplan.js, controller.js, generator.js, plumbing.js.
 In flight: at most 2 builders per pod. `+` = new file. `[L]` = needs the lock. Check commands are proposals until the builder's analysis step writes the failing check.
 
@@ -57,3 +57,15 @@ Projected: Round 2 about 5.8M tokens (pod A 2.06M, pod B 3.56M, QA 0.2M) + Round
 | cpd | Shan-plateau spring pond, cool, dense weed | nano | 100 % | matten |
 | blueshrimp | mossy mountain pool | cube | 100 % | sponge |
 Spare: cory (clearwater sandbank, wide, canister).
+
+## User decisions (2026-10-04)
+1. Models: `sample_…213641.596.glb` = gecko (confirmed by the user), `…213008.005.glb` = skink.
+2. Baking allowed; gecko tail straightened; proportions as modelled. Gecko at its real size: snout-to-vent 4.4 cm (total about 6.5 cm with the modelled tail), not 9.5 cm.
+3. Frog files: the 3-line lizard hook in `src/render/creatures/skeleton.js` is approved, and the bone cap goes from 21 to 25 (toe-fan bones). Lizards get muscles the way the frogs have them (same runtime mechanism). Frog tests must stay green; tell the water session before the edit.
+4. B5c = three filter types: the false-bottom bed with its tower pump, a hang-on-back, an internal filter. Pump-driven, no air. Budget M -> L.
+5. B5d = all three: a real body of water in the X-ray and bottom views, a simulated level for LECA layers, groundwater in tanks with no false bottom. Budget M -> L.
+6. Gait numbers: row R2-GAIT (scout, sonnet, S) reads the user's three sources and appends "Published gait numbers" to MOTION_*.md.
+7. CREDITS: the source of the user's models is always "Peder Winterniz".
+8. Strict tokens: caps in prompts plus a watchdog on tool calls; wave 1 only is authorized.
+9. Agent ceiling raised by the user from 15 to 30 in total ("go past 15, go to 30"). Rule: a fresh agent per unrelated task (small context), resume only where the context is needed (gecko and skink builders across their stages); never more than 5 in flight.
+10. (withdrawn by the user the same minute: "ignore the last command") Rule 9 stands: fresh agent per unrelated task, resume where the context is needed.
