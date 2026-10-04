@@ -497,7 +497,7 @@ export class Plumbing {
           under(f.x, f.z, V(x - 4.5, vy + 1.6, z), hi);
           under(f.rx, f.rz, V(x + 4.5, vy + 1.6, z), ho);
         }
-      } else if (kind === 'hob') {
+      } else if (filterOf(E).mount === 'rim') {
         // Hung on the back glass: the box stands outside the rim (open top, the media seen in the order the water meets them), a plate
         // carries its lip over the rim, and the water falls from the lip into the pool. The rigid uptake tube goes down the inside of
         // the glass (along the background) to a strainer near the floor, with a foam sleeve on it when there is a pre-filter.
@@ -526,7 +526,7 @@ export class Plumbing {
           W.water.hydro.ports.intake = { x: tx, y: yt, z: zt, r: E.prefilter ? 2.8 : 2.2 };
           W.water.hydro.ports.ret = { x, y: level, z: zp, dx: 0, dz: 1, D: 1.6 };
         }
-      } else if (kind === 'internal') {
+      } else if (filterOf(E).mount === 'internal') {
         // The submersible: pump housing and foam cartridge in one body on the pool floor in a back corner, the foam face (the mulm browns it)
         // turned to the pool, the outlet pipe up its side to a nozzle under the surface that jets along the face.
         const c = spot(corners);
@@ -563,7 +563,7 @@ export class Plumbing {
           const a = (k / 12) * Math.PI * 2;
           S.geo(new THREE.BoxGeometry(0.22, Math.max(0.5, ph - 1), 0.14), new THREE.Matrix4().compose(V(x + Math.cos(a) * 2.13, (ph - 1) / 2 + 0.3, z + Math.sin(a) * 2.13), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT);
         }
-        if (E.filter && E.filterKind === 'bed' && hoseOf.riser) {
+        if (E.filter && filterOf(E).mount === 'bed' && hoseOf.riser) {
           // The bed filter's pump: a submersible on the plenum floor in the tower (it draws through the slots), its riser up the tower and
           // over the land to a spout over the nearest water of the pool, jetting into it.
           const h = hoseOf.riser;
