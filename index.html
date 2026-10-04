@@ -15,7 +15,14 @@
 <meta name="description" content="Build, grow and study living terrariums and paludariums in your browser. three.js + WebGPU.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%232f8a57'/%3E%3Cpath d='M16 6s7 7 7 12a7 7 0 0 1-14 0c0-5 7-12 7-12z' fill='%23b9f0c9'/%3E%3C/svg%3E">
 <style>html,body{margin:0;height:100%;height:100dvh;overflow:hidden;background:#060908;color:#e8f0ea;font:14px system-ui,sans-serif}
-#loading{position:fixed;inset:0;height:100dvh;display:grid;place-items:center;background:#060908;z-index:100;color:#92a89a;transition:opacity .4s}#loading.gone{opacity:0;pointer-events:none}</style>
+#loading{position:fixed;inset:0;height:100dvh;display:grid;place-items:center;background:#060908;z-index:100;color:#92a89a;transition:opacity .4s}#loading.gone{opacity:0;pointer-events:none}
+.veil-card{width:min(520px,calc(100vw - 32px));display:grid;gap:18px;text-align:center}
+.veil-title{font:600 30px/1.1 'Fraunces Variable',Georgia,serif;color:#dfeee4;letter-spacing:.01em}
+.veil-bar{height:2px;background:#16221c;overflow:hidden;border-radius:2px}.veil-bar i{display:block;height:100%;width:35%;background:#5fbf86;animation:vbar 1.6s ease-in-out infinite;will-change:transform}
+.veil-tip{min-height:5.6em;display:grid;align-content:start;gap:8px;font:16px/1.5 'Inter Variable',system-ui,sans-serif;color:#c9d8ce;animation:vtip .6s ease both;will-change:opacity}
+.veil-kicker{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6f9c80}
+.veil-line{font:12px/1.4 'Inter Variable',system-ui,sans-serif;color:#6f8578;font-variant-numeric:tabular-nums}
+@keyframes vbar{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}@keyframes vtip{0%{opacity:0}100%{opacity:1}}</style>
 </head>
 <body>
 <div id="view"></div>

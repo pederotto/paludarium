@@ -13,7 +13,8 @@
 //            foreleg reaches its hand, laid down as it rests and yawed with the turn, by two-bone IK (the elbow bends, no shear).
 //   hop      the hind legs extend: the foot pitches back about the heel and the toe's target goes out behind the hip along the
 //            line of the jump, to `reach` of the leg's whole length when fully extended (the rig's hop only slid the foot back).
-//   swim     the rig's swim-pose offsets of the hand and foot (forelegs back along the flanks, the kick's splay), by the same IK.
+//   swim     the rig's swim-pose offsets of the hand and foot (forelegs out to the sides, the kick's splay), by the same IK;
+//            the kick extends the hind legs like a hop but along the trunk's line (swimExt), so they trail behind the level body.
 //   limits   the knee / elbow and the heel / wrist are kept inside the plan's joint ranges; a target past them is not reached.
 //   muscles  the plan's muscle bellies swell (or thin) with their joint's flexion against the rest pose: a radial scale of the bone
 //            about its axis, so it costs nothing in the shader.
@@ -85,6 +86,9 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
   const head = B.map((b) => b.head), tail = B.map((b) => b.tail);
   const dir = B.map((b) => norm(sub(b.tail, b.head))), L = B.map((b) => len(sub(b.tail, b.head)));
   const parent = B.map((b) => (b.parent != null ? byName[b.parent] ?? -1 : -1));
+  // The trunk's line as baked (pelvis to head): a scanned frog sits nose up, so "behind the body" is down and back in the model.
+  const tf = byName.pelvis != null && byName.head != null ? norm(sub(head[byName.head], head[byName.pelvis])) : [0, 0, 1];
+  const ventral = norm([0, -tf[2], tf[1]]);
   const chains = [];
   for (const [s, fore, hind] of [['L', 1, 3], ['R', 2, 4]]) {
     const H = ['thigh', 'shin', 'foot', 'toes'].map((k) => byName[k + s]), F = ['arm', 'forearm', 'hand'].map((k) => byName[k + s]);
@@ -99,7 +103,9 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
       const nk = norm(cross(sub(K, A), sub(E, K))), nh = norm(cross(sub(E, K), sub(T, E)));
       chains.push({ limb: limbId, hind: limbId >= 3, side: s === 'L' ? -1 : 1, u, w, ends, A, K, E, T, ab, pole, nrm0: norm(cross(ab, pole)),
         n0, dAE0: norm(sub(E, A)), dET0: norm(sub(T, E)), dh: len(sub(E, A)), Lf: len(sub(T, E)), nk, nh, reach0: len(sub(T, A)), out: norm([T[0] - A[0], 0, T[2] - A[2]]),
-        Lu: L[u], Lw: L[w], Ltot: L[u] + L[w] + ends.reduce((t, e) => t + L[e], 0), ext: norm([s === 'L' ? -0.3 : 0.3, 0.1, -1]) });
+        Lu: L[u], Lw: L[w], Ltot: L[u] + L[w] + ends.reduce((t, e) => t + L[e], 0), ext: norm([s === 'L' ? -0.3 : 0.3, 0.1, -1]),
+        // swimming, the legs trail straight back along the trunk, a little under it and open in a V (the user's swimming photo)
+        swimExt: norm(addv(addv(mul(tf, -1), mul(ventral, 0.12)), [s === 'L' ? -0.42 : 0.42, 0, 0])) });
     }
   }
   // muscles: a belly on `bone` swells with the flexion of `joint` (the bend of that bone against its parent) against the rest pose
@@ -117,7 +123,7 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
       muscles.push({ b, j, lim, flex0, k });
     }
   }
-  return { n, B, byName, head, tail, dir, L, parent, chains, muscles, plan, legLift, legStride, limb, turn, reach,
+  return { n, B, byName, head, tail, dir, L, parent, chains, muscles, plan, legLift, legStride, limb, turn, reach, ventral,
     limits: B.map((b) => plan.joints[b.name.replace(/[LR]$/, '')] ?? null) };
 }
 
@@ -135,7 +141,7 @@ export function footOffset(rig, limbId, side, phase, tau, calm, hop, pose) {
     const kick = hop * (1 - hop) * 4 * 0.55 * lm - hop * hop * 0.35 * lm;
     ps[0] += side * kick * pose;
   } else {
-    ps[2] -= 0.9 * lm * pose; ps[1] += 0.5 * lm * pose; ps[0] -= side * 0.45 * lm * pose;
+    ps[2] -= 0.25 * lm * pose; ps[1] += 0.6 * lm * pose; ps[0] += side * 1.4 * lm * pose;   // (held out to the side, a little forward: swimming and floating frogs in the user's photos; the vertex rig's numbers)
   }
   return { off: addv(gait, ps), gait, pose: ps, yaw, lift: sl * go, go };
 }
@@ -159,6 +165,9 @@ export function poseBones(rig, st, out, o = 0, info = null) {
     // (walking, a hind foot is set down a stride's sweep further out from the hip than it sits: the sitting frog's leg is folded as far
     // as it goes, so the foot could not come back along the body toward the hip without the knee folding past its range)
     if (c.hind) Tg = addv(Tg, mul(c.out, rig.legStride * f.go));
+    // (in the water a frog draws its legs up beside its flanks, not under its belly as it sits: the foot comes up toward the hip's
+    // level, along the trunk's ventral line, so a folded leg in the stroke's recovery does not read as a frog sitting in the water)
+    if (c.hind && pose > 0) { const dv = dot(sub(Tg, A), rig.ventral); if (dv > 0) Tg = addv(Tg, mul(rig.ventral, -dv * 0.8 * pose)); }
     if (f.yaw) { const x = Tg[0], z = Tg[2] - pz, cy = Math.cos(f.yaw), sy = Math.sin(f.yaw); Tg = [x * cy + z * sy, Tg[1], -x * sy + z * cy + pz]; }
     let K1, E1, Rf;
     if (c.hind) {
@@ -182,7 +191,9 @@ export function poseBones(rig, st, out, o = 0, info = null) {
     // swinging back about the heel until it trails behind the leg); knee and elbow by two-bone IK toward where they were.
     const ext = c.hind ? hop : 0;
     let Rend = ext > 0 ? mm(Rf, rotX(ext * 2.6)) : Rf;
-    const T2 = ext > 0 ? addv(mul(Tg, 1 - ext), mul(addv(A, mul(c.ext, c.Ltot * rig.reach)), ext)) : Tg;
+    // (in the water the line is the trunk's, not the jump's: the body is laid level, so the jump's line would lift the legs out of it)
+    const xd = c.hind && pose > 0 ? norm(addv(mul(c.ext, 1 - pose), mul(c.swimExt, pose))) : c.ext;
+    const T2 = ext > 0 ? addv(mul(Tg, 1 - ext), mul(addv(A, mul(xd, c.Ltot * rig.reach)), ext)) : Tg;
     const s2 = ik2(A, sub(T2, mv(Rend, legT0)), c.Lu, c.Lw, sub(K1, A));
     const K = s2.K;
     let E = s2.E, dU = norm(sub(K, A)), dW = norm(sub(E, K));

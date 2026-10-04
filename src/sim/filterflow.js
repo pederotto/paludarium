@@ -11,6 +11,9 @@
 
 import { FILTERS } from '../content/equipment.js';
 import { pumpCurve } from './hydro.js';
+import { TANK } from './tank.js';
+
+const TW = () => TANK.w / 2, TD = () => TANK.d / 2;
 
 export const CABINET_DROP = 70.8;                      // cm from the glass floor down to the cabinet floor (engine/stage.js)
 export const FILTER_TOP = { sponge: 15, canister: 30 };    // cm: the water in the filter over the cabinet floor (render/plumbing.js)
@@ -73,4 +76,62 @@ export function filterFlow(E, level, drop = CABINET_DROP) {
     ? [hose('intake', F.hose.in, drop + 15, 'down'), hose('return', F.hose.out, retLen, 'up')]
     : [hose('riser', F.hose.out, retLen, 'up')];
   return { kind, on: !!E.filter, lph, rated: F.lph, eff: lph / F.lph, head: head(lph), lift, clog, stages, hoses };
+}
+
+// The filter's pull and push in the pool. render/plumbing.js puts the overflow and the return where the keeper sees them and
+// records them in hydro.ports ({ lph, intake: { x, y, z, r }, ret: { x, y, z, dx, dz, D } }). The overflow's slotted crown is
+// a sink at the surface: the water converges on it through a hemisphere, v = Q / 2πr², capped at the speed through its slots
+// (half open, a centimetre tall). The return's nozzle is a round turbulent jet: u0 = Q / (πD²/4) along its core (6.2 bores),
+// then 6.2 u0 D / x on the axis, Gaussian across with a half-width of 0.1 x (Pope, Turbulent Flows, ch. 5). cm/s into `out`.
+export function poolCurrent(H, x, y, z, out = { x: 0, y: 0, z: 0 }) {
+  out.x = out.y = out.z = 0;
+  const P = H?.ports, q = (P?.lph ?? 0) / 3.6;
+  if (!(q > 0)) return out;
+  const i = P.intake;
+  if (i) {
+    const dx = i.x - x, dy = i.y - y, dz = i.z - z, d = Math.hypot(dx, dy, dz), r = Math.max(i.r, d);
+    const v = Math.min(q / (2 * Math.PI * r * r), q / (Math.PI * i.r)) / Math.max(d, 1e-3);
+    out.x += dx * v; out.y += dy * v; out.z += dz * v;
+  }
+  const j = P.ret;
+  if (j) {
+    const rx = x - j.x, ry = y - j.y, rz = z - j.z, ax = rx * j.dx + rz * j.dz;
+    if (ax > 0) {
+      const u0 = q / (Math.PI * j.D * j.D / 4), core = 6.2 * j.D, b = 0.1 * Math.max(ax, core);
+      const u = (ax < core ? u0 : u0 * core / ax) * Math.exp(-0.693 * Math.max(0, rx * rx + ry * ry + rz * rz - ax * ax) / (b * b));
+      out.x += j.dx * u; out.z += j.dz * u;
+    }
+  }
+  return out;
+}
+
+// Flakes and pellets still in the water drift on the filter's current; the ones that reach the overflow's crown are sucked in.
+const C = { x: 0, y: 0, z: 0 };
+export function filterDrift(W, food, dt) {
+  const H = W.water?.hydro, i = H?.ports?.intake;
+  if (!(H?.ports?.lph > 0) || !(dt > 0)) return;
+  for (let k = food.length - 1; k >= 0; k--) {
+    const f = food[k];
+    if (f.settled || !W.water.inMainPool(f.pos.x, f.pos.z)) continue;
+    poolCurrent(H, f.pos.x, f.pos.y, f.pos.z, C);
+    f.pos.x = Math.max(-TW() + 0.5, Math.min(TW() - 0.5, f.pos.x + C.x * dt));
+    f.pos.z = Math.max(-TD() + 0.5, Math.min(TD() - 0.5, f.pos.z + C.z * dt));
+    f.pos.y = Math.min(H.level, f.pos.y + C.y * dt);
+    if (i && Math.hypot(f.pos.x - i.x, f.pos.y - i.y, f.pos.z - i.z) < i.r + 0.4) food.splice(k, 1);
+  }
+}
+
+// Shrimp and small fish keep out of the water near the overflow that pulls harder than a fifth of their cruising speed.
+export function filterAvoid(W, list, SPECIES, dt) {
+  const H = W.water?.hydro, i = H?.ports?.intake, q = (H?.ports?.lph ?? 0) / 3.6;
+  if (!i || !(q > 0) || !(dt > 0)) return;
+  for (const a of list) {
+    const sp = SPECIES[a.sp];
+    if (!sp || !(sp.size < 5) || !(sp.kind === 'swim' || /shrimp/.test(a.sp))) continue;
+    const s = sp.speed ?? 3, R = Math.sqrt(q / (2 * Math.PI * 0.2 * s));
+    const dx = a.pos.x - i.x, dz = a.pos.z - i.z, d = Math.hypot(dx, dz);
+    if (d >= R || d < 1e-3 || Math.abs(a.pos.y - i.y) > R) continue;
+    const push = Math.min(R - d, s * 0.5 * dt);
+    a.pos.x += (dx / d) * push; a.pos.z += (dz / d) * push;
+  }
 }

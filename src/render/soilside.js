@@ -11,7 +11,7 @@
 // one read of the soil photo, and each fragment works out only its own zone and the chosen substrate (branches on uniforms).
 
 import * as THREE from 'three/webgpu';
-import { Fn, If, uniform, attribute, positionWorld, texture, vec2, vec3, float, fract, floor, sin, dot, mix, smoothstep, step, length, abs, max, min, clamp } from 'three/tsl';
+import { Fn, If, uniform, attribute, positionWorld, texture, vec2, vec3, float, fract, floor, sin, dot, mix, smoothstep, step, length, abs, max, min, clamp, time, sign } from 'three/tsl';
 import { TANK } from '../sim/tank.js';
 import { U } from './uniforms.js';
 import { TEX } from './assets.js';
@@ -25,7 +25,8 @@ const hash = (p) => fract(sin(dot(p, vec2(12.9898, 78.233))).mul(43758.5453));
 export class SoilSide {
   constructor(parent, world) {
     this.world = world;
-    this.u = { L: uniform(0), mode: uniform(0), water: uniform(0), sub: uniform(0), wet: uniform(0.5), mud: uniform(0), pool: uniform(0) };
+    this.u = { L: uniform(0), mode: uniform(0), water: uniform(0), sub: uniform(0), wet: uniform(0.5), mud: uniform(0), pool: uniform(0),
+      flow: uniform(0), stir: uniform(0), tower: uniform(new THREE.Vector2(1e4, 1e4)) };
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material());
     this.mesh.name = 'soil-profile';
     this.mesh.frustumCulled = false;
@@ -35,7 +36,7 @@ export class SoilSide {
   }
 
   material() {
-    const { L: Ltrue, mode, water: wTrue, sub, wet, mud, pool } = this.u;
+    const { L: Ltrue, mode, water: wTrue, sub, wet, mud, pool, flow, stir, tower } = this.u;
     const pw = positionWorld, top0 = attribute('top', 'float');
     // A cut-away: generated tanks slope the ground down to a few centimetres at the front glass, so the drainage is drawn at
     // most about half as deep as the ground there (its true depth where there is room). The water in it is drawn at the same
@@ -87,15 +88,27 @@ export class SoilSide {
           const ringC = vec3(0.5, 0.46, 0.4).mul(rh.mul(0.25).add(0.8)).mul(mix(float(1), float(0.35), smoothstep(0.32, 0.25, rd)));
           const voidC = mix(vec3(0.03, 0.032, 0.034), vec3(0.06, 0.06, 0.06), smoothstep(crateY, 0, y));
           const plen = mix(mix(voidC, ringC, ring.mul(step(y, 1.4))), legC, leg).toVar();
-          plen.assign(mix(plen, plen.mul(vec3(0.62, 0.5, 0.32)).add(vec3(0.034, 0.024, 0.01)), under));
-          const meniscus = smoothstep(0.1, 0.0, abs(y.sub(water))).mul(step(0.05, water)).mul(step(water, crateY));
+          // The water is live: it runs along the glass toward the pump tower (sim/plenum.js pump flow over the plenum's cross
+          // section, `flow` cm/s), carrying specks of tannin and soil; its surface ripples, more where rain drips in (`stir`)
+          // and around the tower, where the pump draws it down. Two sines and one hash per fragment, false-bottom zone only.
+          const nrm = attribute('normal', 'vec3'), rel = tower.sub(vec2(pw.x, pw.z)), dT = length(rel);
+          const dir = sign(rel.x.mul(abs(nrm.z)).add(rel.y.mul(abs(nrm.x))));
+          const near = smoothstep(22, 2, dT);
+          const amp = stir.mul(0.12).add(0.05).add(near.mul(flow.mul(4).min(1)).mul(0.2));
+          const wl = water.add(sin(a.mul(2.3).add(dir.mul(time).mul(2.2))).mul(amp).add(sin(a.mul(0.85).sub(time.mul(1.3))).mul(amp.mul(0.6)))).toVar();
+          const wet2 = step(y, wl);
+          const sq = vec2(a.sub(dir.mul(time).mul(flow)).mul(2.4), y.mul(2.4)), sc = floor(sq), sh = hash(sc.add(91));
+          const speck = smoothstep(0.1, 0.05, length(fract(sq).sub(0.5).add(vec2(hash(sc.add(92.7)), hash(sc.add(94.1))).sub(0.5).mul(0.7)))).mul(step(0.82, sh));
+          plen.assign(mix(plen, plen.mul(vec3(0.62, 0.5, 0.32)).add(vec3(0.034, 0.024, 0.01)), wet2));
+          plen.addAssign(vec3(0.11, 0.08, 0.045).mul(speck).mul(wet2).mul(step(y, crateY)));
+          const meniscus = smoothstep(0.1, 0.0, abs(y.sub(wl))).mul(step(0.05, water)).mul(step(wl, crateY));
           plen.addAssign(vec3(0.16, 0.15, 0.12).mul(meniscus));
           // The egg-crate: 1.27 cm cells, 2 mm walls; through its cells the dark under the soil.
           const gx = fract(a.div(1.27)), cy = y.sub(crateY).div(max(ct, 0.01));
           const wall = max(smoothstep(0.17, 0.12, gx), max(step(cy, 0.14), step(0.86, cy)));
           // Through a cell: its white walls running back into the dark, lit from below.
           const crate = mix(mix(vec3(0.3, 0.3, 0.29), vec3(0.08, 0.08, 0.075), cy), vec3(0.8, 0.81, 0.78), wall);
-          out.assign(mix(plen, mix(crate, crate.mul(vec3(0.62, 0.5, 0.32)), under), step(crateY, y)));
+          out.assign(mix(plen, mix(crate, crate.mul(vec3(0.62, 0.5, 0.32)), wet2), step(crateY, y)));
         });
       }).Else(() => {
         // --- Substrates: a photographed soil (sampled side-on) under the particles that make each mix --------------------
@@ -163,6 +176,17 @@ export class SoilSide {
     U.backdrop.value = E.backdrop === 'foam' ? 1 : 0;
     u.wet.value = E.soil ?? 0.5;
     u.mud.value += ((E.plenum?.state === 'mud' ? 1 : 0) - u.mud.value) * Math.min(1, dt * 0.5);
+    // How the plenum's water moves (sim/plenum.js): the pump's draw spread over the water's cross-section along the glass,
+    // cm/s, and how much rain is dripping into it; the tower stands in the back corner where render/plumbing.js puts it.
+    const pl = E.plenum, depth = Math.max(0.5, Math.min(E.plenumLevel ?? 0, u.L.value)), cm3s = ((pl?.flows?.pump ?? 0) * 1000) / 60;
+    this.flowCms = mode === 2 ? cm3s / (depth * TANK.d * 0.85) : 0;
+    u.flow.value = Math.min(1.5, this.flowCms);
+    u.stir.value += (Math.min(1, (pl?.flows?.drip ?? 0) * 8) - u.stir.value) * Math.min(1, dt);
+    if (mode === 2) {
+      const T = W.terrain, hw = TANK.w / 2 - 3.2, z = -TANK.d / 2 + 7;
+      const sx = T.heightAt(hw, z) >= u.L.value + 1 ? 1 : -1;
+      u.tower.value.set(sx * hw, z);
+    }
     this.mesh.visible = !(this.hidden?.());
     this.t += dt;
     if (this.t < 1) return;

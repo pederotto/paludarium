@@ -9,6 +9,7 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 export const smooth = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
 const easeOut = (t) => { t = clamp01(t); return 1 - (1 - t) * (1 - t) * (1 - t); };
 export const frac = (x) => x - Math.floor(x);
+const lerp = (a, b, t) => a + (b - a) * t;
 
 // --- Frog kick ---------------------------------------------------------------------------------------------
 // One breaststroke cycle, phase 0 … 1 (it repeats). The hind legs are folded under the body at rest (ext 0) and
@@ -201,4 +202,90 @@ export function rig2Unpack(a, b) {
   const hq = Math.floor(b / 4096), r = b - hq * 4096, dq = Math.floor(r / 64), fq = r - dq * 64;
   const lq = Math.floor(hq / 128), pq = hq - lq * 128;
   return { bend: (bq / 1022) * 2 - 1, tail: tq / 1022 - 0.5, tailF: fq / 63, dull: dq / 63, piece: pq / 127, lift: (lq / 30) * 2 * LIFT_MAX - LIFT_MAX, turn };
+}
+
+// --- Swimming: the anuran blueprint's stroke clock and pose (moved here from util/swim.js: a util module imports nothing) ---
+
+// The anuran swimming blueprint, motion layer (pure: no scene, no state outside what it is handed). docs/SKELETON.md "Swimming
+// blueprint". Every frog and toad swims with these two functions, driven by its SWIM profile (util/bodyplan.js swimProfile) and
+// its body's measurements (body length; the skeleton's legs reach and fold by the hind-leg extension `ext` this returns):
+//
+//   swimStep(st, prof, { urgency, floating, bodyLen }, dt)   the stroke clock: kick rate from urgency, bursts of kicks with a short
+//            rest between them for a weak swimmer, the drift of a frog floating at rest. Advances `st` ({ phase, burst, rest, v }) and
+//            returns the forward speed in cm/s: a surge as the legs drive, a glide that decays, so a frog moves in pulses and covers
+//            `reach` body lengths a kick on average.
+//   swimPose(st, prof, { floating, level, t })   the posture for that moment: hind-leg extension (both legs together: they snap
+//            out behind in the thrust, trail straight through the glide, fold up in the recovery), the forelegs swept back along the
+//            flanks, the feet's splay, and the body's pitch and roll (near level at the surface, head up, the nose lifting as the
+//            legs drive). Ready for the rig: { hop: ext, pose, calm: 1, pitch, roll, sink }.
+//
+// The behaviour layer (sim/animals.js frogSwim: when to swim, where to, the way out) only sets urgency and heading and reads the
+// speed; the render layer only draws the pose (the skeleton near the camera, the vertex rig far: render/creatures/skeleton.js).
+
+
+// A new frog's stroke clock.
+export const swimState = (rnd = Math.random) => ({ phase: KICK.recover + rnd() * 0.1, burst: 0, rest: 0, v: 0, kicks: 0, rested: false });
+
+// Kicks a second at an urgency 0 (pottering) … 1 (a dash for the way out).
+export const kickRate = (prof, urgency) => lerp(prof.kickHz[0], prof.kickHz[1], clamp01(urgency));
+
+export function swimStep(st, prof, { urgency = 0.5, floating = false, bodyLen = 4, rnd = Math.random } = {}, dt) {
+  if (!(dt > 0)) return st.v;
+  if (floating) {
+    // Resting at the surface, limbs spread (a fire-bellied toad): an idle paddle now and then, hardly any way on.
+    st.phase += dt * prof.kickHz[0] * 0.35;
+    st.v *= Math.exp(-dt * 2.5);
+    return st.v;
+  }
+  if (st.rest > 0) {
+    // Between bursts: legs drawn up ready (the end of the recovery), the body coasting to a stop.
+    st.rest -= dt;
+    st.v *= Math.exp(-dt * prof.drag);
+    return st.v;
+  }
+  const hz = kickRate(prof, urgency), before = st.phase;
+  st.phase += dt * hz;
+  if (Math.floor(st.phase) !== Math.floor(before)) { st.kicks++; st.burst--; st.rested = false; }
+  // A burst done: a weak swimmer coasts with its legs trailing straight (mid-glide) a moment before it draws them up and kicks again,
+  // less the more urgent it is.
+  const p = st.phase - Math.floor(st.phase);
+  if (st.burst <= 0 && !st.rested && p >= GLIDE_HOLD && p - dt * hz < GLIDE_HOLD) {
+    st.burst = Math.round(lerp(prof.burst[0], prof.burst[1], rnd()));
+    st.rest = lerp(prof.rest[0], prof.rest[1], rnd()) * (1 - 0.7 * clamp01(urgency));
+    st.rested = true;
+    if (st.rest > 0) { st.phase = Math.floor(st.phase) + GLIDE_HOLD; st.v *= Math.exp(-dt * prof.drag); return st.v; }
+  }
+  // the mean of kickSpeed over a cycle is KICK_MEAN: the peak that makes `reach` body lengths a kick
+  st.v = (prof.reach * bodyLen * hz / KICK_MEAN) * kickSpeed(st.phase);
+  return st.v;
+}
+
+// The hind legs' extension through a stroke, 0 (folded under the body) … 1 (stretched straight back): THRUST they snap out, GLIDE they
+// trail straight behind (the body lies flat), RECOVER they draw up, and kick again at once (no crouched pause: a frog in the water
+// that held its legs folded read as a frog sitting in it).
+export const STROKE = { thrust: 0.15, glide: 0.75, recover: 0.97 };
+export const GLIDE_HOLD = 0.5;
+export function legExtension(p) {
+  p -= Math.floor(p);
+  if (p < STROKE.thrust) return easeOut(p / STROKE.thrust);
+  if (p < STROKE.glide) return 1;
+  if (p < STROKE.recover) return 1 - smooth((p - STROKE.glide) / (STROKE.recover - STROKE.glide));
+  return 0;
+}
+
+// The pose at this moment (see the header). `level`: the pitch that lays the sitting model's trunk flat.
+export function swimPose(st, prof, { floating = false, level = prof.level, t = 0 } = {}) {
+  const p = st.phase - Math.floor(st.phase), f = floating ? 1 : 0;
+  const push = p < STROKE.thrust ? Math.sin(Math.PI * p / STROKE.thrust) * (1 - f) : 0;
+  // floating at rest, the limbs lie spread, half out, paddling gently
+  const ext = lerp(legExtension(p), 0.55 + 0.15 * Math.sin(TAU * p), f);
+  return {
+    hop: ext,
+    pose: 1 - 0.5 * f,                                         // forelegs held out to the sides (floating: looser)
+    calm: 1,
+    pitch: level - prof.headUp - 0.08 * push + 0.02 * Math.sin(t * TAU * 0.4),   // (positive tips the nose down)
+    roll: 0.03 * Math.sin(TAU * p + 1.1) * (1 - f) + 0.015 * Math.sin(t * TAU * 0.33),
+    sink: prof.sink,
+    push,
+  };
 }

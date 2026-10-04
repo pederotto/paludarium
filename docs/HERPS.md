@@ -93,6 +93,12 @@ leg cycle still follows the distance walked (`util/gait.js strideRate`), so plan
 * `npm run test:unit` (`tests/herp.test.mjs`: sleeps by day and is out on damp nights; heat, hunger, fear; soak; creep-and-freeze; air
   gulps; light shyness; gecko drinking, stalking, eye licking).
 * `node tools/steps/herps.mjs --cool=22 --hunt=1` (or `--life=1`: sheds, matings, births, dropped tails) in the real game: mode table per species, strikes and catches, stuck animals. Address the dev server as 127.0.0.1 when another dev server holds port 5173 on IPv6.
+* `node tools/steps/amph-life-run.mjs --url=<dev server>` (`AMPH_SEEDS`, `AMPH_HOURS`, `AMPH_SPEED`, `AMPH_LABEL`): a seeded day in the life of
+  every amphibian (frogs and toads in a warm tank, caudates in a cool one, the game loop emulated frame by frame): activity by hour,
+  time per state, hunting, resting spots, calls, courtship, sleep poses, swimming layer and circling, stuck time and loops.
+  2026-10-04: a courting male whose lead goal was dropped (no headway) threw in `herp.js` every frame for up to 5 s; a frog walk whose
+  every step `offCliff` undid trod on the spot for up to 14 s (now it stops after 0.6 s without headway, and walks over a cliff edge are
+  not planned).
 * `node tools/bench.mjs gecko --pose=walk|look|nod|arch|tailwave --views=top,side` for the rig; `tools/animals-seq.mjs --night=1
   --cool=15 --force=go` for a walk in the tank (it is dark at night: the bench is easier to read).
 

@@ -40,7 +40,13 @@ if (has('keep')) await page.addInitScript(() => { window.__keep = true; });
 await page.addInitScript(() => {
   const J = window.__J = { gaps: [], long: [], t0: performance.now() };
   let last = performance.now();
-  const tick = () => { const n = performance.now(); J.gaps.push([n, n - last]); if (J.gaps.length > 20000) J.gaps.splice(0, 10000); last = n; requestAnimationFrame(tick); };
+  // Per frame also: was the loading veil covering it, and was the picture half-built (an object skipped for want of shaders).
+  const tick = () => {
+    const n = performance.now(), el = document.getElementById('loading'), c = window.game?.gfx?.compiler;
+    J.gaps.push([n, n - last, !!el && !el.classList.contains('gone'), !!c && !c.idle]);
+    if (J.gaps.length > 20000) J.gaps.splice(0, 10000);
+    last = n; requestAnimationFrame(tick);
+  };
   requestAnimationFrame(tick);
   try { new PerformanceObserver((l) => { for (const e of l.getEntries()) J.long.push([e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true }); } catch { /* none */ }
 });
@@ -68,10 +74,12 @@ await page.evaluate(() => {
   }
 });
 
-const boot = await page.evaluate(() => {
+const boot = await page.evaluate(async () => {
   const J = window.__J;
+  await new Promise((res) => { let ok = 0, last = performance.now(); const lim = last + 15000; const t = () => { const n = performance.now(), c = window.game.gfx.compiler; ok = n - last < 40 && c.idle ? ok + 1 : 0; last = n; if (ok >= 20 || n > lim) res(); else requestAnimationFrame(t); }; requestAnimationFrame(t); });
+  const seen = J.gaps.filter((g) => !g[2] && window.game);
   const gaps = J.gaps.map((g) => g[1]);
-  return { worstGap: Math.max(...gaps), long: J.long.length, longMs: J.long.reduce((s, l) => s + l[1], 0), progs: window.game.renderer.info.memory?.programs ?? null, backend: window.game.gfx.backend, quality: window.game.gfx.quality };
+  return { readyAt: Math.round(performance.now() - 20 * 16.7), seenStall: seen.filter((g) => g[1] > 50).length, seenHalf: seen.filter((g) => g[3]).length, worstGap: Math.max(...gaps), long: J.long.length, longMs: J.long.reduce((s, l) => s + l[1], 0), progs: window.game.renderer.info.memory?.programs ?? null, backend: window.game.gfx.backend, quality: window.game.gfx.quality };
 });
 
 // One step: run `fn` in the page, then wait until 20 frames in a row came within 40 ms (or 15 s), and report.
@@ -96,11 +104,15 @@ async function step(name, fn, arg) {
       requestAnimationFrame(t);
     });
     const end = performance.now() - 20 * 16.7;
-    const gaps = J.gaps.filter((g) => g[0] >= start).map((g) => g[1]);
+    const fr = J.gaps.filter((g) => g[0] >= start), gaps = fr.map((g) => g[1]);
+    // What the player saw: frames presented while the veil was not covering them, stalled (> 50 ms) or half-built.
+    const seen = fr.filter((g) => !g[2]), lastCov = fr.filter((g) => g[2]).pop();
     const long = J.long.filter((l) => l[0] >= start - 1);
     return {
       wall: Math.round(end - start), call: Math.round(called), frozen: Math.round(Math.max(0, ...gaps)),
       over100: gaps.filter((g) => g > 100).length,
+      seenStall: seen.filter((g) => g[1] > 50).length, seenHalf: seen.filter((g) => g[3]).length,
+      playable: Math.round(Math.max(called, lastCov ? lastCov[0] - start : 0)),   // until the busy box or the veil goes
       long: long.length, longMs: Math.round(long.reduce((s, l) => s + l[1], 0)),
       pipes: J.pipes - p0, stages: J.stages - s0, progs: (window.game.renderer.info.memory?.programs ?? 0) - prog0, nodeMs: Math.round(J.nodeMs - n0),
       note: note == null ? null : String(note).slice(0, 80),
@@ -131,13 +143,13 @@ async function step(name, fn, arg) {
     console.log('  inclusive:\n' + top(incl, 45));
     fs.writeFileSync(`test-output/journey-${name.replace(/\W+/g, '_')}.cpuprofile`, JSON.stringify(profile));
   }
-  console.log(`${name.padEnd(28)} wall ${String(r.wall).padStart(6)} ms · frozen ${String(r.frozen).padStart(5)} ms · >100ms frames ${String(r.over100).padStart(3)} · long ${r.long}/${r.longMs} ms · pipelines ${r.pipes} (new code ${r.stages}) · node build ${r.nodeMs} ms${r.note ? ' · ' + r.note : ''}`);
+  console.log(`${name.padEnd(28)} wall ${String(r.wall).padStart(6)} ms · seen stalled ${r.seenStall} half-built ${r.seenHalf} · playable ${r.playable} ms · frozen ${String(r.frozen).padStart(5)} ms · >100ms frames ${String(r.over100).padStart(3)} · long ${r.long}/${r.longMs} ms · pipelines ${r.pipes} (new code ${r.stages}) · node build ${r.nodeMs} ms${r.note ? ' · ' + r.note : ''}`);
   return { name, ...r };
 }
 
 console.log(`# journey ${label} · ${boot.backend} · ${boot.quality} · cpu x${cpu} · ${W}x${H}`);
-console.log(`boot                         ${bootMs} ms to the title (worst frame ${Math.round(boot.worstGap)} ms, ${boot.long} long tasks ${Math.round(boot.longMs)} ms)`);
-const out = [{ name: 'boot', wall: bootMs, frozen: Math.round(boot.worstGap), long: boot.long, longMs: Math.round(boot.longMs) }];
+console.log(`boot                         ${bootMs} ms to the title, ${boot.readyAt} ms to smooth · seen stalled ${boot.seenStall} half-built ${boot.seenHalf} (worst frame ${Math.round(boot.worstGap)} ms, ${boot.long} long tasks ${Math.round(boot.longMs)} ms)`);
+const out = [{ name: 'boot', seenStall: boot.seenStall, seenHalf: boot.seenHalf, wall: bootMs, frozen: Math.round(boot.worstGap), long: boot.long, longMs: Math.round(boot.longMs) }];
 const push = (r) => { if (r) out.push(r); };
 
 const sleep = (ms) => page.waitForTimeout(ms);

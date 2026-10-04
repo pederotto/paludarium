@@ -16,7 +16,7 @@ load (`glb.js addRig`); **skeleton** = bones measured on the scan, skinned by `t
 |---|---|---|---|---|---|---|---|---|
 | dart frogs (4 morphs), strawberry, leucomelas, auratus, bumblebee, reed frog, toad | anuran | scan GLB, baked vertex rig (far); **skeleton (17 bones) measured on the scan, skinned near the camera (runtime)**; swim-pose GLB | near: the legs turn at hip and shoulder, the knee, heel and elbow bend (skeleton); far: diagonal legs sweep (shear) | pivot on the hips, legs swing round the pivot (turnSweep, tau in anim.y), no bend (stiff trunk) | near: hip, knee and heel extend until the leg trails behind; far: vertex shift (`hopLegs`) | pose model + kick cycle | reed frog: body on the stem/glass normal + gait | throat as a normal bulge; near: thigh, calf and shoulder swell with their joints |
 | red-eyed tree frog | anuran | scan GLB, baked rig with hind-leg skeleton chain; **skeleton (17 bones)** for the baked `sleep` pose (not skinned at run time yet, see below) | far-style shear at every distance | as above | vertex shift | pose model | perch route, body on the leaf/glass | throat; **the sleep pose baked with muscles** (thighs, calves, shoulders); joint limits checked on it |
-| paddle-tail newt, marbled newt, axolotl | caudate | SDF body, vertex rig + rig2 | trot + S-wave + head counter-swing | pivot on the hips, legs round the pivot (tau in rig2 A), C-bend into the turn, head leads, tail lags | none | legs folded back, body wave; turns by the C-bend | none | throat pumping |
+| paddle-tail newt, marbled newt, axolotl | caudate | SDF body, vertex rig + rig2 | trot + S-wave + head counter-swing | pivot on the hips, legs round the pivot (tau in rig2 A), C-bend into the turn, head leads, tail lags | none | legs swung back about shoulder and hip onto the flanks (75 / 85 degrees, length kept, feet at flank height) and one travelling wave along the whole body (wavelength 0.9 body, amplitude from 0 at the snout to the tail tip): `swimmer` in render/creatures/instanced.js (2026-10-04; before, the legs stuck out sideways and only the tail wagged); turns by the C-bend | none | throat pumping |
 | fire salamander | caudate | scan GLB, addRig + rig2 | as newt | as newt | none | as newt | none | throat |
 | mourning gecko | lizard | SDF body, vertex rig + rig2 (tail drop, stump) | trot + wave | as newt (lizard limits: more neck, faster stepping) | none | none | on the background: body on the wall normal, gait; yaw in the wall plane (no pivot shift there) | none |
 | crocodile skink | lizard | SDF body, vertex rig + **rig2 (new)** | wave + legs | pivot on the hips, legs round it, C-bend, head leads (its look-round is now the head, not the body) | none | none | none | none |
@@ -153,6 +153,40 @@ Not yet: the **red-eyed frog** (its hind legs lie folded flat, thigh and shin fu
 walking on its joints tore the lobe and left toe tips behind, 2.7 % of triangles past 2x in a walk, 11 % in a hop; the joints need
 measuring again with the lobe split), the **fire salamander** (the scan has no baked rig to bind against; caudate plans need spine
 and tail bones driven by the rig2 channels), the SDF bodies (newts, axolotl, gecko, skink: no scan to bind), the fish.
+
+## Swimming blueprint (frogs and toads, 2026-10-04)
+
+User report: frogs in the water "just float and twitch instead of interacting with water and moving naturally". Cause: every frog
+with a baked swimming-pose model (`<id>.swim.glb`: all but the red-eyed frog) was drawn with that one frozen pose while it swam,
+sliding in surges with a fish's body wave on it; the legs never kicked. Now every frog and toad swims with ONE system, in two layers,
+and a new frog body plugs in by adding its profile and its skeleton.
+
+**Motion layer** (pure, `src/util/gait.js`, tests/swim.test.mjs):
+* inputs: the species' **SWIM profile** (`src/util/bodyplan.js SWIM`, the anuran default with each species' numbers over it: kick rate
+  `kickHz` [pottering, urgent], `reach` (body lengths a kick), `burst` and `rest` (weak swimmers kick in short bursts and rest with the
+  legs drawn up), `drag` (how fast a glide dies), `sink` (the belly's line under the surface: eyes and snout above), `level` and
+  `headUp` (posture), `float` (rests at the surface spread-eagled: the fire-bellied toad)); the body's length (from its mesh, the
+  skeleton's leg lengths do the rest); urgency (0 pottering … 1 a dash for the way out) and floating, from the behaviour layer.
+* `swimStep(state, profile, { urgency, floating, bodyLen }, dt)`: the stroke clock (phase in kicks), bursts and rests; returns the
+  speed in cm/s: a surge as both hind legs drive, a glide that decays, so a frog moves in pulses and covers `reach` body lengths a kick.
+* `swimPose(state, profile, { floating, t })`: the pose for the rig: `hop` = the hind-leg extension, both legs together (0.00-0.17 of
+  the cycle THRUST: they snap out behind; GLIDE to 0.56: they trail straight; RECOVER to 0.86: the knees fold up; GATHER: folded,
+  ready), `pose` = forelegs swept back along the flanks, the feet's splay (largest mid-thrust), `pitch`/`roll` (level at the surface,
+  nose up by `headUp`, lifting as the legs drive), `sink`.
+* drawn by the species' own body: near the camera the skeleton (`render/creatures/skeleton.js`: the hind leg extends about hip,
+  knee and heel together until the toe trails behind, the foot pitching back; the forelegs laid back by two-bone IK), far the vertex
+  rig with the same `hop`/`pose` inputs (`packAnim`). No new vertex buffers.
+
+**Behaviour layer** (`src/sim/animals.js`): `frog()` decides it is in the water, `frogSwim()` where to (the nearest way out: a bank
+to hop onto (`shoreLand`), a steep bank to climb (`exitClimb`), the glass for a frog with toe pads (`exitGlass`); a toad may float
+instead) and how urgent, `swimClock()` runs the motion layer and moves the frog by its speed along its heading (turns through
+`turnTo`); the climb out is the perch climb (`perchFrog`, phase 'up', flagged `exit`). Avoidance (`tooDeep`): a frog is not pushed
+or slid into water deeper than half its body (`outOfBank`, `offCliff`).
+
+**Adding a frog**: a SWIM row in bodyplan.js (copy the nearest species, then set kick rate and reach from its biology: a weak
+swimmer 0.4-0.5 body lengths a kick, a strong one 0.8), its skeleton from the bake (tools/rig/skeleton.mjs frogBones), and run
+`node --test tests/swim.test.mjs`, `node tools/steps/swim-strip.mjs --ids=<id>` (frame strips near, under water and far, the
+reference photo beside) and `tools/steps/frog-water.mjs` (time in the water, exits).
 
 ## Phased plan
 

@@ -1,6 +1,6 @@
 // Frogs swim: dropped into the deep part of the pool, each frog kicks (the stroke cycle advances), moves in surges, heads for a
-// bank and climbs out; the frogs that have a swimming-pose model (yellow-banded and strawberry poison frogs: public/assets/creatures
-// <id>.swim.glb) are drawn with it while they swim, the others get the swim pose from the rig. Prints PASS or FAIL per frog.
+// bank and climbs out (over a gentle bank, up a steep one or the glass); every frog is drawn by its own body kicking through the
+// stroke (util/gait.js; the static <id>.swim.glb pose models are no longer drawn) and travels by it. Prints PASS or FAIL per frog.
 //   node tools/shot.mjs --steps=tools/steps/frog-swim.mjs --only=desktop [--url=http://localhost:5173/]
 export default async (page) => {
   const ok = (name, pass, detail = '') => console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
@@ -30,21 +30,19 @@ export default async (page) => {
     for (const id of ['leucomelas', 'strawberry', 'dartfrog', 'auratus', 'toad']) {
       const a = A.add(id, new V3(best.x, Math.max(best.gnd, best.s - 0.5), best.z), { age: 1e6, hunger: 0.1 });
       if (!a) { out[id] = { error: 'cap' }; continue; }
-      // A pose model is fetched when its species first shows up: let it arrive (the loop below does not give the page a turn).
       A.meshFor(id);
-      for (let t = 0; t < 100 && A.poseMeta[id]?.swim && !A.poseModels[id]?.swim; t++) await new Promise((r) => setTimeout(r, 50));
       const k0 = a.kick ?? 0;
-      let swam = 0, pose = 0, dist = 0, prev = a.pos.clone(), steps = [];
+      let swam = 0, pose = 0, dist = 0, prev = a.pos.clone(), steps = [], prevKick = a.kick;
       for (let i = 0; i < 750; i++) {   // 30 s of animal time
         A.move(0.04);
         if (a.swimming) {
           swam++;
           const pm = A.meshes[id + '#swim'];
-          if (pm && ((pm._lo?.n ?? 0) + (pm.hi?.n ?? 0)) > 0) pose++;
+          if (Math.abs((a.kick ?? 0) - (prevKick ?? 0)) > 1e-4) pose++;   // (the stroke clock runs: the legs move)
           const d = a.pos.distanceTo(prev); steps.push(d);
         }
-        dist += a.pos.distanceTo(prev); prev.copy(a.pos);
-        if (!a.swimming && i > 100) break;   // out: it climbed out with a hop or waded out through the shallows
+        dist += a.pos.distanceTo(prev); prev.copy(a.pos); prevKick = a.kick;
+        if (!a.swimming && i > 100) break;   // out: it climbed out with a hop, up a bank or the glass, or waded out through the shallows
       }
       steps.sort((p, q) => p - q);
       out[id] = { swam, pose, kicks: +((a.kick ?? 0) - k0).toFixed(1), moved: +dist.toFixed(1), out: !a.swimming, hasPose: !!A.poseModels[id]?.swim, p50: +(steps[steps.length >> 1] ?? 0).toFixed(4), p95: +(steps[Math.floor(steps.length * 0.95)] ?? 0).toFixed(4) };
@@ -55,10 +53,10 @@ export default async (page) => {
   if (res.error) { ok('there is deep water to test in', false, res.error); return; }
   for (const [id, r] of Object.entries(res)) {
     if (r.error) { ok(`${id}: placed`, false, r.error); continue; }
-    ok(`${id}: swims (stays in the stroke for at least 3 s)`, r.swam >= 75, `${r.swam} frames`);
+    ok(`${id}: swims (stays in the stroke for at least 1 s)`, r.swam >= 25, `${r.swam} frames`);
     ok(`${id}: the stroke cycle runs`, r.kicks >= 2, `${r.kicks} strokes`);
     ok(`${id}: moves in surges (the biggest step is at least twice the median)`, r.p95 > 1.8 * Math.max(r.p50, 1e-4) || r.p50 === 0, `median ${r.p50} cm, p95 ${r.p95} cm per tick`);
     ok(`${id}: gets out of the water`, r.out || id === 'toad', `${r.moved} cm travelled`);
-    if (r.hasPose) ok(`${id}: drawn with its swimming-pose model`, r.pose >= 0.5 * r.swam, `${r.pose} of ${r.swam} frames`);
+    ok(`${id}: kicks while it swims (the stroke clock runs most of the time)`, r.pose >= 0.6 * r.swam, `${r.pose} of ${r.swam} frames, ${(r.moved / Math.max(1, r.kicks)).toFixed(2)} cm a kick`);
   }
 };

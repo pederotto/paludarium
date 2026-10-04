@@ -50,6 +50,8 @@ import { Fn, attribute, positionLocal, normalLocal, float, vec3, vec4, sin, cos,
 import { bodyGeometry } from './mesher.js';
 import { packAnim, unpackAnim, rig2Pack, TURN_Q } from '../../util/gait.js';
 import { limbFrame, turnFrame } from '../../util/turn.js';
+
+const SWIM_WAVE = 2.2;     // waves per body length x 2 of a swimming caudate (wavelength 0.9 of the body)
 import { PLANS } from '../../util/bodyplan.js';
 import { requestBody } from './meshpool.js';
 import { creatureMaterial, qrot, rig2Unpack } from './material.js';
@@ -218,6 +220,7 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
   const flutter = float(finish.flutter ?? 0.04);
   const waveHead = finish.waveHead ?? 0;
   const rig2 = finish.rig2 ?? null;
+  const swimmer = !!(rig2?.len && !finish.invert && legAxis !== 'x' && !skin);   // a newt, salamander or axolotl (legs, a tail; swims)
   const side = legAxis === 'x';
   const inv = finish.invert ?? null;
   const vCurl = inv?.curl ? varyingProperty('float', 'vCurl') : null;   // the curl's angle at this vertex, for its normal
@@ -280,8 +283,15 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     // A sideways walker (crab) has no body wave: anim.y is its direction of travel.
     if (skin) { /* (anim.y is the bone row: the bones carry the turn) */ } else if (ts?.inY) tau = anim.y;    // (a frog: no body wave, anim.y is the turning mix)
     else if (!side) {
-      const profile = spineW.mul(spineW).mul(1 - waveHead).add(waveHead);
-      p.x.addAssign(sin(spineW.mul(wave * 3.14159).sub(anim.x)).mul(anim.y).mul(profile));
+      let k = float(wave * 3.14159), profile = spineW.mul(spineW).mul(1 - waveHead).add(waveHead);
+      if (swimmer) {
+        // A swimming newt, salamander or axolotl (`pose`, util/gait.js salamanderSwimPose) undulates its whole body, not just the
+        // tail: about one wave along it (wavelength 0.9 of the body, Gillis 1997 for salamanders), the amplitude growing from
+        // nothing at the snout (the head stays steady) through the trunk to the tail tip, travelling back (anim.x rises).
+        k = k.add(pose.mul(SWIM_WAVE * 3.14159 - wave * 3.14159));
+        profile = profile.add(pose.mul(spineW.mul(spineW.mul(0.65).add(0.35)).sub(profile)));
+      }
+      p.x.addAssign(sin(spineW.mul(k).sub(anim.x)).mul(anim.y).mul(profile));
     }
     // Legs: diagonal pairs (front left + back right) move together. The foot is up while sin(phase) > 0 and swings forward
     // then, so it is on the ground the other half of the cycle, when it moves back relative to the body at a constant speed
@@ -313,9 +323,10 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     } else p.z.addAssign(isWalk.select(swing, float(0)));
     const sgn = sign(positionLocal.x);
     const hind = (inv ? jump : isHind).select(float(1), float(0));
-    // Hop (or one frog kick): the back legs stretch out behind.
-    p.z.subAssign(hind.mul(hopv).mul(legT).mul(1.6 * limb));
-    p.y.subAssign(hind.mul(hopv).mul(legT).mul(0.4 * limb));
+    // Hop (or one frog kick): the back legs stretch out behind. (Not a swimming newt's: its legs fold back below.)
+    const hopL = swimmer ? hopv.mul(float(1).sub(pose)) : hopv;
+    p.z.subAssign(hind.mul(hopL).mul(legT).mul(1.6 * limb));
+    p.y.subAssign(hind.mul(hopL).mul(legT).mul(0.4 * limb));
     if (side) {
       // A crab's claws (ids 5, 6): raised and waved while `pose` is up (anim.x is the wave phase).
       const claw = leg.greaterThan(4.5).select(float(1), float(0)).mul(pose).mul(legT);
@@ -373,15 +384,25 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
         p.z.assign(select(on, zN, p.z)); p.y.assign(select(on, yN, p.y));
         vCurl.assign(select(on, phi, float(0)));
       }
+    } else if (swimmer) {
+      // A swimming newt, salamander or axolotl (pose): the legs swing back about their roots and lie along the flanks, the feet
+      // raised from the ground to the flank's height (a rotation about the vertical through the shoulder or hip, which keeps the
+      // leg's length: the out-sideways reach from the body's side, `dx`, becomes reach backwards). Fore 75, hind 85 degrees.
+      const rx = rig2.len * 0.055, ry = rig2.neckY * 0.8;
+      const dx = max(abs(positionLocal.x).sub(rx), float(0));
+      const th = isFore.select(float(1.31), isHind.select(float(1.48), float(0))).mul(pose);
+      p.x.subAssign(sgn.mul(dx).mul(float(1).sub(cos(th))));
+      p.z.subAssign(dx.mul(sin(th)));
+      p.y.addAssign(isWalk.select(float(ry).sub(positionLocal.y).mul(min(legT.mul(2), float(1))).mul(pose).mul(0.85), float(0)));
     } else {
       // Swimming (pose): the breaststroke splays the feet as the legs extend (largest halfway) and closes them at full
       // extension; the forelegs sweep back, up and in along the flanks.
       const kick = hopv.mul(float(1).sub(hopv)).mul(4 * 0.55 * limb).sub(hopv.mul(hopv).mul(0.35 * limb));
       p.x.addAssign(sgn.mul(hind).mul(legT).mul(pose).mul(kick));
       const fore = isFore.select(float(1), float(0)).mul(pose).mul(legT);
-      p.z.subAssign(fore.mul(0.9 * limb));
-      p.y.addAssign(fore.mul(0.5 * limb));
-      p.x.subAssign(sgn.mul(fore).mul(0.45 * limb));
+      p.z.subAssign(fore.mul(0.25 * limb));
+      p.y.addAssign(fore.mul(0.6 * limb));
+      p.x.addAssign(sgn.mul(fore).mul(1.4 * limb));
     }
     }
     // Breathing: the flanks swell and sink; throat: the underside of the head bulges (to 0.32 cm: a calling frog's vocal sac; the

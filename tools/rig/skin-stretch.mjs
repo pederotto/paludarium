@@ -1,6 +1,6 @@
 // How much the runtime skinning stretches a model's skin (render/creatures/skeleton.js + the bake's `_SKIN` binding), on the CPU
 // with the shader's arithmetic: per pose, the share of triangles whose longest edge grows past 1.5x and 2x its rest length, and the
-// worst one. A fused fold of the scan (a sitting frog's shin pressed on its foot) shows up here as a web. The same poses drawn by
+// 95th percentile and the worst one. A fused fold of the scan (a sitting frog's shin pressed on its foot) shows up here as a web. The same poses drawn by
 // the vertex rig (render/creatures/instanced.js: the leg's vertices shifted by legT x the foot's offset) for comparison.
 //
 //   node tools/rig/skin-stretch.mjs [id ...]        (default: every manifest model with a skeleton)
@@ -36,6 +36,7 @@ for (const id of list) {
   const out = [];
   for (const mode of ['rig', 'skin']) for (const [name, states] of Object.entries(POSES)) {
     let s15 = 0, s20 = 0, worst = 1;
+    const G = [];     // every triangle's stretch, for the 95th percentile
     for (const st of states) {
       poseBones(rig, st, row);
       if (mode === 'rig') {
@@ -61,11 +62,12 @@ for (const id of list) {
           const l1 = Math.hypot(Q[a * 3] - Q[b * 3], Q[a * 3 + 1] - Q[b * 3 + 1], Q[a * 3 + 2] - Q[b * 3 + 2]);
           g = Math.max(g, l1 / l0);
         }
-        if (g > 1.5) s15++; if (g > 2) s20++; worst = Math.max(worst, g);
+        if (g > 1.5) s15++; if (g > 2) s20++; worst = Math.max(worst, g); G.push(g);
       }
     }
     const T = (idx.length / 3) * states.length;
-    out.push(`${mode} ${name}: >1.5x ${((100 * s15) / T).toFixed(2)} %, >2x ${((100 * s20) / T).toFixed(2)} %, worst ${worst.toFixed(1)}x`);
+    G.sort((a, b) => a - b);
+    out.push(`${mode} ${name}: >1.5x ${((100 * s15) / T).toFixed(2)} %, >2x ${((100 * s20) / T).toFixed(2)} %, p95 ${G[Math.floor(G.length * 0.95)].toFixed(2)}x, worst ${worst.toFixed(1)}x`);
   }
   console.log(`${id} (${n} verts)\n  ${out.join('\n  ')}`);
 }

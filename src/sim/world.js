@@ -207,6 +207,9 @@ export class World {
       h += mx * mz * 17;
       // A raised shelf at the back right for the spring pool.
       h += smooth(18, 26, x) * smooth(-6, -12, z) * 5;
+      // A bank down the right side to the front glass: the land stands on the false bottom, and through the front glass the
+      // keeper sees the build under it (render/soilside.js: egg-crate, mesh, the plenum's water).
+      h += smooth(24, 36, x) * smooth(-8, 6, z) * 14;
       h += Math.sin(x * 0.31 + z * 0.17) * 0.6 + Math.sin(x * 0.13 - z * 0.37) * 0.8;
       B[n] = Math.max(1, h);
     }
@@ -338,6 +341,7 @@ export class World {
     add('gecko', 2, land);
 
     this.env.matureTank();
+    this.env.drainage = 1;   // built on a false bottom (sim/plenum.js), as modern paludariums are
     this.climate.settle();
     this.updateMoss();
     this.decor.scatterMoss();

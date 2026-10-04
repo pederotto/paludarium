@@ -64,7 +64,15 @@ test('development is temperature dependent: about ten days at 25 C, slower when 
   assert.ok(rateOf(28) > 1);
 });
 
-test('fruit and litter start a boom: eggs, maggots, pupae and new adults appear, then it busts', () => {
+// Seeded: with Math.random about 1 run in 25 had too few pupae on day 40 and failed for no real reason.
+function seeded(seed, fn) {
+  const rnd = Math.random;
+  let a = seed >>> 0;
+  Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  try { return fn(); } finally { Math.random = rnd; }
+}
+
+test('fruit and litter start a boom: eggs, maggots, pupae and new adults appear, then it busts', () => seeded(7, () => {
   const w = world();
   seedAdults(w, 6);
   w.flies.addFruit(0, 0, 2.2); w.flies.addFruit(6, 3, 2.2);
@@ -82,7 +90,7 @@ test('fruit and litter start a boom: eggs, maggots, pupae and new adults appear,
   assert.ok(peakA < 71 + 20, 'adults stay under the cap');
   // The food runs out: the population is not still booming at day 40.
   assert.ok(counts(w).l <= seen.l, 'busted');
-});
+}));
 
 test('maggots speed up the rot: more humus and fertility than a tank without flies', () => {
   const a = world(), b = world();

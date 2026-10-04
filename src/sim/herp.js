@@ -668,7 +668,7 @@ function special(m, P, s, d, it, rnd) {
         // He walks away, tail quivering, and she is to follow.
         it.goal = m.goal; it.speed = P.creep * 1.2; it.calm = 0; it.swim = false;
         Object.assign(tg, { tail: 0.12 * Math.sin(t * 10), tr: 14, headP: -0.02 });
-        if (m.cpT > 5 || dist2(here, m.goal) < 0.8) { m.cp = 'wait'; m.cpT = 0; }
+        if (m.cpT > 5 || !m.goal || dist2(here, m.goal) < 0.8) { m.cp = 'wait'; m.cpT = 0; }      // (no goal: animals.js gave up a lead it could not walk)
       } else if (m.cp === 'done') {
         // The pair is made: a moment together (so that she, too, sees it), then they part.
         it.calm = 1; Object.assign(tg, { tail: 0.05 * Math.sin(t * 8), headP: 0.03 });

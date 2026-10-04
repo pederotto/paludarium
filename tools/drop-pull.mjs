@@ -6,7 +6,9 @@
 // manifest at drops/<id>.json and its parts at drops/<id>/parts/<i>.json. For every
 // manifest still marked "waiting" the parts are joined, decoded, checked against the
 // byte count and SHA-256 the browser recorded, and written under their original name.
-// Prints one JSON line per file; exits 1 if any file failed its check.
+// Prints one JSON line per file; exits 1 if any file failed its check. For each file that passed, mark its manifest
+// received with ArtifactData update { status: "pulled", pulledSha256: <sha256 printed here>, pulledBytes: <bytes>,
+// pulledAt }: the Drop page then deletes that file's parts by itself (it checks the sha-256 matches what was sent).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,7 +41,7 @@ for (const f of fs.readdirSync(path.join(dir, 'drops')).filter((n) => n.endsWith
     if (m.sha256 && sum !== m.sha256) throw new Error('sha-256 mismatch');
     const dest = path.join(out, path.basename(m.name));
     fs.writeFileSync(dest, buf);
-    Object.assign(res, { ok: true, dest, verified: !!m.sha256 });
+    Object.assign(res, { ok: true, dest, verified: !!m.sha256, sha256: sum });
   } catch (e) {
     bad++;
     Object.assign(res, { ok: false, error: String(e.message || e) });

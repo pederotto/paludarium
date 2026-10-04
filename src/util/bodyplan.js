@@ -99,6 +99,32 @@ export const PLANS = {
   },
 };
 
+// How a frog or toad swims (util/gait.js, docs/SKELETON.md "Swimming blueprint"): the anuran default and each species' own numbers
+// over it. A new frog body plugs in with a row here (and its skeleton from the bake).
+//   kickHz   kicks a second, [pottering, urgent] (small frogs fleeing kick 2 to 3 times a second)
+//   reach    body lengths it moves a kick on average (a weak swimmer half a body length, a strong one most of one)
+//   burst    kicks in a burst, [min, max]; rest: seconds it rests between bursts, legs drawn up (less when urgent); drag: how fast
+//            a glide dies away (1/s)
+//   sink     the line of its belly under the surface, in species size units (eyes and snout stay above); level: the pitch that lays
+//            the sitting model level (its skeleton's trunk pitch, pelvis to head, as baked: measured from the manifest); headUp: the nose lifted at the surface (rad)
+//   float    rests at the surface with its limbs spread between swims (the fire-bellied toad)
+export const SWIM = {
+  anuran: { kickHz: [1.0, 2.2], reach: 0.55, burst: [2, 4], rest: [0.3, 0.9], drag: 3, sink: 0.65, level: 0.24, headUp: 0.1, float: false },
+  // poison frogs: weak swimmers, head up, short bursts straight for the nearest grip
+  dartfrog: { kickHz: [1.1, 2.5], reach: 0.5, headUp: 0.12, level: 0.253 },
+  leucomelas: { kickHz: [1.1, 2.5], reach: 0.5, headUp: 0.12, level: 0.243 },
+  auratus: { kickHz: [1.1, 2.5], reach: 0.5, headUp: 0.12, level: 0.23 },
+  strawberry: { kickHz: [1.2, 2.8], reach: 0.5, headUp: 0.12, level: 0.249 },
+  // the bumblebee toad swims worst of all (it drowns in deep water): short, laboured bursts
+  bumblebee: { kickHz: [1.0, 2.2], reach: 0.42, burst: [1, 3], rest: [0.4, 1.1], headUp: 0.14, level: 0.23 },
+  // tree and reed frogs: long legs, better strokes, still out of the water as soon as they can
+  reedfrog: { kickHz: [1.0, 2.4], reach: 0.6, level: 0.208 },
+  redeye: { kickHz: [0.9, 2.0], reach: 0.6 },
+  // Bombina: at home in the water, long glides, rests floating spread-eagled at the surface
+  toad: { kickHz: [0.8, 2.0], reach: 0.65, burst: [1, 3], rest: [0.6, 2], drag: 1.8, sink: 0.45, headUp: 0.04, float: true, level: 0.179 },
+};
+export const swimProfile = (id) => ({ ...SWIM.anuran, ...(SWIM[id] ?? {}) });
+
 // The plan of a species (an entry of sim/animals.js SPECIES).
 export function planOf(sp) {
   switch (sp.kind) {

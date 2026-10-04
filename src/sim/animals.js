@@ -12,7 +12,8 @@ import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, bob, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
 import { limbFrame, turnFrame, turnStep, pivotShift, turnSteps, turnPose, steerLimit } from '../util/turn.js';
-import { PLANS, planOf, limitRig } from '../util/bodyplan.js';
+import { PLANS, planOf, limitRig, swimProfile } from '../util/bodyplan.js';
+import { swimState, swimStep, swimPose } from '../util/gait.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
@@ -27,6 +28,7 @@ import { PLANTS } from './plants.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf, morphList } from './genetics.js';
 import { shrimpPalette } from '../content/morphs.js';
 import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
+import { filterDrift, filterAvoid } from './filterflow.js';
 
 const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -48,6 +50,10 @@ function clingYaw(N) {
   return Math.atan2(v.x, v.z);
 }
 const GLASS_N = { front: V(0, 0, -1), left: V(1, 0, 0), right: V(-1, 0, 0) };
+// Frogs without toe pads (the bumblebee toad, the fire-bellied toad): out of the water they climb rough faces only up to about 70
+// degrees, and not the glass (Animals.exitClimb, exitGlass).
+const PADLESS = new Set(['bumblebee', 'toad']);
+const _gf = new Array(9);
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
 const RADIUS = { skink: 0.6, swim: 0.38, crawlWater: 0.4, crawlLand: 0.3, crab: 0.6, fly: 0.2, frog: 0.85, toad: 0.8, newt: 0.7, axolotl: 0.75, gecko: 0.7 };
 const STRENGTH = { skink: 1, swim: 1, frog: 1, toad: 1, newt: 1, axolotl: 1, gecko: 1, crab: 1, crawlWater: 0.85, crawlLand: 0.85, fly: 0.3 };
@@ -915,7 +921,7 @@ export class Animals {
           case 'crab': this.crab(a, sp, dt); break;
           case 'fly': this.fly(a, sp, dt); break;
           case 'frog':
-          case 'toad': if (!(sp.perch && this.perchFrog(a, sp, dt))) this.frog(a, sp, dt); break;
+          case 'toad': if (!((sp.perch || a.perch) && this.perchFrog(a, sp, dt))) this.frog(a, sp, dt); break;   // (a.perch: any frog climbing out of the water)
           case 'newt': case 'axolotl': case 'gecko': this.herp(a, sp, arr, dt); break;
           case 'skink': this.skink(a, sp, dt); break;
           case 'egg': break;
@@ -969,7 +975,7 @@ export class Animals {
           if (sp.kind !== 'egg') this.clearOfWall(a, sp);
           if (CORE_WALKERS.has(sp.kind)) this.outOfStems(a, sp);
           if (CORE_WALKERS.has(sp.kind)) this.outOfBank(a, sp);
-          if (this.insideSolid(a, sp)) this.relocate(a, sp, true, true);
+          if (this.insideSolid(a, sp)) this.relocate(a, sp, false, true);
           if (sp.kind !== 'egg') this.inGlass(a, sp);                    // (again: the pushes above may not take it through the glass)
         }
       }
@@ -983,6 +989,7 @@ export class Animals {
       } else { f.pos.y = g; f.settled = true; }
       f.age += dt;
     }
+    filterDrift(W, this.food, dt); filterAvoid(W, this.all, SPECIES, dt);   // the filter's current (sim/filterflow.js)
     this.draw(dt);
   }
 
@@ -1039,7 +1046,14 @@ export class Animals {
   bodyY(a, sp) { return sp.kind === 'swim' || a.swimming ? a.pos.y : a.pos.y + 0.5; }
   insideSolid(a, sp) {
     if (a.onWall || a.hop || a.wallMode) return false;
-    return this.occ.solidAt(a.pos.x, this.bodyY(a, sp), a.pos.z);
+    const x = a.pos.x, y = this.bodyY(a, sp), z = a.pos.z, swim = sp.kind === 'swim' || a.swimming, h = Math.max(0.2, a.bh ?? 0.5);
+    if (swim ? !this.occ.solidAt(x, y, z) : !this.occ.solidAt(x, a.pos.y + Math.min(0.5, h * 0.5), z) && !this.occ.solidAt(x, a.pos.y + h * 0.8, z)) return false;
+    // (in a solid cell: is the body really in the piece? asked again only once it has moved, the rays cost)
+    const c = a._ins;
+    if (c && c.v === this.occ.version && Math.abs(c.x - x) + Math.abs(c.y - y) + Math.abs(c.z - z) < 0.05) return c.in;
+    const r = swim ? this.occ.inside(x, y, z) : this.occ.insideBody(x, a.pos.y, z, h);
+    a._ins = { x, y, z, v: this.occ.version, in: r };
+    return r;
   }
 
   // Keeps the whole body in front of the background relief: the far end of its capsule (or its circle) and its radius, at the
@@ -1167,13 +1181,15 @@ export class Animals {
   // (A gecko climbs: steep ground is a surface to it, drawn on the plane under its feet.)
   cliffAt(x, z) { const [gx, gz] = this.world.terrain.field.gradient(x, z); return gx * gx + gz * gz > 3; }      // (ground normal y < 0.5)
   offCliff(a, sp, px, py, pz) {
-    if (a.hop || a.perch || a.onWall || a.wallMode || a.swimming || sp.kind === 'gecko') return;
+    if (a.hop || a.perch || a.onWall || a.wallMode || a.swimming || sp.kind === 'gecko' || a.relocT === this.t) return;
     const T = this.world.terrain, bx = this.bodyBox(a, sp), ux = Math.sin(a.yaw ?? 0), uz = Math.cos(a.yaw ?? 0), nose = bx.z1 * 0.8;
     const bad = (x, z) => this.cliffAt(x, z) || this.cliffAt(x + ux * nose, z + uz * nose);
     if ((a.pos.x !== px || a.pos.z !== pz) && bad(a.pos.x, a.pos.z) && !bad(px, pz)) { a.pos.set(px, py, pz); return; }
     // Standing on a cliff face however it got there (put there, the ground dug or raised under it): it slides down off it.
     if (this.cliffAt(a.pos.x, a.pos.z) && sp.kind !== 'crab') {
       const [gx, gz] = T.field.gradient(a.pos.x, a.pos.z), l = Math.hypot(gx, gz), nx = a.pos.x - gx / l * 0.3, nz = a.pos.z - gz / l * 0.3;
+      // (a frog does not slide off into water deeper than half its body: it scrambles to a place it can sit instead, frogOut)
+      if ((sp.kind === 'frog' || sp.kind === 'toad') && this.tooDeep(a, sp, nx, nz)) { this.frogOut(a, sp); return; }
       if (this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = T.heightAt(nx, nz); }
       return;
     }
@@ -1226,10 +1242,16 @@ export class Animals {
     }
     const nx = x0 + ux * 0.3, nz = z0w + uz * 0.3;
     if (l < 1e-6 || Math.abs(nx) > TANK.w / 2 - 0.5 || Math.abs(nz) > TANK.d / 2 - 0.5 || (!a.swimming && this.cliffAt(nx, nz)) || (this.occ.count && this.occ.solidAt(nx, T.heightAt(nx, nz) + 0.5, nz))
-      || (!a.swimming && !(this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)))) { if (frog) this.frogOut(a, sp); return; }
+      || (!a.swimming && !(this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)))
+      || (frog && this.tooDeep(a, sp, nx, nz))) { if (frog) this.frogOut(a, sp); return; }   // (not pushed off into deep water: it scrambles out)
     a.pos.x = nx; a.pos.z = nz;
     if (!a.swimming) a.pos.y = T.heightAt(nx, nz);
     a._oob = { t: this.t, x: ux, z: uz };
+  }
+
+  // Water at (x, z) deeper than half a frog's body: what a poison frog, a toad or a tree frog does not wade into (nor is pushed into).
+  tooDeep(a, sp, x, z) {
+    return this.world.water.surfaceAt(x, z, 0.2) - this.world.terrain.heightAt(x, z) > 0.5 * this.bodyBox(a, sp).H;
   }
 
   // A frog wedged where it cannot sit (a crevice between stones narrower than its body, where it was put or fell): once a second it
@@ -1256,7 +1278,7 @@ export class Animals {
     if (a.dead || a.hop || a.onWall || a.stranded) return false;
     switch (sp.kind) {
       case 'swim': return true;
-      case 'crawlWater': case 'crawlLand': case 'crab': return a.state === 'walk' && !!a.target;
+      case 'crawlWater': case 'crawlLand': case 'crab': return a.state === 'walk' && !!a.target && Math.hypot(a.target.x - a.pos.x, a.target.z - a.pos.z) > 0.5;   // (there: not stuck)
       case 'frog': case 'toad': return (a.hopFail ?? 0) >= 1 || (!!a.swimming && !!a.shore);
       case 'newt': case 'axolotl': return a.herp ? !!a.wantMove : a.swimming ? true : a.state === 'walk' && !!a.target;
       case 'fly': return a.state === 'walk' && !!a.target;
@@ -1291,7 +1313,7 @@ export class Animals {
     // Back off: away from the nearest free space's opposite, i.e. toward free space, and choose again.
     const nf = this.occ.count ? this.occ.nearestFree(a.pos.x, this.bodyY(a, sp), a.pos.z, null, 4) : null;
     const ang = nf && (nf[0] !== a.pos.x || nf[2] !== a.pos.z) ? Math.atan2(nf[0] - a.pos.x, nf[2] - a.pos.z) : Math.random() * Math.PI * 2;
-    a.target = null; a.shore = null; a.hop = null; a.timer = 0; a.hopFail = 0; a.fs = null; a.st = null;
+    a.target = null; a.shore = null; a.hop = null; a.timer = 0; a.hopFail = 0; a.fs = null; this.dropStrike(a);
     a.wander = ang; a.side = -(a.side ?? 1);
     // A swimmer swings round to its new course (its heading follows the velocity through turnTo); a walker, nudged aside
     // below, faces the free way at once.
@@ -1370,8 +1392,9 @@ export class Animals {
     const W = this.world, T = W.terrain, occ = this.occ;
     const from = a.pos.clone();
     this.stuckStats.relocated++;
+    a.relocT = this.t;                                                         // (offCliff must not put it back this tick)
     a.stillT = 0; a.anchor = null; a.target = null; a.shore = null; a.hop = null; a.hopFail = 0;
-    a.timer = 0; a.state = 'idle'; a.vel.set(0, 0, 0); a.fs = null; a.st = null; a.crouch = 0; a.chain = 0;
+    a.timer = 0; a.state = 'idle'; a.vel.set(0, 0, 0); a.fs = null; this.dropStrike(a); a.crouch = 0; a.chain = 0;
     const swimmer = sp.kind === 'swim' || (a.swimming && sp.kind !== 'frog' && sp.kind !== 'toad');
     if (!swimmer) a.swimming = false;
     const fly = false;                                                         // (fruit flies walk: placed like any land crawler)
@@ -1383,8 +1406,9 @@ export class Animals {
     const okFly = (x, y, z) => y > Math.max(T.heightAt(x, z), this.waterTop(x, z)) + 1.2 && y < TANK.h - 3 && Math.abs(x) < wx && Math.abs(z) < wz;
     if (swimmer || fly) {
       const ok = fly ? okFly : okSwim;
-      let to = far ? null : occ.nearestFree(a.pos.x, a.pos.y, a.pos.z, ok, 14);
-      if (to && !inside && Math.hypot(to[0] - from.x, to[1] - from.y, to[2] - from.z) < 2) to = null;
+      // (stuck, not inside: the nearest free water at least 2 cm away; it used to be a random spot anywhere in the tank)
+      const minD = inside ? 0 : far ? 4 : 2, okAway = minD ? (x, y, z) => ok(x, y, z) && Math.hypot(x - from.x, y - from.y, z - from.z) >= minD : ok;
+      let to = occ.nearestFree(a.pos.x, a.pos.y, a.pos.z, okAway, 14);
       for (let k = 0; k < 250 && !to; k++) {
         const x = (Math.random() - 0.5) * (TANK.w - 6), z = (Math.random() - 0.5) * (TANK.d - 6);
         if (fly) {
@@ -1399,9 +1423,9 @@ export class Animals {
       return;
     }
     const medium = this.mediumOf(sp);
-    const free = (x, z) => this.okFor(medium, x, z) && !occ.solidAt(x, T.heightAt(x, z) + 0.5, z);
+    const free = (x, z) => this.okFor(medium, x, z) && !occ.solidAt(x, T.heightAt(x, z) + 0.5, z) && !(CORE_WALKERS.has(sp.kind) && this.cliffAt(x, z));
     let best = null;
-    for (let r = far ? 1e9 : 1.5; r <= 30 && !best; r += 1.5) {
+    for (let r = far ? 4.5 : 1.5; r <= 30 && !best; r += 1.5) {           // (stuck again and again: a little further, not anywhere in the tank)
       const n = Math.ceil(r * 2.4);
       for (let k = 0; k < n; k++) {
         const ang = (k / n) * Math.PI * 2;
@@ -1562,13 +1586,14 @@ export class Animals {
 
   // Does (x, z) suit a crawler of this medium?
   // `r`: the body's radius (a.rad), kept clear of the background as well as its middle.
-  okFor(medium, x, z, maxDepth = 5, r = 0) {
+  okFor(medium, x, z, maxDepth = 5, r = 0, fine = 0) {
     const W = this.world;
     if (Math.abs(x) > TANK.w / 2 - 1 || Math.abs(z) > TANK.d / 2 - 1) return false;
     const g = W.terrain.heightAt(x, z);
     const s = W.water.surfaceAt(x, z);
     const depth = s - g;
-    if (this.avoid && this.occ.count && this.occ.solidAt(x, g + 0.5, z)) return false;
+    // (fine: a solid cell the body is not really in is open, as for insideSolid: two newts under one root could not be parted)
+    if (this.avoid && this.occ.count && this.occ.solidAt(x, g + 0.5, z) && !(fine && !this.occ.insideBody(x, g, z, fine))) return false;
     if (this.avoid && z < W.wall.zAt(x, g + 1) + Math.max(0.4, r)) return false;       // not into the background relief
     if (medium === 'water') return depth > 1;
     if (medium === 'land') return !(depth > -0.2);
@@ -2001,10 +2026,8 @@ export class Animals {
         const g = T.heightAt(nx, nz), s = W.water.surfaceAt(nx, nz, 0.2);
         a.swimming = s > g + 0.9 * sp.size;                              // (only a reed frog gets here: it swims, in the stroke)
         if (a.swimming) {
-          a.pos.y = s - 0.35 * sp.size; a.normal = null; a.pitch = 0;
-          const before = a.kick ?? Math.random();
-          a.kick = before + dt / kickPeriod(0.9);
-          if (Math.floor(a.kick) !== Math.floor(before)) W.fx?.addDrop(a.pos.x, a.pos.z, -1.2, 0.5);
+          a.pos.y = s - swimProfile(a.sp).sink * sp.size; a.normal = null; a.pitch = 0;
+          this.swimClock(a, sp, 0.9, dt);
         } else { a.pos.y = g; a.normal = T.normalAt(nx, nz); }
         if (dist > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
         a.speedNow = step / Math.max(1e-4, dt); a.state = 'walk';
@@ -2016,7 +2039,24 @@ export class Animals {
         const dx = goal.x - a.pos.x, dy = goal.y - a.pos.y, dz = goal.z - a.pos.z, dist = Math.hypot(dx, dy, dz), dh = Math.hypot(dx, dz);
         const step = Math.min(dist, sp.speed * 1.4 * dt);
         if (dist > 1e-3) { a.pos.x += (dx / dist) * step; a.pos.y += (dy / dist) * step; a.pos.z += (dz / dist) * step; }
-        if (P.glassN) {
+        // Climbing out of the water and held back (the glass or a bank keeps its body off the next point for 2 s): it lets go and
+        // swims for another way out (that one is no good for a while).
+        if (P.exit) {
+          if (P.gi !== P.i) { P.gi = P.i; P.near = Infinity; P.stuck = 0; }
+          if (dist < P.near - 0.05) { P.near = dist; P.stuck = 0; }
+          else if ((P.stuck += dt) > 2) {
+            a.perch = null; a.pitch = 0; a.normal = null; a.timer = 0;
+            (a.badShore ??= []).push([P.top.x, P.top.z]); if (a.badShore.length > 8) a.badShore.shift();
+            return false;
+          }
+        }
+        if (P.exit === 'glass') {
+          // Out of the water up the glass: belly to it, heading the way it climbs (up, along the pane, down onto the land); at the
+          // foot of the glass in the water and on the land beyond it, by its heading.
+          if (P.i >= 2 && P.i <= P.glassTo) { a.normal = P.glassN; if (dist > 0.05) a.yaw = this.glassYawTo(P.glassN, dx, dy, dz); }
+          else { a.normal = P.i > P.glassTo ? T.normalAt(a.pos.x, a.pos.z) : null; if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6)); }
+          a.pitch = 0;
+        } else if (P.glassN) {
           // On the glass belly to it, head up (head first coming down); across the ground at its foot, standing on the ground.
           if (Math.abs(dy) > dh * 1.5) { a.normal = P.glassN; a.yaw = P.glassYaw + (dy < 0 ? Math.PI : 0); }
           else { a.normal = T.normalAt(a.pos.x, a.pos.z); if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6)); }
@@ -2030,7 +2070,15 @@ export class Animals {
         a.speedNow = step / Math.max(1e-4, dt); a.state = 'walk';
         if (dist - step < 0.05) {
           P.i += P.ph === 'up' ? 1 : -1;
-          if (P.ph === 'up' && P.i >= P.path.length) { P.ph = 'sit'; a.pitch = 0; }
+          if (P.ph === 'up' && P.i >= P.path.length) {
+            // Out of the water (startExit): it sits on the land it climbed onto, a moment, then frog() is in charge again.
+            if (P.exit) {
+              a.perch = null; a.pitch = 0; a.fs = 'sit'; a.fsT = 0.6 + Math.random() * 1.5; a.chain = 0; a.crouch = 0; a.timer = 0; a.hd = a.yaw;
+              a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.normal = T.normalAt(a.pos.x, a.pos.z);
+              return true;
+            }
+            P.ph = 'sit'; a.pitch = 0;
+          }
           else if (P.ph === 'down' && P.i < 0) {
             a.perch = null; a.pitch = 0; a.fs = 'sit'; a.fsT = 1 + Math.random() * 2; a.perchT = 20 + Math.random() * 20;
             a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.normal = T.normalAt(a.pos.x, a.pos.z);
@@ -2734,7 +2782,7 @@ export class Animals {
     const medium = this.mediumOf(sp);
     for (const f of [0.3, 0.6, 1]) {
       const x = a.pos.x + (to.x - a.pos.x) * f, z = a.pos.z + (to.z - a.pos.z) * f;
-      if (!this.okFor(medium, x, z)) return null;
+      if (!this.okFor(medium, x, z) || (this.cliffAt(x, z) && !this.cliffAt(a.pos.x, a.pos.z))) return null;     // (offCliff would undo every step)
     }
     if (this.crowded(a, sp, to.x, to.z)) return null;
     return { type, to, ang, water: false, v: 0.7 + Math.random() * 0.7 };
@@ -2746,6 +2794,8 @@ export class Animals {
     const dx = p.to.x - a.pos.x, dz = p.to.z - a.pos.z, d = Math.hypot(dx, dz);
     a.walkT = (a.walkT ?? 0) + dtS;
     let ok = d > 0.2 && a.walkT < 14;
+    // No headway for 0.6 s (each step undone: a cliff under the snout, offCliff; a neighbour; a bank): it stops instead of treading on the spot.
+    if (!(d > (p.best ?? Infinity) - 0.05)) { p.best = d; p.bestT = a.walkT; } else if (a.walkT - p.bestT > 0.6) ok = false;
     if (ok) {
       const v = sp.speed * 2.0 * p.v * Math.min(1, 0.35 + d * 0.5);       // about 2 cm/s, easing in to the stop
       const step = Math.min(d, v * dtS);
@@ -2774,7 +2824,7 @@ export class Animals {
   // now and then decides to climb out.
   frogSwim(a, sp, dt, s, toad) {
     const W = this.world, T = W.terrain;
-    a.pos.y = Math.max(s - 0.35 * sp.size, T.heightAt(a.pos.x, a.pos.z));
+    a.pos.y = Math.max(s - swimProfile(a.sp).sink * sp.size, T.heightAt(a.pos.x, a.pos.z));
     a.normal = null;
     if (!a.shore || a.timer <= 0) {
       a.timer = 4 + Math.random() * 4;
@@ -2784,15 +2834,26 @@ export class Animals {
         // The way out: along each of 16 lines the first dry ground (the bank it would swim into: land beyond a bank is not reached by
         // swimming, and swimming at it had a frog pushed back off that bank for minutes), and the nearest of those it can climb
         // (shoreLand). Nowhere to climb out within reach: it swims on along the open water and looks again from there.
+        // (A frog grips what it meets: where the bank is too steep to hop out onto it climbs the face (exitClimb: rock, soil, a root
+        // or a stem at the waterline, as a real one pulls itself out), and a frog with toe pads climbs the glass (exitGlass). The
+        // nearest way out wins; a climb counts a little further than a hop.)
         let best = Infinity;
+        a.exit = null;
         for (let k = 0; k < 16; k++) {
           const ang = (k / 16) * TAU, ux = Math.sin(ang), uz = Math.cos(ang);
           for (let r = 1; r < 30 && r < best; r++) {
             const x = a.pos.x + ux * r, z = a.pos.z + uz * r;
-            if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2) break;
+            if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2) {
+              const ex = this.exitGlass(a, sp, x, z, s), e = ex?.path[ex.path.length - 1];
+              if (ex && r + ex.cost < best && !a.badShore?.some(([bx, bz]) => Math.hypot(e.x - bx, e.z - bz) < 2)) { best = r + ex.cost; a.shore = V(ex.path[0].x, 0, ex.path[0].z); a.shoreLand = null; a.exit = ex; }
+              break;
+            }
             if (W.water.surfaceAt(x, z, 0.3) !== -Infinity) { if (this.avoid && this.occ.solidAt(x, a.pos.y, z)) break; continue; }   // (a rock in the way; one out of the water is a bank)
-            const land = a.badShore?.some(([bx, bz]) => Math.hypot(x - bx, z - bz) < 2) ? null : this.shoreLand(a, sp, x, z, ang);
-            if (land) { best = r; a.shore = V(x, 0, z); a.shoreLand = land; }
+            if (a.badShore?.some(([bx, bz]) => Math.hypot(x - bx, z - bz) < 2)) break;
+            const land = this.shoreLand(a, sp, x, z, ang);
+            if (land) { best = r; a.shore = V(x, 0, z); a.shoreLand = land; a.exit = null; break; }
+            const ex = this.exitClimb(a, sp, x, z, ang, s);
+            if (ex && r + 1 < best) { best = r + 1; a.shore = V(x, 0, z); a.shoreLand = null; a.exit = ex; }
             break;
           }
         }
@@ -2813,16 +2874,12 @@ export class Animals {
         a.floating = true;
       }
     }
-    // The stroke: how urgent it is sets the beat (1.7 s a stroke floating, 1 s flat out).
-    const urgent = a.floating ? 0.1 : toad ? 0.5 : 0.9;
-    const before = a.kick ?? Math.random();
-    a.kick = before + dt / kickPeriod(urgent);
-    if (Math.floor(a.kick) !== Math.floor(before)) W.fx?.addDrop(a.pos.x, a.pos.z, -1.2, 0.5);   // the legs drive: a ripple
+    // The stroke (util/gait.js, the species' SWIM profile): how urgent it is sets the beat, bursts of kicks, surge and glide.
+    const v = this.swimClock(a, sp, a.floating ? 0.1 : toad ? 0.5 : 0.95, dt);
     if (!a.shore) return;
     const dir = V(a.shore.x - a.pos.x, 0, a.shore.z - a.pos.z);
     const dist = dir.length();
     this.turnTo(a, sp, Math.atan2(dir.x, dir.z), dt, 3, false);
-    const v = sp.speed * (a.floating ? 1.2 : toad ? 4.6 : 5.4) * kickSpeed(a.kick);   // a stroke's average comes to about 2 cm/s for a dart frog
     const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt;
     if (this.avoid && this.occ.solidAt(nx, a.pos.y, nz)) {
       if (!a.roam) { (a.badShore ??= []).push([a.shore.x, a.shore.z]); if (a.badShore.length > 8) a.badShore.shift(); }   // (a rock on the way)
@@ -2830,6 +2887,12 @@ export class Animals {
     } else if (Math.abs(nx) < TANK.w / 2 - 1 && Math.abs(nz) < TANK.d / 2 - 1) { a.pos.x = nx; a.pos.z = nz; }
     if (!a.shore) return;
     if (a.roam) { if (dist < 1) { a.shore = null; a.timer = 0; } return; }
+    // At the foot of its climb (its snout at the bank or the glass): it takes hold and climbs out (perchFrog, phase 'up').
+    if (a.exit) {
+      const f = a.exit.path[0];
+      if (Math.hypot(f.x - a.pos.x, f.z - a.pos.z) < (a.exit.kind === 'glass' ? 0.8 : this.bodyBox(a, sp).z1 + 0.8)) this.startExit(a, sp);
+      return;
+    }
     // Close to the bank: climb out with a hop. A clean one if it can (hopCheck: the arc clears the bank, it lands clear of stems, the
     // relief and a cliff), at the spot it swam for or one beside it; else it scrambles up onto the bank there (an arc over the lip),
     // unless the relief or a plant's stems would push it straight back off (hopping up anywhere dry put a frog on a ledge by the
@@ -2854,6 +2917,16 @@ export class Animals {
     }
   }
 
+  // The stroke clock of a frog in the water (util/gait.js swimStep with its SWIM profile and body length): advances its kick (a.kick,
+  // the phase the rig draws), a ripple as the legs drive, and returns its speed in cm/s.
+  swimClock(a, sp, urgency, dt) {
+    const st = (a.sw ??= swimState()), k0 = st.kicks, b = this.bodyOf(a.sp);
+    const v = swimStep(st, swimProfile(a.sp), { urgency, floating: !!a.floating, bodyLen: b ? 2 * b.hlen * drawScale(a, sp) : 3 * sp.size }, dt);
+    a.kick = st.phase;
+    if (st.kicks !== k0) this.world.fx?.addDrop(a.pos.x, a.pos.z, -1.2, 0.5);
+    return v;
+  }
+
   // Where a swimming frog can climb out at the bank it meets at (x, z), swimming along heading `ang`: there or up to 3 cm inland, a
   // place it can sit (a slope it can stand on, clear of stems, as far out from the background as the relief keeps a body) no higher
   // above it than it can hop. The bank's own face may be steep where it is low (a step up out of the water, a root, the edge of a
@@ -2868,6 +2941,82 @@ export class Animals {
         && this.wallNeed(a, px, gs, zs, ang, false) <= 0.05 && this.sitFits(a, sp, px, gs, zs, ang, false)) return V(px, gs, zs);
     }
     return null;
+  }
+
+  // A frog in the water climbs out where the bank is too steep to hop onto: up the face from the waterline, along heading `ang` from
+  // the first dry ground at (x, z), to the first place within 12 cm it can sit (as shoreLand: a slope it can stand on, clear of stems,
+  // the relief and a fall). Soil, moss, rock (a stamped stone is ground), a root: a frog with toe pads grips any face, the toads
+  // (PADLESS) faces up to about 70 degrees. Not through wood or a piece standing there, nor more than 15 cm up. `s`: the water's
+  // surface where it swims. { path, kind: 'bank' } (the climb's points, from the waterline up) or null.
+  exitClimb(a, sp, x, z, ang, s) {
+    const W = this.world, T = W.terrain, ux = Math.sin(ang), uz = Math.cos(ang), grip = PADLESS.has(a.sp) ? 0.34 : 0;
+    const x0 = x - ux * 0.5, z0 = z - uz * 0.5, path = [V(x0, Math.max(T.heightAt(x0, z0), s - 0.35 * sp.size), z0)];
+    for (let d = 0; d <= 12; d += 0.5) {
+      const px = x + ux * d, pz = z + uz * d;
+      if (Math.abs(px) > TANK.w / 2 - 1.5 || Math.abs(pz) > TANK.d / 2 - 1.5) return null;
+      const gy = T.heightAt(px, pz);
+      if (gy - s > 15) return null;
+      if (W.water.surfaceAt(px, pz, 0.3) !== -Infinity) { if (d > 1.5) return null; continue; }   // (water again beyond a thin spit)
+      if (T.normalAt(px, pz).y < grip) return null;
+      if (this.avoid && this.occ.count && this.occ.solidAt(px, gy + 0.5, pz)) return null;
+      if (this.wallNeed(a, px, gy, pz, ang, false) > 0.05) return null;
+      path.push(V(px, gy, pz));
+      if (d >= 0.5 && T.normalAt(px, pz).y > 0.6 && this.sitFits(a, sp, px, gy, pz, ang) && !this.stemDepth(a, px, gy, pz, ang)
+        && !(this.avoid && this.occ.count && this.occ.solidAt(px, gy + 1.2, pz)) && !W.water.nearestFall(V(px, gy, pz), 1.5)) return { path, kind: 'bank' };
+    }
+    return null;
+  }
+
+  // A frog with toe pads that swims to the glass climbs out up it: up out of the water, along the pane to where land meets the glass
+  // (the nearest within 30 cm), and down onto it. (x, z): where its way meets the glass; `s`: the water's surface. The front and the
+  // side panes (the back is the background). { path, glassN, glassTo, cost, kind: 'glass' } or null.
+  exitGlass(a, sp, x, z, s) {
+    if (PADLESS.has(a.sp)) return null;
+    const W = this.world, T = W.terrain, hx = TANK.w / 2, hz = TANK.d / 2;
+    let N, along;
+    if (z > hz - 2.5 && Math.abs(x) < hx - 2) { N = GLASS_N.front; along = (o) => [x + o, hz - 0.7]; }
+    else if (Math.abs(x) > hx - 2.5 && z > -hz + 4) { N = x < 0 ? GLASS_N.left : GLASS_N.right; along = (o) => [Math.sign(x) * (hx - 0.7), z + o]; }
+    else return null;
+    const bb = this.bodyBox(a, sp), up = Math.max(1.2, bb.z1), yaw = clingYaw(N);
+    // the land: the nearest stretch of the pane, either way, with ground it can sit on just inside the glass
+    for (let o = 0; o <= 30; o += 1) for (const sg of o ? [1, -1] : [1]) {
+      const [gx, gz] = along(o * sg), fx = gx + N.x * 1.6, fz = gz + N.z * 1.6;
+      if (Math.abs(fx) > hx - 1.5 || Math.abs(fz) > hz - 1.5) continue;
+      if (W.water.surfaceAt(fx, fz, 0.3) !== -Infinity) continue;
+      const fy = T.heightAt(fx, fz);
+      if (T.normalAt(fx, fz).y < 0.6 || !this.sitFits(a, sp, fx, fy, fz, yaw + Math.PI) || this.stemDepth(a, fx, fy, fz, yaw + Math.PI)) continue;
+      if (this.wallNeed(a, fx, fy, fz, yaw + Math.PI, false) > 0.05 || (this.avoid && this.occ.count && this.occ.solidAt(fx, fy + 0.5, fz))) continue;
+      // along the glass clear of the ground, the relief and the pieces standing against it
+      const [sx, sz] = along(0);
+      let top = s + up;
+      for (let t = 0; t <= 1; t += 0.1) top = Math.max(top, T.heightAt(sx + (gx - sx) * t + N.x * 0.3, sz + (gz - sz) * t + N.z * 0.3) + up);
+      if (top > s + 14) continue;
+      let clear = true;
+      for (let t = 0; clear && t <= 1; t += 0.1) {
+        const px = sx + (gx - sx) * t, pz = sz + (gz - sz) * t;
+        clear = !(this.avoid && this.occ.count && this.occ.solidAt(px + N.x * 0.6, top, pz + N.z * 0.6)) && pz - 0.8 > W.wall.zAt(px, top) + 0.3;
+      }
+      if (!clear) continue;
+      // (it swims up until its snout touches the pane, then goes up it belly to the glass)
+      const ground = Math.max(T.heightAt(gx + N.x * 0.3, gz + N.z * 0.3), s), r0 = bb.z1 + 0.35;
+      const path = [V(sx + N.x * r0, s - 0.35 * sp.size, sz + N.z * r0), V(sx, top, sz), V(gx, top, gz), V(gx, ground + 0.6, gz), V(fx, fy, fz)];
+      return { path, glassN: N, glassTo: 3, cost: o * 0.4, kind: 'glass' };
+    }
+    return null;
+  }
+
+  // Takes hold at the foot of the way out it swam for (a.exit) and climbs out along it (perchFrog, phase 'up', flagged `exit`).
+  startExit(a, sp) {
+    const ex = a.exit;
+    a.perch = { ph: 'up', exit: ex.kind, i: 1, path: [a.pos.clone(), ...ex.path], top: ex.path[ex.path.length - 1], base: a.pos.clone(),
+      glassN: ex.glassN ?? null, glassYaw: ex.glassN ? clingYaw(ex.glassN) : 0, glassTo: ex.glassTo != null ? ex.glassTo + 1 : -1, plant: null, piece: null, near: Infinity, stuck: 0 };
+    a.swimming = false; a.floating = false; a.shore = null; a.shoreLand = null; a.exit = null; a.fs = null; a.badShore = null;
+  }
+
+  // The heading on a pane with normal N that points the frog along (dx, dy, dz) (as Animals.draw turns UP onto N, then the heading).
+  glassYawTo(N, dx, dy, dz) {
+    surfaceFrame(N.x, N.y, N.z, 0, _gf);
+    return Math.atan2(dx * _gf[3] + dy * _gf[4] + dz * _gf[5], dx * _gf[0] + dy * _gf[1] + dz * _gf[2]);
   }
 
   // Room to sit at (x, y, z) facing `yaw`: at its snout, tail and flanks no bank higher than its body (a slope it can stand on, not
@@ -2986,7 +3135,9 @@ export class Animals {
   // Called by the sim when a hunter's meal is due. True: the animal will really hunt (it eats when it strikes).
   order(a, pid) {
     const sp = SPECIES[a.sp];
-    if (!LIVE.has(sp.kind) || a.order || a.dead || a.st || a.stranded || !this.avoid) return false;
+    // (already hunting or striking: that hunt is the meal; false made the sim hand it a second one at once, from anywhere)
+    if (LIVE.has(sp.kind) && (a.order || a.st) && !a.dead && this.avoid) return true;
+    if (!LIVE.has(sp.kind) || a.dead || a.stranded || !this.avoid) return false;
     const p = this.nearestPrey(a, sp, pid, 40);
     if (!p) return false;
     a.order = this.newOrder(pid, p);
@@ -3001,6 +3152,7 @@ export class Animals {
   }
 
   consume(a, sp, pid, p) {
+    if (p.dead || p.eaten) return;           // gone already (eaten off its tongue by the sim's meal): no second meal of one prey
     if (isItem(pid)) p.eaten = true; else this.remove(p, `eaten by a ${one(a.sp)}`);
     a.hunger = Math.max(0, a.hunger - (FOOD_VALUE[pid] ?? 0.1));
     if (Math.random() < 0.3) this.world.log(`A ${one(a.sp)} ${isItem(pid) ? 'took ' + (pid === 'bloodworm' ? 'a bloodworm' : pid === 'pellet' ? 'a pellet' : 'a flake') : 'caught a ' + one(pid)}.`, 'eat');
@@ -3071,6 +3223,15 @@ export class Animals {
     this.striking.add(a);
   }
 
+  // A strike cut short (the animal was moved: unstuck, relocated): the prey it held is let go (a prey left `taken` could never be
+  // hunted by anyone else again) and the tongue is put away.
+  dropStrike(a) {
+    const p = a.st?.prey;
+    if (p && p.takenBy === a) { p.taken = false; p.takenBy = null; }
+    a.st = null; a.lunge = 0;
+    this.striking?.delete(a);
+  }
+
   endStrike(a, sp, ok) {
     a.st = null; a.lunge = 0; a.crouch = 0;
     this.striking.delete(a);
@@ -3089,7 +3250,7 @@ export class Animals {
       const st = a.st;
       if (!st || a.dead) { a.lunge = 0; a.st = null; this.striking.delete(a); continue; }
       const sp = SPECIES[a.sp], p = st.prey, tongue = st.kind === 'tongue';
-      if (st.ph !== 'gulp' && !st.got && !this.validPrey(p, a)) { this.endStrike(a, sp, false); continue; }
+      if (st.ph !== 'gulp' && (st.got ? p.dead || p.eaten : !this.validPrey(p, a))) { this.endStrike(a, sp, false); continue; }
       st.t += dtS;
       switch (st.ph) {
         case 'aim': {
@@ -3427,7 +3588,12 @@ export class Animals {
       if (len < 1e-4) continue;
       const cap = Math.max(0.4, sp.speed * dt * 3);
       const f = str * Math.min(1, cap / len);
-      this.nudge(a, sp, g, px * f, py * f, pz * f);
+      // Blocked that way (the glass, a bank, the water's edge, a root): it slides round the other body instead. Two frogs on one
+      // sitting spot by the glass, or two newts in one hide, stayed inside each other for a minute.
+      if (!this.nudge(a, sp, g, px * f, py * f, pz * f) && g !== 'wall') {
+        const s = a.id % 2 ? 1 : -1;
+        if (!this.nudge(a, sp, g, -pz * f * s, py * f, px * f * s)) this.nudge(a, sp, g, pz * f * s, py * f, -px * f * s);
+      }
     }
   }
 
@@ -3448,14 +3614,18 @@ export class Animals {
           if (!(L - fl >= 0.9 * sp.size) || this.occ.solidAt(x, a.pos.y, z)) continue;
           a.pos.x = x; a.pos.z = z;
         } else {
-          if (!this.okFor('water', x, z)) continue;
+          if (!this.okFor('water', x, z, 5, 0, Math.max(0.2, a.bh ?? 0.5))) continue;
           a.pos.x = x; a.pos.z = z; a.pos.y = fl;
         }
         return true;
       }
       if (g === 'land') {
-        if (!this.okFor(this.mediumOf(sp), x, z) || (CORE_WALKERS.has(sp.kind) && sp.kind !== 'gecko' && this.cliffAt(x, z) && !this.cliffAt(a.pos.x, a.pos.z))) continue;
-        a.pos.x = x; a.pos.z = z; a.pos.y = T.heightAt(x, z);
+        if (!this.okFor(this.mediumOf(sp), x, z, 5, 0, Math.max(0.2, a.bh ?? 0.5)) || (CORE_WALKERS.has(sp.kind) && sp.kind !== 'gecko' && this.cliffAt(x, z) && !this.cliffAt(a.pos.x, a.pos.z))) continue;
+        // Never into a piece (then relocated: a teleport), and one standing on wood or stone above the ground keeps its height
+        // while it still has the piece under it, instead of being dropped to the ground below in one step.
+        const gy = T.heightAt(x, z), up = a.pos.y > gy + 1;
+        if (up && (!this.occ.solidAt(x, a.pos.y - 0.5, z) || this.occ.solidAt(x, a.pos.y + 0.5, z))) continue;
+        a.pos.x = x; a.pos.z = z; if (!up) a.pos.y = gy;
         return true;
       }
       if (g === 'air') {
@@ -3714,7 +3884,9 @@ export class Animals {
       if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, medium, maxD);
       else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - x, it.face.z - z), dt, 4); }
       const gy = T.heightAt(a.pos.x, a.pos.z);
-      a.pos.y = a.pos.y > gy + 0.05 ? Math.max(gy, lerp(a.pos.y, gy, Math.min(1, dt * 6))) : gy;
+      const ny = a.pos.y > gy + 0.05 ? Math.max(gy, lerp(a.pos.y, gy, Math.min(1, dt * 6))) : gy;
+      // (one that stops swimming over sunken wood settles on it, not into it: it was relocated, swam back, and so on, many times a second)
+      if (!(this.avoid && this.occ.count && ny < a.pos.y && this.occ.solidAt(a.pos.x, ny + 0.5, a.pos.z) && !this.occ.solidAt(a.pos.x, a.pos.y + 0.5, a.pos.z))) a.pos.y = ny;
       a.normal = T.normalAt(a.pos.x, a.pos.z);
     }
     a.hmoved = Math.hypot(a.pos.x - px, a.pos.y - py, a.pos.z - pz);
@@ -3736,7 +3908,10 @@ export class Animals {
     if (fwd > 0.95) { ux = dx / dist; uz = dz / dist; }
     // (An animal standing where it is not allowed, in the margin by the glass, may step toward the middle.)
     const here = this.okFor(medium, x, z, maxD, a.rad);
-    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02)) && !this.walkBlocked(a, nx, nz);
+    // (the way out toward the middle never leads into a piece: a newt on a pool's bottom hid in under the wood, was relocated, and
+    // walked back in, several times a second)
+    const solid = (nx, nz) => this.avoid && this.occ.count && this.occ.solidAt(nx, this.world.terrain.heightAt(nx, nz) + 0.5, nz);
+    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz);
     const probe = Math.max(step, 0.15);       // (the first step of a start has no length yet)
     if (!free(x + ux * probe, z + uz * probe)) {
       const sd = a.side ?? 1, base = Math.atan2(ux, uz);
@@ -4079,8 +4254,11 @@ export class Animals {
         // A frog asleep on its perch (sitting on a leaf, wood or the glass) draws its sleeping-pose model where it has one
         // (legs folded tight, hands under the chin: made from its skeleton, tools/rig/skeleton.mjs).
         const sleepMesh = frogish && !a.swimming && !a.hop && a.perch?.ph === 'sit' ? this.meshFor(id, null, 'sleep') : null;
-        const poseMesh = (frogish && a.swimming && !a.hop ? this.meshFor(id, null, 'swim') : null) ?? sleepMesh;
-        const sw = frogish && a.swimming && !a.hop ? frogSwimPose(frac(a.kick ?? 0), { floating: a.floating ? 1 : 0, level: poseMesh ? 0 : an.swimLevel ?? 0.28, t: this.t + a.phase }) : null;
+        // A frog in the water is drawn by its own body, legs driven through the stroke (util/gait.js swimPose: the skeleton near
+        // the camera, the vertex rig far); the static swimming-pose models (<id>.swim.glb) are no longer drawn: a frozen pose sliding
+        // through the water read as floating and twitching.
+        const poseMesh = sleepMesh;
+        const sw = frogish && a.swimming && !a.hop ? swimPose(a.sw ??= swimState(), swimProfile(id), { floating: !!a.floating, t: this.t + a.phase }) : null;
         if (a.wallMode || (a.perch?.glassN && a.perch.ph !== 'go')) {
           // On the background (or a reed frog on the glass): belly to the wall, heading within its plane.
           q.setFromUnitVectors(UP, a.normal ?? UP);
@@ -4097,8 +4275,9 @@ export class Animals {
           e.set(sw ? sw.pitch : a.pitch ?? 0, a.yaw, sw ? sw.roll : 0, 'YXZ');
           q.setFromEuler(e);
         }
-        // A gecko or a perching frog: its frame turns smoothly while it climbs, gets on and gets off (steadyFrame).
-        if (sp.kind === 'gecko' || sp.perch) this.steadyFrame(a, q, dt / this.tf, !!(a.wallMode || a.onWall || (a.perch && a.perch.ph !== 'go')));
+        // A gecko or a frog on a climb (a perching frog, one climbing out of the water): its frame turns smoothly while it climbs, gets
+        // on and gets off (steadyFrame; off a climb it is drawn as it stands).
+        if (sp.kind === 'gecko' || frogish) this.steadyFrame(a, q, dt / this.tf, !!(a.wallMode || a.onWall || (a.perch && a.perch.ph !== 'go')));
         const rel = Math.min(1.5, (a.speedNow ?? 0) / Math.max(0.1, sp.speed));
         const walker = sp.kind === 'newt' || sp.kind === 'axolotl' || sp.kind === 'gecko' || sp.kind === 'skink';
         // Undulation: strong when swimming; walking salamanders, newts and geckos bend sideways in step with the legs.
@@ -4264,11 +4443,12 @@ export class Animals {
     this.food = [];
     this.tails = [];
     this.shells = []; this.shrimpCalls = [];
+    this.striking.clear();          // (a strike in flight would go on for an animal no longer in the tank: load, restart)
     this.draw();
   }
 
   serialize() {
-    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK']) }));
+    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK', 'male']) }));
   }
 }
 

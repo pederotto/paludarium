@@ -22,7 +22,7 @@ import { wet, U } from './shaders.js';
 import { TANK } from '../sim/tank.js';
 import { pumpCurve } from '../sim/hydro.js';
 import { filterEff, filterOf } from '../content/equipment.js';
-import { filterFlow, pumpHose, hoseSpeed, CABINET_DROP, FILTER_TOP } from '../sim/filterflow.js';
+import { filterFlow, pumpHose, hoseSpeed, CABINET_DROP, FILTER_TOP, poolCurrent } from '../sim/filterflow.js';
 
 // The moving water: bands BAND cm apart that travel at the water's speed. The clock wraps every WRAP s and every speed is
 // rounded to a whole number of bands per wrap (0.1 cm/s), so the wrap is seamless and the phase stays small.
@@ -193,6 +193,7 @@ export class Plumbing {
   update(dt) {
     const W = this.world, H = W.water.hydro;
     const poolOk = H.resVol > 2 && H.level > 0.5;
+    if (poolOk) this.stirSurface(W, H, dt);
     const build = this.layer !== 'surface';
     const vis = (this.show || build) && poolOk && !(this.hidden?.());
     this.group.visible = vis;
@@ -319,6 +320,7 @@ export class Plumbing {
     const zb = (x) => back(x, level) + 2.5;
     const corners = [[-hw + 4, zb(-hw + 4)], [hw - 4, zb(hw - 4)], [px - 9, pz - 2], [px + 9, pz - 2], [px, pz + 8]];
     const ff = this.flow();
+    W.water.hydro.ports = { lph: E.filter ? ff.lph : 0 };   // where the filter pulls and pushes (sim/filterflow.js poolCurrent)
     const st = Object.fromEntries(ff.stages.map((s) => [s.id, s.clog]));
     const hoseOf = Object.fromEntries(ff.hoses.map((h) => [h.role, h]));
     const line = (a, b, n) => Array.from({ length: n + 1 }, (_, k) => a.clone().lerp(b, k / n));
@@ -348,6 +350,7 @@ export class Plumbing {
     // through the foam sleeve over it) and falling down it to the drain hose (the bands run down it).
     const overflow = (x, z, foam, h) => {
       const g = T.heightAt(x, z), top = Math.max(g + 1.5, level - 0.3), r = rOf(h.od) + 0.1;
+      W.water.hydro.ports.intake = { x, y: top, z, r: r + 0.3 };
       S.tube(line(V(x, top - 1.2, z), V(x, -0.8, z), Math.max(2, Math.ceil(top / 0.8))), r, PIPE, 10, vq(h.v), 2);
       bulkhead(x, z, r);
       if (foam) { S.geo(new THREE.CylinderGeometry(r + 1.1, r + 1.1, 3.4, 14), cylM(x, top - 1.3, z), FOAM.clone().lerp(DIRT, (st.mech ?? 0) * 0.7)); return; }
@@ -365,6 +368,7 @@ export class Plumbing {
       const ang = Math.atan2(dir.x, dir.z);
       S.geo(new THREE.CylinderGeometry(r * 0.7, r, 1.4, 10), new THREE.Matrix4().compose(V(x, y, z).addScaledVector(dir, 0.6), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, ang, 0, 'YXZ')), V(1, 1, 1)), PIPE);
       jet(V(x, y, z).addScaledVector(dir, 1.3), dir.clone().setY(-0.04), r * 0.7, h.v / 0.49);
+      W.water.hydro.ports.ret = { x: x + dir.x * 1.3, y, z: z + dir.z * 1.3, dx: dir.x, dz: dir.z, D: 0.07 * h.id };
     };
     // Where the two bulkheads go: the overflow in the pool away from the main pump, the return a hand's width from it; the
     // filter stands under them, `half` (its half width and depth) inside the tank's outline.
@@ -506,6 +510,26 @@ export class Plumbing {
         }
         break;
       }
+    }
+  }
+
+  // The filter on the pool's surface (sim/filterflow.js poolCurrent): the return's jet roughens the water where it reaches the
+  // surface (ripple drops strung out downstream, as many and as strong as the jet), and the overflow's crown draws a dimple.
+  // A few drops a second into the existing ripple field (render/waterfx.js addDrop): nothing new per fragment.
+  stirSurface(W, H, dt) {
+    const P = H.ports, q = (P?.lph ?? 0) / 3.6;
+    if (!W.fx || !(q > 0) || !(dt > 0)) return;
+    const c = this._c ??= { x: 0, y: 0, z: 0 };
+    this.rip = Math.min(3, (this.rip ?? 0) + dt * Math.min(30, q / 6));
+    while (this.rip >= 1) {
+      this.rip -= 1;
+      if (P.ret) {
+        const j = P.ret, s = 2 + Math.random() * 18, w = (Math.random() - 0.5) * 0.2 * s, x = j.x + j.dx * s - j.dz * w, z = j.z + j.dz * s + j.dx * w;
+        poolCurrent(H, x, H.level - 0.3, z, c);
+        const u = Math.hypot(c.x, c.z);
+        if (u > 1 && W.water.inMainPool(x, z)) W.fx.addDrop(x, z, -Math.min(3, u * 0.06), 0.5 + s * 0.04);
+      }
+      if (P.intake && Math.random() < 0.3) W.fx.addDrop(P.intake.x, P.intake.z, Math.min(2, q / 60), P.intake.r + 0.6);
     }
   }
 

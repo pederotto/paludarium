@@ -8,8 +8,12 @@
   `out_dir` in the scratchpad, list each `drops/<id>/parts` the same way for every manifest with
   `status: "waiting"`, run `node tools/drop-pull.mjs <out_dir>` (joins the parts, checks size and
   SHA-256, writes into `art-src/drop/`; exits 1 on a bad file), then for each file that passed
-  delete its part documents and `update` its manifest to `status: "pulled"`. Then process as below.
-  Never delete parts of a file that failed its check. For each file: decide what it
+  `update` its manifest to `{ status: "pulled", pulledSha256: <the sha256 the tool printed>, pulledBytes: <bytes>,
+  pulledAt: <ISO time> }` (one write per file, a `batch` for several). Do not delete parts yourself: the Drop page
+  deletes a file's parts by itself once its manifest says pulled with a matching sha-256 (live while the page is
+  open, otherwise the next time it is opened) and sets `partsLeft: 0`. Only if the store is full and the page
+  cannot be opened, delete the parts with a `batch`. Then process as below.
+  Never mark or delete a file that failed its check. For each file: decide what it
   is, optimise it into `public/assets/` (creatures: `npm run import-creatures`; models and
   textures: gltf-transform and sharp as in `tools/import-polyhaven.mjs` and
   `tools/import-seedthree.cjs`), move the original to `art-src/raw/`, add source and licence to

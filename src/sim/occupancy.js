@@ -14,6 +14,9 @@ import { TANK } from './tank.js';
 export const CELL = 1.5;
 
 const A = new THREE.Vector3(), B = new THREE.Vector3(), Cc = new THREE.Vector3(), P = new THREE.Vector3();
+const SHELL = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+const RAY = new THREE.Raycaster(); RAY.firstHitOnly = false;
+const DIRS = [[0, 1, 0], [0.6, 0.2, 0.77], [-0.7, 0.3, -0.65], [0.1, -0.2, 0.97], [-0.9, -0.1, 0.4]].map(([x, y, z]) => new THREE.Vector3(x, y, z).normalize());
 
 export class Occupancy {
   constructor() {
@@ -79,10 +82,44 @@ export class Occupancy {
     else { this.data.fill(0); this.count = 0; }
     this.version = decor.occupancyVersion;
     this.sig = Occupancy.signature(decor);
+    this.shells = [];
     for (const piece of decor.pieces) {
       if (pieceDefs?.[piece.type]?.stamp) continue;       // stamped pieces are already part of the height field
       this.addPiece(piece);
+      const g = piece.mesh.geometry;
+      if (g.boundsTree) {
+        const proxy = new THREE.Mesh(g, SHELL);
+        proxy.matrixAutoUpdate = false; proxy.matrixWorldAutoUpdate = false;
+        proxy.matrixWorld.copy(piece.mesh.matrixWorld);
+        this.shells.push({ proxy, box: new THREE.Box3().setFromObject(piece.mesh) });
+      } else this.shells.push({ proxy: null, box: new THREE.Box3().setFromObject(piece.mesh) });
     }
+  }
+
+  // Really inside a piece, not only in a solid cell: the cells are 1.5 cm and the shells are thickened by one, so a newt hiding under
+  // a root or an isopod walking along it is "in" a solid cell while its body is outside the wood (it was moved out every tick, and
+  // back to its hide by its brain: a body flickering 20-60 cm to and fro). Odd crossings of the shell in at least three of five
+  // directions (a piece without a BVH: the cell decides).
+  // A body standing at (x, y0, z), h tall: inside at its belly (0.5 cm up, a small one at its middle), its middle or its back (a frog
+  // under a root lying 0.6 cm off the ground has its belly clear and its back in the wood; a fruit fly is all below 0.5 cm).
+  insideBody(x, y0, z, h = 0.5) {
+    return this.inside(x, y0 + Math.min(0.5, h * 0.5), z) || (h > 1 && this.inside(x, y0 + h * 0.5, z)) || (h > 0.6 && this.inside(x, y0 + h * 0.8, z));
+  }
+
+  inside(x, y, z) {
+    if (!this.solidAt(x, y, z)) return false;
+    if (!this.shells) return true;
+    for (const s of this.shells) {
+      if (!s.box.containsPoint(P.set(x, y, z))) continue;
+      if (!s.proxy) return true;
+      let odd = 0;
+      for (let k = 0; k < DIRS.length && odd < 3 && odd + DIRS.length - k >= 3; k++) {
+        RAY.set(P.set(x, y, z), DIRS[k]); RAY.near = 0; RAY.far = 400;
+        if (RAY.intersectObject(s.proxy, false).length % 2 === 1) odd++;
+      }
+      if (odd >= 3) return true;
+    }
+    return false;
   }
 
   addPiece(piece) {

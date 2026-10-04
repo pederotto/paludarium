@@ -120,7 +120,7 @@ const POSES = {
   stand: () => ({ calm: 1 }),
   swim: (t) => (sp.kind === 'frog' || sp.kind === 'toad'
     ? { ...frogSwimPose(t, { level: sp.anim?.level ?? 0.28 }), phase: 0, amp: 0, gait: 0 }
-    : { ...salamanderSwimPose(0.6), amp: (sp.anim?.amp ?? 0.6) * 2.5, phase: -t * TAU, gait: 0 }),
+    : { ...salamanderSwimPose(0.6), amp: (sp.anim?.amp ?? 0.6) * 1.0, phase: t * TAU, gait: 0 }),     // (as the game: amp x (0.6 + 0.6 x 0.6), the wave travelling back)
   walk: (t) => ({ calm: 0, gait: t * TAU, phase: t * TAU, amp: (sp.anim?.amp ?? 0), hop: 0, pose: 0, hy: sp.anim?.rig2 ? 0.2 * Math.sin(t * TAU + 1) : 0 }),       // (hy: the head swings against the body wave, as Animals.draw does)
   hop: (t) => ({ calm: 1, hop: hopLegs(t), pose: 0, gait: 0, y: 4 * 1.2 * t * (1 - t), pitch: -0.35 * Math.cos(Math.PI * t) }),   // the game's leg timing (util/gait.js hopLegs) on a 1.2 cm arc
   claw: (t) => ({ calm: 1, pose: 1, phase: t * TAU * 3, gait: 0 }),

@@ -18,6 +18,7 @@ import { Ambience } from './engine/audio.js';
 import { tickTimelapse } from './app/timelapse.js';
 import * as Kids from './app/kids.js';
 import * as Modes from './app/modes-runtime.js';
+import * as Veil from './ui/Veil.jsx';
 
 const q = new URLSearchParams(location.search);
 mark('main');
@@ -29,7 +30,15 @@ for (const k of ['error', 'warn']) { const o = console[k]; console[k] = (...a) =
 window.addEventListener('error', (e) => window.__errs.push('uncaught: ' + e.message));
 
 const loading = document.getElementById('loading');
+// The loading veil covers the page from boot, and every tank start or switch, until the scene is whole (ui/Veil.jsx).
+Veil.install(loading);
+const releaseBoot = Veil.hold('Starting the graphics…');
 const game = new Game(document.getElementById('view'), q);
+Veil.attach(game);
+// Any tank change (the title's tank, a career's new tank, Kids' home) goes under the veil, from unload to the new tank.
+let releaseTank = null;
+game.events.on('unload', () => { releaseTank ??= Veil.hold('Building the tank…'); });
+game.events.on('tank', () => { releaseTank?.(); releaseTank = null; });
 window.game = game;
 ctx.game = game;
 try {
@@ -52,8 +61,10 @@ mq.addEventListener('change', (e) => { S.compact.value = e.matches; S.right.valu
 
 // The title screen shows the starter tank slowly turning behind the menu.
 mark('showcase-start');
+Veil.setStage('Loading models and textures…');
 await game.loadTank('standard', { layout: 'starter', showcase: true });
 mark('showcase-end');
+Veil.setStage('Drawing the tank');
 ctx.tools = window.__tools = new ToolController(game);
 const director = ctx.director = window.__director = new Director(game);
 game.rig.startOrbit(0.04);
@@ -62,8 +73,9 @@ game.rig.view('hero', false);
 async function busy(text, fn) {
   mark('start');
   S.busy.value = { text };
+  const release = Veil.hold(text);
   await new Promise((r) => setTimeout(r, 30));
-  try { await fn(); await game.settle(); } catch (e) { console.error(e); toast('Could not start: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; mark('started'); }
+  try { await fn(); await game.settle(); } catch (e) { console.error(e); toast('Could not start: ' + (e?.message ?? e), 'bad'); } finally { S.busy.value = null; release(); mark('started'); }
 }
 
 ctx.start = {
@@ -107,5 +119,6 @@ window.__S = S; window.__ctx = ctx; window.__setMode = Modes.setMode;   // debug
 mark('ui');
 game.start();
 await game.settle();
-loading.classList.add('gone');
+releaseBoot();
+await Veil.lifted();
 mark('veil');
