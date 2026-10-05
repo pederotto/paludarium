@@ -12,7 +12,7 @@
 //      axes head -> tail and radius `r`, as the frog's manifest entry) and the measures in the mesh's extras. The manifest entry
 //      (CONTRACTS.md "Lizard bone list") is written when the game draws the model with its bones (block B), not here.
 //
-//   node tools/bake-lizard.mjs [gecko] [--no-fans]        (--no-fans: the 21-bone list, digits bound to the hand and foot)
+//   node tools/bake-lizard.mjs [gecko|skink] [--no-fans]        (--no-fans: the 21-bone list, digits bound to the hand and foot)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,6 +25,8 @@ import { lizardBones, bindLizard, straightenTail, nearestBones, rigAttributes, s
 const OUT = 'public/assets/creatures';
 const SPECIES = {
   gecko: async () => { const m = await import('./rig/lizard-gecko.mjs'); return { cfg: m.GECKO, measure: m.measureGecko, readRaw: m.readRaw }; },
+  // (the skink's readRaw levels its sloping tail in the side view first: tools/rig/lizard-skink.mjs; nothing else differs here)
+  skink: async () => { const m = await import('./rig/lizard-skink.mjs'); return { cfg: m.SKINK, measure: m.measureSkink, readRaw: m.readRaw }; },
 };
 const args = process.argv.slice(2), fans = !args.includes('--no-fans'), ids = args.filter((a) => !a.startsWith('--'));
 await MeshoptSimplifier.ready; await MeshoptEncoder.ready; await MeshoptDecoder.ready;
