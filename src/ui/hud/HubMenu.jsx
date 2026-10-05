@@ -98,7 +98,7 @@ function CameraItems() {
       <div class="hm-chips" role="group" aria-label="Time-lapse">
         {[7, 30, 90].map((d) => <button key={d} class="chip" title={`Time-lapse ${d} days`} data-hub="camera" onClick={go(() => startTimelapse(d))}>{d} days</button>)}
       </div>
-      {pl ? <Item hub="camera" icon="cog" label="Show equipment" desc="Draw the pump, hoses and overflow" on={showEq} pressed={showEq} onClick={() => { pl.show = !showEq; bump((n) => n + 1); }} /> : null}
+      {pl ? <Item hub="camera" icon="cog" label="Show equipment" desc="Draw the pump, filter and overflow in the tank (the hoses stay hidden)" on={showEq} pressed={showEq} onClick={() => { pl.show = !showEq; bump((n) => n + 1); }} /> : null}
     </>
   );
 }

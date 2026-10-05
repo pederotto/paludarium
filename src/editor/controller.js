@@ -464,7 +464,7 @@ export class ToolController {
     this.cursor.visible = true;
     this.cursor.position.copy(hit.point).addScaledVector(hit.normal, 0.15);
     this.cursor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), hit.surface === 'wall' ? new THREE.Vector3(0, 0, 1) : UP);
-    let s = kit ? kitReach(kit) * kitScale() : this.brush.size;
+    let s = kit ? kitReach(kit) * kitScale(kit) : this.brush.size;
     // A cliff snaps to a wall or slope: show where its back will be anchored (the ring lies on that surface).
     const fp = this.tool === 'rock' && !kit ? PIECES[this.sub.rock] : null;
     if (fp?.face && !(hit.object && W.decor.pieceAt(hit.object))) {
@@ -710,7 +710,7 @@ export class ToolController {
     if (!kit) return;
     if (!kitReady(W, kit)) { toast('Still loading models…', 'bad'); return; }
     const x = hit.point.x, z = hit.point.z;
-    let mirror = this.mirrored(x, kitReach(kit) * kitScale() * 0.35);
+    let mirror = this.mirrored(x, kitReach(kit) * kitScale(kit) * 0.35);
     const err = this.chargeKit(kit);
     if (err) { toast(err, 'bad'); return; }
     let paid = 1;

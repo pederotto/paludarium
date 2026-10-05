@@ -327,11 +327,16 @@ export class Gfx {
   // that on a retina screen (tools/steps/tank-sizes.mjs prints the count). build() keeps them and frees the old ones.
   keep(node) { (this._passes ??= []).push(node); return node; }
   disposePasses() {
-    for (const n of this._passes ?? []) {
-      if (n.textureNode?.isRTTNode) n.textureNode.dispose();
-      n.dispose?.();
-    }
+    // Freed a second later, not now (N20): the old pipeline can still be in a frame being encoded or awaiting submit, and
+    // freeing its render targets and materials under it gave "Buffer used in submit while destroyed" on WebGPU.
+    const old = this._passes ?? [];
     this._passes = [];
+    if (old.length) setTimeout(() => {
+      for (const n of old) {
+        if (n.textureNode?.isRTTNode) n.textureNode.dispose();
+        n.dispose?.();
+      }
+    }, 1000);
   }
 
   // Builds every shader and pipeline the scene pass will need, off the main thread's critical path (three yields between

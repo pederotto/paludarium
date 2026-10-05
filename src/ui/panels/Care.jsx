@@ -216,7 +216,7 @@ export function CarePanel() {
             <select value={E.waterSource} onChange={(ev) => { E.waterSource = ev.currentTarget.value; refresh(); }}>{Object.entries(WATER_SOURCES).map(([id, w]) => <option key={id} value={id}>{w.name} (pH {w.ph}, GH {w.gh})</option>)}</select>
           </label>
           <p class="note">{WATER_SOURCES[E.waterSource]?.blurb} Water changes bring the tank toward it.</p>
-          <Toggle label="Show equipment" on={ctx.game.world.plumbing?.show !== false} set={(v) => { if (ctx.game.world.plumbing) ctx.game.world.plumbing.show = v; }} title="Draw the pump, its hoses and the overflow pipe" />
+          <Toggle label="Show equipment" on={ctx.game.world.plumbing?.show !== false} set={(v) => { if (ctx.game.world.plumbing) ctx.game.world.plumbing.show = v; }} title="Draw the pump, filter and overflow in the tank (the hoses stay hidden)" />
           <Slider label="Filter media" value={E.mediaBio} min={0.2} max={(FILTERS[E.filterKind] ?? FILTERS.sponge).mediaMax} step={0.05} set={(v) => { E.mediaBio = v; }} fmt={(v) => Math.round(v * 100) + '%'} />
           <p class="note">A filter's own pump pushes the water through its media: the media trap the particles, and the bacteria living in them turn ammonia into nitrate. More media, more capacity; the trapped dirt clogs it until you rinse it. A false bottom full of bio-rings adds a filter bed under the land.</p>
           <div class="chips"><button class="chip" onClick={() => { toast(Care.ammonia(ctx.game)); refresh(); }}>Dose ammonia (fishless cycle)</button><button class="chip" onClick={() => { toast(Care.fertilise(ctx.game)); refresh(); }}>Fertilise</button></div>
