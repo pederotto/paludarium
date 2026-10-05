@@ -29,7 +29,7 @@ export function StatusDrawer() {
   return (
     <aside class="sdrawer glass" aria-label="Tank status" data-testid="status-drawer">
       <header class="sd-head">
-        <div><b class={'sd-state ' + a.state}>{a.label}</b><small>{live.stage.name} · day {Math.floor(live.env.tankDays) + 1}</small></div>
+        <div><b class={'sd-state ' + a.state}>{a.label}</b><small>{live.stage.name} · day {Math.floor(live.env.tankDays) + 1} · {live.tank.litres} L</small></div>
         <button class="btn ghost icon sm" onClick={() => { S.right.value = false; }} title="Close (H)" aria-label="Close status"><Icon name="x" size={16} /></button>
       </header>
       <div class="sd-scroll">

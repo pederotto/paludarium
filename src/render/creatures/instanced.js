@@ -111,6 +111,15 @@ export class CreatureMesh {
     }
     scene.add(this.mesh);
     this.n = 0;
+    // Game.unloadTank disposes a creature mesh's materials but not its geometry, whose vertex attributes are shared with the
+    // species' cache. This InstancedBufferGeometry is the tank's own, though, and three keeps every geometry it has drawn
+    // until it is disposed, together with the first mesh that drew it, and through that mesh's parent the whole tank: every
+    // World ever left stayed in memory (a heap snapshot after tools/steps/tank-sizes.mjs, 2026-10-03). So the wrapper goes
+    // when its material is disposed on unload. (The shared vertex buffers are uploaded again by the next tank that draws the
+    // species, as after a portrait or a species leaving a tank: dispose() below has always disposed the wrapper.) Only the
+    // geometry: the mesh stays where it is, since unloadTank is walking the scene graph when it disposes the material.
+    this._onUnload = () => { this.material.removeEventListener('dispose', this._onUnload); this.geometry.dispose(); };
+    this.material.addEventListener('dispose', this._onUnload);
   }
 
   begin() { this.n = 0; }
@@ -146,7 +155,11 @@ export class CreatureMesh {
   // (gives its rows of the bone texture back)
   releaseSkin() { if (this.skinRig) { rows.free(this.row0, this.skinCap); live.delete(this); this.skinRig = null; this.skinCap = 0; } }
 
-  dispose() { this.releaseSkin(); this.geometry.dispose(); this.mesh.removeFromParent(); }
+  dispose() {
+    this.releaseSkin();
+    this.material.removeEventListener('dispose', this._onUnload);   // (the material is shared by every tank: let go of this mesh)
+    this.geometry.dispose(); this.mesh.removeFromParent();
+  }
 }
 
 // Does the geometry carry membrane (2) or glass (7) material ids? Then it needs the second, blended pass.

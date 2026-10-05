@@ -262,6 +262,7 @@ export class Gfx {
     SKIN.swim = !this.params.has('noskin');          // (a swimming frog's stroke, on every preset: a few instances at most)
     const bloomOn = q.bloom && !this.params.has('nobloom');
     this.pipeline?.dispose?.();
+    this.disposePasses();
     // Foliage skips the AO darkening (see FOLIAGE in render/shaders.js); that needs the MRT, so only while there is one.
     // Photo mode does not change the scene pass (its MRT or, on WebGL 2, its samples): depth of field needs only depth, and
     // a different scene pass recompiles every shader in the scene (35 s on an M1 on WebGL 2, tools/journey.mjs). WebGPU
@@ -274,7 +275,7 @@ export class Gfx {
     const post = this.pipeline = new THREE.RenderPipeline(this.renderer);
 
     const msaa = q.aa === 'msaa' && !useAO && !(this.photo && this.backend === 'WebGPU');
-    const scenePass = this.scenePass = pass(scene, camera, { samples: msaa ? 4 : 0 });
+    const scenePass = this.scenePass = this.keep(pass(scene, camera, { samples: msaa ? 4 : 0 }));
     let color = scenePass;
     if (useAO) {
       scenePass.setMRT(mrt({ output, normal: packNormalToRGB(normalView) }));
@@ -282,22 +283,22 @@ export class Gfx {
       color = col;
       if (useAO) {
         const nrm = scenePass.getTextureNode('normal');
-        const aoPass = ao(scenePass.getTextureNode('depth'), sample((uv) => unpackRGBToNormal(nrm.sample(uv))), camera);
+        const aoPass = this.keep(ao(scenePass.getTextureNode('depth'), sample((uv) => unpackRGBToNormal(nrm.sample(uv))), camera));
         aoPass.resolutionScale = q.aoScale;
         aoPass.samples.value = q.aoSamples;
         aoPass.radius.value = 3.5;
         aoPass.thickness.value = 2.5;
         aoPass.distanceExponent.value = 1.5;
         // GTAO is raw noise at half resolution (a dithered, smudgy floor at a grazing angle); denoise it against depth and normals.
-        const aoClean = denoise(aoPass.getTextureNode(), scenePass.getTextureNode('depth'), null, camera);
+        const aoClean = this.keep(denoise(aoPass.getTextureNode(), scenePass.getTextureNode('depth'), null, camera));
         color = col.mul(mix(float(1), aoClean.r, nrm.a.mul(0.85)));   // alpha 0 = foliage: no AO
       }
     }
-    if (this.photo) color = dof(color, scenePass.getViewZNode(), GRADE.focus, GRADE.focalLength, GRADE.bokeh);
+    if (this.photo) color = this.keep(dof(color, scenePass.getViewZNode(), GRADE.focus, GRADE.focalLength, GRADE.bokeh));
     if (bloomOn) {
       // A glow is soft: below High it is worked out at a quarter of the resolution (a quarter of the cost: the bloom chain is
       // most of the post-processing on a weak GPU).
-      const b = bloom(color, GRADE.bloomStrength, 0.4, 1.2);
+      const b = this.keep(bloom(color, GRADE.bloomStrength, 0.4, 1.2));
       b.setResolutionScale(q.bloomScale ?? 0.5);
       color = color.add(b);
     }
@@ -310,13 +311,27 @@ export class Gfx {
     const vig = smoothstep(float(1.05), float(0.35), screenUV.sub(0.5).length().mul(1.35));
     graded = graded.mul(vig.mul(GRADE.vignette).add(float(1).sub(GRADE.vignette)));
     let out = renderOutput(vec4(graded, 1));
-    if (q.aa === 'smaa' || this.photo) out = smaa(out);
-    if (q.sharpen > 0) out = sharpen(out, q.sharpen);
+    if (q.aa === 'smaa' || this.photo) out = this.keep(smaa(out));
+    if (q.sharpen > 0) out = this.keep(sharpen(out, q.sharpen));
     post.outputColorTransform = false;
     post.outputNode = out;
     this.applyLightQuality();
     this.governor?.warm(120);       // a new pipeline compiles its shaders in the first frames
     return post;
+  }
+
+  // The passes of the pipeline own render targets the size of the screen (the scene pass and its depth and normals, AO,
+  // denoise, bloom's chain, SMAA, sharpen, and the render-to-texture step each of the last ones puts in front of itself).
+  // RenderPipeline.dispose() frees none of them and they stay reachable after the pipeline is replaced, so each rebuild (every
+  // tank loaded, photo mode, a preset change) used to leave about 36 textures behind: 118 MB a tank at 1280x720, four times
+  // that on a retina screen (tools/steps/tank-sizes.mjs prints the count). build() keeps them and frees the old ones.
+  keep(node) { (this._passes ??= []).push(node); return node; }
+  disposePasses() {
+    for (const n of this._passes ?? []) {
+      if (n.textureNode?.isRTTNode) n.textureNode.dispose();
+      n.dispose?.();
+    }
+    this._passes = [];
   }
 
   // Builds every shader and pipeline the scene pass will need, off the main thread's critical path (three yields between

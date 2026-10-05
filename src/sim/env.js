@@ -2,8 +2,19 @@
 // humidity, water chemistry, and what the equipment is doing. Local
 // variation around these averages lives in climate.js.
 
-import { clamp } from '../util/math.js';
-import { TANK } from './tank.js';
+import { clamp, lerp } from '../util/math.js';
+import { TANK, sizeFactors } from './tank.js';
+
+// How fast the tank-wide air follows its targets in the standard tank (share of the gap closed per game minute); smaller and
+// bigger tanks scale these by sizeFactors().heat and .air.
+export const AIR = { temp: 0.004, humidity: 0.01 };
+
+// How many game hours this tank takes to make 90% of a change: temperature after the heater or the lamps change, humidity
+// after a fogger, a fan or the lid changes. For the panels ("heats up in about N hours").
+export function settleHours(f = sizeFactors()) {
+  const h = (rate) => Math.log(10) / rate / 60;
+  return { temp: h(AIR.temp * f.heat), humidity: h(AIR.humidity * f.air) };
+}
 
 export class Env {
   constructor() {
@@ -126,6 +137,39 @@ export class Env {
 
   // Hours of light per day (for teaching: the photoperiod).
   get photoperiod() { return this.lights === 'on' ? 24 : this.lights === 'off' ? 0 : ((this.lightsOff - this.lightsOn) / 60 + 24) % 24; }
+
+  // One step (d game minutes, at most a few) of the tank-wide temperature and humidity. Each moves toward a target set by the
+  // room, the lamps, the water and the equipment, at a rate set by the tank's size (sizeFactors in tank.js): a small tank swings
+  // fast, a big one takes its time. What a piece of gear adds depends on what it is: the heater, the cooling unit and the rain
+  // system are bought to suit the tank (the thermostat holds its set point in any tank, just sooner in a small one), while one
+  // basking bulb, one fogger, one fan and a spray bottle have a fixed output that a small tank feels far more than a big one.
+  // c: light (0 … 1 now), waterFrac (open water over the floor), falls (how many), pump (1 running, 0.3 stopped), moss (share of
+  // the surfaces), plants (how many), closed (a sealed jar). Plants count by how close together they are (per floor area); falls
+  // by the square root of the floor, because a bigger tank's falls are taller and longer (they are built to the tank), so two
+  // falls in a show tank wet its air about as much as one in the standard tank, and one fall in a cube as much as two.
+  stepAir(d, c, f = sizeFactors()) {
+    const open = !(this.lid || c.closed);
+    const fan = this.fan * f.push;
+    let tTarget = this.room + c.light * 1.3 * f.bar + (open ? 0 : 0.8) - this.rain * 1.2 - this.fogger * 0.8 * f.push + this.basking * 1.5 * f.spot;
+    if (this.heater && tTarget < this.setpoint) tTarget = this.setpoint;
+    tTarget = lerp(tTarget, this.room, Math.min(0.9, fan * 0.5));
+    if (this.chill) tTarget = Math.min(tTarget, this.coolSet);
+    this.temp = lerp(this.temp, tTarget, clamp(d * AIR.temp * f.heat, 0, 1));
+    // Humidity: water, falls, moss and plants add it; an open lid, a fan and a warm tank take it away. Rain and a fogger add a lot.
+    const falls = Math.min(4, c.falls / Math.sqrt(f.area)) * c.pump;
+    let hTarget = 35 + c.waterFrac * 36 + falls * 3.5 + this.mist * 30 * f.push + (open ? -8 : 12) + (c.closed ? 14 : 0) + c.moss * 10 + Math.min(8, c.plants / f.area * 0.06)
+      + this.rain * 26 + this.fogger * 22 * f.push;
+    hTarget -= Math.max(0, this.temp - 24) * 1.2;
+    hTarget = lerp(hTarget, this.roomHumidity, Math.min(0.9, fan * 0.55));
+    this.humidity = clamp(lerp(this.humidity, clamp(hTarget, 20, 100), clamp(d * AIR.humidity * f.air, 0, 1)), 15, 100);
+    this.mist = Math.max(0, this.mist - d / 90);
+  }
+
+  // Misting by hand: a spray bottle's worth of water, which lifts a small tank's air far more than a big one's.
+  mistNow(f = sizeFactors()) {
+    this.mist = 1;
+    this.humidity = Math.min(100, this.humidity + 12 * f.push);
+  }
 
   // Dew point in °C for air at temp t and relative humidity rh (Magnus formula).
   static dewPoint(t, rh) {

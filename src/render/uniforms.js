@@ -3,6 +3,7 @@
 
 import * as THREE from 'three/webgpu';
 import { uniform } from 'three/tsl';
+import { TANK } from '../sim/tank.js';
 
 export const U = {
   waterLevel: uniform(14),
@@ -21,6 +22,10 @@ export const U = {
   surfaceDetail: uniform(1),    // 0 on the Low preset: rock skips its relief, cracks and grain (engine/gfx.js build; a branch, no new shader)
   backdrop: uniform(0),         // 0 the painted relief … 1 black expanding foam dusted with coir (Env.backdrop)
   focus: uniform(new THREE.Vector4(0, 0, 0, 0)),   // a followed animal: xyz its position, w the radius of the see-through (0 off)
+  // Half the tank's inside width and depth (cm), read every frame: where the glass is for the view path through the water
+  // (shaders.js wet()) and the tank-wide maps (waterfx.js tankUV). A uniform, not a number baked into a node graph, because the
+  // creature materials are built once a session (render/creatures/instanced.js) and must follow whichever tank is showing.
+  tankHalf: uniform(new THREE.Vector2(45, 22.5)).onFrameUpdate((frame, self) => { self.value.set(TANK.w / 2, TANK.d / 2); }),
 };
 
 // The ground's chemistry for the soil shader (sim/humus.js writes it): R humus, G leaf litter, B fertility,

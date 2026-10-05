@@ -5,8 +5,11 @@
 // Every preset composes the same few ideas an aquascaper uses: one focal point
 // off centre near a third of the width, rocks in odd numbers and graded sizes,
 // three depth layers of plants, water that leads the eye, 25-35 % open space,
-// a limited palette, and relief with ledges on the background. All sizes are
-// read from TANK, so the same recipe fits the jar, nano, standard and grand tanks.
+// a limited palette, and relief with ledges on the background. The layout is
+// read from TANK, so the same recipe fits the jar, nano, standard and grand tanks;
+// the pieces in it are real sizes (sim/scale.js): a stone or a log is about the
+// same size in any tank, and a bigger tank gets more of them (more stones, plant
+// groups, spires and pools), a small one fewer, smaller ones that still fit.
 //
 // Nothing here bypasses the simulation: water is only where hydro.js can hold it
 // (falls and pools are checked), plants go where plants.canPlace allows, animals
@@ -15,10 +18,11 @@
 
 import * as THREE from 'three/webgpu';
 import { FILTERS as FILTER_KINDS } from '../content/equipment.js';
-import { TANK, MAT, NMAT } from './tank.js';
+import { TANK, MAT, NMAT, sizeFactors } from './tank.js';
 import { PLANTS } from './plants.js';
 import { SPECIES } from './animals.js';
 import { rng, smooth, clamp, lerp, hash3 } from '../util/math.js';
+import { pieceScale, coverCount, fogScale, stockCount } from './scale.js';
 import { PRESETS, PRESET_ORDER, presetsForTier, defaultPreset, describePreset } from '../content/presets.js';
 
 export { PRESETS, PRESET_ORDER, presetsForTier, defaultPreset, describePreset };
@@ -62,6 +66,16 @@ class Gen {
     this.w = TANK.w; this.d = TANK.d; this.h = TANK.h;
     this.sx = this.w / 90; this.sz = this.d / 45; this.sy = this.h / 60;
     this.sc = Math.sqrt(this.sx * this.sz);
+    // Real sizes (sim/scale.js). `k` sizes the hardscape: 1 in the standard tank, a little more in a big one, less in a low,
+    // shallow or small one. `area` and `wallA` are the floor and the background against the standard tank's: counts of
+    // plants, stones, epiphytes and features follow them, so a big tank is fuller rather than a magnified standard one.
+    this.dims = { w: this.w, d: this.d, h: this.h };
+    this.k = pieceScale(this.dims);
+    this.area = sizeFactors(this.dims).area;
+    this.wallA = sizeFactors(this.dims).wall;
+    // Spacing inside a group of pieces (spires in a cluster, a stump beside its roots): real size, but in a tank narrower or
+    // shallower than the standard one squeezed with the tank, as before, so a cube's few pieces still leave it some water.
+    this.kx = Math.min(this.k, this.sx); this.kz = Math.min(this.k, this.sz);
     let s = (Math.imul((seed >>> 0) + 1, 2654435761) ^ Math.imul(preset.length * 977 + preset.charCodeAt(0), 40503)) >>> 0;
     s = s || 12345;
     this.r = rng(s);
@@ -261,7 +275,7 @@ class Gen {
   }
 
   // n plants of one kind on spots that pass `test`, kept at least `gap` cm apart.
-  scatter(id, n, test, { gap = 3, scale, grown, tries = 500 } = {}) {
+  scatter(id, n, test, { gap = 3, scale, grown, tries = Math.max(500, 40 * n) } = {}) {
     const placed = [];
     let made = 0;
     for (let k = 0; k < tries && made < n; k++) {
@@ -274,7 +288,7 @@ class Gen {
   }
 
   // n epiphytes on the background where test(x, y) holds, on ledges that face up and clear of the ground in front.
-  wallScatter(id, n, test, { gap = 8, scale, tries = 600, ledge = true } = {}) {
+  wallScatter(id, n, test, { gap = 8, scale, tries = Math.max(600, 50 * n), ledge = true } = {}) {
     const placed = [];
     let made = 0;
     const W = this.W;
@@ -313,8 +327,11 @@ class Gen {
   }
 
   // --- Animals ----------------------------------------------------------------------
+  // `n` is what the recipe asks for; the tank decides (sim/scale.js stockCount): none of a species the tank is too small or too
+  // low for or whose smallest group the water cannot hold, never fewer than that group, never more than the room it has.
   animal(id, n, test, o = {}) {
     const W = this.W, sp = SPECIES[id];
+    n = stockCount(sp, n, this.dims, W.water.volumeLitres());
     let made = 0;
     for (let k = 0; k < n; k++) {
       const p = this.spot(test, 400);
@@ -330,6 +347,7 @@ class Gen {
   // A gecko (or anything that climbs) placed on the background.
   wallAnimal(id, x, y) {
     const W = this.W, sp = SPECIES[id];
+    if (!stockCount(sp, 1, this.dims)) return null;   // a tank too low to climb in (minH)
     const z = this.Wl.zAt(x, y) + 0.35;
     const [gx, gy] = this.WF.gradient(x, y);
     const a = W.animals.add(id, V3(x, y, z), { age: (sp.adultDays ?? 10) * 1440 * 1.5, hunger: 0.15 });
@@ -355,6 +373,57 @@ class Gen {
 
   // Scales a count with the floor area of the tank (never below 1).
   cnt(n) { return Math.max(1, Math.round(n * this.sx * this.sz)); }
+  // Scales a count with the background (epiphytes, climbers).
+  wcnt(n) { return Math.max(1, Math.round(n * this.wallA)); }
+  // How many real-size pieces cover what n pieces cover in the standard tank (dressing on rock faces that grow with the tank).
+  cover(n) { return coverCount(n, this.dims); }
+  // Extra groups a tank holds beyond the standard tank's composition: none up to the standard tank's room for pieces, then
+  // `per` for every further standard tank's worth (a show tank holds about one more).
+  extra(per) { return Math.max(0, Math.round((this.area / this.k ** 2 - 1) * per)); }
+  // A height that is `f` of the standard tank's, at real size (spires and other accents that are not the tank's main feature).
+  tall(f) { return f * 60 * this.k; }
+  // A width or radius of a water feature: as the recipe has it, but in a big tank no more than its standard size grown with
+  // the pieces (a stream in a show tank is not twice as wide as in the standard one).
+  wide(v, std) { return Math.min(v, std * Math.max(1, this.k)); }
+
+  // Is (x, z) in a stream bed (the pebbles carveChannel lays)?
+  bed(x, z) { return this.F.mat[this.W.water.hydro.cellOf(x, z) * NMAT + MAT.sand] > 0.3; }
+
+  // Is (x, z) at least r cm clear of every piece placed so far (by its footprint)?
+  clear(x, z, r) {
+    const D = this.W.decor;
+    for (const p of D.pieces) {
+      const b = D.pieceBox(p);
+      const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2, pr = Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2]) / 2;
+      if (Math.hypot(cx - x, cz - z) < pr + r) return false;
+    }
+    return true;
+  }
+
+  // `groups` graded groups of boulders (odd numbers: 3, now and then 5) on ground that passes test(x, y, z, s), clear of the
+  // pieces already placed: the extra hardscape a big tank holds at real size. `size` is the biggest stone in the standard
+  // tank (cm). Returns how many stones were placed.
+  scree(groups, test, { size = 11, variants = [6, 7, 8, 10, 11, 12], sink = 0.24, tries = 80 } = {}) {
+    let made = 0;
+    const s0 = size;   // scree stones are small: real size in every tank (sim/scale.js)
+    for (let q = 0; q < groups; q++) {
+      let c = null;
+      for (let t = 0; t < tries && !c; t++) {
+        const p = this.spot(test, 1, 4);
+        if (p && this.clear(p.x, p.z, s0 * 0.9)) c = p;
+      }
+      if (!c) continue;
+      const n = this.chance(0.35) ? 5 : 3, big = s0 * this.rand(0.85, 1.15), a0 = this.r() * 6.283;
+      for (let i = 0; i < n; i++) {
+        const s = big * [1, 0.62, 0.42, 0.32, 0.24][i];
+        const a = a0 + i * 2.2 + this.rand(-0.4, 0.4), rr = i ? big * (0.5 + 0.22 * i) : 0;
+        const x = clamp(c.x + Math.cos(a) * rr, -this.w / 2 + 3, this.w / 2 - 3), z = clamp(c.z + Math.sin(a) * rr * 0.8, -this.d / 2 + 3, this.d / 2 - 3);
+        if (i && !test(x, this.ground(x, z), z, this.W.water.surfaceAt(x, z))) continue;
+        if (this.piece('boulder', x, z, { size: s, variant: this.pick(variants), sink })) made++;
+      }
+    }
+    return made;
+  }
 
   // Lowers the ground toward the front glass so the substrate reads as a slope, not a floating sheet. In a tank built on a
   // false bottom (`falseFloor`, with the water level L: the egg-crate's mesh is fitted a centimetre over the water,
@@ -373,8 +442,10 @@ class Gen {
   }
 
   // --- Environment ----------------------------------------------------------------------
+  // A fogger is a fixed-output device: it is turned down in a small tank and up a little in a big one (sim/scale.js fogScale).
   env(o = {}, gear = []) {
     const E = this.W.env;
+    if (o.fogger != null) o = { ...o, fogger: +(o.fogger * fogScale(this.dims)).toFixed(2) };
     E.matureTank();
     for (const [k, F] of Object.entries(FILTER_KINDS)) if (k !== 'sponge' && k !== 'matten' && gear.includes(F.gear)) E.filterKind = k;
     Object.assign(E, o);
@@ -415,10 +486,10 @@ BUILDERS.cascade = (g) => {
   const rho = clamp(h * 0.033, 1.5, 3);                  // riser width
   const tl = clamp(d * 0.105, 3.4, 6.5);                 // tread length
   const xs = g.X(-0.44);                                 // the slot's centre: near a third of the width
-  const hw = clamp(w * 0.08, 4.2, 10);                   // half width of the slot
+  const hw = g.wide(clamp(w * 0.08, 4.2, 10), 90 * 0.08); // half width of the slot
   const cupD = 2.5, nd = 0.8, nw = clamp(hw * 0.62, 2.6, 5.4);
   const zTop = g.Z(0) + clamp(d * 0.15, 5.5, 8);
-  const R0 = clamp(w * 0.05, 3.6, 6.5);
+  const R0 = g.wide(clamp(w * 0.05, 3.6, 6.5), 90 * 0.05);
   const zs = [null, g.Z(0.215) + 0.5];                   // z where each riser starts
   for (let k = 2; k <= nMid + 1; k++) zs[k] = zs[k - 1] + rho + tl;
   const zFront = zs[nMid + 1] + rho * 1.6;
@@ -444,7 +515,7 @@ BUILDERS.cascade = (g) => {
   const cheekL = xs - hw - clamp(w * 0.12, 6, 16);
   const cheekR = xs + hw + clamp(w * 0.085, 4.5, 11);
   const shelf = { x0: g.X(0.3), z1: g.Z(0.3), y: Math.round(h * 0.4) };
-  const P2 = { x: g.X(0.72), z: g.Z(0.15), R: clamp(w * 0.038, 3, 5) };
+  const P2 = { x: g.X(0.72), z: g.Z(0.15), R: g.wide(clamp(w * 0.038, 3, 5), 90 * 0.038) };
   const bankFront = { x: g.X(-0.7), z: g.Z(0.66), rx: w * 0.13, rz: d * 0.15 };
   const leftTop = Math.round(h * 0.5);                   // how high the ground reaches at the left glass
 
@@ -508,25 +579,29 @@ BUILDERS.cascade = (g) => {
   // Hardscape: boulders in odd, graded numbers around the gorge, and spires as accents.
   const boulder = (x, z, size, v, o = {}) => g.piece('boulder', x, z, { size, variant: v, sink: 0.22, ...o });
   const mossy = [6, 7, 8, 10, 11, 12], warm = [2, 3, 5];
-  boulder(cheekL + 3, g.Z(0.16), 24 * g.sc, g.pick(warm));
-  boulder(xs - hw - 4, zs[1] + 3, 12 * g.sc, g.pick(mossy));
-  boulder(cheekL - 2, g.Z(0.3), 15 * g.sc, g.pick(mossy));
-  boulder(cheekR - 1, zFront - 3, 16 * g.sc, g.pick(warm));
-  boulder(xs + hw + 4, zs[2] + 2, 9 * g.sc, g.pick(mossy));
-  boulder(xs - hw - 9, zFront + 5, 14 * g.sc, g.pick(mossy));
-  boulder(xs + hw + 6, zFront + 8, 8 * g.sc, g.pick(warm));
-  boulder(xs + hw + 14, zFront + 5, 4.5 * g.sc, g.pick(mossy));
-  boulder(bankFront.x + 3, bankFront.z, 14 * g.sc, g.pick(mossy));
-  boulder(bankFront.x - 6, bankFront.z + 2, 8 * g.sc, g.pick(mossy));
-  boulder(bankFront.x + 10, bankFront.z + 5, 5 * g.sc, g.pick(mossy));
-  boulder(g.X(0.5), g.Z(0.4), 10 * g.sc, g.pick(warm));
-  boulder(g.X(0.58), g.Z(0.47), 6 * g.sc, g.pick(mossy));
-  boulder(g.X(0.46), g.Z(0.36), 4 * g.sc, g.pick(mossy));
-  g.info = { dressed: g.dress(10, (x, y, z) => y > L + 3 && Math.abs(x - xs) > hw + 3.5 && x > cheekL - 6 && x < cheekR + 5 && z < zFront + 1 && z > g.Z(0.04), { size: [8 * g.sc, 19 * g.sc] }) };
-  g.spire(cheekL + 6, g.Z(0.06), h * 0.34, 7 * g.sc);
-  g.spire(cheekR - 2, g.Z(0.08), h * 0.3, 6 * g.sc);
-  g.spire(g.X(0.9), g.Z(0.08), h * 0.5, 9 * g.sc);
-  g.spire(g.X(0.8), g.Z(0.05), h * 0.34, 6 * g.sc);
+  boulder(cheekL + 3, g.Z(0.16), 24 * g.k, g.pick(warm));
+  boulder(xs - hw - 4, zs[1] + 3, 12 * g.k, g.pick(mossy));
+  boulder(cheekL - 2, g.Z(0.3), 15 * g.k, g.pick(mossy));
+  boulder(cheekR - 1, zFront - 3, 16 * g.k, g.pick(warm));
+  boulder(xs + hw + 4, zs[2] + 2, 9 * g.k, g.pick(mossy));
+  boulder(xs - hw - 9, zFront + 5, 14 * g.k, g.pick(mossy));
+  boulder(xs + hw + 6, zFront + 8, 8 * g.k, g.pick(warm));
+  boulder(xs + hw + 14, zFront + 5, 4.5 * g.k, g.pick(mossy));
+  boulder(bankFront.x + 3, bankFront.z, 14 * g.k, g.pick(mossy));
+  boulder(bankFront.x - 6, bankFront.z + 2, 8 * g.k, g.pick(mossy));
+  boulder(bankFront.x + 10, bankFront.z + 5, 5 * g.k, g.pick(mossy));
+  boulder(g.X(0.5), g.Z(0.4), 10 * g.k, g.pick(warm));
+  boulder(g.X(0.58), g.Z(0.47), 6 * g.k, g.pick(mossy));
+  boulder(g.X(0.46), g.Z(0.36), 4 * g.k, g.pick(mossy));
+  g.info = { dressed: g.dress(g.cover(10), (x, y, z) => y > L + 3 && Math.abs(x - xs) > hw + 3.5 && x > cheekL - 6 && x < cheekR + 5 && z < zFront + 1 && z > g.Z(0.04), { size: [8 * g.k, 19 * g.k], tries: 50 * g.cover(10) }) };
+  g.spire(cheekL + 6, g.Z(0.06), g.tall(0.34), 7 * g.k);
+  g.spire(cheekR - 2, g.Z(0.08), g.tall(0.3), 6 * g.k);
+  g.spire(g.X(0.9), g.Z(0.08), g.tall(0.5), 9 * g.k);
+  g.spire(g.X(0.8), g.Z(0.05), g.tall(0.34), 6 * g.k);
+  // A bigger tank holds more stones at real size: graded groups on the banks and the shelf, clear of the slot, the pools and
+  // the stream beds (none in the standard tank or a smaller one).
+  g.scree(g.extra(2), (x, y, z) => y > L + 2 && Math.abs(x - xs) > hw + 6 && z < zFront + 12 && T.normalAt(x, z).y > 0.7 && !g.bed(x, z)
+    && Math.hypot(x - P2.x, z - P2.z) > P2.R + 5, { size: 12 });
 
   g.water({ pump: [g.X(0.22), g.Z(0.78)], level: L, outlets: [{ x: xs + noffs[0] * 0.3, z: zTop }, { x: P2.x, z: P2.z }], rate: 300 });
   g.info = { ...g.info, L, cascade: { nMid, T0, xs, hw, zs, zTop } };
@@ -537,23 +612,23 @@ BUILDERS.cascade = (g) => {
   const land = (x, y, z, s) => dry(x, y, z, s) && y > L + 1.2 && !inSlot(x, z) && !F.stamped[g.W.water.hydro.cellOf(x, z)];
   const flat = (x, y, z, s) => land(x, y, z, s) && g.T.normalAt(x, z).y > 0.72;
   const clingy = (x, y, z, s) => land(x, y, z, s) && y > L + 3 && g.T.normalAt(x, z).y > 0.5;
-  g.clusters('fern', 4, 3, clingy, { radius: 6, gap: 4 });
-  g.clusters('weed', 4, 3, clingy, { radius: 6, gap: 4 });
-  g.scatter('fernph', 12, (x, y, z, s) => flat(x, y, z, s) && y > L + 4, { gap: 5 });
-  g.scatter('weed', 10, flat, { gap: 4 });
-  g.scatter('fern', 6, flat, { gap: 5 });
-  g.scatter('grass', 8, (x, y, z, s) => flat(x, y, z, s) && g.W.nearWater(V(x, y, z), 3), { gap: 4 });
-  g.scatter('javafern', 4, (x, y, z, s) => g.W.water.inMainPool(x, z) && s - y > 4, { gap: 6 });
-  g.scatter('vallisneria', 8, (x, y, z, s) => g.W.water.inMainPool(x, z) && s - y > 7 && z < g.Z(0.7), { gap: 4 });
-  g.wallScatter('bromeliad', 3, (x, y) => y > T0 + 4 || x > g.X(0.2));
-  g.wallScatter('pothos', 4, (x, y) => y > L + 6);
+  g.clusters('fern', g.cnt(4), 3, clingy, { radius: 6, gap: 4 });
+  g.clusters('weed', g.cnt(4), 3, clingy, { radius: 6, gap: 4 });
+  g.scatter('fernph', g.cnt(12), (x, y, z, s) => flat(x, y, z, s) && y > L + 4, { gap: 5 });
+  g.scatter('weed', g.cnt(10), flat, { gap: 4 });
+  g.scatter('fern', g.cnt(6), flat, { gap: 5 });
+  g.scatter('grass', g.cnt(8), (x, y, z, s) => flat(x, y, z, s) && g.W.nearWater(V(x, y, z), 3), { gap: 4 });
+  g.scatter('javafern', g.cnt(4), (x, y, z, s) => g.W.water.inMainPool(x, z) && s - y > 4, { gap: 6 });
+  g.scatter('vallisneria', g.cnt(8), (x, y, z, s) => g.W.water.inMainPool(x, z) && s - y > 7 && z < g.Z(0.7), { gap: 4 });
+  g.wallScatter('bromeliad', g.wcnt(3), (x, y) => y > T0 + 4 || x > g.X(0.2));
+  g.wallScatter('pothos', g.wcnt(4), (x, y) => y > L + 6);
 
   // Animals.
   g.animal('neon', Math.round(8 * g.sc), (x, y, z, s) => s - y > 6 && g.W.water.inMainPool(x, z));
   g.animal('newt', 4, (x, y, z, s) => s - y > 3 && g.W.water.inMainPool(x, z));
   g.animal('shrimp', Math.round(10 * g.sc), (x, y, z, s) => s - y > 2 && g.W.water.inMainPool(x, z));
-  g.animal('isopod', 8, land);
-  g.animal('springtail', 30, land);
+  g.animal('isopod', g.cnt(8), land);
+  g.animal('springtail', g.cnt(30), land);
 
   g.env({ setpoint: 20, drainage: 0.3, mediaBio: 0.6, lampPower: 1.1, fan: 0.1, rockMoss: 0.6, nitrate: 2, detritus: 8, algae: 0.02 }, ['fan']);
 };
@@ -638,7 +713,7 @@ BUILDERS.suriname = (g) => {
   const out2 = { x: g.X(0.68), z: g.Z(0.1), rx: w * 0.2, rz: d * 0.22, H: h * 0.46 };
   const isl = { x: g.X(-0.44), z: g.Z(0.5), rx: w * 0.24, rz: d * 0.28, H: h * 0.34 };
   const pool = { x: g.X(0.3), z: g.Z(0.7), rx: w * 0.3, rz: d * 0.25 };
-  const seep = { x: out2.x, z: g.Z(0.16), R: clamp(w * 0.03, 2.4, 4) };
+  const seep = { x: out2.x, z: g.Z(0.16), R: g.wide(clamp(w * 0.03, 2.4, 4), 90 * 0.03) };
   const bedLow = 2.4;
   g.fill((x, z) => {
     const nz = g.n(x, z, 0.08), n2 = g.n(x, z, 0.3);
@@ -660,31 +735,34 @@ BUILDERS.suriname = (g) => {
 
   const boulder = (x, z, size, v, o = {}) => g.piece('boulder', x, z, { size, variant: v, sink: 0.22, ...o });
   const mossy = [6, 7, 8, 10, 11, 12], warm = [2, 3, 5];
-  g.piece('roots', isl.x + 3, isl.z - 2, { size: 40 * g.sc, rot: 0.5, sink: 0.05, scale: [1, 1.5, 1] });
-  g.piece('stump', isl.x - 9 * g.sx, isl.z + 8 * g.sz, { size: 18 * g.sc, sink: 0.1 });
-  g.log(isl.x + 1, isl.z - 6 * g.sz, 52 * g.sc, 1.32, 0.3);
-  boulder(out1.x + 14, out1.z + 16, 15 * g.sc, g.pick(warm));
-  boulder(out1.x + 21, out1.z + 18, 8 * g.sc, g.pick(mossy));
-  boulder(out1.x + 25, out1.z + 21, 4.5 * g.sc, g.pick(mossy));
-  boulder(out2.x - 6, out2.z + 16, 11 * g.sc, g.pick(mossy));
-  boulder(pool.x - pool.rx * 0.9, pool.z + 1, 9 * g.sc, g.pick(mossy));
-  g.log(pool.x + 2, pool.z - 9, 30 * g.sc, 0.12, 0.45);
+  g.piece('roots', isl.x + 3, isl.z - 2, { size: 40 * g.k, rot: 0.5, sink: 0.05, scale: [1, 1.5, 1] });
+  g.piece('stump', isl.x - 9 * g.kx, isl.z + 8 * g.kz, { size: 18 * g.k, sink: 0.1 });
+  g.log(isl.x + 1, isl.z - 6 * g.kz, 52 * g.k, 1.32, 0.3);
+  boulder(out1.x + 14, out1.z + 16, 15 * g.k, g.pick(warm));
+  boulder(out1.x + 21, out1.z + 18, 8 * g.k, g.pick(mossy));
+  boulder(out1.x + 25, out1.z + 21, 4.5 * g.k, g.pick(mossy));
+  boulder(out2.x - 6, out2.z + 16, 11 * g.k, g.pick(mossy));
+  boulder(pool.x - pool.rx * 0.9, pool.z + 1, 9 * g.k, g.pick(mossy));
+  g.log(pool.x + 2, pool.z - 9, 30 * g.k, 0.12, 0.45);
+  // A bigger tank: a second root tangle on the far outcrop, and more stones on the higher ground.
+  if (g.extra(1) > 0) g.piece('roots', out2.x - 4, out2.z + 9, { size: 30 * g.k, rot: 2.2, sink: 0.05, scale: [1, 1.3, 1] });
+  g.scree(g.extra(2), (x, y, z) => y > L + 4 && T.normalAt(x, z).y > 0.7 && !g.bed(x, z) && Math.hypot(x - seep.x, z - seep.z) > seep.R + 5, { size: 10 });
 
   g.water({ pump: [pool.x, pool.z], level: L, outlets: [{ x: seep.x, y: h * 0.72, wall: true }], rate: 120 });
   g.info = { L };
   const Z = g.zones(L);
-  g.clusters('fernph', 4, 3, Z.flat, { radius: 8, gap: 5 });
-  g.clusters('fern', 3, 3, Z.flat, { radius: 7, gap: 5 });
-  g.clusters('weed', 5, 4, Z.flat, { radius: 7, gap: 3.5 });
+  g.clusters('fernph', g.cnt(4), 3, Z.flat, { radius: 8, gap: 5 });
+  g.clusters('fern', g.cnt(3), 3, Z.flat, { radius: 7, gap: 5 });
+  g.clusters('weed', g.cnt(5), 4, Z.flat, { radius: 7, gap: 3.5 });
   g.scatter('bilberry', g.cnt(3), Z.ledge, { gap: 8 });
   g.scatter('grass', g.cnt(8), Z.bank, { gap: 4 });
   g.scatter('bromeliad', g.cnt(3), (x, y, z, s) => Z.ledge(x, y, z, s) && y > L + 10, { gap: 10 });
-  g.wallScatter('bromeliad', g.cnt(4) + 1, (x, y) => y > L + 10, { gap: 12 });
-  g.wallScatter('pothos', g.cnt(4) + 1, (x, y) => y > L + 8, { gap: 10 });
+  g.wallScatter('bromeliad', g.wcnt(4) + 1, (x, y) => y > L + 10, { gap: 12 });
+  g.wallScatter('pothos', g.wcnt(4) + 1, (x, y) => y > L + 8, { gap: 10 });
   g.animal('dartfrog', Math.max(2, g.cnt(3)), Z.land);
   g.animal('isopod', g.cnt(16), Z.land);
   g.animal('springtail', g.cnt(60), Z.land);
-  g.W.equipment.pos.fogger = { x: isl.x + 10, z: isl.z + 10 };
+  g.W.equipment.pos.fogger = { x: isl.x + 10 * g.k, z: isl.z + 10 * g.k };
   g.env({ setpoint: 24, drainage: 0.25, mediaBio: 0.5, lampPower: 1.1, fan: 0.15, fogger: 0.55, rockMoss: 0.7, nitrate: 1, detritus: 8, algae: 0.02, rainProgram: [{ at: 450, len: 6 }, { at: 1080, len: 6 }] }, ['fan', 'fogger', 'mister']);
 };
 
@@ -709,13 +787,20 @@ BUILDERS.blackwater = (g) => {
   const boulder = (x, z, size, v, o = {}) => g.piece('boulder', x, z, { size, variant: v, sink: 0.25, ...o });
   const mossy = [6, 7, 8, 10, 11, 12];
   const fx = g.X(-0.3), fz = g.Z(0.52);
-  g.piece('roots', fx - 6, fz + 2, { size: 36 * g.sc, rot: 0.3, sink: 0.05 });
-  g.log(fx + 2, fz - 4, 46 * g.sc, 0.62, 0.35);
-  g.log(fx + 7, fz + 6, 34 * g.sc, 0.42, 2.6);
-  g.log(g.X(0.4), g.Z(0.6), 30 * g.sc, 0.05, 0.4);
-  boulder(fx - 12, fz + 8, 11 * g.sc, g.pick(mossy));
-  boulder(fx + 14, fz + 9, 6 * g.sc, g.pick(mossy));
-  boulder(g.X(0.12), g.Z(0.78), 3.5 * g.sc, g.pick(mossy));
+  g.piece('roots', fx - 6, fz + 2, { size: 36 * g.k, rot: 0.3, sink: 0.05 });
+  g.log(fx + 2, fz - 4, 46 * g.k, 0.62, 0.35);
+  g.log(fx + 7, fz + 6, 34 * g.k, 0.42, 2.6);
+  g.log(g.X(0.4), g.Z(0.6), 30 * g.k, 0.05, 0.4);
+  boulder(fx - 12, fz + 8, 11 * g.k, g.pick(mossy));
+  boulder(fx + 14, fz + 9, 6 * g.k, g.pick(mossy));
+  boulder(g.X(0.12), g.Z(0.78), 3.5 * g.k, g.pick(mossy));
+  // A bigger lagoon holds more wood at real size: a second tangle of roots and branches on the right, and sunken logs.
+  if (g.extra(1) > 0) {
+    const rx = g.X(0.45), rz = g.Z(0.42);
+    g.piece('roots', rx, rz, { size: 30 * g.k, rot: 2.4, sink: 0.05 });
+    g.log(rx - 6, rz + 5, 38 * g.k, 0.5, 2.9);
+  }
+  for (let i = 0; i < g.extra(2); i++) { const c = g.spot((x, y, z) => y < L - 6 && g.clear(x, z, 10 * g.k), 200); if (c) g.log(c.x, c.z, g.rand(22, 32) * g.k, g.rand(0, 0.15), g.r() * 6.283); }
 
   g.water({ pump: [g.X(0.35), g.Z(0.4)], level: L, outlets: [], rate: 160 });
   g.info = { L };
@@ -727,8 +812,8 @@ BUILDERS.blackwater = (g) => {
   g.scatter('fernph', g.cnt(5), Z.ledge, { gap: 6 });
   g.scatter('weed', g.cnt(5), Z.flat, { gap: 5 });
   g.scatter('grass', g.cnt(4), Z.bank, { gap: 5 });
-  g.wallScatter('pothos', g.cnt(4) + 1, (x, y) => y > L + 4, { gap: 10 });
-  g.wallScatter('bromeliad', 2, (x, y) => y > L + 12, { gap: 14 });
+  g.wallScatter('pothos', g.wcnt(4) + 1, (x, y) => y > L + 4, { gap: 10 });
+  g.wallScatter('bromeliad', g.wcnt(2), (x, y) => y > L + 12, { gap: 14 });
   const litres = g.W.water.volumeLitres();
   const nf = clamp(Math.round(litres / 7), 5, 14);
   g.animal('cardinal', nf, Z.deep(6));
@@ -743,12 +828,16 @@ BUILDERS.stream = (g) => {
   const L = g.lvl(0.17);
   const mir = g.chance(0.5) ? -1 : 1;
   const X = (u) => g.X(u * mir);
-  // A seep on the rock at the back feeds a top pool; the water steps down through two more pools to the lagoon.
+  // A seep on the rock at the back feeds a top pool; the water steps down through two more pools to the lagoon. The pools are
+  // real sizes (no wider than their standard size grown with the pieces); a wide tank gets one more step instead, so its
+  // stream is longer and winds further, not wider.
   const P = [
-    { x: X(0.56), z: g.Z(0.1), r: clamp(w * 0.045, 3, 6), H: Math.round(h * 0.42) },
-    { x: X(0.36), z: g.Z(0.33), r: clamp(w * 0.07, 4, 8.5), H: Math.round(h * 0.31) },
-    { x: X(0.02), z: g.Z(0.5), r: clamp(w * 0.155, 8, 18), H: Math.round(h * 0.27), big: true },
+    { x: X(0.56), z: g.Z(0.1), r: g.wide(clamp(w * 0.045, 3, 6), 90 * 0.045), H: Math.round(h * 0.42) },
+    { x: X(0.36), z: g.Z(0.33), r: g.wide(clamp(w * 0.07, 4, 8.5), 90 * 0.07), H: Math.round(h * 0.31) },
+    { x: X(0.02), z: g.Z(0.5), r: g.wide(clamp(w * 0.155, 8, 18), 90 * 0.155), H: Math.round(h * 0.27), big: true },
   ];
+  if (w >= 115) P.splice(1, 0, { x: X(0.72), z: g.Z(0.3), r: P[0].r * 1.1, H: Math.round(h * 0.36) });
+  const Pb = P[P.length - 1], P1 = P[P.length - 2];      // the big pond, and the pool that spills into it
   const lag = { x: X(-0.42), z: g.Z(0.76), rx: w * 0.3, rz: d * 0.28 };
   const rock = { x: X(0.64), z: g.Z(0.05), rx: w * 0.3, rz: d * 0.34, H: h * 0.7 };
   const bedLow = 2.6;
@@ -776,39 +865,40 @@ BUILDERS.stream = (g) => {
     const ax = a.x + (dx / len) * r0, az = a.z + (dz / len) * r0, bx = b.x - (dx / len) * r1, bz = b.z - (dz / len) * r1;
     T.carveChannel([V(ax, 0, az), V((ax + bx) / 2 + (bz - az) * bend, 0, (az + bz) / 2 - (bx - ax) * bend), V(bx, 0, bz)], wd, 0.8);
   };
-  chan(P[0], P[1], P[0].r * 0.7, P[1].r * 0.6, 1.5, 0.15);
-  chan(P[1], P[2], P[1].r * 0.7, P[2].r * 0.6, 1.7, -0.15);
-  chan(P[2], { x: lag.x + mir * lag.rx * 0.3, z: lag.z - lag.rz * 0.5 }, P[2].r * 0.7, 2, 1.9, 0.12);
+  for (let k = 0; k < P.length - 1; k++) chan(P[k], P[k + 1], P[k].r * 0.7, P[k + 1].r * 0.6, k ? 1.7 : 1.5, k % 2 ? -0.15 : 0.15);
+  chan(Pb, { x: lag.x + mir * lag.rx * 0.3, z: lag.z - lag.rz * 0.5 }, Pb.r * 0.7, 2, 1.9, 0.12);
   groundPaint(g, L, { moss: 0.34, gravelBand: 0.5, rockUp: 0.7, stoneUp: 0.5, sand: (x, z) => ell(x, z, lag.x, lag.z, lag.rx * 1.05, lag.rz * 1.05, 0.5, 1) > 0.02 });
   rockWall(g, { L, style: 'crag', moss: 0.88, rock: 0.5, calm: (x, y) => smooth(P[0].r + 10, P[0].r + 2, Math.abs(x - P[0].x)) * smooth(h * 0.9, h * 0.5, y) });
 
   const boulder = (x, z, size, v, o = {}) => g.piece('boulder', x, z, { size, variant: v, sink: 0.24, ...o });
   const mossy = [6, 7, 8, 10, 11, 12], warm = [2, 3, 5];
-  boulder(P[0].x - mir * 10, P[0].z + 6, 12 * g.sc, g.pick(mossy));
-  boulder(P[1].x - mir * 10, P[1].z + 2, 15 * g.sc, g.pick(warm));
-  boulder(P[1].x + mir * 3, P[1].z + 9, 8 * g.sc, g.pick(mossy));
-  boulder(P[1].x - mir * 14, P[1].z + 7, 4.5 * g.sc, g.pick(mossy));
-  boulder(P[2].x - mir * 10, P[2].z + 3, 13 * g.sc, g.pick(warm));
-  boulder(P[2].x + mir * 7, P[2].z + 9, 7 * g.sc, g.pick(mossy));
-  boulder(lag.x + mir * lag.rx * 0.6, lag.z - 4, 9 * g.sc, g.pick(mossy));
-  boulder(lag.x - mir * lag.rx * 0.5, lag.z - 10, 5 * g.sc, g.pick(mossy));
-  g.dress(9, (x, y, z) => y > L + 3 && outcrop(g, x, z, rock) > 0.05 && z > g.Z(0.02) && Math.hypot(x - P[0].x, z - P[0].z) > P[0].r + 3, { size: [7 * g.sc, 17 * g.sc] });
-  g.spire(X(0.88), g.Z(0.16), h * 0.5, 7 * g.sc);
-  g.spire(X(-0.92), g.Z(0.1), h * 0.36, 6 * g.sc);
+  boulder(P[0].x - mir * 10, P[0].z + 6, 12 * g.k, g.pick(mossy));
+  boulder(P1.x - mir * 10, P1.z + 2, 15 * g.k, g.pick(warm));
+  boulder(P1.x + mir * 3, P1.z + 9, 8 * g.k, g.pick(mossy));
+  boulder(P1.x - mir * 14, P1.z + 7, 4.5 * g.k, g.pick(mossy));
+  boulder(Pb.x - mir * 10, Pb.z + 3, 13 * g.k, g.pick(warm));
+  boulder(Pb.x + mir * 7, Pb.z + 9, 7 * g.k, g.pick(mossy));
+  boulder(lag.x + mir * lag.rx * 0.6, lag.z - 4, 9 * g.k, g.pick(mossy));
+  boulder(lag.x - mir * lag.rx * 0.5, lag.z - 10, 5 * g.k, g.pick(mossy));
+  g.dress(g.cover(9), (x, y, z) => y > L + 3 && outcrop(g, x, z, rock) > 0.05 && z > g.Z(0.02) && Math.hypot(x - P[0].x, z - P[0].z) > P[0].r + 3, { size: [7 * g.k, 17 * g.k], tries: Math.max(500, 50 * g.cover(9)) });
+  g.spire(X(0.88), g.Z(0.16), g.tall(0.5), 7 * g.k);
+  g.spire(X(-0.92), g.Z(0.1), g.tall(0.36), 6 * g.k);
+  // More stones in a bigger tank, on the banks between the pools (not in a pool or a stream bed).
+  g.scree(g.extra(2), (x, y, z) => y > L + 3 && T.normalAt(x, z).y > 0.7 && !g.bed(x, z) && P.every((p) => Math.hypot(x - p.x, z - p.z) > p.r * 1.3 + 3), { size: 11 });
 
-  g.water({ pump: [lag.x, lag.z], level: L, outlets: [{ x: P[0].x, y: h * 0.8, wall: true }, { x: P[2].x + P[2].r * 0.5, z: P[2].z }], rate: 320, settle: 900 });   // the second outlet fills the big pond
+  g.water({ pump: [lag.x, lag.z], level: L, outlets: [{ x: P[0].x, y: h * 0.8, wall: true }, { x: Pb.x + Pb.r * 0.5, z: Pb.z }], rate: 320, settle: 900 });   // the second outlet fills the big pond
   g.info = { ...g.info, L };
   const Z = g.zones(L);
   const clingy = (x, y, z, s) => Z.land(x, y, z, s) && y > L + 3 && T.normalAt(x, z).y > 0.55;
-  g.clusters('fernph', 5, 3, Z.flat, { radius: 8, gap: 5 });
-  g.clusters('fern', 3, 3, clingy, { radius: 6, gap: 5 });
-  g.clusters('weed', 5, 3, Z.flat, { radius: 7, gap: 3.5 });
+  g.clusters('fernph', g.cnt(5), 3, Z.flat, { radius: 8, gap: 5 });
+  g.clusters('fern', g.cnt(3), 3, clingy, { radius: 6, gap: 5 });
+  g.clusters('weed', g.cnt(5), 3, Z.flat, { radius: 7, gap: 3.5 });
   g.scatter('grass', g.cnt(10), Z.bank, { gap: 4 });
   g.scatter('bilberry', g.cnt(3), Z.ledge, { gap: 9 });
   g.scatter('javafern', g.cnt(4), Z.deep(4), { gap: 6 });
   g.scatter('vallisneria', g.cnt(6), Z.deep(7), { gap: 5 });
-  g.wallScatter('pothos', 2, (x, y) => y > L + 6, { gap: 12 });
-  g.wallScatter('bromeliad', g.cnt(2) + 1, (x, y) => y > L + 10, { gap: 14 });
+  g.wallScatter('pothos', g.wcnt(2), (x, y) => y > L + 6, { gap: 12 });
+  g.wallScatter('bromeliad', g.wcnt(2) + 1, (x, y) => y > L + 10, { gap: 14 });
   g.animal('toad', Math.max(2, g.cnt(3)), (x, y, z, s) => Z.bank(x, y, z, s) || Z.edge(x, y, z, s));
   g.animal('shrimp', g.cnt(8), Z.deep(3));
   g.animal('isopod', g.cnt(8), Z.land);
@@ -848,7 +938,7 @@ BUILDERS.jar = (g) => {
   g.wallScatter('pothos', 3, (x, y) => y > L + 5, { gap: 8 });
   g.animal('isopod', 10, Z.land);
   g.animal('springtail', 50, Z.land);
-  g.env({ setpoint: 22, drainage: 0.05, mediaBio: 0.4, lampPower: 1.0, fan: 0, rockMoss: 0.8, nitrate: 1, detritus: 12, algae: 0.02 }, []);
+  g.env({ setpoint: 22, drainage: 0.05, mediaBio: 0.4, lampPower: 1.0, fan: 0, filter: false, rockMoss: 0.8, nitrate: 1, detritus: 12, algae: 0.02 }, []);   // a sealed jar runs no filter
 };
 
 // ===== karst ================================================================
@@ -857,11 +947,13 @@ BUILDERS.karst = (g) => {
   const L = g.lvl(0.19);
   const bedLow = 3;
   const back = { x: 0, z: g.Z(0.05), rx: w * 0.62, rz: d * 0.18 };
-  // Spire groups: [height as a fraction of the tank, width in cm, dx, dz].
+  // Spire groups: [height as a fraction of the tank, width in cm, dx, dz]; widths and spacing are real sizes (times g.k), so a
+  // bigger tank gets a third, lower group in the back between the two instead of fatter towers.
   const clusters = [
     { x: g.X(-0.38), z: g.Z(0.42), s: [[0.86, 13, 0, 0], [0.6, 10, 9, 5], [0.38, 8, -8, 5]] },
     { x: g.X(0.5), z: g.Z(0.3), s: [[0.7, 11, 0, 0], [0.42, 8, -9, 6]] },
   ];
+  if (g.extra(1) > 0) clusters.push({ x: g.X(0.08), z: g.Z(0.16), s: [[0.5, 10, 0, 0], [0.32, 7, 8, 4], [0.22, 6, -7, 5]] });
   const lone = [{ x: g.X(-0.88), z: g.Z(0.2), h: 0.32, w: 7 }, { x: g.X(0.88), z: g.Z(0.62), h: 0.26, w: 6 }];
   g.fill((x, z) => {
     const nz = g.n(x, z, 0.08), n2 = g.n(x, z, 0.3);
@@ -869,32 +961,34 @@ BUILDERS.karst = (g) => {
     const bk = ell(x, z, back.x, back.z, back.rx, back.rz, 0.55 + 0.25 * n2, 1.0);
     hgt = lerp(hgt, L + 3 + nz * 2.4, bk);
     for (const c of clusters) for (const [, wd, dx, dz] of c.s) {
-      const m = ell(x, z, c.x + dx * g.sx, c.z + dz * g.sz, wd * 0.9 * g.sc + 3, wd * 0.75 * g.sc + 3, 0.2, 1.0);
+      const m = ell(x, z, c.x + dx * g.kx, c.z + dz * g.kz, wd * 0.9 * g.k + 3, wd * 0.75 * g.k + 3, 0.2, 1.0);
       hgt = lerp(hgt, Math.max(hgt, L + 2.4 + n2 * 1.4), m);
     }
     return g.sill(hgt, z, 3.6, 6);
   });
   groundPaint(g, L, { moss: 0.36, gravelBand: 0.6 });
   rockWall(g, { L, style: 'strata', moss: 0.9, rock: 0.3, mossMin: 2 });
-  for (const c of clusters) for (const [hf, wd, dx, dz] of c.s) g.spire(c.x + dx * g.sx, c.z + dz * g.sz, h * hf, wd * g.sc);
-  for (const l of lone) g.spire(l.x, l.z, h * l.h, l.w * g.sc);
+  for (const c of clusters) for (const [hf, wd, dx, dz] of c.s) g.spire(c.x + dx * g.kx, c.z + dz * g.kz, h * hf, wd * g.k);
+  for (const l of lone) g.spire(l.x, l.z, h * l.h, l.w * g.k);
   const boulder = (x, z, size, v) => g.piece('boulder', x, z, { size, variant: v, sink: 0.3 });
-  boulder(clusters[0].x + 12 * g.sx, clusters[0].z + 10 * g.sz, 9 * g.sc, g.pick([6, 7, 8, 10]));
-  boulder(clusters[0].x - 4 * g.sx, clusters[0].z + 10 * g.sz, 5 * g.sc, g.pick([6, 7, 12]));
-  boulder(clusters[1].x - 5 * g.sx, clusters[1].z + 11 * g.sz, 7 * g.sc, g.pick([6, 7, 8]));
+  boulder(clusters[0].x + 12 * g.kx, clusters[0].z + 10 * g.kz, 9 * g.k, g.pick([6, 7, 8, 10]));
+  boulder(clusters[0].x - 4 * g.kx, clusters[0].z + 10 * g.kz, 5 * g.k, g.pick([6, 7, 12]));
+  boulder(clusters[1].x - 5 * g.kx, clusters[1].z + 11 * g.kz, 7 * g.k, g.pick([6, 7, 8]));
+  g.scree(g.extra(2), (x, y, z) => y > L + 1.5 && T.normalAt(x, z).y > 0.75, { size: 8 });
   g.water({ pump: [g.X(0.05), g.Z(0.62)], level: L, outlets: [], rate: 100 });
   g.info = { L };
   const Z = g.zones(L);
-  g.clusters('bamboo', 4, 3, Z.edge, { radius: 8, gap: 4 });
-  g.clusters('cattail', 3, 3, Z.edge, { radius: 7, gap: 4 });
+  g.clusters('bamboo', g.cnt(4), 3, Z.edge, { radius: 8, gap: 4 });
+  g.clusters('cattail', g.cnt(3), 3, Z.edge, { radius: 7, gap: 4 });
   g.scatter('grass', g.cnt(8), Z.bank, { gap: 4 });
   g.scatter('fernph', g.cnt(6), Z.flat, { gap: 6 });
   g.scatter('weed', g.cnt(8), Z.flat, { gap: 4 });
   g.scatter('javafern', g.cnt(3), Z.deep(3.5), { gap: 6 });
-  g.wallScatter('bromeliad', g.cnt(3) + 1, (x, y) => y > L + 10, { gap: 14 });
-  g.wallScatter('pothos', g.cnt(5), (x, y) => y > L + 6, { gap: 9 });
-  g.wallAnimal('gecko', g.X(0.3), h * 0.5);
-  g.wallAnimal('gecko', g.X(-0.05), h * 0.62);
+  g.wallScatter('bromeliad', g.wcnt(3) + 1, (x, y) => y > L + 10, { gap: 14 });
+  g.wallScatter('pothos', g.wcnt(5), (x, y) => y > L + 6, { gap: 9 });
+  // Geckos with the background: two on the standard tank's, more on a bigger one, none in a tank too low to climb in.
+  const perches = [[0.3, 0.5], [-0.05, 0.62], [0.62, 0.42], [-0.55, 0.56], [0.12, 0.38], [-0.78, 0.66]];
+  for (const [u, f] of perches.slice(0, Math.min(perches.length, g.wcnt(2)))) g.wallAnimal('gecko', g.X(u), h * f);
   g.animal('springtail', g.cnt(40), Z.land);
   g.animal('isopod', g.cnt(10), Z.land);
   g.env({ setpoint: 25, drainage: 0.3, mediaBio: 0.5, lampPower: 1.15, fan: 0, fogger: 0.4, rockMoss: 0.5, nitrate: 2, detritus: 8, algae: 0.02 }, ['fogger']);
@@ -910,7 +1004,7 @@ BUILDERS.swamp = (g) => {
     { x: g.X(0.36), z: g.Z(0.68), rx: w * 0.28, rz: d * 0.24 },
   ];
   const hum = [{ x: g.X(-0.74), z: g.Z(0.3), rx: w * 0.15, rz: d * 0.2, H: L + 9 }, { x: g.X(0.74), z: g.Z(0.28), rx: w * 0.14, rz: d * 0.2, H: L + 7 }, { x: g.X(0.02), z: g.Z(0.14), rx: w * 0.3, rz: d * 0.18, H: L + 10 }];
-  const seep = { x: g.X(0.2), z: g.Z(0.1), R: clamp(w * 0.03, 2.4, 4) };
+  const seep = { x: g.X(0.2), z: g.Z(0.1), R: g.wide(clamp(w * 0.03, 2.4, 4), 90 * 0.03) };
   g.fill((x, z) => {
     const nz = g.n(x, z, 0.1), n2 = g.n(x, z, 0.32);
     let hgt = L + 1.8 + nz * 3 + n2 * 1.2;
@@ -928,24 +1022,27 @@ BUILDERS.swamp = (g) => {
   groundPaint(g, L, { moss: 0.34, gravelBand: 0.5, rockUp: 0.7, stoneUp: 0.5 });
   rockWall(g, { L, style: 'crag', moss: 0.78, rock: 0.45, calm: (x, y) => smooth(seep.R + 8, seep.R + 2, Math.abs(x - seep.x)) * smooth(h * 0.85, h * 0.5, y) * 0.7 });
   const boulder = (x, z, size, v) => g.piece('boulder', x, z, { size, variant: v, sink: 0.3 });
-  g.log(hum[0].x + 6, hum[0].z + 4, 50 * g.sc, 1.3, 0.3);
-  g.piece('stump', hum[0].x + 4, hum[0].z + 9, { size: 14 * g.sc, sink: 0.1 });
-  g.log(hum[2].x + 12, hum[2].z + 10, 32 * g.sc, 0.1, 0.25);
-  boulder(hum[1].x, hum[1].z + 4, 11 * g.sc, g.pick([6, 7, 8, 10]));
-  boulder(hum[1].x - 8, hum[1].z + 8, 6 * g.sc, g.pick([6, 7, 12]));
-  boulder(hum[1].x + 6, hum[1].z + 10, 3.5 * g.sc, g.pick([6, 7, 12]));
+  g.log(hum[0].x + 6, hum[0].z + 4, 50 * g.k, 1.3, 0.3);
+  g.piece('stump', hum[0].x + 4, hum[0].z + 9, { size: 14 * g.k, sink: 0.1 });
+  g.log(hum[2].x + 12, hum[2].z + 10, 32 * g.k, 0.1, 0.25);
+  boulder(hum[1].x, hum[1].z + 4, 11 * g.k, g.pick([6, 7, 8, 10]));
+  boulder(hum[1].x - 8, hum[1].z + 8, 6 * g.k, g.pick([6, 7, 12]));
+  boulder(hum[1].x + 6, hum[1].z + 10, 3.5 * g.k, g.pick([6, 7, 12]));
+  // A bigger swamp: a fallen log on the right hummock and stones on the higher ground.
+  if (g.extra(1) > 0) g.log(hum[1].x - 4, hum[1].z - 2, 36 * g.k, 0.8, 2.7);
+  g.scree(g.extra(2), (x, y, z) => y > L + 3 && T.normalAt(x, z).y > 0.72 && !g.bed(x, z), { size: 9 });
   g.water({ pump: [ponds[1].x, ponds[1].z], level: L, outlets: [{ x: seep.x, y: h * 0.7, wall: true }], rate: 100 });
   g.info = { L };
   const Z = g.zones(L);
-  g.clusters('cattail', 4, 4, Z.edge, { radius: 8, gap: 4 });
-  g.clusters('bamboo', 3, 3, Z.edge, { radius: 8, gap: 6 });
-  g.clusters('grass', 5, 4, Z.flat, { radius: 8, gap: 3.5 });
+  g.clusters('cattail', g.cnt(4), 4, Z.edge, { radius: 8, gap: 4 });
+  g.clusters('bamboo', g.cnt(3), 3, Z.edge, { radius: 8, gap: 6 });
+  g.clusters('grass', g.cnt(5), 4, Z.flat, { radius: 8, gap: 3.5 });
   g.scatter('weed', g.cnt(10), Z.flat, { gap: 4 });
   g.scatter('fernph', g.cnt(6), Z.ledge, { gap: 6 });
   g.scatter('bilberry', g.cnt(2), Z.ledge, { gap: 9 });
   g.scatter('frogbit', g.cnt(8), Z.deep(2.5), { gap: 4 });
-  g.wallScatter('pothos', g.cnt(5) + 1, (x, y) => y > L + 6, { gap: 10 });
-  g.wallScatter('bromeliad', 2, (x, y) => y > L + 12, { gap: 14 });
+  g.wallScatter('pothos', g.wcnt(5) + 1, (x, y) => y > L + 6, { gap: 10 });
+  g.wallScatter('bromeliad', g.wcnt(2), (x, y) => y > L + 12, { gap: 14 });
   g.animal('crab', Math.max(2, g.cnt(3)), (x, y, z, s) => Z.land(x, y, z, s) && g.W.nearWater(V(x, y, z), 5));
   g.animal('shrimp', Math.max(3, g.cnt(6)), Z.wet(1.5, 9));
   g.animal('isopod', g.cnt(12), Z.land);
@@ -958,6 +1055,7 @@ BUILDERS.swamp = (g) => {
 function restock(g, out, env, gear = []) {
   const A = g.W.animals;
   for (const id of out) for (const a of [...(A.by[id] ?? [])]) A.remove(a);
+  if (env.fogger != null) env = { ...env, fogger: +(env.fogger * fogScale(g.dims)).toFixed(2) };
   Object.assign(g.W.env, env);
   for (const k of gear) g.gear.add(k);
   if (env.ph != null || env.gh != null) g.W.water.bodies?.resetChem?.();
@@ -967,9 +1065,11 @@ BUILDERS.streambank = (g) => {
   BUILDERS.swamp(g);
   restock(g, ['crab', 'shrimp'], { setpoint: 25, basking: 0.55, uvb: 0.5, fogger: 0.6, drainage: 1, filterKind: 'matten', ph: 7.0, gh: 6, waterSource: 'remin' }, ['basking', 'uvb', 'falseBottom', 'filterMatten']);
   const Z = g.zones(g.info.L);
-  g.log(g.X(0.1), g.Z(0.3), 26 * g.sc, 0.2, 1.2);
-  // Cork bark tubes to hide in, one by the water.
-  for (const [test, size] of [[Z.ledge, 18], [Z.bank, 14], [Z.flat, 12]]) { const c = g.spot(test, 300); if (c) g.piece('cork', c.x, c.z, { size: size * g.sc, rot: g.r() * 6.28, sink: 0.1 }); }
+  g.log(g.X(0.1), g.Z(0.3), 26 * g.k, 0.2, 1.2);
+  // Cork bark tubes to hide in, one by the water (and one more on the land of a bigger tank).
+  const tubes = [[Z.ledge, 18], [Z.bank, 14], [Z.flat, 12]];
+  if (g.extra(1) > 0) tubes.push([Z.flat, 15]);
+  for (const [test, size] of tubes) { const c = g.spot(test, 300); if (c) g.piece('cork', c.x, c.z, { size: size * g.k, rot: g.r() * 6.28, sink: 0.1 }); }
   g.animal('skink', 1, (x, y, z, s) => Z.land(x, y, z, s) && g.W.nearWater(V(x, y, z), 12));
   g.animal('purpleiso', g.cnt(12), Z.land);
   g.animal('pandaking', g.cnt(4), Z.ledge);
@@ -979,9 +1079,9 @@ BUILDERS.reedpool = (g) => {
   BUILDERS.blackwater(g);
   restock(g, ['cardinal', 'cory', 'shrimp'], { setpoint: 26, fogger: 0.4, drainage: 1, filterKind: 'matten', waterSource: 'remin', ph: 7.0, gh: 6 }, ['fogger', 'falseBottom', 'filterMatten']);
   const Z = g.zones(g.info.L);
-  g.clusters('cattail', 3, 4, Z.edge, { radius: 7, gap: 4 });
-  g.clusters('bamboo', 2, 3, Z.edge, { radius: 7, gap: 6 });
-  g.wallScatter('bromeliad', g.cnt(3) + 1, (x, y) => y > g.info.L + 6, { gap: 12 });
+  g.clusters('cattail', g.cnt(3), 4, Z.edge, { radius: 7, gap: 4 });
+  g.clusters('bamboo', g.cnt(2), 3, Z.edge, { radius: 7, gap: 6 });
+  g.wallScatter('bromeliad', g.wcnt(3) + 1, (x, y) => y > g.info.L + 6, { gap: 12 });
   g.animal('reedfrog', Math.max(3, g.cnt(4)), (x, y, z, s) => Z.land(x, y, z, s) && g.W.nearWater(V(x, y, z), 10));
   g.animal('cpd', Math.max(6, g.cnt(8)), Z.deep(4));
   g.animal('blueshrimp', Math.max(8, g.cnt(10)), Z.deep(2));
@@ -992,9 +1092,9 @@ BUILDERS.matano = (g) => {
   restock(g, ['cardinal', 'cory', 'shrimp'], { setpoint: 26, filterKind: 'canister', prefilter: true, mediaBio: 1, waterSource: 'hard', ph: 8.1, gh: 13 }, ['filterCanister']);
   const Z = g.zones(g.info.L);
   // Slate: caves in the deep water and a ramp up the bank.
-  for (let k = 0; k < 3; k++) { const c = g.spot(Z.deep(5), 300); if (c) g.piece('slate', c.x, c.z, { size: (12 + g.r() * 6) * g.sc, rot: g.r() * 6.28, tilt: 0.25 + g.r() * 0.3 }); }
+  for (let k = 0; k < g.cover(3); k++) { const c = g.spot(Z.deep(5), 300); if (c) g.piece('slate', c.x, c.z, { size: (12 + g.r() * 6) * g.k, rot: g.r() * 6.28, tilt: 0.25 + g.r() * 0.3 }); }
   const ramp = g.spot(Z.edge, 300);
-  if (ramp) g.piece('slate', ramp.x, ramp.z, { size: 16 * g.sc, rot: g.r() * 6.28, tilt: 0.45 });
+  if (ramp) g.piece('slate', ramp.x, ramp.z, { size: 16 * g.k, rot: g.r() * 6.28, tilt: 0.45 });
   g.animal('panther', 1, Z.deep(4));
   g.animal('snail', g.cnt(8), Z.deep(2));
 };

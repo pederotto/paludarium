@@ -202,7 +202,8 @@ export class SmartPlacer {
     if (floating) return { point: new THREE.Vector3(x, W.water.surfaceAt(x, z, 0.2), z), surface: 'water', normal: new THREE.Vector3(0, 1, 0) };
     return { point: new THREE.Vector3(x, W.terrain.heightAt(x, z), z), surface: 'terrain', normal: W.terrain.normalAt(x, z) };
   }
-  spacing() { return 2.6 * kitScale(); }
+  // Plants are the same size in any tank, so they are spaced the same: a big tank gets more of them, not sparser ones.
+  spacing() { return 2.6; }
 
   // Tries to plant `id` at a hit. Returns the plant, or a string with the (friendly) reason it was refused.
   plantAt(id, hit, { nudge = true } = {}) {

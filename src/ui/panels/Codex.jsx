@@ -13,6 +13,9 @@ import { PLANT_INFO } from '../../content/plant-info.js';
 import { CONCEPTS } from '../../content/concepts.js';
 import { BIOTOPES, BIOTOPE_ORDER } from '../../content/biotopes.js';
 import { Portrait } from './Portrait.jsx';
+import { sizeFactors, roomFor } from '../../sim/tank.js';
+import { TANKS, TANK_ORDER } from '../../content/tanks.js';
+import { stockAdvice, mindsCrowd } from '../../game/stocking.js';
 
 const TABS = [['concept', 'Concepts', 'book'], ['animal', 'Animals', 'frog'], ['plant', 'Plants', 'leaf'], ['biotope', 'Biotopes', 'home']];
 
@@ -105,6 +108,18 @@ function TankRule({ sp, tank }) {
   return <p style={{ fontSize: 12.5 }}><b>Tank:</b> {bits.flatMap((b, i) => (i ? [', ', b] : [b]))}.</p>;
 }
 
+// How many fit before they crowd (the simulation's own room, game/stocking.js): in this tank, and in each tank size.
+function RoomRule({ id, sp, live }) {
+  if (!live || sp.feeder) return null;
+  const a = stockAdvice(id, sp, live.stock?.counts?.[id] ?? 0, sizeFactors(), { water: live.water.litres });
+  const bad = a.verdict === 'small' || a.verdict === 'over';
+  const sizes = mindsCrowd(id, sp) ? TANK_ORDER.map((t) => `${t} ${roomFor(sp, sizeFactors(TANKS[t])).crowd}`).join(', ') : null;
+  return (
+    <p style={{ fontSize: 12.5 }}><b>Room:</b> <span style={{ color: bad ? '#b04a2a' : 'inherit' }}>{a.text}</span>.
+      {sizes ? <span style={{ color: '#6b6650' }}> Before they crowd: {sizes}.</span> : null}</p>
+  );
+}
+
 function AnimalPage({ id, pick }) {
   const sp = SPECIES[id], info = ANIMAL_INFO[id];
   const live = S.live.value;
@@ -132,6 +147,7 @@ function AnimalPage({ id, pick }) {
       <RangeBar label="Temperature" unit=" °C" lo={sp.temp[0]} hi={sp.temp[1]} now={e.temp} domain={[10, 34]} dec={1} />
       {sp.humidity && !aquatic ? <RangeBar label="Humidity" unit="%" lo={sp.humidity} hi={100} now={e.humidity} domain={[30, 100]} /> : null}
       <TankRule sp={sp} tank={live?.tank} />
+      <RoomRule id={id} sp={sp} live={live} />
       <p style={{ fontSize: 12.5 }}><b>Eats:</b> {dietOf(sp).map((f) => (isItem(f) ? ITEMS[f].name : SPECIES[f] ? SPECIES[f].name.toLowerCase() : f)).join(', ') || 'nothing'}. <b>Lives:</b> up to {Math.round(sp.lifeDays / 365 * 10) / 10} years. {sp.breed ? <b>Breeds on its own.</b> : null}</p>
       {n ? <p style={{ fontSize: 12.5 }}>In your tank now: <b>{n.n}</b>, average health <b>{Math.round(n.hp * 100)}%</b>.</p> : null}
       {info ? (

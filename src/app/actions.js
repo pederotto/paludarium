@@ -58,7 +58,7 @@ export const Care = {
   },
   mist(game) {
     const E = game.world.env;
-    E.mist = 1; E.humidity = Math.min(100, E.humidity + 12);
+    E.mistNow();   // a spray bottle's worth: a lot for a cube, little for a show tank (sim/env.js)
     game.world.log('Misted the tank by hand.');
     game.world.climate.acc = 1e9;
     return 'Misted.';

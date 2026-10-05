@@ -18,7 +18,7 @@
 // neighbours, scaled by how good each spot is).
 
 import * as THREE from 'three/webgpu';
-import { MAT, NMAT } from './tank.js';
+import { MAT, NMAT, sizeFactors } from './tank.js';
 import { U, SOIL } from '../render/uniforms.js';
 import { Humus } from './humus.js';
 import { LitterView } from '../render/litter.js';
@@ -56,7 +56,10 @@ export class Ecology {
     const W = this.world, E = W.env;
     const days = d / 1440;
     const hasWater = W.water.level > 0.5 || W.water.pools.length > 0;
-    const grazers = W.animals.count('shrimp') * 0.02 + W.animals.count('tadpole') * 0.015 + W.animals.count('cory') * 0.01 + W.animals.count('oto') * 0.02 + W.animals.count('snail') * 0.006;
+    // Grazers, plants and floating cover work on so much glass, stone and water each: what they do to the tank-wide algae goes
+    // by how many there are for the tank's size (floor for surfaces and cover, volume for the water the plants feed from).
+    const size = sizeFactors();
+    const grazers = (W.animals.count('shrimp') * 0.02 + W.animals.count('tadpole') * 0.015 + W.animals.count('cory') * 0.01 + W.animals.count('oto') * 0.02 + W.animals.count('snail') * 0.006) / size.area;
     // Fresh substrate leaches ammonia (which feeds the first bacteria and,
     // once they turn it into nitrate, the first algae) and silicate (which
     // feeds diatoms) for about three weeks.
@@ -65,8 +68,8 @@ export class Ecology {
     if (hasWater) E.diatoms = clamp(E.diatoms + days * (young * light * 0.9 - grazers - E.diatoms * 0.25), 0, 1);
     // Green algae: light × spare nutrients, minus what plants take and what
     // floating plants shade out.
-    const plantUse = clamp((W.sim.plantOut?.nitrateUse ?? 0) / 25, 0, 0.85);
-    const shade = clamp((W.sim.plantOut?.shade ?? 0) / 600, 0, 0.6);
+    const plantUse = clamp((W.sim.plantOut?.nitrateUse ?? 0) / (25 * size.vol), 0, 0.85);
+    const shade = clamp((W.sim.plantOut?.shade ?? 0) / (600 * size.area), 0, 0.6);
     const food = clamp((E.nitrate + E.ammonia * 20 + young * 12) / 18, 0, 1.6) * (1 - plantUse) * (1 - shade);
     const grow = light * food * (E.lights === 'on' ? 1.6 : 1) - 0.12;
     if (hasWater) E.algae = clamp(E.algae + days * (grow * 3 * (E.algae + 0.04) * (1 - E.algae) - grazers * 1.5 - E.algae * 0.05), 0, 1);
@@ -206,7 +209,8 @@ export class Ecology {
   // 0 … 1 progress toward a mature tank (for the panel).
   progress() {
     const W = this.world, E = W.env;
-    return clamp(E.cycle * 0.3 + clamp(E.tankDays / 90, 0, 1) * 0.3 + clamp(W.mossFraction() * 4, 0, 1) * 0.2 + clamp(W.plants.list.length / 60, 0, 1) * 0.2 - E.algae * 0.2, 0, 1);
+    // Sixty plants fill a standard tank; a cube is full with about thirteen.
+    return clamp(E.cycle * 0.3 + clamp(E.tankDays / 90, 0, 1) * 0.3 + clamp(W.mossFraction() * 4, 0, 1) * 0.2 + clamp(W.plants.list.length / (60 * sizeFactors().area), 0, 1) * 0.2 - E.algae * 0.2, 0, 1);
   }
 }
 

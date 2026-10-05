@@ -18,6 +18,9 @@ import { loadPresets } from '../../app/lazy-gen.js';
 import { KITS, kitCounts, kitReach } from '../../content/kits.js';
 import { PIECES } from '../../sim/decor.js';
 import { KitPrice, kitInfo } from '../hud/ToolOptions.jsx';
+import { TankCompare, sizeText } from '../TankScale.jsx';
+import { sizeFactors } from '../../sim/tank.js';
+import { runningCosts, DEFAULT_RUN_SETTINGS, RUNNING_COSTS } from '../../content/upkeep.js';
 import '../builder.css';
 
 const TABS = [['commissions', 'Commissions', 'clipboard'], ['shop', 'Shop', 'cog'], ['kits', 'Kits', 'layers'], ['market', 'Market', 'coin'], ['tanks', 'Tanks', 'home'], ['career', 'Career', 'trophy']];
@@ -42,7 +45,7 @@ function Commissions() {
   const D = ctx.director;
   useEffect(() => { D?.commissions.markSeen(); }, []);
   if (!c) return null;
-  const accept = (id) => { const err = D.commissions.accept(id, ctx.game.world); if (err) toast(err, 'bad'); else { toast('Commission accepted.', 'good'); D.publish(); } };
+  const accept = (id, fit) => { const err = D.commissions.accept(id, ctx.game.world); if (err) toast(err, 'bad'); else { toast(fit && !fit.ok ? `Commission accepted. ${fit.text}` : 'Commission accepted.', fit && !fit.ok ? 'bad' : 'good', fit && !fit.ok ? 6000 : undefined); D.publish(); } };
   const claim = (id) => { D.commissions.claim(id); D.publish(); };
   return (
     <div>
@@ -53,6 +56,7 @@ function Commissions() {
           <div key={a.id} class="tile" style={a.ready ? { borderColor: 'var(--amber)' } : null}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><h4>{a.title}</h4><span class="tag amber">{a.giver}</span></div>
             <p>{a.brief}</p>
+            {a.fit && !a.fit.ok ? <p class="fitwarn">{a.fit.text}</p> : null}
             <div>
               {a.goals.map((g) => (
                 <div key={g.id} class={'goal' + (g.done ? ' done' : '')}>
@@ -74,7 +78,8 @@ function Commissions() {
           <div key={a.id} class={'tile' + (a.locked ? ' lock' : '')}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><h4>{a.title}</h4>{a.isNew ? <span class="tag coral">new</span> : null}</div>
             <p>{a.locked ? <span class="lockmark"><Icon name="lock" size={11} /> Rank {a.level}: {RANKS[a.level - 1].name}</span> : `${a.giver} · tier ${a.tier}`}</p>
-            {!a.locked ? <div class="foot"><Reward r={a.reward} /><button class="btn sm primary" onClick={() => accept(a.id)}>Accept</button></div> : null}
+            {!a.locked && a.fit && !a.fit.ok ? <p class="fitwarn">{a.fit.text}</p> : null}
+            {!a.locked ? <div class="foot"><Reward r={a.reward} /><button class="btn sm primary" onClick={() => accept(a.id, a.fit)}>Accept</button></div> : null}
           </div>
         ))}
         {!c.available.length ? <p class="note">Nothing new. Finish your active commissions, or rank up.</p> : null}
@@ -99,7 +104,7 @@ function Shop() {
   void career;
   return (
     <div>
-      <p class="note" style={{ marginTop: 0 }}>Gear you buy is fitted to whichever tank you are looking at. Each item has a note on the real science behind it.</p>
+      <p class="note" style={{ marginTop: 0 }}>Gear you buy is fitted to whichever tank you are looking at. Each item has a note on the real science behind it.{!ctx.career.sandbox ? <> Filters, lights, foggers and other sized gear are bought for your biggest tank, now the <b>{TANKS[ctx.career.gearTank()]?.name}</b> ({Math.round(sizeFactors(TANKS[ctx.career.gearTank()]).litres)} L): a bigger tank needs bigger gear, and buying one resizes what you own.</> : null}</p>
       {GEAR_GROUPS.map((grp) => (
         <div key={grp}>
           <div class="h3" style={{ marginTop: 14 }}>{grp}</div>
@@ -113,7 +118,7 @@ function Shop() {
                   <p>{g.blurb}</p>
                   <p style={{ color: '#b9c9bf', fontStyle: 'italic' }}>{g.teach}</p>
                   <div class="foot">
-                    {owned ? <span class="tag moss">Fitted</span> : info?.locked ? <span class="lockmark"><Icon name="lock" size={11} /> Rank {info.level}</span> : <span class="price"><Icon name="coin" size={13} />{g.price}</span>}
+                    {owned ? <span class="tag moss">Fitted</span> : info?.locked ? <span class="lockmark"><Icon name="lock" size={11} /> Rank {info.level}</span> : <span class="price"><Icon name="coin" size={13} />{info?.price ?? g.price}{info && info.price !== g.price ? <small class="dim" title="Sized for your biggest tank"> sized</small> : null}</span>}
                     {!owned && !info?.locked ? <button class="btn sm primary" onClick={() => buy(g.id)}>Buy</button> : null}
                   </div>
                 </div>
@@ -221,7 +226,7 @@ function Tanks() {
   };
   return (
     <div>
-      <p class="note" style={{ marginTop: 0 }}>You are looking at the <b>{TANKS[cur]?.name}</b>. Building a new tank puts this one in your portfolio, exactly as it is, and you can come back to it.</p>
+      <p class="note" style={{ marginTop: 0 }}>You are looking at the <b>{TANKS[cur]?.name}</b>. Building a new tank puts this one in your portfolio, exactly as it is, and you can come back to it. Each card draws its tank to scale beside yours (dashed) and a 30 cm rule.</p>
       <div class="cols">
         {TANK_ORDER.map((id) => {
           const t = TANKS[id];
@@ -230,10 +235,12 @@ function Tanks() {
           return (
             <div key={id} class={'tile' + (info?.locked ? ' lock' : '')}>
               <h4>{t.name}{id === cur ? <span class="tag moss" style={{ marginLeft: 8 }}>current</span> : null}</h4>
-              <p>{t.w} × {t.d} × {t.h} cm · {Math.round(t.w * t.d * t.h / 1000)} L{t.closed ? ' · sealed' : ''}</p>
+              <TankCompare t={t} against={TANKS[cur]} />
+              <p>{sizeText(t)}{t.closed ? ' · sealed' : ''}{RUNNING_COSTS && !c.sandbox ? ` · about ¤${runningCosts(t, DEFAULT_RUN_SETTINGS, (g) => GEAR[g]?.owned, { water: 0.08 * sizeFactors(t).litres, pump: true }).total.toFixed(1)} a day to run` : ''}</p>
               <p>{t.blurb}</p>
+              {!owned && info?.upsize > 0 ? <p class="note">Includes ¤{info.upsize} to resize your {info.upsizeParts.map(([name]) => name).join(', ')} for this tank.</p> : null}
               <div class="foot">
-                {info?.locked ? <span class="lockmark"><Icon name="lock" size={11} /> Rank {info.level}</span> : owned ? <span class="tag moss">Owned</span> : <span class="price"><Icon name="coin" size={13} />{t.price}</span>}
+                {info?.locked ? <span class="lockmark"><Icon name="lock" size={11} /> Rank {info.level}</span> : owned ? <span class="tag moss">Owned</span> : <span class="price"><Icon name="coin" size={13} />{info?.price ?? t.price}</span>}
                 {!info?.locked ? <button class="btn sm primary" onClick={() => setPick(id)}>{owned ? 'Build here' : 'Buy and build'}</button> : null}
               </div>
             </div>
@@ -272,7 +279,8 @@ function CustomSize({ onPick }) {
   return (
     <div class="tile" style={{ marginTop: 14 }}>
       <h4>Custom size <span class="tag">sandbox</span></h4>
-      <p>{s.w} × {s.d} × {s.h} cm · {Math.round(s.w * s.d * s.h / 1000)} L · grid {cellsFor(s.w, s.d, s.h)} cells per cm. Limits: {L.w[0]}–{L.w[1]} wide, {L.d[0]}–{L.d[1]} deep, {L.h[0]}–{L.h[1]} high, at most {L.maxLitres} L.</p>
+      <TankCompare t={s} against={TANKS[ctx.game.tankId]} />
+      <p>{sizeText(s)} · grid {cellsFor(s.w, s.d, s.h)} cells per cm. Limits: {L.w[0]}–{L.w[1]} wide, {L.d[0]}–{L.d[1]} deep, {L.h[0]}–{L.h[1]} high, at most {L.maxLitres} L.</p>
       {row('w', 'Width')}{row('d', 'Depth')}{row('h', 'Height')}
       <div class="foot"><span />
         <button class="btn sm primary" onClick={() => { setCustomTank(s.w, s.d, s.h); onPick(); }}>Build this size</button>

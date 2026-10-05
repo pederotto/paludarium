@@ -3,7 +3,11 @@
 // are checked against a metrics snapshot (game/metrics.js). `hold` means the
 // condition has to stay true for that many game days in a row.
 //
-// goal = { id, text, test(m, stats), progress?(m, stats) 0..1, progressText?(m, stats), hold?: days }
+// goal = { id, text, test(m, stats), progress?(m, stats) 0..1, progressText?(m, stats), hold?: days, need? }
+//
+// `need` says what a goal asks of the tank itself ({ id, n }: n animals of a species, or { minL, maxL } on the tank's
+// litres), so the board can say when the tank you are looking at is too small for a commission (game/commissions.js
+// tankFit, from the simulation's room per species). A commission can add its own `need` too.
 
 import { BIOTOPES, BIOTOPE_ORDER } from './biotopes.js';
 import { suggestedReward } from './economy.js';
@@ -17,12 +21,12 @@ const pn = (id) => PLANTS[id]?.name ?? id;
 const pct = (a, b) => Math.max(0, Math.min(1, a / Math.max(1e-6, b)));
 
 const animals = (id, n, hold) => ({
-  id: `a-${id}-${n}`, text: `Keep ${n} ${nm(id).toLowerCase()} healthy${hold ? ` for ${hold} days` : ''}`, hold,
+  id: `a-${id}-${n}`, text: `Keep ${n} ${nm(id).toLowerCase()} healthy${hold ? ` for ${hold} days` : ''}`, hold, need: { id, n },
   test: (m) => (m.animals.healthyById[id] ?? 0) >= n,
   progress: (m) => pct(m.animals.healthyById[id] ?? 0, n), progressText: (m) => `${m.animals.healthyById[id] ?? 0}/${n}`,
 });
 const anyFrogs = (n, hold) => ({
-  id: `frogs-${n}`, text: `Keep ${n} poison frogs healthy${hold ? ` for ${hold} days` : ''}`, hold,
+  id: `frogs-${n}`, text: `Keep ${n} poison frogs healthy${hold ? ` for ${hold} days` : ''}`, hold, need: { id: 'strawberry', n },   // the poison frog that fits most tanks
   test: (m) => m.animals.healthyFrogs >= n, progress: (m) => pct(m.animals.healthyFrogs, n), progressText: (m) => `${m.animals.healthyFrogs}/${n}`,
 });
 const plants = (n) => ({ id: `plants-${n}`, text: `Grow ${n} plants`, test: (m) => m.plants.total >= n, progress: (m) => pct(m.plants.total, n), progressText: (m) => `${m.plants.total}/${n}` });
@@ -37,6 +41,12 @@ const temp = (lo, hi, hold) => ({
 });
 const feature = (key, text) => ({ id: `f-${key}`, text, test: (m) => !!m.features[key] });
 const goal = (id, text, test, extra = {}) => ({ id, text, test, ...extra });
+// The tank's own size, for commissions that are about a small or a big tank.
+const tankAtMost = (L) => goal(`tank-le-${L}`, `Build it in a tank of ${L} litres or less`, (m) => (m.size?.litres ?? 243) <= L, { need: { maxL: L }, progressText: (m) => `${Math.round(m.size?.litres ?? 0)} L` });
+const tankAtLeast = (L) => goal(`tank-ge-${L}`, `Build it in a tank of ${L} litres or more`, (m) => (m.size?.litres ?? 243) >= L, { need: { minL: L }, progressText: (m) => `${Math.round(m.size?.litres ?? 0)} L` });
+// The Curator's grade of this tank (the director puts it in the metrics: 1 D … 5 S).
+const gradeAt = (g, letter, hold) => goal(`grade-${letter}-${hold ?? 0}`, `Hold a grade ${letter} or better from the Curator${hold ? ` for ${hold} days` : ''}`, (m) => (m.grade ?? 0) >= g, { hold, progressText: (m) => ['–', 'D', 'C', 'B', 'A', 'S'][m.grade ?? 0] });
+const withinStock = () => goal('within-stock', 'Stock it no more than it carries comfortably', (m) => (m.stocking?.worst ?? 0) <= 1, { progressText: (m) => (m.stocking?.over?.length ? `${m.stocking.over.length} crowded` : 'none crowded') });
 // Genetics goals read the metrics' `genetics`: healthy animals by 'species:morph', and those born in this tank.
 const morphKey = (sp, morph) => `${sp}:${morph}`;
 const morphCount = (sp, morphs, n, text) => ({
@@ -140,6 +150,13 @@ const list = [
     goals: [goal('metamorph', 'Raise a tadpole into a frog', (m, s) => (s.metamorphs ?? 0) >= 1 || m.metamorphs >= 1), anyFrogs(3)],
     reward: { funds: 260, rep: 160 }, next: [],
   },
+  {
+    id: 'perfect-nano', tier: 3, level: 4, giver: 'Mira', title: 'A Perfect Nano',
+    brief: 'Small tanks are the hardest to keep perfect. A few litres of water foul in a day, a warm afternoon heats them in an hour, and there is no room to hide a mistake. Build a small tank that a judge cannot fault: a few animals, all of them well, and no more of them than it can carry.',
+    teaches: ['carrying-capacity', 'composition'],
+    goals: [tankAtMost(120), withinStock(), goal('all-well', 'Keep at least 4 animals, every one healthy, for 5 days', (m) => m.animals.total >= 4 && m.animals.healthy === m.animals.total, { hold: 5, progressText: (m) => `${m.animals.healthy}/${m.animals.total}` }), gradeAt(4, 'A', 3)],
+    reward: suggestedReward(4, 2.5), next: [],
+  },
 ];
 
 // ---- Tier 3: one commission per real habitat --------------------------------------------------------------------------------------
@@ -198,6 +215,14 @@ list.push(
     teaches: ['composition', 'conservation'],
     goals: [goal('grade-s', 'Earn an S from the Curator', (m, s) => (s.bestGrade ?? 0) >= 5), goal('age60', 'Keep the tank going for 60 days', (m) => m.tankDays >= 60, { progressText: (m) => `${Math.floor(m.tankDays)} d` }), goal('nolosses', 'A month without a loss', (m) => m.daysSinceDeath >= 30)],
     reward: suggestedReward(9, 4), next: [],
+  },
+  {
+    id: 'grand-exhibit', tier: 5, level: 9, giver: 'The Museum', title: 'The Grand Exhibit',
+    brief: 'Only a big tank can hold a whole landscape: a stream that winds from a waterfall to a lagoon, a forest floor, a planted wall and a canopy, each with its own animals. The Museum wants one for its main hall, and it must not look crowded.',
+    teaches: ['composition', 'carrying-capacity'],
+    goals: [tankAtLeast(400), goal('species10', 'Keep 10 species', (m) => m.animals.species >= 10, { progress: (m) => pct(m.animals.species, 10), progressText: (m) => `${m.animals.species}/10` }),
+      goal('zones5', 'Land, open water, a stream, a planted wall and a canopy', (m) => (m.zones ?? 0) >= 5, { progressText: (m) => `${m.zones ?? 0}/5` }), withinStock(), gradeAt(3, 'B', 3)],
+    reward: suggestedReward(9, 3.5), next: [],
   },
 );
 

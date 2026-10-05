@@ -8,7 +8,8 @@ import { ctx } from '../../app/ctx.js';
 import { groupOf, WATER_TOOLS, SCULPT_OPS, MIRROR_WATER } from '../../editor/defs.js';
 import { KITS, kitById, kitPrice, kitRank } from '../../content/kits.js';
 import '../builder.css';
-import { MATERIALS, TANK } from '../../sim/tank.js';
+import { MATERIALS, TANK, sizeFactors } from '../../sim/tank.js';
+import { stockAdvice } from '../../game/stocking.js';
 import { SPECIES } from '../../sim/animals.js';
 import { PLANTS } from '../../sim/plants.js';
 import { PIECES } from '../../sim/decor.js';
@@ -16,8 +17,16 @@ import { hasGenetics, morphList } from '../../sim/genetics.js';
 import { morphInfo } from '../../content/morphs.js';
 import { MorphDot, Stars } from '../GeneBits.jsx';
 
-// A compact "will it thrive right now?" light for a species in this tank.
-function fit(sp, live) {
+// How many of a species fit in this tank before they crowd (game/stocking.js: the simulation's own room per species).
+function stock(id, live) {
+  const sp = SPECIES[id];
+  if (!live || !sp) return null;
+  return stockAdvice(id, sp, live.stock?.counts?.[id] ?? 0, sizeFactors(), { water: live.water.litres });
+}
+const STOCK_LEVEL = { small: 'bad', over: 'bad', group: 'warn', full: 'warn', lonely: 'warn' };
+
+// A compact "will it thrive right now?" light for a species in this tank, with whether it fits (`id`: its species id).
+function fit(sp, live, id = null) {
   if (!live) return null;
   const { temp, humidity, ammonia, nitrite } = live.env;
   const aquatic = sp.kind === 'swim' || sp.kind === 'crawlWater';
@@ -30,7 +39,10 @@ function fit(sp, live) {
   } else if (sp.humidity) {
     if (humidity < sp.humidity - 8) { bad++; why.push('air too dry'); } else if (humidity < sp.humidity) { warn++; why.push('air a little dry'); }
   }
-  return { level: bad ? 'bad' : warn ? 'warn' : 'good', why: why.join(', ') || 'conditions suit it' };
+  const st = id ? stock(id, live) : null;
+  const sl = st && STOCK_LEVEL[st.verdict];
+  if (sl === 'bad') { bad++; why.unshift(st.text); } else if (sl === 'warn') { warn++; why.push(st.text); }
+  return { level: bad ? 'bad' : warn ? 'warn' : 'good', why: why.join(', ') || 'conditions suit it', stock: st };
 }
 
 const FIT_COLOR = { good: 'var(--moss)', warn: 'var(--amber)', bad: 'var(--coral)' };
@@ -140,12 +152,15 @@ function Adv({ id, children, label = 'Advanced' }) {
 }
 
 // The "will it thrive right now?" footer for a plant or an animal.
-function Thrive({ name, f, note, guide }) {
+// `room`: for an animal, how many fit in this tank (shown when it is not already the reason in the light's line).
+function Thrive({ name, f, note, guide, room }) {
+  const roomLine = room && room.verdict === 'ok' ? room.text.charAt(0).toUpperCase() + room.text.slice(1) : null;
   return (
     <div class="thrive">
       <div class="th-l">
         <b>{name}</b>
         <span class="th-s">{f ? <><i class="ex-light" style={{ background: FIT_COLOR[f.level] }} /> <span style={{ color: FIT_COLOR[f.level] }}>{f.why}</span></> : <span class="th-n">{note}</span>}</span>
+        {roomLine ? <span class="th-s th-room">{roomLine}</span> : null}
       </div>
       <button class="btn sm ghost" title="Open the field guide" onClick={guide}><Icon name="book" size={14} /> Guide</button>
     </div>
@@ -389,7 +404,7 @@ function Animals() {
   const sub = S.sub.value, live = S.live.value;
   const groups = {};
   for (const [id, s] of Object.entries(SPECIES)) if (s.kind !== 'egg' && !s.young) (groups[s.group] ??= []).push([id, s]);
-  const s = SPECIES[sub.animal], f = fit(s, live);
+  const s = SPECIES[sub.animal], f = fit(s, live, sub.animal);
   return (
     <>
       <div class="oc-main">
@@ -399,7 +414,7 @@ function Animals() {
             <div class="pick-grid">
               {items.map(([id, sp]) => {
                 const info = ctx.career?.info('animal', id);
-                const ft = fit(sp, live);
+                const ft = fit(sp, live, id);
                 return (
                   <Pick key={id} on={sub.animal === id} lock={info?.locked} title={sp.note + (ft ? ` (${ft.why})` : '')} kind="animal" id={id} icon={ANIMAL_ICON[g] ?? 'frog'} name={sp.name} onClick={() => ctx.tools.setSub('animal', id, sp.note)}>
                     {ft ? <i class="ex-light" style={{ background: FIT_COLOR[ft.level] }} /> : null}
@@ -416,7 +431,7 @@ function Animals() {
         {hudRules().toolOptions === 'full' ? <SmartToggle /> : null}
         <p class="note">{s.note}</p>
       </Adv>
-      <Foot><Thrive name={s.name} f={f} note={s.note} guide={() => openModal('codex', 'animal:' + sub.animal)} /></Foot>
+      <Foot><Thrive name={s.name} f={f} note={s.note} guide={() => openModal('codex', 'animal:' + sub.animal)} room={f?.stock} /></Foot>
     </>
   );
 }
@@ -500,17 +515,17 @@ function ExplorerPicks({ id }) {
     );
   }
   const groups = Object.entries(SPECIES).filter(([, s]) => s.kind !== 'egg' && !s.young);
-  const s = SPECIES[sub.animal], fs = fit(s, live);
+  const s = SPECIES[sub.animal], fs = fit(s, live, sub.animal);
   return (
     <div class="ex-body">
       <div class="pick-grid">
         {groups.map(([k, sp]) => {
           const info = ctx.career?.info('animal', k);
-          return <Pick key={k} on={sub.animal === k} lock={info?.locked} kind="animal" id={k} icon={ANIMAL_ICON[sp.group] ?? 'frog'} name={sp.name} onClick={() => T.setSub('animal', k, sp.note)}>{dot(fit(sp, live))}<Price kind="animal" id={k} /></Pick>;
+          return <Pick key={k} on={sub.animal === k} lock={info?.locked} kind="animal" id={k} icon={ANIMAL_ICON[sp.group] ?? 'frog'} name={sp.name} onClick={() => T.setSub('animal', k, sp.note)}>{dot(fit(sp, live, k))}<Price kind="animal" id={k} /></Pick>;
         })}
       </div>
       <div class="chips"><button class="chip" onClick={() => openModal('codex', 'animal:' + sub.animal)}><Icon name="book" size={13} /> About</button></div>
-      <p class="ex-note">{s.note} {fs ? <b style={{ color: FIT_COLOR[fs.level] }}>Right now: {fs.why}.</b> : null}</p>
+      <p class="ex-note">{s.note} {fs ? <b style={{ color: FIT_COLOR[fs.level] }}>Right now: {fs.why}.</b> : null}{fs?.stock?.verdict === 'ok' ? ` This tank: ${fs.stock.text}.` : null}</p>
     </div>
   );
 }

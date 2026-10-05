@@ -53,6 +53,12 @@ export function assess(live) {
         hungry ? (aquatic ? { label: 'Feed fish', icon: 'bowl', fn: Care.feed } : { label: 'Add flies', icon: 'bug', fn: Care.flies }) : /dry/.test(why ?? '') ? mist : null, ['codex', 'animal:' + c.id]);
     }
   }
+  // More of a species than fit in a tank this size (game/stocking.js): they stress each other.
+  for (const o of live.stock?.over ?? []) {
+    if (concerns.some((c) => c.id === 'an:' + o.id && /crowd|too many/.test(c.text))) continue;   // the animals already say so
+    const nm = SPECIES[o.id]?.name ?? o.id;
+    add('crowd:' + o.id, o.n > o.room * 1.5 ? 'bad' : 'warn', hud.numbers ? `${nm}: ${o.n} where about ${o.room} fit in this tank` : `Too many ${nm.toLowerCase()} for this tank`, null, ['codex', 'animal:' + o.id]);
+  }
   if (live.plants.sick) add('plants', live.plants.sick > 2 ? 'warn' : 'warn', `${live.plants.sick} plant${live.plants.sick > 1 ? 's' : ''} struggling`, null, ['care']);
   concerns.sort((a, b) => (b.level === 'bad') - (a.level === 'bad'));
   const bad = concerns.some((c) => c.level === 'bad');

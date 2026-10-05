@@ -1,0 +1,20 @@
+/* Tank sizes to scale (TankScale.jsx). SVG units are centimetres; strokes stay one pixel at any scale. */
+.tank-lineup { display: block; width: 100%; height: auto; max-height: 104px; margin: 0 0 6px; padding: 8px 10px 6px; box-sizing: border-box; border-radius: var(--r); background: rgba(3, 7, 5, 0.55); border: 1px solid var(--line); overflow: visible; }
+.tank-compare { display: block; width: 100%; height: 64px; overflow: visible; }
+.tk polygon, .tk rect { fill: rgba(255, 255, 255, 0.05); stroke: var(--line-2); stroke-width: 1px; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.tk .top, .tk .side { fill: rgba(255, 255, 255, 0.09); }
+.tk .soil { fill: rgba(176, 128, 82, 0.3); stroke: none; }
+.tk[role='button'] { cursor: pointer; }
+.tk[role='button']:hover .front { fill: rgba(255, 255, 255, 0.1); }
+.tk.on .front { fill: rgba(143, 214, 164, 0.3); stroke: var(--moss); }
+.tk.on .top, .tk.on .side { fill: rgba(143, 214, 164, 0.45); stroke: var(--moss); }
+.tk.ref polygon, .tk.ref rect { fill: none; stroke: #b9c9bf; stroke-dasharray: 3 3; }
+.tk-rule rect { fill: var(--amber); opacity: 0.85; }
+.tk-rule line { stroke: var(--amber); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.tank-size { margin: 0 0 12px; font-size: 12px; color: var(--dim); }
+.tank-size b { color: var(--text); font-weight: 600; }
+.tank-size .key { color: var(--amber); }
+/* The title's size picker: the HUD's rail squeezes every .seg button to an equal share (hud/rail2.css), which cut the
+   names to "Mo…" on a phone; these keep their width and wrap onto a second row instead. */
+.seg.tiers { display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%; margin-bottom: 8px; }
+.seg.tiers button { flex: 0 0 auto; min-width: auto; padding: 5px 10px; font-size: 13px; overflow: visible; }

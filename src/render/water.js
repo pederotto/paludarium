@@ -669,6 +669,9 @@ export class Water {
   load(o) {
     this.jobs.clear(); this.erosion.reset();
     this._pend = false; this._commitT = 0;
+    // The roots are the new world's: refresh them before the first erosion run (a reused tank kept the old plants' roots,
+    // and a bank the old plants held could slump the moment the new game started).
+    this._rootT = 0; this.erosion.root.fill(0);
     this.erosion.s.fill(0); this.erosion.cum.fill(0);
     if (o.hydro) this.hydro.deserialize(o.hydro);
     else {
@@ -688,6 +691,7 @@ export class Water {
   clear() {
     this.jobs.clear(); this.erosion.reset();
     this._pend = false; this._commitT = 0; this._lastSlump = -1e9; this._puffT = 0;
+    this._rootT = 0; this.erosion.root.fill(0);   // the new world's roots before the first erosion run, as in load()
     this.erosion.s.fill(0); this.erosion.cum.fill(0);
     this.hydro.outlets = [];
     this.hydro.d.fill(0);

@@ -4,7 +4,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, vec3, float, positionWorld, time, mix, smoothstep, clamp, exp, max, min, attribute, sin, cos,
-  instanceIndex, positionLocal, dot, vec2, saturate, instanceColor, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
+  instanceIndex, positionLocal, dot, saturate, instanceColor, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
   mrt, packNormalToRGB, screenCoordinate, fract, step,
 } from 'three/tsl';
 import { noise3 } from './noise3.js';
@@ -49,8 +49,8 @@ export function wet(base, pw = positionWorld, surf = U.waterLevel, k = 1, fogK =
   const down = exp(vec3(0.075, 0.032, 0.024).mul(d).add(0.25).mul(U.turbidity.add(1)).mul(k).negate());
   const toEye = normalize(cameraPosition.sub(pw));
   const tSurf = toEye.y.greaterThan(0.01).select(d.div(max(toEye.y, 0.01)), float(1e4));
-  const tFront = toEye.z.greaterThan(0.01).select(float(TANK.d / 2).sub(pw.z).div(max(toEye.z, 0.01)), float(1e4));
-  const tSide = float(TANK.w / 2).sub(pw.x.mul(sign(toEye.x))).div(max(abs(toEye.x), 0.01));
+  const tFront = toEye.z.greaterThan(0.01).select(U.tankHalf.y.sub(pw.z).div(max(toEye.z, 0.01)), float(1e4));
+  const tSide = U.tankHalf.x.sub(pw.x.mul(sign(toEye.x))).div(max(abs(toEye.x), 0.01));
   const path = clamp(min(tSurf, min(tFront, tSide)), 0, 250);
   const sigma = vec3(0.022, 0.011, 0.0095).mul(U.turbidity.mul(3).add(1)).mul(k);
   const T = exp(sigma.mul(path).negate());
@@ -162,7 +162,7 @@ export function substrateMaterial({ perVertexWater = false } = {}) {
   if (perVertexWater) {
     // The floor (not the background): humus darkens and enriches the soil, and leaf litter
     // darkens it in patches (both written by sim/humus.js into one small texture).
-    const g = texture(SOIL.tex, vec2(pw.x.div(TANK.w).add(0.5), pw.z.div(TANK.d).add(0.5)));
+    const g = texture(SOIL.tex, pw.xz.div(U.tankHalf.mul(2)).add(0.5));
     const soilW = clamp(ws[0].add(ws[4].mul(0.35)), 0, 1);
     const humusA = clamp(g.r.mul(1.15), 0, 1).mul(soilW);
     const richer = base.mul(vec3(0.34, 0.27, 0.2)).add(vec3(0.02, 0.012, 0.006));
