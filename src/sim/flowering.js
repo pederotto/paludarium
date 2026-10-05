@@ -12,6 +12,7 @@
 import * as THREE from 'three/webgpu';
 import { Builder } from '../render/geo.js';
 import { rng, clamp } from '../util/math.js';
+import { ORCHID_LEAF, orchidLeafMap } from './orchid-leaves.js';   // (run orchids T1: painted orchid leaves)
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
@@ -143,6 +144,8 @@ const DICOT_MAT = { amp: 0.2, speed: 0.7, veins: { kind: 'pinnate', n: 6, slope:
 
 // Masdevallia: a dense tuft of erect, narrow spoon-shaped leaves on channelled petioles (no pseudobulbs), 8.5-12 x 1.7-2.3 cm,
 // and single flowers on wiry stems from the base, held at or above the leaves, one arching out sideways.
+// Leathery, glossy spoon leaves with a channelled midrib (painted, sim/orchid-leaves.js); the underside a little paler.
+const MASD_MAT = () => ({ ...ORCHID_MAT, rough: 0.58, leafMap: orchidLeafMap('masdevallia'), leafPale: [0.62, 0.76, 0.46], leafBack: [1.1, 1.12, 1.0] });
 const masdLayout = once(() => {
   const r = rng(101), leaves = [], stalks = [];
   for (let k = 0; k < 10; k++) {
@@ -162,6 +165,8 @@ const masdLayout = once(() => {
 
 // Dracula: a tuft of keeled, arching leaves; the flower stems grow out sideways past the leaves and arch over, so the
 // flowers hang facing out and down (they stay above the ground when it grows on land).
+// Keeled straps with a fold line and faint parallel veins, a satin sheen, a paler underside.
+const DRAC_MAT = () => ({ ...ORCHID_MAT, rough: 0.66, leafMap: orchidLeafMap('dracula'), leafPale: [0.7, 0.8, 0.5], leafBack: [1.25, 1.25, 1.1] });
 const dracLayout = once(() => {
   const r = rng(103), leaves = [], stalks = [];
   // (photos 1-3: about a dozen long narrow straps, 13-17 cm, erect then arching out)
@@ -185,6 +190,9 @@ const dracLayout = once(() => {
 // The heart: rounded base lobes reaching back past the stem into a deep notch, a smooth margin, the tip drawn out (acuminate).
 const HEART = (t) => (t < 0.24 ? 0.14 + 0.36 * Math.pow(Math.sin((Math.PI / 2) * t / 0.24), 0.55)
   : 0.5 * Math.pow(Math.cos((Math.PI / 2) * (t - 0.24) / 0.76), 1.1) * (1 - 0.3 * sstep(0.7, 1, t)));
+// Thick, glossy hearts: a pale midrib, very faint arcuate veins, a soft mottling; the outline (lobes, notch, acuminate tip) is
+// the texture's alpha on a coarse blade (sim/orchid-leaves.js).
+const PLEURO_MAT = () => ({ ...ORCHID_MAT, rough: 0.64, leafMap: orchidLeafMap('pleurothallis'), leafPale: [0.78, 0.86, 0.55], leafBack: [1.04, 1.07, 0.97] });
 const pleuroLayout = once(() => {
   const r = rng(107), stems = [];
   for (let k = 0; k < 11; k++) {
@@ -194,7 +202,7 @@ const pleuroLayout = once(() => {
     const top = p0.clone().add(V(Math.cos(a) * lean * h, h * (1 - lean * 0.3), Math.sin(a) * lean * h));
     const mid = p0.clone().lerp(top, 0.5).addScaledVector(out, 0.12 * h);
     // the blade turned out and held steeply, from a little above level to hanging blade-down
-    const bA = a + (r() - 0.5) * 1.2, yv = -1.1 + r() * 1.4, dir = V(Math.cos(bA), yv, Math.sin(bA)).normalize();
+    const bA = a + (r() - 0.5) * 1.2, yv = -0.75 + r() * 0.85, dir = V(Math.cos(bA), yv, Math.sin(bA)).normalize();
     const len = len0, ratio = k % 3 === 0 ? 0.82 + r() * 0.12 : 0.6 + r() * 0.2, face = V(Math.cos(bA), 1.4, Math.sin(bA));
     const { nrm } = faceOf(dir, face);
     stems.push({ p0, mid, top, dir, face, len, width: len * ratio, nrm, tone: k % 4 === 1 ? 'wine' : k % 5 === 3 ? 'flush' : 'green' });
@@ -218,6 +226,8 @@ const lepLayout = once(() => {
 // Dendrobium cuthbertsonii (run orchids, O2c): a tight clump (about 4 cm) of a dozen tiny pseudobulbs, one or two small
 // dark leaves on each; one flower per bulb on a short stalk, all round the clump and facing out (photo 2), the flowers far
 // bigger than the leaves. Bulbs on a sunflower spiral; the facings from a little below the horizon to steep.
+// Small dark leaves with raised silver-white warts on top (painted), flushed red-brown underneath (the back-face tint).
+const CUTH_MAT = () => ({ ...ORCHID_MAT, rough: 0.6, leafMap: orchidLeafMap('cuthbertsonii'), leafPale: [0.86, 0.9, 0.86], leafBack: [3.0, 0.85, 1.15] });
 const cuthLayout = once(() => {
   const r = rng(113), bulbs = [], stalks = [], N = 12, C = V(0, 1.5, 0);
   for (let k = 0; k < N; k++) {
@@ -355,13 +365,13 @@ export const FLOWERING = {
     build() {
       const b = new Builder(), L = masdLayout();
       for (const l of L.leaves) {
-        sheet(b, { base: l.base, dir: l.dir, face: V(-Math.cos(l.a), 0.6, -Math.sin(l.a)), len: l.len, width: l.width, outline: PETIOLATE, nu: 2, rows: [0, 0.28, 0.45, 0.65, 0.85, 1], cup: 0.4, droop: 0.06, twist: 0.25,
+        sheet(b, { base: l.base, dir: l.dir, face: V(-Math.cos(l.a), 0.6, -Math.sin(l.a)), len: l.len, width: l.width, outline: ORCHID_LEAF.masdevallia.env, nu: 2, rows: ORCHID_LEAF.masdevallia.rows, cup: 0.4, droop: 0.06, twist: 0.25,
           color: (u, t) => (t < 0.28 ? lc(0x6f7f3c, 0x2f5a26, t / 0.28) : lc(0x2f5a26, 0x3e7330, (t - 0.28) / 0.72)) });
       }
       for (const s of L.stalks) tube(b, s.pts, [0.07, 0.055, 0.04], { sides: 3, color: (t) => lc(0x6a7a3a, 0x7a6a40, t) });
       return b.build();
     },
-    material: ORCHID_MAT,
+    get material() { return MASD_MAT(); },
     flower: {
       build(b) {
         // The sepals fused at the base into a tube (a trumpet seen from the side), its mouth in the accent colour (the throat
@@ -411,13 +421,13 @@ export const FLOWERING = {
     build() {
       const b = new Builder(), L = dracLayout();
       for (const l of L.leaves) {
-        sheet(b, { base: l.base, dir: l.dir, face: V(-Math.cos(l.a), 0.6, -Math.sin(l.a)), len: l.len, width: l.width, outline: (t) => PETIOLATE(0.28 + t * 0.72) * 0.9 + 0.03, nu: 2, rows: [0, 0.15, 0.4, 0.65, 0.85, 1], cup: 0.4, droop: 0.28,
-          color: (u, t) => lc(0x5a7034, 0x2c5424, sstep(0, 0.25, t)).lerp(new THREE.Color(0x3a6a2c), t * 0.6) });
+        sheet(b, { base: l.base, dir: l.dir, face: V(-Math.cos(l.a), 0.6, -Math.sin(l.a)), len: l.len, width: l.width, outline: ORCHID_LEAF.dracula.env, nu: 2, rows: ORCHID_LEAF.dracula.rows, cup: 0.4, droop: 0.28,
+          color: (u, t) => lc(0x6a8a3c, 0x447a30, sstep(0, 0.25, t)).lerp(new THREE.Color(0x5a8e3a), t * 0.6) });
       }
       for (const s of L.stalks) tube(b, s.pts, [0.07, 0.055, 0.045], { sides: 3, color: (t) => lc(0x5a6a34, 0x6a5a3a, t) });
       return b.build();
     },
-    material: ORCHID_MAT,
+    get material() { return DRAC_MAT(); },
     flower: {
       build(b) {
         // Three broad sepals joined at the base into a shallow hairy cup, each drawn out into a long tail; two tiny petals
@@ -459,20 +469,20 @@ export const FLOWERING = {
     build() {
       const b = new Builder();
       // glossy mid/yellow-green with a pale midrib; some leaves wine-purple (young P. teaguei type), some green with a purple flush
-      const TONE = { green: [0x2e5a1a, 0x4f7e26, 0x86a850], wine: [0x4a2232, 0x5e3446, 0x34141e], flush: [0x2e521a, 0x4a7024, 0x80a050] };
+      const TONE = { green: [0x3c6e1e, 0x5e9a2c], wine: [0x543e4e, 0x664a5a], flush: [0x3a681c, 0x5a8c28] };
       for (const s of pleuroLayout().stems) {
         tube(b, [s.p0, s.mid, s.top], [0.06, 0.045, 0.035], { sides: 3, color: (t) => lc(0x8a7a4a, 0x5a7a32, t * 1.4) });
-        const [c0, c1, rib] = TONE[s.tone];
-        sheet(b, { base: s.top, dir: s.dir, face: s.face, len: s.len, width: s.width, outline: HEART, shift: 0.2, nu: 2, rows: [0, 0.06, 0.14, 0.24, 0.42, 0.62, 0.82, 1], cup: 0.1, droop: 0.22,
+        const [c0, c1] = TONE[s.tone], P = ORCHID_LEAF.pleurothallis;
+        sheet(b, { base: s.top, dir: s.dir, face: s.face, len: s.len, width: s.width, outline: P.env, shift: 0.2, nu: 2, rows: P.rows, cup: 0.1, droop: 0.22,
           color: (u, t) => {
             const c = lc(c0, c1, Math.min(1, t * 1.3));
-            if (s.tone === 'flush') c.lerp(new THREE.Color(0x4a2232), 0.45 * Math.abs(u));
-            return c.lerp(new THREE.Color(rib), 0.55 * (1 - sstep(0.05, 0.3, Math.abs(u))) * (1 - 0.6 * t));
+            if (s.tone === 'flush') c.lerp(new THREE.Color(0x664a5a), 0.5 * Math.abs(u));
+            return c;
           }, sway: (t) => 0.6 + 0.4 * t });
       }
       return b.build();
     },
-    material: ORCHID_MAT,
+    get material() { return PLEURO_MAT(); },
     flower: {
       build(b) {
         // One fascicle: five tiny tubular-cupped flowers (~6-8 mm) bunched in the leaf notch, each a hooded dorsal sepal and the
@@ -561,13 +571,13 @@ export const FLOWERING = {
       for (const B of L.bulbs) {
         tube(b, [B.p, B.p.clone().addScaledVector(B.lean, B.h * 0.45), B.top], [0.13, 0.2, 0.08], { sides: 3, color: (t) => lc(0x4a3e26, 0x46622c, t * 1.3), sway: () => 0 });
         // lanceolate-elliptic, dark green; some flushed red-brown at the base and margins (the warty dots: leaf texture, T1)
-        for (const l of B.leaves) sheet(b, { base: B.top, dir: l.dir, face: UP, len: l.len, width: l.width, outline: OVAL, nu: 2, rows: [0, 0.35, 0.7, 1], cup: 0.3, droop: 0.12,
+        for (const l of B.leaves) sheet(b, { base: B.top, dir: l.dir, face: UP, len: l.len, width: l.width, outline: ORCHID_LEAF.cuthbertsonii.env, nu: 2, rows: ORCHID_LEAF.cuthbertsonii.rows, cup: 0.3, droop: 0.12,
           color: (u, t) => lc(lc(0x183616, 0x234c22, t), 0x5a2a1c, l.red < 0.45 ? 0.4 * Math.abs(u) + 0.25 * (1 - t) : 0.12 * Math.abs(u)), sway: (t) => 0.3 + 0.7 * t });
       }
       for (const s of L.stalks) tube(b, s.pts, [0.045, 0.035], { sides: 3, color: (t) => lc(0x5a6a30, 0x8a4a3a, t) });
       return b.build();
     },
-    material: ORCHID_MAT,
+    get material() { return CUTH_MAT(); },
     flower: {
       build(b) {
         // A 3D tubular bell (photos 1-3): five broad tepals joined at their bases into a tube along +Y that flare out at the
