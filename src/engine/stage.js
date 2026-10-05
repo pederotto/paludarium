@@ -224,15 +224,25 @@ export class Stage {
   }
 
   dispose() {
+    const lights = [];
     this.root.traverse((o) => {
       // A light with a shadow holds its shadow map (the LED's is 2048 x 2048, about 34 MB) until it is disposed.
-      if (o.isLight) o.dispose?.();
+      if (o.isLight) { lights.push(o); return; }
       o.geometry?.dispose?.();
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
       for (const m of mats) m.dispose?.();
     });
     this.root.removeFromParent();
+    disposeLightsLater(lights);
   }
+}
+
+// Freed a second later, not now (N20c): disposing a light frees its shadow resources, and a frame already encoded with the
+// old tank's light can still be submitted after the swap: "Buffer used in submit while destroyed" on WebGPU (bisected to
+// this dispose, 0 errors in 4 journeys with it off, 2-3 in every run with it on). Same delay as gfx.js disposePasses.
+export function disposeLightsLater(lights, ms = 1000, later = setTimeout) {
+  if (lights.length) later(() => { for (const l of lights) l.dispose?.(); }, ms);
+  return lights.length;
 }
 
 const merge = (list) => { const geo = mergeGeometries(list); for (const p of list) p.dispose(); return geo; };
