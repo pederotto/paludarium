@@ -101,6 +101,13 @@ export const STICKERS = [
   { id: 'forest', name: 'Little forest', hint: 'Grow 5 plants', icon: 'sprout', c1: '#6ad08a', c2: '#2a9a5a' },
   { id: 'happy', name: 'Super happy', hint: 'Fill all the hearts', icon: 'heart', c1: '#ff8fab', c2: '#e0407a' },
   { id: 'night', name: 'Night owl', hint: 'Switch on the night', icon: 'moon', c1: '#7a7ad0', c2: '#3a3a8a' },
+  // Story stickers: one per chapter of "Pip finds a home" (content/kids-story.js).
+  { id: 'story-home', name: 'Home builder', hint: 'Story: chapter 1', icon: 'frog', c1: '#57c27a', c2: '#2c8a57' },
+  { id: 'story-damp', name: 'Rain friend', hint: 'Story: chapter 2', icon: 'rain', c1: '#7fb6f0', c2: '#3f6fc0' },
+  { id: 'story-friend', name: "Pip's pal", hint: 'Story: chapter 3', icon: 'heart', c1: '#4a8ae0', c2: '#2a5aa8' },
+  { id: 'story-baby', name: 'Frog family', hint: 'Story: chapter 4', icon: 'egg', c1: '#ffd98a', c2: '#e0a03a' },
+  { id: 'story-fish', name: 'Fish friends', hint: 'Story: chapter 5', icon: 'fish', c1: '#4aa8e0', c2: '#2a6e92' },
+  { id: 'story-shrimp', name: 'Clean team', hint: 'Story: chapter 6', icon: 'sparkles', c1: '#e8584a', c2: '#a8302a' },
 ];
 
 // What the little guide says. One line at a time.

@@ -19,9 +19,9 @@ import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
-import { herpSpot } from './placement.js';
+import { herpSpot, depthCap, depthOk, deepWithin } from './placement.js';
 import { HABITAT } from '../content/habitats.js';
-import { restStep, isNight, REST_LABEL } from './swimrest.js';
+import { restStep, isNight, REST_LABEL, LARVA_REST } from './swimrest.js';
 import { SKINK, skinkMind, skinkThink } from './skink.js';
 import { SHRIMP, shrimpMind, shrimpThink, shrimpDoing } from './shrimp.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
@@ -410,7 +410,7 @@ export const SPECIES = {
     minL: 100, temp: [23, 27], humidity: 70, hungerHours: 260, lifeDays: 4000, eats: ['isopod', 'fly', 'flylarva', 'springtail', 'pandaking', 'cricket', 'dubia', 'earthworm', 'waxworm'], cap: 2, breed: 0.006, adultDays: 120,
     eggs: { n: 1, days: 60, into: 'skink', where: 'land' },
     bask: 28.5, uvb: 2, land: 0.8, territorial: true, flock: [1, 2], ph: [6.5, 7.8],
-    body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6, rig2: { neck: 0.13, s0: 0.03, s1: 0.17, neckY: 0.55, len: 16.8 } },
+    body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6, rig2: { neck: 0.24, s0: 0.03, s1: 0.28, neckY: 2.78, len: 16.8, tail0: 0.536, tailY: 1.83 } },   // (the baked model, manifest skink: 16.8 cm, neck base at spine 0.24 and 2.78 cm up, vent at 9/16.8 and 1.83 cm up: S1a)
     note: 'A shy, armoured little lizard of humid stream banks in New Guinea, with orange rings round its eyes. 80% land, a shallow pool (5-7 cm at most) to soak in, 23-27 °C with a 28-29 °C warm spot, 80-90% humidity, low UVB; cork bark, leaf litter and moss to hide in. Out at dusk. One, or a male and a female.',
   },
   bumblebee: {
@@ -839,7 +839,7 @@ export class Animals {
         if (surf > ground) return { pos: V(x, surf - 0.3, z) };
         return { pos: V(x, ground, z) };
       case 'newt': case 'axolotl': {          // (placement.js herpSpot: the habitat row decides; a fire salamander is never put on a pool floor)
-        const r = herpSpot(HABITAT[id], { ground, surf, wl, nearWater: (d) => W.nearWater(V(x, ground, z), d) });
+        const r = herpSpot(HABITAT[id], { ground, surf, wl, nearWater: (d) => W.nearWater(V(x, ground, z), d), deepNear: (r, m) => deepWithin((px, pz) => this.wDepth(px, pz), x, z, r, m) });
         return r.error ? r : { pos: V(x, r.y, z) };
       }
       case 'gecko':
@@ -1209,7 +1209,7 @@ export class Animals {
       const [gx, gz] = T.field.gradient(a.pos.x, a.pos.z), l = Math.hypot(gx, gz), nx = a.pos.x - gx / l * 0.3, nz = a.pos.z - gz / l * 0.3;
       // (a frog does not slide off into water deeper than half its body: it scrambles to a place it can sit instead, frogOut)
       if ((sp.kind === 'frog' || sp.kind === 'toad') && this.tooDeep(a, sp, nx, nz)) { this.frogOut(a, sp); return; }
-      if (this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = T.heightAt(nx, nz); }
+      if ((this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)) && this.depthOkFor(a, sp, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = T.heightAt(nx, nz); }
       return;
     }
   }
@@ -1261,12 +1261,16 @@ export class Animals {
     }
     const nx = x0 + ux * 0.3, nz = z0w + uz * 0.3;
     if (l < 1e-6 || Math.abs(nx) > TANK.w / 2 - 0.5 || Math.abs(nz) > TANK.d / 2 - 0.5 || (!a.swimming && this.cliffAt(nx, nz)) || (this.occ.count && this.occ.solidAt(nx, T.heightAt(nx, nz) + 0.5, nz))
-      || (!a.swimming && !(this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)))
+      || (!a.swimming && !((this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)) && this.depthOkFor(a, sp, nx, nz)))
       || (frog && this.tooDeep(a, sp, nx, nz))) { if (frog) this.frogOut(a, sp); return; }   // (not pushed off into deep water: it scrambles out)
     a.pos.x = nx; a.pos.z = nz;
     if (!a.swimming) a.pos.y = T.heightAt(nx, nz);
     a._oob = { t: this.t, x: ux, z: uz };
   }
+
+  // Water depth at (x, z) (-Infinity dry), and whether a land salamander may go there from where it is (placement.js depthOk, N9s).
+  wDepth(x, z) { return this.world.water.surfaceAt(x, z) - this.world.terrain.heightAt(x, z); }
+  depthOkFor(a, sp, nx, nz) { const cap = depthCap(HABITAT[a.sp], sp.kind); return cap >= 99 || depthOk(cap, this.wDepth(a.pos.x, a.pos.z), this.wDepth(nx, nz)); }
 
   // Water at (x, z) deeper than half a frog's body: what a poison frog, a toad or a tree frog does not wade into (nor is pushed into).
   tooDeep(a, sp, x, z) {
@@ -1382,7 +1386,7 @@ export class Animals {
     if (pivot && tf.legs && tf.pz && !swim && !a.hop && !a.wallMode && !a.onWall) {
       const [dx, dz] = pivotShift(y0, a.yaw, tf.pz, drawScale(a, sp));
       const nx = a.pos.x + dx, nz = a.pos.z + dz;
-      if (!(this.avoid && this.occ.count && this.occ.solidAt(nx, this.bodyY(a, sp), nz))) { a.pos.x = nx; a.pos.z = nz; a.pivotMoved = (a.pivotMoved ?? 0) + Math.hypot(dx, dz); }
+      if (!(this.avoid && this.occ.count && this.occ.solidAt(nx, this.bodyY(a, sp), nz)) && this.depthOkFor(a, sp, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.pivotMoved = (a.pivotMoved ?? 0) + Math.hypot(dx, dz); }
     }
     return a.yaw;
   }
@@ -1490,7 +1494,8 @@ export class Animals {
     }
     a.stranded = false;
     // A tadpole rests on the floor between swim bouts, wakes and flees from a threat, and still feeds (sim/swimrest.js).
-    const env = this.world.env, R = sp.young && !ctl ? restStep(a, dt, { night: isNight(env.minute, env.lightsOn, env.lightsOff), hungry: a.hunger > 0.25 && this.food.length > 0, danger: () => this.danger(a, sp, true), bh: a.bh }) : null;
+    const env = this.world.env, RP = sp === SPECIES.larva ? LARVA_REST : undefined;   // N19: the larva ambushes from the floor
+    const R = sp.young && !ctl ? restStep(a, dt, { profile: RP, night: isNight(env.minute, env.lightsOn, env.lightsOff), hungry: a.hunger > 0.25 && this.food.length > 0, foodNear: !!RP && this.food.some((f) => !f.eaten && eatsItem(sp, f) && f.pos.distanceTo(a.pos) < 3), danger: () => this.danger(a, sp, true), bh: a.bh }) : null;
     if (R) a.doing = R.resting ? REST_LABEL : null;
     const desired = V(0, 0, 0);
     a.wander += (Math.random() - 0.5) * dt * 2.5;
@@ -2389,7 +2394,27 @@ export class Animals {
     if (a.skT <= 0) {
       a.skT = 2.5 + Math.random() * 2;
       if (!a.home || this.skinkHide(a, sp, a.home.x, a.home.z) < 0.35) a.home = this.skinkFindHome(a, sp) ?? a.home ?? null;
+      // Two males never share a hide (species data: territorial): the later male picks again while its home is within
+      // 2 x rivalCm of an earlier male's home.
+      for (let k = 0; k < 4 && a.male && a.home && this.skinkHomeTaken(a, a.home); k++) a.home = this.skinkFindHome(a, sp);
       a.skShore = this.crabFind(x, z, 35, (px, pz, d) => d >= SKINK.soakDepth[0] && d <= SKINK.soakDepth[1]);
+      // The nearest cover (S3 `refuge`): where it stands if that is cover already, else the closest land point within 20 cm
+      // whose skinkCover is 0.6 or more (0.6 a guess: the 0.5 edge of a patch is reached short by the stop distance).
+      // N4b: 8 angles on each ring, rings 1 … 20 cm every 1.5 cm, nearest ring first; the hit is pushed 2 cm further along its
+      // ray while cover holds, so the stop (SKINK.inCover short of the point) lands inside the patch, not on its edge.
+      let ref = this.skinkCover(x, z) >= 0.6 ? { x, z, r: 0 } : null;
+      for (let r = 1; !ref && r <= 20; r += 1.5) {
+        let best = -1;
+        for (let k = 0; k < 8; k++) {
+          const t = k * 0.785 + a.phase, sx = Math.sin(t), cz = Math.cos(t), px = x + sx * r, pz = z + cz * r;
+          const c = this.okFor('land', px, pz) ? this.skinkCover(px, pz) : 0;
+          if (c < 0.6 || c <= best) continue;
+          best = c; ref = { x: px, z: pz, r };
+          const qx = x + sx * (r + 2), qz = z + cz * (r + 2);
+          if (this.okFor('land', qx, qz) && this.skinkCover(qx, qz) >= c) ref = { x: qx, z: qz, r: r + 2 };
+        }
+      }
+      a.skRefuge = ref;
       // The warm spot: the warmest of a ring of points around it (the basking lamp warms the cells under it, climate.js).
       let warm = null;
       for (let k = 0; k < 12; k++) {
@@ -2408,7 +2433,9 @@ export class Animals {
     const it = (a.si = skinkThink(m, {
       t: this.t, dt, dtMin: dt * (this.warp ?? 1), x, z, depth, light: clamp(E.bright(), 0, 1), rain: E.rain ?? 0,
       rh: C.humidityAt(x, g + 1, z), temp: C.tempAt(x, g + 0.5, z), wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + C.sample(C.soil, x, z) * 0.5),
-      cover: this.skinkCover(x, z), hunger: a.hunger, threat, home: a.home, shore: a.skShore, warm: a.skWarm, hunting: !!a.order,
+      cover: this.skinkCover(x, z), hunger: a.hunger, threat, home: a.home, shore: a.skShore,
+      refuge: a.skRefuge && { x: a.skRefuge.x, z: a.skRefuge.z, d: Math.hypot(a.skRefuge.x - x, a.skRefuge.z - z) },
+      rival: a.male ? this.skinkRival(a, x, z) : null, warm: a.skWarm, hunting: !!a.order,
     }));
     if (it.say && Math.random() < 0.5) W.log(it.say, 'info');
     let goal = it.goal, speed = it.speed;
@@ -2441,6 +2468,19 @@ export class Animals {
     a.grazing = it.mode === 'forage' && a.state === 'rest';
     m.sinkNow = lerp(m.sinkNow ?? 0, it.sink ?? 0, Math.min(1, dt * 1.5));
     m.rollNow = lerp(m.rollNow ?? 0, it.roll ?? 0, Math.min(1, dt * 4));
+  }
+
+  // The nearest other male skink, for a male (territorial: SPECIES row; species data: never two males).
+  skinkRival(a, x, z) {
+    let r = null;
+    for (const b of this.by.skink ?? []) if (b !== a && b.male) { const d = Math.hypot(b.pos.x - x, b.pos.z - z); if (!r || d < r.d) r = { x: b.pos.x, z: b.pos.z, d }; }
+    return r;
+  }
+
+  // Whether an earlier male (by order in by.skink) already keeps a home within 2 x rivalCm of p.
+  skinkHomeTaken(a, p) {
+    for (const b of this.by.skink ?? []) { if (b === a) return false; if (b.male && b.home && Math.hypot(b.home.x - p.x, b.home.z - p.z) < SKINK.rivalCm * 2) return true; }
+    return false;
   }
 
   skinkCover(x, z) { return Math.min(1, this.crabCover(x, z) + this.world.climate.sample(this.world.climate.litter, x, z) * 0.8); }
@@ -4086,7 +4126,7 @@ export class Animals {
     const solid = (nx, nz) => this.avoid && this.occ.count && this.occ.solidAt(nx, this.world.terrain.heightAt(nx, nz) + 0.5, nz);
     // (and nothing solid between here and there: a long step at the fast speeds walked through thin wood, B4b)
     const swept = (nx, nz) => !this.avoid || this.occ.walkFree(a, x, a.pos.y, z, nx, this.world.terrain.heightAt(nx, nz), nz) === 1;
-    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz) && swept(nx, nz);
+    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz) && swept(nx, nz) && this.depthOkFor(a, sp, nx, nz);
     const probe = Math.max(step, 0.15);       // (the first step of a start has no length yet)
     if (!free(x + ux * probe, z + uz * probe)) {
       const sd = a.side ?? 1, base = Math.atan2(ux, uz);

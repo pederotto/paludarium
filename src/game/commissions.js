@@ -3,6 +3,25 @@
 // the career's counters, and pays through the career (funds and reputation).
 
 import { COMMISSIONS, COMMISSION_ORDER } from '../content/commissions.js';
+import { canHold } from './stocking.js';
+import { SPECIES } from '../sim/animals.js';
+import { TANK } from '../sim/tank.js';
+
+// Whether the tank you are looking at could hold what a commission asks for, if it were built for it (game/stocking.js
+// canHold over the goals' `need`): { ok, text }. Cached per tank size, since it only changes when the tank does.
+const fitCache = new Map();
+export function tankFit(id, tank = TANK) {
+  const key = `${id}|${tank.w}x${tank.d}x${tank.h}`;
+  let f = fitCache.get(key);
+  if (!f) {
+    const c = COMMISSIONS[id];
+    const needs = [...(c?.goals ?? []).map((g) => g.need).filter(Boolean), ...(c?.need ? [c.need] : [])];
+    const r = canHold(tank, needs, SPECIES);
+    f = { ok: r.ok, text: r.ok ? '' : `Not for this tank: ${r.why.slice(0, 2).join('; ')}.` };
+    fitCache.set(key, f);
+  }
+  return f;
+}
 
 const MAX_ACTIVE = 3;
 
@@ -94,7 +113,7 @@ export class Commissions {
       const c = COMMISSIONS[a.id];
       const ready = this.ready(a);
       return {
-        id: c.id, title: c.title, giver: c.giver, brief: c.brief, teaches: c.teaches, reward: c.reward, ready, biotope: c.biotope,
+        id: c.id, title: c.title, giver: c.giver, brief: c.brief, teaches: c.teaches, reward: c.reward, ready, biotope: c.biotope, fit: tankFit(c.id),
         goals: c.goals.map((g) => {
           const st = a.goals[g.id];
           const holdText = g.hold && !st.done ? `${(st.heldMin / 1440).toFixed(1)}/${g.hold} d` : null;
@@ -104,7 +123,7 @@ export class Commissions {
     });
     const available = COMMISSION_ORDER.filter((id) => this.isAvailable(id)).map((id) => {
       const c = COMMISSIONS[id];
-      return { id, title: c.title, giver: c.giver, tier: c.tier, level: c.level, reward: c.reward, teaches: c.teaches, isNew: !this.seen[id] };
+      return { id, title: c.title, giver: c.giver, tier: c.tier, level: c.level, reward: c.reward, teaches: c.teaches, isNew: !this.seen[id], fit: tankFit(id) };
     });
     const locked = COMMISSION_ORDER.filter((id) => !this.done[id] && !this.active.some((a) => a.id === id) && !this.isAvailable(id) && COMMISSIONS[id].level > this.level)
       .slice(0, 6).map((id) => ({ id, title: COMMISSIONS[id].title, tier: COMMISSIONS[id].tier, level: COMMISSIONS[id].level, locked: true }));

@@ -5,9 +5,10 @@
 import { SPECIES } from '../sim/animals.js';
 import { PLANTS } from '../sim/plants.js';
 import { STAGES } from '../sim/ecology.js';
-import { TANK } from '../sim/tank.js';
+import { TANK, sizeFactors } from '../sim/tank.js';
 import { hasGenetics } from '../sim/genetics.js';
 import { morphRarity } from '../content/morphs.js';
+import { crowding, speciesTarget, sizeClass } from './stocking.js';
 
 const WOOD = ['wood', 'roots', 'stump'];
 const STONE = ['boulder', 'spire', 'cliff'];
@@ -79,6 +80,12 @@ export function computeMetrics(world) {
   const cycled = E.cycle > 0.85 && E.ammonia < 0.1 && E.nitrite < 0.1;
   const waterQuality = clamp01(1 - (E.ammonia / 0.6 + E.nitrite / 0.8 + Math.max(0, E.nitrate - 40) / 80));
 
+  // Who is crowded for this tank's size (game/stocking.js, the simulation's own room per species), and the zones a big tank
+  // can hold: land, open water, a stream, a planted wall and a canopy.
+  const size = sizeFactors();
+  const crowd = crowding(byId, SPECIES, size);
+  const zones = { land: W.landShare() > 0.15, water: litres >= 2, stream: streamCells >= 8 || (falls >= 1 && H.outlets.length >= 1), wall: wallPlants >= 3, canopy: heights.tall >= 3 };
+
   // Deaths since a while ago (uses the world's counters).
   const daysSinceDeath = Math.max(0, (E.minute - W.stats.lastDeathMinute) / 1440);
 
@@ -95,7 +102,10 @@ export function computeMetrics(world) {
     hardscape: { pieces: W.decor.pieces.length, stone, wood, spires: counts.spire ?? 0, byType: counts },
     wall: { plants: wallPlants },
     equipment: { fan: E.fan, fogger: E.fogger, basking: E.basking, drainage: E.drainage, rules: W.equipment.rules.length, rainProgram: E.rainProgram.length, rain: E.rain, lampPower: E.lampPower },
-    stress, deaths: W.stats.deaths, births: W.stats.births, metamorphs: W.stats.metamorphs, daysSinceDeath, size: { w: TANK.w, d: TANK.d, h: TANK.h, closed: TANK.closed },
+    stress, deaths: W.stats.deaths, births: W.stats.births, metamorphs: W.stats.metamorphs, daysSinceDeath,
+    size: { w: TANK.w, d: TANK.d, h: TANK.h, closed: TANK.closed, litres: size.litres, floor: size.floor, cls: sizeClass(size.litres) },
+    stocking: crowd,
+    speciesTarget: speciesTarget(size), zones: Object.values(zones).filter(Boolean).length, zoneList: zones, grade: 0,
   };
 
   // Feature flags used by the biotopes (content/biotopes.js `features`).

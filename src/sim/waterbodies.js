@@ -12,6 +12,7 @@
 
 import { clamp, lerp } from '../util/math.js';
 import { filterOf, filterEff, filterClog, sourceOf, plenumBio } from '../content/equipment.js';
+import { sizeFactors } from './tank.js';
 
 export const NODE = { GROUND: 0, SUMP: 1, EXT: 2, OUT0: 3, OUTS: 12, BODY0: 15, BODIES: 48, TRANSIT: 63, MAX: 64 };
 
@@ -415,6 +416,9 @@ export class WaterBodies {
     let tannin = 0, mineral = 0;
     for (const p of W.decor?.pieces ?? []) { tannin += TANNIN[p.type] ?? 0; mineral += MINERAL[p.type] ?? 0; }
     const pumpTurn = H.pump?.running ? (H.pump.lph ?? 0) / Math.max(1, sump.vol) : 0;   // tank volumes an hour
+    // A filter's current is its pump's jet spread through the water: the same filter stirs a cube's pool hard and barely moves a
+    // show tank's (the tank's volume against the standard one, softened: a keeper points the outlet where it is needed).
+    const filterStir = clamp(sizeFactors().vol ** -0.5, 0.5, 2);
     for (const b of list) {
       const V = Vb(b);
       // Every wet surface carries some bacteria (0.6); the filter's media only while it runs.
@@ -454,7 +458,7 @@ export class WaterBodies {
         - Math.min(0.6, tannin * 0.12) * clamp(4 / Math.max(2, V), 0.3, 1) * (b.gh < 6 ? 1.4 : 1);
       b.ph = clamp(lerp(b.ph ?? src.ph, phT, clamp(d / 1440, 0, 1)), 4.5, 9.5);
       // --- Current: the filter and the pump turnover in the main pool, the run of water in streams and fed ponds.
-      b.flow = b === sump ? clamp((E.filter ? F.flow * fEff : 0) + Math.min(0.5, pumpTurn / 60), 0, 1) : b.kind === 'stream' ? 0.7 : clamp(b.inLph / Math.max(0.25, b.vol) / 10, 0, 1);
+      b.flow = b === sump ? clamp((E.filter ? F.flow * fEff * filterStir : 0) + Math.min(0.5, pumpTurn / 60), 0, 1) : b.kind === 'stream' ? 0.7 : clamp(b.inLph / Math.max(0.25, b.vol) / 10, 0, 1);
       // --- Algae likes light, nutrients and shallows.
       const lampLight = C?.lightAt && b.n ? C.lightAt(b.cx, b.cz) / Math.max(0.2, E.lampPower) : 1;
       b.rawAlgae = clamp(lampLight, 0.15, 1.3) * (0.3 + 0.7 * b.nitrate / nitRef) * clamp(8 / depth, 0.5, 2) * (1 - 0.6 * b.turbidity);

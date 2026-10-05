@@ -2,7 +2,23 @@
 
 import { SPECIES } from '../sim/animals.js';
 import { STAGES } from '../sim/ecology.js';
-import { TANK, tankLitres } from '../sim/tank.js';
+import { TANK, tankLitres, sizeFactors } from '../sim/tank.js';
+import { crowding } from '../game/stocking.js';
+import { runningCosts } from '../content/upkeep.js';
+
+// Who lives in this tank and who is crowded for its size (game/stocking.js), for the stocking advice.
+export function stockOf(W) {
+  const counts = {};
+  for (const [id, arr] of Object.entries(W.animals.by)) if (arr.length && id !== 'eggs') counts[id] = arr.length;
+  return { counts, ...crowding(counts, SPECIES, sizeFactors()) };
+}
+
+// What this tank costs to run per day with its gear as it is set now (content/upkeep.js): { total, parts }.
+export function upkeepOf(W) {
+  const E = W.env, has = (id) => W.equipment.has(id);
+  const animals = Object.entries(W.animals.by).filter(([, a]) => a.length).map(([id, a]) => [SPECIES[id], a.length]);
+  return runningCosts(TANK, E, has, { water: W.water.volumeLitres(), pump: !!W.water.hydro.pump.running && W.water.hydro.outlets.length > 0, animals });
+}
 
 export function snapshot(game) {
   const W = game.world;
@@ -28,6 +44,8 @@ export function snapshot(game) {
     t: performance.now(),
     clock: { day: E.day + 1, time: E.clock, light: E.light(), bright: E.bright(), photoperiod: E.photoperiod },
     tank: { id: TANK.id, name: TANK.name, w: TANK.w, d: TANK.d, h: TANK.h, litres: Math.round(tankLitres()), closed: TANK.closed, land: W.landShare() },
+    stock: stockOf(W),
+    upkeep: upkeepOf(W),
     env: {
       temp: E.temp, humidity: E.humidity, ammonia: E.ammonia, nitrite: E.nitrite, nitrate: E.nitrate, oxygen: E.oxygen, cycle: E.cycle,
       algae: E.algae, diatoms: E.diatoms, detritus: E.detritus, mold: E.mold, soil: E.soil, condense: E.condense, drainage: E.drainage,

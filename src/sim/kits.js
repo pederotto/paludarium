@@ -14,19 +14,25 @@
 import * as THREE from 'three/webgpu';
 import { PIECES } from './decor.js';
 import { TANK, MAT } from './tank.js';
+import { kitFit } from './scale.js';
+import { kitReach } from '../content/kits.js';
 import { rng, clamp } from '../util/math.js';
 
 const TAU = Math.PI * 2;
 
-// Kit distances are for a 90 cm tank; smaller and larger tanks scale them.
-export const kitScale = () => clamp(TANK.w / 90, 0.38, 1.6);
+// Kit sizes and distances are real centimetres in every tank. A kit given as `kit` is only kept short enough to lie across
+// the tank's width (the seven stepping stones are longer than a cube is wide).
+export function kitScale(kit = null) {
+  // Real size in every tank; a kit shrinks only when it does not lie across this tank's width (sim/scale.js fitScale).
+  return kit ? kitFit(kitReach(kit), TANK) : 1;
+}
 
 // A repeatable seed from where (and how much) you have built.
 export const kitSeed = (x, z, n = 0) => (Math.imul(Math.round(x * 4) + 977, 73856093) ^ Math.imul(Math.round(z * 4) + 313, 19349663) ^ Math.imul(n + 7, 83492791)) >>> 0;
 
 // --- Layout (pure geometry) ---------------------------------------------------------------------
 
-export function layoutKit(kit, { x = 0, z = 0, seed = 1, sc = kitScale() } = {}) {
+export function layoutKit(kit, { x = 0, z = 0, seed = 1, sc = kitScale(kit) } = {}) {
   const r = rng(seed);
   const spin = (r() * 2 - 1) * (kit.spin ?? 0);
   const cs = Math.cos(spin), sn = Math.sin(spin);

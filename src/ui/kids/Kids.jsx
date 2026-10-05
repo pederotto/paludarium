@@ -9,6 +9,7 @@ import { ctx } from '../../app/ctx.js';
 import { Portrait } from '../panels/Portrait.jsx';
 import { Hearts } from './Hearts.jsx';
 import { KidCard } from './KidCard.jsx';
+import { StorySheet } from './Story.jsx';
 import * as KK from '../../app/kids.js';
 import { KID_ANIMALS, KID_PLANTS, KID_PIECES, KID_KITS, KID_TERRAIN, STICKERS } from '../../content/kids.js';
 import { endTimelapse } from '../../app/timelapse.js';
@@ -16,6 +17,7 @@ import { endTimelapse } from '../../app/timelapse.js';
 const { K } = KK;
 
 const TABS = [
+  ['story', 'Story', 'book', '#ffd166', '#e09a2a'],
   ['animals', 'Animals', 'frog', '#57c27a', '#2c8a57'],
   ['plants', 'Plants', 'leaf', '#9ad36a', '#4f9a3a'],
   ['build', 'Build', 'rock', '#b8a2f0', '#6f5ab8'],
@@ -24,7 +26,7 @@ const TABS = [
   ['more', 'More', 'sparkles', '#ffd166', '#e09a2a'],
 ];
 
-const SHEET_TITLE = { animals: 'Pick a friend', plants: 'Pick a plant', build: 'Build something', care: 'Look after them', more: 'More fun', stickers: 'My stickers' };
+const SHEET_TITLE = { animals: 'Pick a friend', plants: 'Pick a plant', build: 'Build something', care: 'Look after them', more: 'More fun', stickers: 'My stickers', story: "Pip's story" };
 
 function Pic({ c1, c2, icon, size = 40 }) {
   return <span class="k-pic" style={{ '--c1': c1, '--c2': c2 }}><Icon name={icon} size={size} stroke={1.9} /></span>;
@@ -278,6 +280,7 @@ export function KidsHud() {
         {!place && sheet === 'care' ? <CareSheet /> : null}
         {!place && sheet === 'more' ? <MoreSheet /> : null}
         {!place && sheet === 'stickers' ? <StickersSheet /> : null}
+        {!place && sheet === 'story' ? <StorySheet Sheet={Sheet} /> : null}
         {!place ? (
           <div class="k-tray glass strong">
             {TABS.map(([id, name, icon, c1, c2]) => (

@@ -48,6 +48,9 @@ const TAILS = ['tail1', 'tail2', 'tail3', 'tail4', 'tail5'];
 
 // The runtime form of a lizard skeleton, or null when a bone it needs is missing. `anim`: the species' rig numbers and its turning
 // frame, as skeletonRig takes them.
+// N6b: the part of a foot's rest height above the lowest foot (cm) that is left as it is (see buildRig)
+const PLANT_DEAD = 0.15;
+
 export function lizardRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, turn = null, reach = 0.85 } = {}, deps = {}) {
   const plan = PLANS.lizard, B = skel.bones, n = B.length, byName = Object.fromEntries(B.map((b, i) => [b.name, i]));
   const head = B.map((b) => b.head), tail = B.map((b) => b.tail);
@@ -65,6 +68,14 @@ export function lizardRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, tu
         nk: planeNormal(K, A, E, [side, 0, 0]), reach0: len(sub(T, A)) });
     }
   }
+  // N6b: each foot planted at its own rest height. A model posed with its feet at different heights (the skink's hind soles sit
+  // ~0.35 cm above its fore soles, LZ/reports/S1a.md) would keep the higher feet floating: `plant` is how far the foot's lowest
+  // bone point (head or tail of its hand / foot bones) sits above the lowest foot's at rest, taken off its target in legs().
+  // Only the part past PLANT_DEAD is taken off: a rig with its feet near level (the gecko) is unchanged, and the hind leg reaches no
+  // further down than the target needs (planting the whole 0.5 cm opened the knee: 0.15 % of edges past 2x against 0.07 %).
+  for (const c of chains) c.low = Math.min(...c.ends.flatMap((e) => [head[e][1], tail[e][1]]));
+  const low0 = Math.min(...chains.map((c) => c.low));
+  for (const c of chains) c.plant = Math.max(0, c.low - low0 - PLANT_DEAD);
   const tails = TAILS.map((k) => byName[k]).filter((i) => i != null);
   // the vertex rig's spine fraction of each bone's head: 0 at the snout, 1 at the tail's tip (where a dropped tail is cut)
   const z0 = tail[byName.head][2], z1 = tails.length ? tail[tails[tails.length - 1]][2] : head[0][2];
@@ -199,7 +210,8 @@ function legs(rig, st, R, H, info) {
   const F = st.feet ?? openFeet(rig.gait, rig.feet0, st.phase ?? 0, rig.gait.vSlow, 0, 1, (rig._open ??= {}), strideFor(rig.legStride)).feet;
   for (const c of rig.chains) {
     const pR = R[rig.parent[c.u]], A = H[c.u], f = F[c.limb - 1];
-    const rest = addv(A, mv(pR, sub(c.T, c.A))), goal = [f[0], c.T[1] + f[1], f[2]];
+    const rest = addv(A, mv(pR, sub(c.T, c.A))), goal = [f[0], c.T[1] - c.plant + f[1], f[2]];
+    rest[1] -= c.plant;
     const Tg = calm ? addv(mul(goal, 1 - calm), mul(rest, calm)) : goal;
     // the fold p (rad, + opens the elbow / knee) that puts the tip at the target's distance (secant steps, as the frog's hind leg)
     const D = len(sub(Tg, A)), reach = (p) => len(sub(foldTip(c, p), c.A));

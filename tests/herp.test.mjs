@@ -323,3 +323,26 @@ test('pregnancy runs down in game time and then the female is ready to give birt
   for (let i = 0; i < 4 && !m.gravid; i++) herpThink(m, { t: i, dt: 0.1, dtMin: 1000, x: 0, z: 0, kind: 'firesal', light: 0, rh: 85, temp: 15, male: false }, seeded(i));
   assert.ok(m.gravid && m.pregnant <= 0);
 });
+
+// N9s: a land salamander (fire salamander) is never carried into deep water by any mover, and is not placed on a bank top above it.
+import { depthCap, depthOk, deepWithin, herpSpot as n9sSpot } from '../src/sim/placement.js';
+import { HABITAT as N9S_HAB } from '../src/content/habitats.js';
+test('N9s: fire salamander depth cap: no step into water deeper than maxDepth, always a way out', () => {
+  const cap = depthCap(N9S_HAB.firesal, 'newt');
+  assert.equal(cap, 0.6);
+  assert.equal(depthCap(N9S_HAB.newt, 'newt'), 99);
+  assert.equal(depthCap(N9S_HAB.firesal, 'frog'), 99);
+  assert.ok(depthOk(cap, -Infinity, -Infinity));        // dry to dry
+  assert.ok(depthOk(cap, -Infinity, 0.5));              // into a puddle
+  assert.ok(!depthOk(cap, -Infinity, 3));               // off the bank into the pool: refused
+  assert.ok(!depthOk(cap, 0.4, 1.2));
+  assert.ok(depthOk(cap, 5, 3) && depthOk(cap, 5, -Infinity));   // already in: it may walk out
+  assert.ok(!depthOk(cap, 3, 4));                       // but never deeper
+});
+test('N9s: fire salamander refused on a bank top with deep water within LAND_EDGE', () => {
+  const pool = (x) => (x > 1 ? 4 : -Infinity);         // a pool from x = 1 cm on
+  const ctx = (x) => ({ ground: 0, surf: pool(x) > 0 ? 4 : -Infinity, wl: 0, nearWater: () => true, deepNear: (r, m) => deepWithin((px) => pool(px), x, 0, r, m) });
+  assert.ok(n9sSpot(N9S_HAB.firesal, ctx(0)).error);
+  assert.equal(n9sSpot(N9S_HAB.firesal, ctx(-3)).y, 0);
+  assert.equal(n9sSpot(N9S_HAB.newt, ctx(0)).y, 0);    // newts still go to the water's edge
+});

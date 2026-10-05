@@ -168,3 +168,20 @@ test('roost: a group of at most 4, homes at least 3 cm apart, the next roost 10 
   }
   assert.ok(homes.some((h) => homes.some((o) => o !== h && Math.hypot(o.x - h.x, o.y - h.y) < 6)), 'they do group');
 });
+
+test('N2b: a camera jump or a following lens never sends a frozen, frightened gecko running; a predator still does', () => {
+  const run = (extra, sec = 1.5) => {
+    const rnd = seeded(5), m = herpMind('gecko', rnd);
+    Object.assign(m, { mode: 'alert', modeT: 1, fear: 0.9, alertLeft: 0 });   // frozen, fear above fleeAt, the freeze over
+    const modes = [];
+    for (let k = 0; k * DT < sec; k++) {
+      const it = herpThink(m, { t: k * DT, dt: DT, dtMin: DT, x: 5, z: -10, kind: 'gecko', onWall: true, light: 0, rh: 75, temp: 25, hunger: 0.2, home: { x: 12, z: -10, wall: true }, ...extra }, rnd);
+      modes.push(it.mode);
+    }
+    return modes;
+  };
+  const lens = { x: 5, z: -8.2, d: 1.8, cam: true };
+  assert.ok(!run({ threat: lens, camCut: true }).includes('flee'), 'camCut, lens 1.8 cm: no bolt');
+  assert.ok(!run({ threat: lens, followed: true }).includes('flee'), 'followed, lens 1.8 cm: no bolt');
+  assert.ok(run({ threat: { x: 5, z: -8.2, d: 1.8 }, camCut: true }).includes('flee'), 'a real predator during a cut still causes flight');
+});

@@ -46,8 +46,17 @@ export function lensLegend(name, metric = qualityMetric.value) {
   return { ...info, name: m === QUALITY_METRICS.worst ? info.name : `Water quality: ${m.label.toLowerCase()}`, lo: m.lo, hi: m.hi, stops: m.stops ?? info.stops, blurb: m.blurb ?? info.blurb };
 }
 
+// One tank is loaded at a time, and the Lens of the tank before must let it go. Its effect on qualityMetric is a
+// subscription that outlives the tank, and through it every World ever left stayed in memory (its grids, plants and
+// animals, and through world.stage and world.mist the LED's 2048x2048 shadow map and the mist's texture): found by a heap
+// snapshot after tools/steps/tank-sizes.mjs, 2026-10-03. Game.unloadTank does not dispose the Lens, so a new one disposes
+// the one before it (dispose() may run twice).
+let current = null;
+
 export class Lens {
   constructor(scene, world) {
+    current?.dispose();
+    current = this;
     this.world = world;
     this.name = 'off';
     const C = world.climate;
@@ -171,5 +180,9 @@ export class Lens {
     this.tex.needsUpdate = true;
   }
 
-  dispose() { this.stopFx?.(); this.tex.dispose(); this.group.removeFromParent(); }
+  dispose() {
+    this.stopFx?.(); this.stopFx = null;
+    this.tex.dispose(); this.group.removeFromParent();
+    if (current === this) current = null;
+  }
 }

@@ -15,3 +15,6 @@
   .kit-cols { grid-template-columns: 1fr; }
   .kit-plan { height: 92px; }
 }
+
+/* A commission the tank you are looking at is too small (or the wrong size) for. */
+.fitwarn { color: var(--amber); font-size: 12px; margin: 4px 0 6px; }

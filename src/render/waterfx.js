@@ -61,8 +61,9 @@ export const FX = {
   lamp: uniform(1),                // the LED strip is in view (not in the overhead look, engine/stage.js setOverhead): mirrored in the water
 };
 
-// World (x, z) → tank uv (0..1).
-export const tankUV = (xz) => vec2(xz.x.div(TANK.w).add(0.5), xz.y.div(TANK.d).add(0.5));
+// World (x, z) → tank uv (0..1). From the tank-size uniform, so a material built in one tank (the session's creature
+// materials sample the caustics through shaders.js wet()) reads the right place in another.
+export const tankUV = (xz) => xz.div(U.tankHalf.mul(2)).add(0.5);
 
 // A few small travelling waves so the surface is never glassy-flat and the
 // floor always has some caustics. Returns (height, d/dx, d/dz) in cm.
