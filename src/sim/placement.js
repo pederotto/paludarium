@@ -242,6 +242,18 @@ export function rollLook(type, seed, count, pool = null) {
 }
 
 
+// A land salamander (habitat zone 'land', the fire salamander: terrestrial, a poor swimmer) never goes into water deeper than its
+// row's maxDepth, by any mover: its own walk (herpStep), the slide off a cliff face (offCliff) or the push out of a bank (outOfBank).
+// depthCap: the cap for this animal (99 = none). depthOk: may it go from water dHere deep to dNext deep (shallower is always fine,
+// so one already in deep water can still walk out). deepWithin: deep water within r cm of (x, z), 8 directions at r and r/2.
+export const LAND_EDGE = 2;
+export const depthCap = (h, kind) => (kind === 'newt' && h?.zone === 'land' ? h.maxDepth : 99);
+export const depthOk = (cap, dHere, dNext) => cap >= 99 || !(dNext > cap) || dNext < dHere - 0.005;
+export function deepWithin(depthAt, x, z, r, maxD) {
+  for (const f of [1, 0.5]) for (let i = 0; i < 8; i++) { const t = (i * Math.PI) / 4; if (depthAt(x + Math.sin(t) * r * f, z + Math.cos(t) * r * f) > maxD) return true; }
+  return false;
+}
+
 // Where a click puts a salamander, newt or axolotl (Animals.placement), from the habitat row (content/habitats.js):
 //   zone 'land'   (fire salamander) dry ground, or a puddle up to h.maxDepth: water deeper than that is refused, as for the
 //                 frog, gecko and skink; it never goes onto a pool floor
@@ -249,10 +261,11 @@ export function rollLook(type, seed, count, pool = null) {
 //   zone 'water'  (axolotl) open water at least h.minDepth cm deep (measured from the tank's water level), on the floor
 // ctx: { ground, surf (water surface here; at or below ground when dry), wl (tank water level), nearWater(d) }.
 // Returns { y } (the height to stand at) or { error } (the text for the toast).
-export function herpSpot(h, { ground, surf, wl, nearWater }) {
+export function herpSpot(h, { ground, surf, wl, nearWater, deepNear }) {
   switch (h.zone) {
     case 'land':
-      if (surf - ground > h.maxDepth) return { error: `${h.noun[0].toUpperCase()}${h.noun.slice(1)}s can’t swim well. Put them on land.` };
+      // (nor on a bank top with deep water within LAND_EDGE cm: it slid or walked straight in, N9s: 8 of 11 under water after 8 s)
+      if (surf - ground > h.maxDepth || deepNear?.(LAND_EDGE, h.maxDepth)) return { error: `${h.noun[0].toUpperCase()}${h.noun.slice(1)}s can’t swim well. Put them on land.` };
       return { y: ground };
     case 'shore':
       if (surf > ground) return { y: ground + Math.min(1, (surf - ground) * 0.3) };
