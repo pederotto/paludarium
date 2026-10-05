@@ -7,9 +7,12 @@
 // +-2 %, feet 0 … 0.4 cm, no edge > 2x). Through the probe gate:
 //   sh "$BB/tools/probe.sh" N6 node tools/steps/skink-body.mjs [--url=http://127.0.0.1:4656/] [--frames=8] [--dt=0.08] [--seed=7]
 import { chromium } from 'playwright';
+import { execSync } from 'node:child_process';
 const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) ?? `=${d}`).split('=').slice(1).join('=');
 const url = arg('url', 'http://127.0.0.1:4656/'), N = +arg('frames', 8), dt = +arg('dt', 0.08), seed = +arg('seed', 7), sp = 'skink';
 
+{ const sh = (c) => { try { return execSync(c, { cwd: new URL('../..', import.meta.url) }).toString().trim(); } catch { return '?'; } };
+  console.log(`stamp: tree ${sh('git rev-parse --short HEAD')}${sh('git status --porcelain src tools') ? ' dirty' : ''}`); }
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu-rasterization'] });
 const page = await (await browser.newContext({ viewport: { width: 480, height: 480 }, deviceScaleFactor: 1 })).newPage();
 const errors = [];
@@ -92,7 +95,7 @@ const setup = await page.evaluate(async ({ sp, seed }) => {
     const o = { mode: a.sk?.mode ?? a.state, state: a.state, pos: [a.pos.x, a.pos.z] };
     if (!best) return { ...o, drawn: false };
     const { mesh, r } = best, rig = mesh.skinRig, s = r.scale, geo = mesh.geometry, baked = !!geo?.attributes?.skin;
-    Object.assign(o, { drawn: true, skinned: !!rig, bones: rig?.n ?? 0, body: baked ? `baked GLB (manifest ${sp}: ${man?.[sp]?.file ?? 'no key'}, ${(geo.index ? geo.index.count : geo.attributes.position.count) / 3} tris drawn, manifest hi ${man?.[sp]?.tris?.hi ?? '-'})` : 'procedural (no skin attribute)', scale: s, lenRig: rig ? rig.len * s : NaN });
+    Object.assign(o, { drawn: true, skinned: !!rig, bones: rig?.n ?? 0, plant: (rig?.chains ?? []).map((c) => (c.plant == null ? 'none' : c.plant.toFixed(3))).join('/'), body: baked ? `baked GLB (manifest ${sp}: ${man?.[sp]?.file ?? 'no key'}, ${(geo.index ? geo.index.count : geo.attributes.position.count) / 3} tris drawn, manifest hi ${man?.[sp]?.tris?.hi ?? '-'})` : 'procedural (no skin attribute)', scale: s, lenRig: rig ? rig.len * s : NaN });
     if (!rig || !window.__bones) return o;
     const M = window.__bones, row = (mesh.row0 + r.i) * K.ROW_FLOATS;
     const xf = (b, p) => [0, 1, 2].map((k) => { const q = row + b * 12 + k * 4; return M[q] * p[0] + M[q + 1] * p[1] + M[q + 2] * p[2] + M[q + 3]; });
@@ -133,7 +136,7 @@ let fail = [], rows = [], p0 = null;
 for (let i = 0; i < N; i++) {
   await page.evaluate((i) => { window.__seed(i + 1); }, i);
   await frame(); const m = await page.evaluate(() => window.__measure()); rows.push(m);
-  if (i === 0) console.log(`body=${m.body ?? 'not drawn'} skinned=${m.skinned ? 'yes' : 'no'} bones=${m.bones ?? 0} scale=${f2(m.scale)} length rig=${f2(m.lenRig)} cm skinned-extent=${f2(m.extent)} cm`);
+  if (i === 0) console.log(`stamp: rig chain plant offsets [cm, N6b] ${m.plant ?? 'not drawn'}`); if (i === 0) console.log(`body=${m.body ?? 'not drawn'} skinned=${m.skinned ? 'yes' : 'no'} bones=${m.bones ?? 0} scale=${f2(m.scale)} length rig=${f2(m.lenRig)} cm skinned-extent=${f2(m.extent)} cm`);
   const v = p0 ? Math.hypot(m.pos[0] - p0[0], m.pos[1] - p0[1]) / dt : 0; p0 = m.pos;
   console.log(`f${i} mode=${m.mode}/${m.state} v=${f2(v)} cm/s feet[cm] ${Object.entries(m.feet ?? {}).map(([k, x]) => `${k}=${f2(x)}`).join(' ')} stretch >1.5x ${f2(m.s15)}% >2x ${f2(m.s2)}% worst ${f2(m.worst)}x`);
   await page.evaluate((dt) => window.__step(dt), dt);
