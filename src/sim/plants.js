@@ -800,7 +800,10 @@ export class Plants {
       const n = p.normal.clone().lerp(new THREE.Vector3(0, 1, 0), 0.6).normalize();
       q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
     }
-    q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot));
+    // `wallSpin` (optional, radians): on a wall the random turn stays within +-wallSpin, so the body's local +Z keeps pointing
+    // down the wall (leaves that must hang, the orchids); missing = the full random turn as before.
+    const spin = p.surface === 'wall' ? PLANTS[p.id].wallSpin : undefined;
+    q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), spin == null ? p.rot : ((((p.rot / (Math.PI * 2)) % 1) + 1) % 1 - 0.5) * 2 * spin));
     // Near a wall the plant leans inward so its canopy stays inside the glass.
     if (p.reach && PLANTS[p.id].habitat !== 'floating') {
       const f = plantFit(p.pos.x, p.pos.z, p.reach * (0.3 + 0.7 * p.grown), TANK, { clampZ: p.surface !== 'wall' });
@@ -1076,8 +1079,8 @@ export class Plants {
       // (a portrait shows the flower open, in the species' first colours)
       const b = p.bloom, look = bloomLook(this.live ? b : OPEN), pi = this.live ? b.palette : 0, j = this.live ? b.j : 0.5;
       const pal = F.palettes?.[pi] ?? [0xf4f0e8, 0xe0a0b0, 0xf0c040];
-      if (p._pal?.k !== pi + j) p._pal = { k: pi + j, v: pal.map((h) => packRGB(h, j)) };
-      const P = [p._pal.v[0], p._pal.v[1], p._pal.v[2], mode * 2 + tr];
+      if (p._pal?.k !== pi + j) p._pal = { k: pi + j, v: pal.slice(0, 3).map((h) => packRGB(h, j)) };
+      const P = [p._pal.v[0], p._pal.v[1], p._pal.v[2], (pal[4] ?? 0) * 64 + (pal[3] ?? 0) * 8 + mode * 2 + tr];     // surface style, pattern code (render/flowers.js)
       const ph = p.index * 1.618;
       for (const h of this.headsOf(p)) {
         hp.copy(h.local).multiplyScalar(p._s).applyQuaternion(p._q).add(p.pos);

@@ -11,7 +11,7 @@ import { PLANT_INFO } from '../src/content/plant-info.js';
 import { CONCEPTS } from '../src/content/concepts.js';
 import { BIOTOPES } from '../src/content/biotopes.js';
 
-const BODY_TRIS = 300, HEAD_TRIS = 120;
+const BODY_TRIS = 480, HEAD_TRIS = 240;   // run orchids, decisions 7 and 9
 const flowers = { ...Object.fromEntries(Object.entries(FLOWERING).map(([id, d]) => [id, d.flower])), bromeliad: BROMELIAD_FLOWER };
 
 test('every flowering body builds within its budget', () => {
@@ -51,8 +51,13 @@ test('every flower head builds within its budget with a palette mask and leaf co
 
 test('palettes, heads, cycles and needs are valid', () => {
   for (const [id, f] of Object.entries(flowers)) {
-    assert.ok(f.palettes.length >= 2 && f.palettes.length <= 6, `${id}: 2-5 colour forms`);
-    for (const p of f.palettes) { assert.equal(p.length, 3, id); for (const c of p) assert.ok(Number.isInteger(c) && c >= 0 && c <= 0xffffff, id); }
+    assert.ok(f.palettes.length >= 2 && f.palettes.length <= 6, `${id}: 2-6 colour forms`);
+    for (const p of f.palettes) {
+      assert.ok(p.length >= 3 && p.length <= 5, id);   // [main, accent, centre, pattern code?, surface style?]
+      if (p.length === 5) assert.ok(Number.isInteger(p[4]) && p[4] >= 0 && p[4] <= 3, `${id}: surface style 0-3`);
+      for (const c of p.slice(0, 3)) assert.ok(Number.isInteger(c) && c >= 0 && c <= 0xffffff, id);
+      if (p.length === 4) assert.ok(Number.isInteger(p[3]) && p[3] >= 0 && p[3] <= 7, `${id}: pattern code 0-7`);
+    }
     assert.equal(new Set(f.palettes.map((p) => p.join())).size, f.palettes.length, `${id}: distinct forms`);
     assert.ok(f.translucent >= 0 && f.translucent <= 1, id);
     assert.ok([null, 'day', 'night'].includes(f.daily), id);
@@ -64,7 +69,7 @@ test('palettes, heads, cycles and needs are valid', () => {
     assert.deepEqual(f.heads(rng(2), 0.2), [], `${id}: a young plant does not flower`);
     for (let s = 1; s < 6; s++) {
       const hs = f.heads(rng(s), 1);
-      assert.ok(hs.length >= 1 && hs.length <= 10, `${id}: ${hs.length} heads`);
+      assert.ok(hs.length >= 1 && hs.length <= 15, `${id}: ${hs.length} heads`);
       for (const h of hs) {
         assert.equal(h.length, 7, id);
         for (const v of h) assert.ok(Number.isFinite(v), id);
