@@ -93,9 +93,9 @@ const PAINT = {
     const gx = sx / cx, gy = y / cy;
     let dot = 0, rim = 0;
     for (let i = Math.floor(gx) - 1; i <= Math.floor(gx) + 1; i++) for (let j = Math.floor(gy) - 1; j <= Math.floor(gy) + 1; j++) {
-      if (hash(i, j, 21) < 0.28) continue;
-      const px = (i + 0.5 + (hash(i, j, 22) - 0.5) * 0.35) * cx, py = (j + 0.5 + (hash(i, j, 23) - 0.5) * 0.8) * cy;
-      const rad = 0.018 + 0.016 * hash(i, j, 24);
+      if (hash(i, j, 21) < 0.3 + 0.45 * rel) continue;   // (T1b: irregular, denser along the midrib)
+      const px = (i + 0.5 + (hash(i, j, 22) - 0.5) * 0.8) * cx, py = (j + 0.5 + (hash(i, j, 23) - 0.5) * 0.8) * cy;
+      const rad = 0.011 + 0.014 * hash(i, j, 24);   // (T1b: fine specks, photo 1)
       const dx = sx - px, dy = y - py, d = Math.hypot(dx, dy);
       dot = Math.max(dot, sst(rad, rad * 0.45, d) * (0.65 + 0.35 * sst(-rad, rad, -dy)));
       rim = Math.max(rim, sst(rad * 1.7, rad, d) * sst(0, rad, dy) * (1 - sst(rad, rad * 0.45, d)));
@@ -103,7 +103,7 @@ const PAINT = {
     const fade = sst(0.97, 0.75, rel) * sst(0.02, 0.1, t) * sst(1, 0.85, t);
     const mott = fbm(lat * 10, y * 4, 11) - 0.5;
     const shade = 0.5 + 0.06 * mott - 0.16 * rim * fade - 0.05 * sst(0.8, 1, rel) + 0.04 * sst(0.012, 0, lat);
-    return [shade, 0.85 * dot * fade, 1];
+    return [shade + 0.03 * dot * fade, 0.5 * dot * fade, 1];
   },
 };
 

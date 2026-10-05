@@ -222,11 +222,11 @@ function bristles(b, pts, { len, w, col }) {
 // Masdevallia: a dense tuft of erect, narrow spoon-shaped leaves on channelled petioles (no pseudobulbs), 8.5-12 x 1.7-2.3 cm,
 // and single flowers on wiry stems from the base, held at or above the leaves, one arching out sideways.
 // Leathery, glossy spoon leaves with a channelled midrib (painted, sim/orchid-leaves.js); the underside a little paler.
-const MASD_MAT = () => ({ ...ORCHID_MAT, rough: 0.58, leafMap: orchidLeafMap('masdevallia'), leafPale: [0.62, 0.76, 0.46], leafBack: [1.1, 1.12, 1.0] });
+const MASD_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, gloss: [0.55, 0.985, 0.012], leafMap: orchidLeafMap('masdevallia'), leafPale: [0.62, 0.76, 0.46], leafBack: [1.1, 1.12, 1.0] });
 const masdLayout = once(() => {
   const r = rng(101), leaves = [], stalks = [];
   for (let k = 0; k < 10; k++) {
-    const a = k * 2.4 + r() * 0.5, o = 0.15 + r() * 0.35, lean = 0.15 + r() * 0.22;
+    const a = Math.PI / 2 + ((k * 0.618034) % 1 - 0.5) * 4.4 + (r() - 0.5) * 0.3, o = 0.15 + r() * 0.35, lean = 0.22 + r() * 0.25;   // (T1b: front three-quarters, never into the wall)
     leaves.push({ a, base: V(Math.cos(a) * o, 0, Math.sin(a) * o), dir: V(Math.cos(a) * lean, 1, Math.sin(a) * lean), len: 8.5 + r() * 3.5, width: 1.7 + r() * 0.6 });
   }
   for (let k = 0; k < 4; k++) {
@@ -243,12 +243,12 @@ const masdLayout = once(() => {
 // Dracula: a tuft of keeled, arching leaves; the flower stems grow out sideways past the leaves and arch over, so the
 // flowers hang facing out and down (they stay above the ground when it grows on land).
 // Keeled straps with a fold line and faint parallel veins, a satin sheen, a paler underside.
-const DRAC_MAT = () => ({ ...ORCHID_MAT, rough: 0.66, leafMap: orchidLeafMap('dracula'), leafPale: [0.7, 0.8, 0.5], leafBack: [1.25, 1.25, 1.1] });
+const DRAC_MAT = () => ({ ...ORCHID_MAT, rough: 0.78, gloss: [0.2, 0.95, 0.04], leafMap: orchidLeafMap('dracula'), leafPale: [0.7, 0.8, 0.5], leafBack: [1.25, 1.25, 1.1] });
 const dracLayout = once(() => {
   const r = rng(103), leaves = [], stalks = [];
   // (photos 1-3: about a dozen long narrow straps, 13-17 cm, erect then arching out)
   for (let k = 0; k < 12; k++) {
-    const a = k * 2.4 + r() * 0.5, o = 0.25 + r() * 0.35, lean = 0.3 + r() * 0.45;
+    const a = Math.PI / 2 + ((k * 0.618034) % 1 - 0.5) * 4.6 + (r() - 0.5) * 0.3, o = 0.25 + r() * 0.35, lean = 0.35 + r() * 0.45;   // (T1b)
     leaves.push({ a, base: V(Math.cos(a) * o, 0, Math.sin(a) * o), dir: V(Math.cos(a) * lean, 1, Math.sin(a) * lean), len: 13 + r() * 4, width: 1.35 + r() * 0.35 });
   }
   // pendent stems: out past the leaves, up over an arch, then down, so the flower hangs facing out with its tails below it
@@ -269,18 +269,22 @@ const HEART = (t) => (t < 0.24 ? 0.14 + 0.36 * Math.pow(Math.sin((Math.PI / 2) *
   : 0.5 * Math.pow(Math.cos((Math.PI / 2) * (t - 0.24) / 0.76), 1.1) * (1 - 0.3 * sstep(0.7, 1, t)));
 // Thick, glossy hearts: a pale midrib, very faint arcuate veins, a soft mottling; the outline (lobes, notch, acuminate tip) is
 // the texture's alpha on a coarse blade (sim/orchid-leaves.js).
-const PLEURO_MAT = () => ({ ...ORCHID_MAT, rough: 0.64, leafMap: orchidLeafMap('pleurothallis'), leafPale: [0.78, 0.86, 0.55], leafBack: [1.04, 1.07, 0.97] });
+const PLEURO_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, gloss: [0.55, 0.985, 0.012], leafMap: orchidLeafMap('pleurothallis'), leafPale: [0.78, 0.86, 0.55], leafBack: [1.04, 1.07, 0.97] });
 const pleuroLayout = once(() => {
-  const r = rng(107), stems = [];
+  // (T1b) On the wall (wallTilt 1.6, wallSpin 0.35) local +Y is up-and-out, world-down is about local (0, -0.85, 0.53) and the
+  // wall's normal local (0, 0.53, 0.85). So the stems fan over the sides and the front (never local -Z: into the wall), arch
+  // up and out, and each blade hangs from the stem tip toward world-down with its upper face to the room (photo 4); on land
+  // the same body reads as wiry stems with the hearts hanging steeply, all a little to one side (photo 2).
+  const r = rng(107), stems = [], DOWN = V(0, -0.85, 0.53), OUTF = V(0, 0.53, 0.85);
   for (let k = 0; k < 11; k++) {
-    // stems rise from a short creeping rhizome (bases 1-3 cm apart), 1-1.55x the leaf, arching out in different directions
-    const a = k * 2.4 + r() * 0.6, lean = 0.08 + r() * 0.25, out = V(Math.cos(a), 0, Math.sin(a)), len0 = 6.5 + r() * 3, h = len0 * (1 + r() * 0.55);
-    const p0 = V(-1.5 + 3 * r(), 0, -1 + 2 * r());
-    const top = p0.clone().add(V(Math.cos(a) * lean * h, h * (1 - lean * 0.3), Math.sin(a) * lean * h));
-    const mid = p0.clone().lerp(top, 0.5).addScaledVector(out, 0.12 * h);
-    // the blade turned out and held steeply, from a little above level to hanging blade-down
-    const bA = a + (r() - 0.5) * 1.2, yv = -0.75 + r() * 0.85, dir = V(Math.cos(bA), yv, Math.sin(bA)).normalize();
-    const len = len0, ratio = k % 3 === 0 ? 0.82 + r() * 0.12 : 0.6 + r() * 0.2, face = V(Math.cos(bA), 1.4, Math.sin(bA));
+    const a = Math.PI / 2 + ((k * 0.618034) % 1 - 0.5) * 4.6 + (r() - 0.5) * 0.3, lean = 0.3 + r() * 0.35, out = V(Math.cos(a), 0, Math.sin(a));
+    const len0 = 6.5 + r() * 3, h = len0 * (1 + r() * 0.55);
+    const p0 = V(-1.5 + 3 * r(), 0, -0.5 + 1.5 * r());
+    const top = p0.clone().add(V(Math.cos(a) * lean * h, h * (1 - lean * 0.45), Math.sin(a) * lean * h));
+    const mid = p0.clone().lerp(top, 0.5).addScaledVector(out, 0.16 * h).add(V(0, 0.08 * h, 0));
+    // the blade hangs tip-down from the stem tip, turned a little out to its stem's side, its face to the room
+    const sw = 0.28 + r() * 0.2, dir = DOWN.clone().addScaledVector(out, sw).add(V(0, -0.1 * r(), 0)).normalize();
+    const len = len0, ratio = k % 3 === 0 ? 0.82 + r() * 0.12 : 0.6 + r() * 0.2, face = OUTF.clone().addScaledVector(out, 0.35);
     const { nrm } = faceOf(dir, face);
     stems.push({ p0, mid, top, dir, face, len, width: len * ratio, nrm, tone: k % 4 === 1 ? 'wine' : k % 5 === 3 ? 'flush' : 'green' });
   }
@@ -304,7 +308,7 @@ const lepLayout = once(() => {
 // dark leaves on each; one flower per bulb on a short stalk, all round the clump and facing out (photo 2), the flowers far
 // bigger than the leaves. Bulbs on a sunflower spiral; the facings from a little below the horizon to steep.
 // Small dark leaves with raised silver-white warts on top (painted), flushed red-brown underneath (the back-face tint).
-const CUTH_MAT = () => ({ ...ORCHID_MAT, rough: 0.6, leafMap: orchidLeafMap('cuthbertsonii'), leafPale: [0.86, 0.9, 0.86], leafBack: [3.0, 0.85, 1.15] });
+const CUTH_MAT = () => ({ ...ORCHID_MAT, rough: 0.74, gloss: [0.3, 0.98, 0.015], leafMap: orchidLeafMap('cuthbertsonii'), leafPale: [0.86, 0.9, 0.86], leafBack: [3.0, 0.85, 1.15] });
 const cuthLayout = once(() => {
   const r = rng(113), bulbs = [], stalks = [], N = 12, C = V(0, 1.5, 0);
   for (let k = 0; k < N; k++) {
@@ -437,7 +441,7 @@ export const BROMELIAD_FLOWER = {
 
 export const FLOWERING = {
   masdevallia: {
-    name: 'Masdevallia orchid', habitat: 'wall|land', humidity: [70, 100], light: 0.3, size: 12, tall: 0.08, wallTilt: 0.6,
+    name: 'Masdevallia orchid', habitat: 'wall|land', humidity: [70, 100], light: 0.3, size: 12, tall: 0.08, wallTilt: 1.2, wallSpin: 0.4,
     note: 'Cloud-forest orchid: three sepals fused into a bright cup ending in tails. Cool, damp, shaded; on the background or a branch.',
     build() {
       const b = new Builder(), L = masdLayout();
@@ -493,12 +497,12 @@ export const FLOWERING = {
   },
 
   dracula: {
-    name: 'Dracula orchid', habitat: 'wall|land', humidity: [75, 100], light: 0.2, size: 16, tall: 0.08, wallTilt: 0.6,
+    name: 'Dracula orchid', habitat: 'wall|land', humidity: [75, 100], light: 0.2, size: 16, tall: 0.08, wallTilt: 1.2, wallSpin: 0.4,
     note: 'The "monkey-face" orchid of misty Andean forests: flowers with long tails hang out of the plant. Cool, wet, shady.',
     build() {
       const b = new Builder(), L = dracLayout();
       for (const l of L.leaves) {
-        sheet(b, { base: l.base, dir: l.dir, face: V(-Math.cos(l.a), 0.6, -Math.sin(l.a)), len: l.len, width: l.width, outline: ORCHID_LEAF.dracula.env, nu: 2, rows: ORCHID_LEAF.dracula.rows, cup: 0.4, droop: 0.28,
+        sheet(b, { base: l.base, dir: l.dir, face: V(-Math.cos(l.a), 0.6, -Math.sin(l.a)), len: l.len, width: l.width, outline: ORCHID_LEAF.dracula.env, nu: 2, rows: ORCHID_LEAF.dracula.rows, cup: 0.4, droop: 0.42,
           color: (u, t) => lc(0x6a8a3c, 0x447a30, sstep(0, 0.25, t)).lerp(new THREE.Color(0x5a8e3a), t * 0.6) });
       }
       for (const s of L.stalks) tube(b, s.pts, [0.07, 0.055, 0.045], { sides: 3, color: (t) => lc(0x5a6a34, 0x6a5a3a, t) });
@@ -545,7 +549,7 @@ export const FLOWERING = {
   },
 
   pleurothallis: {
-    name: 'Heart-leaf orchid', habitat: 'wall|land', humidity: [70, 100], light: 0.25, size: 18, tall: 0.07, wallTilt: 0.5,
+    name: 'Heart-leaf orchid', habitat: 'wall|land', humidity: [70, 100], light: 0.25, size: 18, tall: 0.07, wallTilt: 1.6, wallSpin: 0.35,
     note: 'Pleurothallis: each stem carries one heart-shaped leaf with the small flowers sitting on it. Humid shade.',
     build() {
       const b = new Builder();
