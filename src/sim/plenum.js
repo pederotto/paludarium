@@ -14,6 +14,12 @@
 // pool, and what the pump lifts out of the plenum goes back to it (the falls return it; sim/hydro.js draws the pump's flow from
 // its pool, so the pool is paid back the plenum's share: Hydro.exchange). Rain and misting that drain through the land reach
 // the pool this way too (without a pool they stay in the plenum until it is siphoned).
+//
+// Without a false bottom the same step runs on the ground's own water table (stepGround): in a drainage layer of LECA clay balls
+// (E.drainage between 0 and 1) or in a plain substrate (0). The land is open to the pool through the soil where it slopes into
+// the water (no sealed divider), so the table settles toward the pool's line at the soil's seep rate: a layer under the pool's
+// line is flooded, as in a real tank. Writes E.groundLevel (cm over the glass floor), E.groundL (litres in the pores) and
+// E.groundSoak. belowGround(E) is what the soil profile and the X-ray body (render/soilside.js) draw, in every build.
 
 import { TANK } from './tank.js';
 import { clamp } from '../util/math.js';
@@ -32,6 +38,14 @@ export const PLENUM = {
   drain: 0.5,         // cm under the mesh: the lip of the build's bulkhead drain; water over it runs out of the tank
   drainLpm: 3,        // L/min the drain carries at most (a 1/2" bulkhead to a bucket or the house drain)
 };
+
+// GUESSES (not from a sheet, B5d): the water room between expanded-clay balls, and the L/min the soil front passes to or from
+// the pool per cm of difference in level, over the whole land (much slower than the false bottom's screened gap).
+export const LECA_POROSITY = 0.45;
+export const SEEP = 0.3;
+// The ground's profiles: a 3 cm layer of LECA under the soil (the height render/soilside.js draws), or soil from the glass up.
+export const LECA = { kind: 'leca', h: 3, porosity: LECA_POROSITY, soilPorosity: PLENUM.soilPorosity, gap: SEEP };
+export const SOIL = { kind: 'soil', h: 0, porosity: PLENUM.soilPorosity, soilPorosity: PLENUM.soilPorosity, gap: SEEP };
 
 // The land's footprint over the false bottom (cm²): where the ground stands at least a centimetre over the mesh. Cached on
 // the terrain, the ground's version and the mesh height (a new tank has a new terrain).
@@ -64,8 +78,11 @@ export function levelOf(L, H, cm2) {
 // a centimetre of the pool's level holds: the pool rises and falls with what it swaps, and the pump's water comes back to it;
 // left out, the pool stands still), pumpLph (the pump in the tower), rain 0 … 1, mist 0 … 1, soil (mean moisture 0 … 1).
 // Returns the flows, L/min.
+// Optional: profile (PLENUM, LECA or SOIL: porosities, gap; a drain only with PLENUM) and shape ({ litres(level), level(L),
+// perCm(level), max }: the ground's own when its water lies under ground of every height; else the plenum's flat box).
 export function plenumStep(s, i, d) {
-  const H = i.plenumH, cm2 = i.cm2, land = clamp(cm2 / i.floor, 0, 1);
+  const H = i.plenumH, cm2 = i.cm2, land = clamp(cm2 / i.floor, 0, 1), p = i.profile ?? PLENUM, G = p.gap;
+  const sh = i.shape ?? { litres: (v) => litresAt(v, H, cm2), level: (L) => levelOf(L, H, cm2), perCm: (v) => (v < H ? PLENUM.porosity : PLENUM.soilPorosity) * cm2 / 1000, max: H + PLENUM.over };
   // Water reaching the land soaks down through the substrate (dry soil keeps more of it) and drips out of its underside.
   const onLand = (PLENUM.rain * (i.rain ?? 0) + (i.mist > 0 ? PLENUM.mist / 90 : 0)) * land * (0.3 + 0.7 * clamp(i.soil ?? 0.5, 0, 1));
   s.soak = Math.max(0, (s.soak ?? 0) + onLand * d);
@@ -78,19 +95,19 @@ export function plenumStep(s, i, d) {
   // One step with `out` more L/min leaving the plenum (the drain), from where it started.
   const advance = (out) => {
     const n = net - out;
-    if (i.pool == null) return { level: levelOf(Math.max(0, litresAt(L0, H, cm2) + n * d), H, cm2), gap: 0 };
+    if (i.pool == null) return { level: sh.level(Math.max(0, sh.litres(L0) + n * d)), gap: 0 };
     // Open to the pool: the difference of the two levels relaxes (exactly, whatever the step) toward where the screen passes
     // the net flow, both levels moving (a small pool falls as much as the plenum rises, so the two cannot overshoot each other).
-    const perCm = (L0 < H ? PLENUM.porosity : PLENUM.soilPorosity) * cm2 / 1000, Cw = i.poolPerCm > 0 ? i.poolPerCm : Infinity;
-    const lam = PLENUM.gap * (1 / perCm + 1 / Cw), e0 = i.pool - L0;
-    const eq = (Number.isFinite(Cw) ? pump / Cw : 0) / (PLENUM.gap * (1 / perCm + 1 / Cw)) - n / (PLENUM.gap * perCm * (1 / perCm + 1 / Cw));
-    const gap = PLENUM.gap * (eq * d + (e0 - eq) * (1 - Math.exp(-lam * d)) / lam) / d;
-    return { level: levelOf(Math.max(0, litresAt(L0, H, cm2) + (gap + n) * d), H, cm2), gap };
+    const perCm = sh.perCm(L0), Cw = i.poolPerCm > 0 ? i.poolPerCm : Infinity;
+    const lam = G * (1 / perCm + 1 / Cw), e0 = i.pool - L0;
+    const eq = (Number.isFinite(Cw) ? pump / Cw : 0) / (G * (1 / perCm + 1 / Cw)) - n / (G * perCm * (1 / perCm + 1 / Cw));
+    const gap = G * (eq * d + (e0 - eq) * (1 - Math.exp(-lam * d)) / lam) / d;
+    return { level: sh.level(Math.max(0, sh.litres(L0) + (gap + n) * d)), gap };
   };
   // The drain ("False bottom with drain"): what rises over its lip leaves the tank, so rain and misting that run through the
   // land cannot fill the pool and the plenum up to mud. Running full the whole step it may still not keep up (a pool standing
   // well over the mesh, a downpour): then the level settles where the screen's inflow matches it. Else it holds the lip.
-  const lip = H - PLENUM.drain;
+  const lip = p.drain != null ? H - p.drain : Infinity;   // (a LECA layer or plain soil has no drain)
   let r = advance(0), drain = 0;
   if (r.level > lip) {
     const full = advance(PLENUM.drainLpm);
@@ -105,17 +122,18 @@ export function plenumStep(s, i, d) {
         if (Number.isFinite(Cw)) { const k = G / Cw, eq = pump / G; gap = G * (eq + (e0 - eq) * (1 - Math.exp(-k * d)) / (k * d)); }
         else gap = G * e0;
       }
-      drain = clamp(gap + net + (litresAt(L0, H, cm2) - litresAt(lip, H, cm2)) / d, 0, PLENUM.drainLpm);
-      r = { level: lip, gap: drain - net - (litresAt(L0, H, cm2) - litresAt(lip, H, cm2)) / d };
+      drain = clamp(gap + net + (sh.litres(L0) - sh.litres(lip)) / d, 0, PLENUM.drainLpm);
+      r = { level: lip, gap: drain - net - (sh.litres(L0) - sh.litres(lip)) / d };
     }
   }
-  s.level = clamp(r.level, 0, H + PLENUM.over);
-  return { drip, pump, wick, gap: r.gap, drain };
+  s.level = clamp(r.level, 0, sh.max);
+  return { drip, pump, wick, gap: r.gap, drain, land: onLand };
 }
 
 // The world's step (sim.js): fits the plenum when a false bottom is chosen, steps it, writes E and returns E.plenum.
 export function stepPlenum(W, E, d) {
-  if (!(E.drainage >= 1)) { E.plenumLevel = undefined; E.plenumL = undefined; E.plenumSoak = 0; if (W.water.hydro) W.water.hydro.held = 0; return null; }
+  if (!(E.drainage >= 1)) { E.plenumLevel = undefined; E.plenumL = undefined; E.plenumSoak = 0; stepGround(W, E, d); return null; }
+  E.groundLevel = undefined; E.groundL = undefined; E.groundSoak = 0;
   const pool = W.water.level, P = W.water.hydro.pump;
   const hasPool = W.water.volumeLitres() > 1;
   if (!(E.plenumH > 0)) E.plenumH = Math.round((pool + 1) * 2) / 2;   // fitted just over the water
@@ -147,3 +165,87 @@ export function stepPlenum(W, E, d) {
   const st = plenumState(E, s.level);
   return st && { ...st, level: s.level, L: E.plenumL, full: litresAt(E.plenumH, E.plenumH, cm2), flows: f, open: hasPool };
 }
+
+// --- The ground's water table (no false bottom) -----------------------------------------------------------------------------
+
+// The floor on a 3 cm grid with the ground's height at each cell's centre (cm, sorted with running sums for the litres below):
+// pure terrain, cached on the terrain, its version and the tank (a new tank has a new terrain). Also the X-ray body's grid.
+let grid = { T: null, key: '' };
+export function groundGrid(W) {
+  const T = W.terrain, key = `${W.water?.hydro?.groundVer ?? 0}|${TANK.w}|${TANK.d}`;
+  if (grid.T === T && grid.key === key) return grid;
+  const nx = Math.max(1, Math.round(TANK.w / 3)), nz = Math.max(1, Math.round(TANK.d / 3)), sx = TANK.w / nx, sz = TANK.d / nz;
+  const g = new Float32Array(nx * nz);
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) g[j * nx + i] = Math.max(0, T.baseAt(-TANK.w / 2 + (i + 0.5) * sx, -TANK.d / 2 + (j + 0.5) * sz));
+  const sorted = Float64Array.from(g).sort(), pre = new Float64Array(sorted.length + 1);
+  for (let k = 0; k < sorted.length; k++) pre[k + 1] = pre[k] + sorted[k];
+  grid = { T, key, nx, nz, sx, sz, g, sorted, pre, cell: sx * sz, max: sorted[sorted.length - 1] };
+  return grid;
+}
+// Over all cells: the sum of min(level, ground) (cm) and how many cells stand over `level`.
+function below(G, v) {
+  let lo = 0, hi = G.sorted.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (G.sorted[m] < v) lo = m + 1; else hi = m; }
+  return [G.pre[lo] + v * (G.sorted.length - lo), G.sorted.length - lo];
+}
+// The water a table holds in the pores of the ground under it (LECA in its bottom `h` cm, soil over that), cell by cell up to
+// each cell's ground: under the pool's bed it is the bed's pores only (the pool's own water is the hydraulics').
+export function groundShape(G, p) {
+  const A = G.cell / 1000;
+  const litres = (v) => { v = Math.max(0, v); const a = below(G, Math.min(v, p.h))[0]; return (p.porosity * a + p.soilPorosity * (below(G, v)[0] - a)) * A; };
+  const full = litres(G.max);
+  return {
+    max: G.max, litres,
+    perCm: (v) => (v < p.h ? p.porosity : p.soilPorosity) * Math.max(1, below(G, v)[1]) * A,
+    level: (L) => {
+      if (!(L > 0)) return 0;
+      if (L >= full) return G.max;
+      let lo = 0, hi = G.max;
+      for (let k = 0; k < 48; k++) { const m = (lo + hi) / 2; if (litres(m) < L) lo = m; else hi = m; }
+      return (lo + hi) / 2;
+    },
+  };
+}
+
+// The world's step for a drainage layer or a plain substrate (from stepPlenum). Open to the pool through the soil: what seeps
+// in or out is paid by the pool (Hydro.exchange, as the plenum's screen). A new build is filled with it to the pool's line (not
+// out of the pool); without a pool a LECA layer holds the little left in its bottom and plain soil none. Returns the flows, L/min.
+export function stepGround(W, E, d) {
+  const p = E.drainage > 0 ? LECA : SOIL, G = groundGrid(W), sh = groundShape(G, p), H = W.water.hydro;
+  const pool = W.water.level, hasPool = W.water.volumeLitres() > 1;
+  if (!(E.groundLevel >= 0)) {
+    E.groundLevel = hasPool ? clamp(pool, 0, sh.max) : p === LECA ? 1.2 : 0;
+    E.groundSoak = 0;
+    if (H) H.held = 0;
+  }
+  const L0 = E.groundLevel, s = { level: L0, soak: E.groundSoak ?? 0 };
+  // The land: the ground standing over the pool's line (or the table); rain on it soaks down to the table.
+  const land = Math.max(1, below(G, Math.max(L0, hasPool ? pool : 0))[1]) * G.cell;
+  const poolPerCm = hasPool && H?.volumeAt ? (H.volumeAt(pool + 0.25) - H.volumeAt(pool - 0.25)) / 500 : 0;
+  const f = plenumStep(s, {
+    profile: p, shape: sh, plenumH: p.h, cm2: land, floor: TANK.w * TANK.d, pool: hasPool ? Math.max(0, pool) : null, poolPerCm,
+    pumpLph: 0, rain: E.rain, mist: E.mist, soil: E.soil,
+  }, d);
+  if (hasPool && H?.exchange) {
+    const want = ((f.drip - f.wick - f.drain) * d - (sh.litres(s.level) - sh.litres(L0))) * 1000;
+    const short = H.exchange(want) - want;
+    if (short > 1e-9) s.level = sh.level(Math.max(0, sh.litres(s.level) - short / 1000));
+    H.solveLevel?.();
+  }
+  E.groundLevel = s.level; E.groundSoak = s.soak; E.groundL = sh.litres(s.level);
+  return f;
+}
+
+// What the renderer draws below the ground, in every build: mode (0 plain substrate, 1 LECA layer, 2 false bottom), the
+// drainage's height (cm), the water's level (cm over the glass floor) and its litres. `pool`: the pool's level, for a false
+// bottom not yet fitted.
+export function belowGround(E, pool = 0) {
+  if (E.drainage >= 1) return { mode: 2, layerH: E.plenumH || pool + 1, level: E.plenumLevel ?? pool, L: E.plenumL ?? 0 };
+  const leca = E.drainage > 0;
+  return { mode: leca ? 1 : 0, layerH: leca ? LECA.h : 0, level: E.groundLevel ?? (leca ? 1.2 : 0), L: E.groundL ?? 0 };
+}
+
+// The X-ray body's top over a cell with ground `g` (cm): the level, kept a millimetre under the ground where the ground is lower
+// (under the pool its bed's pores only). render/soilside.js draws the same in its vertex stage.
+export const BODY_SINK = 0.1;
+export const bodyTop = (g, level) => Math.max(0, Math.min(level, g - BODY_SINK));

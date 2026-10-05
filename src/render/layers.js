@@ -2,7 +2,8 @@
 //
 //   surface  what the eye sees: nothing shows through rock, ground or plants
 //   xray     the same, plus the build hidden under it (hoses buried in the substrate and run behind rocks, the pump, the
-//            filter, the false bottom's tower) drawn glowing through whatever covers it (render/plumbing.js `ghost`)
+//            filter, the false bottom's tower) drawn glowing through whatever covers it (render/plumbing.js `ghost`), and the
+//            water below the ground as a body at its simulated level (render/soilside.js `body`, sim/plenum.js belowGround)
 //   bottom   only the build: substrate, background, water and equipment; plants, animals, hardscape, litter and mist go
 //
 // 'bottom' uses three.js render layers: the camera (and the lamp's shadow camera, or hidden plants would still cast
@@ -16,7 +17,7 @@ export const BOTTOM = 1;
 
 export const VIEW_LAYERS = {
   surface: { name: 'Surface', blurb: 'What the eye sees: rocks, ground and plants hide what is behind them.' },
-  xray: { name: 'X-ray', blurb: 'The tank as it is, with the hidden build glowing through: hoses under the substrate and behind rocks, the pump and the filter.' },
+  xray: { name: 'X-ray', blurb: 'The tank as it is, with the hidden build glowing through: hoses under the substrate and behind rocks, the pump, the filter and the water under the ground.' },
   bottom: { name: 'Bottom layer', blurb: 'Only the build: substrate, background, water and equipment. Plants, animals and hardscape are left out.' },
 };
 export const LAYER_ORDER = ['surface', 'xray', 'bottom'];
@@ -39,6 +40,7 @@ export class ViewLayers {
   apply() {
     const g = this.game, W = g.world, bottom = this.mode === 'bottom';
     if (W?.plumbing) W.plumbing.layer = this.mode;
+    if (W?.soilSide) W.soilSide.layer = this.mode;   // its X-ray body shows in 'xray' and 'bottom'
     W?.terrain.setBare(bottom);   // the ground drawn without the rocks stamped into it
     if (bottom) this.tag();
     const mask = bottom ? 1 << BOTTOM : 1;
@@ -53,7 +55,7 @@ export class ViewLayers {
     if (W) {
       const Wt = W.water;
       const mine = [W.terrain.mesh, W.wall.mesh, Wt.surface, Wt.volume, Wt.flowMesh, Wt.drops, Wt.pumpMesh, Wt.preview, ...Wt.outletMeshes, ...Wt.pitMarks,
-        W.plumbing?.group, W.soilSide?.mesh, W.lens?.group];
+        W.plumbing?.group, W.soilSide?.mesh, W.soilSide?.body, W.lens?.group];
       for (const r of Wt.ribbons.values()) mine.push(r.mesh, r.splash);
       for (const o of mine) if (o) o.userData.bottom = true;
     }
