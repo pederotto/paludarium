@@ -664,6 +664,7 @@ export class Animals {
     const meta = this.modelMeta?.[id];
     if (!meta || this.models[id] || this._loadingModel?.has(id)) return;
     (this._loadingModel ??= new Set()).add(id);
+    this.modelsLoading = (this.modelsLoading ?? 0) + 1;   // the loading veil waits for these (ui/Veil.jsx)
     modelBuilder(id, meta).then((build) => {
       if (!build) return;
       READY.set(id, build);
@@ -671,7 +672,7 @@ export class Animals {
       // A species that is already drawn with its procedural body switches over.
       const old = this.meshes[id];
       if (old && this.scene.parent) { this.meshes[id] = this.models[id](); old.remove(); }
-    }).catch((e) => console.warn('creature model', id, e));
+    }).catch((e) => console.warn('creature model', id, e)).finally(() => { this.modelsLoading--; });
   }
 
   // A pose model is the same animal in another body, drawn while it does one thing: manifest key '<mesh key>.<pose>', e.g.
@@ -683,7 +684,8 @@ export class Animals {
     const m = this.poseMeta[id]?.[pose];
     if (!m || this.poseModels[id]?.[pose] || this._posing?.has(m.key)) return;
     (this._posing ??= new Set()).add(m.key);
-    this.loadPose(m.key, m.meta).catch((e) => console.warn('pose model', m.key, e));
+    this.modelsLoading = (this.modelsLoading ?? 0) + 1;
+    this.loadPose(m.key, m.meta).catch((e) => console.warn('pose model', m.key, e)).finally(() => { this.modelsLoading--; });
   }
 
   async loadPose(key, meta) {
@@ -4083,7 +4085,7 @@ export class Animals {
       return this.herpCover(h.x, h.z) * 0.8 + 0.1;
     }
     const d = this.waterTop(h.x, h.z) - T.heightAt(h.x, h.z);
-    if (sp.kind === 'newt' && a.sp === 'firesal') {
+    if (sp.kind === 'newt' && (a.sp === 'firesal' || a.hm?.onLand)) {             // (a newt in its land life hides on land too)
       if (!this.okFor('land', h.x, h.z)) return 0;
       if (this.badHomes?.some((b) => b.until > (W.env.minute ?? 0) && Math.hypot(b.x - h.x, b.z - h.z) < 3)) return 0;
       const g = T.heightAt(h.x, h.z);

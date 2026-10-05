@@ -1,5 +1,5 @@
 // The loading veil: the opaque #loading screen (index.html), shown from boot and on every tank start or switch until the
-// scene is whole: shaders built (engine/compiler.js idle) and 30 frames in a row drawn in under 50 ms. The tank keeps
+// scene is whole: animal models loaded, shaders built (engine/compiler.js idle) and 30 frames in a row drawn in under 50 ms. The tank keeps
 // building behind it at full speed (the canvas is only covered, never paused), so the player never sees objects pop in
 // or the first stalled frames. Meanwhile it shows keeper's advice from the game's own content, one at a time, and an
 // honest progress line from the real stages. Holds nest: veil.hold() returns its release.
@@ -98,10 +98,12 @@ function frame() {
     // not hold it (see ShaderCompiler.settled), and after 45 s it lifts whatever happens.
     gaps.push(gap); if (gaps.length > SMOOTH) gaps.shift();
     const med = [...gaps].sort((a, b) => a - b)[gaps.length >> 1];
+    // Animal models still on their way hold it too: each arrives as a new body with new shaders (Animals.loadModel).
     const late = now - since > 15000 && c.lastDeferred === 0 && c.pending <= 4;
-    ok = (c.idle || late) && gap < Math.max(SMOOTH_MS, 2 * med) ? ok + 1 : 0;
+    const models = game?.world?.animals?.modelsLoading ?? 0;
+    ok = (c.idle || late) && !models && gap < Math.max(SMOOTH_MS, 2 * med) ? ok + 1 : 0;
     const built = c.built - b0, todo = c.pending + c.lastDeferred;
-    text = todo ? `Building shaders: ${built} of ${built + todo}` : `Settling the tank: ${Math.round(100 * ok / SMOOTH)}%`;
+    text = models ? `Loading animals: ${models} to go` : todo ? `Building shaders: ${built} of ${built + todo}` : `Settling the tank: ${Math.round(100 * ok / SMOOTH)}%`;
     if (ok >= SMOOTH || now - since > 45000) { el.dataset.lift = `${ok >= SMOOTH ? 'ready' : 'cap'} ${Math.round(now - since)}`; lift(c); return; }
   } else if (c && (c.pending || c.lastDeferred)) text = `${stage} · shaders ${c.built - b0} built`;
   if (line.value !== text) line.value = text;
