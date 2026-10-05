@@ -1,0 +1,51 @@
+--- a/src/sim/animals.js
++++ b/src/sim/animals.js
+@@ -32,6 +32,8 @@
+ import { shrimpPalette } from '../content/morphs.js';
+ import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
+ import { filterDrift, filterAvoid } from './filterflow.js';
++import { fishMind, fishThink, fishOwn, fishCarry, fishAfter, REST_LABEL as FISH_REST } from './fishmind.js';
++import { flowSenses } from './currentat.js';
+ 
+ const C = (h) => new THREE.Color(h);
+ const V = (x, y, z) => new THREE.Vector3(x, y, z);
+@@ -1476,6 +1478,12 @@
+     const desired = V(0, 0, 0);
+     a.wander += (Math.random() - 0.5) * dt * 2.5;
+     desired.set(Math.sin(a.wander), 0, Math.cos(a.wander)).multiplyScalar(sp.speed * 0.6);
++    // The water carries it; where it swims, and so points, is its mind's choice by energy (sim/fishmind.js, sim/currentat.js).
++    const FS = this._fs ??= flowSenses((x, z) => this.waterTop(x, z));
++    FS.W = W; FS.occ = this.avoid && this.occ.count ? this.occ : null;
++    const wv = ctl ? null : FS.probe(a.pos.x, a.pos.y, a.pos.z, a._w ??= { x: 0, y: 0, z: 0 });
++    const I = ctl || R?.resting ? null : fishThink(a.fm ??= fishMind(sp, a.phase), FS.sense(a, wv, desired, dt));
++    if (I) { desired.set(I.dir?.x ?? 0, 0, I.dir?.z ?? 0).multiplyScalar(sp.speed * 0.6); if (I.label || a.doing === FISH_REST) a.doing = I.label; }
+     if (sp.school) {
+       const c = V(0, 0, 0), al = V(0, 0, 0), sep = V(0, 0, 0);
+       // Keep about 0.7 of a body length between neighbours (a 4 cm corydoras at the old fixed 1.8 cm lay inside its neighbours).
+@@ -1551,13 +1559,16 @@
+     if (R?.resting) desired.set(0, (floor + R.y - a.pos.y) * 2, 0);                  // sits on the floor, body touching
+     else if (R?.flee) { desired.set(R.flee.x, 0, R.flee.z).multiplyScalar(sp.speed * 2); a.wander = Math.atan2(R.flee.x, R.flee.z); a.dart = true; }
+     if (a.nib) desired.multiplyScalar(0.1);
++    if (I) fishOwn(a.fm, desired, wv, a.dart || I.escape ? I.burst : I.cap, a.dart || blocked || R?.flee ? 1 : I.hold ? 2 : 0, desired);
+     // (a swimmer swings round an arc, util/turn.js steerLimit: it does not stop and spin when the way it wants is behind it)
+     if (!blocked && !R?.resting) steerLimit(a.vel, desired, ctl ? 1.6 : 1.2, desired);
+-    a.vel.lerp(desired, Math.min(1, dt * (a.dart || R?.resting ? 4 : 1.8)));
+-    const maxS = ctl ? Math.max(0.1, ctl.speed * 1.1) : sp.speed * (a.dart ? 2.1 : a.hunger > 0.25 ? 1.5 : 1);
++    a.vel.lerp(desired, Math.min(1, dt * (a.dart || R?.resting || I?.escape ? 4 : 1.8)));
++    let maxS = ctl ? Math.max(0.1, ctl.speed * 1.1) : sp.speed * (a.dart ? 2.1 : a.hunger > 0.25 ? 1.5 : 1);
++    if (I) maxS = Math.min(a.dart || I.escape ? I.burst : I.cap, maxS + Math.hypot(wv.x, wv.z));
+     if (a.vel.length() > maxS) a.vel.setLength(maxS);
+     const prev = a.pos.clone();
+     a.pos.addScaledVector(a.vel, dt);
++    if (wv) { const c = fishCarry(wv, !!R?.resting); a.pos.x += c.x * dt; a.pos.y += c.y * dt; a.pos.z += c.z * dt; }
+     a.pos.x = clamp(a.pos.x, -hx - 0.5, hx + 0.5);
+     a.pos.z = clamp(a.pos.z, -hz - 0.5, hz + 0.5);
+     let f2 = T.heightAt(a.pos.x, a.pos.z), L2 = this.waterTop(a.pos.x, a.pos.z);
+@@ -1578,6 +1589,7 @@
+     if (hs > 0.05) this.turnTo(a, sp, Math.atan2(a.vel.x, a.vel.z), dt, 12, false);
+     a.pitch = lerp(a.pitch, a.nib ? 0.5 : -Math.atan2(a.vel.y, Math.max(0.3, hs)) * 0.6, Math.min(1, dt * 4));
+     a.swimSpeed = a.vel.length();
++    if (a.fm && wv) fishAfter(a.fm, a, wv, dt, FS.edge, this.t);
+   }
+ 
+   randomWater(minDepth) {
