@@ -158,6 +158,14 @@ function lib() {
           }
         }
       }
+      // (B4b) a hop cut short by a piece (leap counts a.hopCut): hanging > 1 cm above its surface for > 1 s after it = hangCut.
+      if ((a.hopCut ?? 0) !== (a.__hc0 ?? 0)) { a.__hc0 = a.hopCut; a.__hcT = 0; a.__hcUp = 0; fz.hit(S, 'hopCut', a, { doing: fz.doing(a, sp) }); }
+      if (a.__hcT != null) {
+        a.__hcT += dtA;
+        const up = p.y - T.heightAt(p.x, p.z), held = a.hop || a.perch || a.onWall || a.wallMode || a.swimming || sp.kind === 'swim' || A.occ?.solidAt(p.x, p.y - 0.6, p.z) || p.y <= A.waterTop(p.x, p.z) + 0.3;
+        if (up > 1 && !held) { a.__hcUp += dtA; if (a.__hcUp > 1 && a.__hcUp - dtA <= 1) fz.hit(S, 'hangCut', a, { up: +up.toFixed(1), doing: fz.doing(a, sp) }); } else a.__hcUp = 0;
+        if (a.__hcT > 5) a.__hcT = null;
+      }
       S.prev.set(a, { x: p.x, y: p.y, z: p.z, rl: a.__rl ?? 0 }); a.__push = '';
       if (sp.kind === 'egg') continue;
       // Under the drawn ground (stamped pieces are ground), unless it is on the background wall.

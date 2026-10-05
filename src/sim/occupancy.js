@@ -80,6 +80,12 @@ export class Occupancy {
     return 1;
   }
   cellSolid(i, j, k) { return i >= 0 && j >= 0 && k >= 0 && i < this.nx && j < this.ny && k < this.nz && this.data[this.idx(i, j, k)] !== 0; }
+  // A walker's step (B4b): swept to where it will end: at its height if a piece is under the far end (it stays on the piece),
+  // otherwise on the ground there (gy), as the walk code settles it. A sweep at the old height missed a step down through a corner.
+  walkFree(a, x0, y0, z0, x1, gy, z1, lift = 0.5) {
+    const y1 = y0 > gy + 0.05 && this.solidAt(x1, y0 - 0.5, z1) ? y0 : gy;
+    return this.segmentFreeAt(a, x0, y0 + lift, z0, x1, y1 + lift, z1);
+  }
 
   // A cheap signature of the piece transforms: catches a piece that was dragged without a version bump.
   static signature(decor) {
