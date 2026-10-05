@@ -1,0 +1,19 @@
+# S3: animals.js skink() senses for the skink brain (refuge, rival). animals.js is locked: apply when its lock is free.
+# 1) slow-sense block, after `a.skShore = this.crabFind(...)` (~:2344):
++      // The nearest cover (S3 `refuge`): the closest land point within 20 cm whose skinkCover is 0.5 or more.
++      let ref = null;
++      for (let k = 0; k < 16; k++) {
++        const r = 2 + (k % 4) * 6, t = k * 2.4 + a.phase, px = x + Math.sin(t) * r, pz = z + Math.cos(t) * r;
++        if (this.okFor('land', px, pz) && this.skinkCover(px, pz) >= 0.5 && (!ref || r < ref.r)) ref = { x: px, z: pz, r };
++      }
++      a.skRefuge = ref;
+# 2) the senses object passed to skinkThink (~:2360-2364), after `home: a.home,`:
++      refuge: a.skRefuge && { x: a.skRefuge.x, z: a.skRefuge.z, d: Math.hypot(a.skRefuge.x - x, a.skRefuge.z - z) },
++      rival: a.male ? this.skinkRival(a, x, z) : null,
+# 3) a method next to skinkCover (~:2398):
++  // The nearest other male skink, for a male (territorial: SPECIES row; species data: never two males).
++  skinkRival(a, x, z) {
++    let r = null;
++    for (const b of this.by.skink ?? []) if (b !== a && b.male) { const d = Math.hypot(b.pos.x - x, b.pos.z - z); if (!r || d < r.d) r = { x: b.pos.x, z: b.pos.z, d }; }
++    return r;
++  }

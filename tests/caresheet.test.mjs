@@ -40,7 +40,7 @@ test('skink hides by day and comes out to forage at dusk', () => {
   const m2 = skinkMind(seq(4)); m2.warm = 0.9; m2.mode = 'rest';
   const dusk = run(m2, day({ light: 0.05, rh: 92 }), 60, seq(5));
   assert.ok(dusk.some((i) => i.mode === 'forage' && i.speed > 0), 'walks about at dusk');
-  assert.ok(dusk.every((i) => i.speed <= SKINK.speed * 2 + 1e-9));
+  assert.ok(dusk.every((i) => i.speed <= SKINK.speed + 1e-9 || i.speed === SKINK.dash), 'walks at the walking speed; only a dash is faster');
 });
 
 test('a cold skink goes to the warm spot and lies flat under it; a dry one soaks in the shallows', () => {
