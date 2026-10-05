@@ -18,6 +18,7 @@ export default async (page, shot, name) => {
   const list = (process.env.TANKS ? process.env.TANKS.split(',') : DEFAULT).map((s) => s.trim()).filter(Boolean);
   const days = +(process.env.DAYS ?? 2), fast = +(process.env.FAST ?? 3), seed = +(process.env.SEED ?? 1);
   let fails = 0;
+  const screen = {};   // N20: the front glass on screen in the room (title) view, px, per tank
   const ok = (label, pass, detail = '') => { if (!pass) fails++; console.log(`${pass ? 'PASS' : 'FAIL'}  ${label}${detail ? '  ' + detail : ''}`); };
   await page.waitForFunction(() => window.game?.world && window.__director, null, { timeout: 90000 });
   const rows = [], mems = [];
@@ -146,6 +147,11 @@ export default async (page, shot, name) => {
     ok(`${label}: animals inside the glass (start, after ${days} days and ${fast} s at 60x)`, !c.start.escaped.length && !c.end.escaped.length, [...c.start.escaped, ...c.end.escaped].slice(0, 5).join(' '));
     ok(`${label}: plants inside the glass`, !c.start.plantsOut.length && !c.end.plantsOut.length, [...c.start.plantsOut, ...c.end.plantsOut].slice(0, 5).join(' '));
     ok(`${label}: room camera inside its limits, tank in view`, roomLook.inLimits && roomLook.inView, JSON.stringify(roomLook.why));
+    // N20: every size reads as its real dimensions in the default (room) view.
+    screen[label] = { w: roomLook.pxW, h: roomLook.pxH, fill: roomLook.fill };
+    if (label === 'tall') ok('tall: reads half again as high as it is wide (room view)', roomLook.pxH / roomLook.pxW >= 1.35, `h/w ${(roomLook.pxH / roomLook.pxW).toFixed(2)} (real 1.50)`);
+    if (label === 'long') ok('long: reads long and low (room view)', roomLook.pxW / roomLook.pxH >= 2.5, `w/h ${(roomLook.pxW / roomLook.pxH).toFixed(2)} (real 3.00)`);
+    if (label === 'cube') ok('cube: small in the room, under a quarter of the screen wide', roomLook.fill <= 0.25, `fill ${roomLook.fill}`);
     ok(`${label}: play camera inside its limits, tank in view`, playLook.inLimits && playLook.inView, JSON.stringify(playLook.why));
     mems.push(c.mem);
     rows.push({ tank: label, size: c.tank.split(' ')[1], litres: c.litres, animals: c.start.animals, plants: c.start.plants, roomFill: roomLook.fill, playFill: playLook.fill, playDist: playLook.dist, fps: c.fps, frameMs: c.frameMs, simMs: c.simMs, buildMs: r.buildMs });
@@ -205,6 +211,10 @@ export default async (page, shot, name) => {
 
   console.log('\n' + ['tank', 'size', 'litres', 'animals', 'plants', 'roomFill', 'playFill', 'playDist', 'fps', 'frameMs', 'simMs', 'buildMs'].join('\t'));
   for (const r of rows) console.log(Object.values(r).join('\t'));
+  // N20: sizes against each other on screen follow their real centimetres (a fixed room camera scale, not fit-to-screen).
+  const S = screen;
+  if (S.cube && S.tall) ok('tall stands well over twice as high as the cube on screen', S.tall.h / S.cube.h >= 2, `tall ${S.tall.h} px / cube ${S.cube.h} px (real 3.0)`);
+  if (S.cube && S.long) ok('long is several times as wide as the cube on screen', S.long.w / S.cube.w >= 2.5, `long ${S.long.w} px / cube ${S.cube.w} px (real 5.0)`);
   console.log(`\nTANK-SIZES ${fails} FAIL`);
 };
 
@@ -234,6 +244,7 @@ function lookFn() {
     const fill = +((Math.max(...xs) - Math.min(...xs)) / 2).toFixed(2);
     const inView = Math.abs(centre.x) < 1 && Math.abs(centre.y) < 1 && centre.z < 1 && (x1 - x0) > 0.2 && (y1 - y0) > 0.2;
     if (!inView) why.push(`tank off screen: centre ${centre.x.toFixed(2)},${centre.y.toFixed(2)} visible span ${(x1 - x0).toFixed(2)}x${(y1 - y0).toFixed(2)}`);
-    return { inLimits, inView, fill, dist: +dist.toFixed(1), cam: cam.position.toArray().map((v) => +v.toFixed(1)), why };
+    const pxW = (Math.max(...xs) - Math.min(...xs)) * innerWidth / 2, pxH = (Math.max(...ys) - Math.min(...ys)) * innerHeight / 2;
+    return { inLimits, inView, fill, pxW: +pxW.toFixed(0), pxH: +pxH.toFixed(0), dist: +dist.toFixed(1), cam: cam.position.toArray().map((v) => +v.toFixed(1)), why };
   })();
 }

@@ -60,7 +60,9 @@ export function roomScene(t) {
 export const ROOM_SHARE = 0.55;
 export function roomFrame(t) {
   const { outW, furn } = roomScene(t);
-  const bottom = -0.8 - furn.h - 5, top = t.h + (t.closed ? 13 : 7), tall = (top - bottom) * 1.04;
+  // At least 150 cm of the room from the floor up (N20): one camera scale for every small and mid tank, so a 30 cm cube on
+  // its side table is a third the height of the 90 cm tall tank on screen, not fitted up to fill the frame.
+  const bottom = -0.8 - furn.h - 5, top = t.h + (t.closed ? 13 : 7), tall = Math.max(150, (top - bottom) * 1.04);
   const w = Math.max((tall * 16) / 9, Math.max(outW, furn.w) + 90, t.w / ROOM_SHARE);
   const h = Math.max(tall, (w * 9) / 16);
   return { w, h, y: bottom - tall * 0.02 + h / 2 };
