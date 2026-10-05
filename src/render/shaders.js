@@ -5,7 +5,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, If, vec3, float, positionWorld, time, mix, smoothstep, clamp, exp, max, min, attribute, sin, cos,
   instanceIndex, positionLocal, dot, saturate, instanceColor, texture, pow, abs, normalWorld, uv, normalView, cameraViewMatrix, vec4, normalize, cameraPosition, sign,
-  mrt, packNormalToRGB, screenCoordinate, fract, step,
+  mrt, packNormalToRGB, screenCoordinate, fract, step, vec2, uniform, faceDirection,
 } from 'three/tsl';
 import { noise3 } from './noise3.js';
 import { TEX } from './assets.js';
@@ -274,8 +274,8 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // cross-veins between parallel ones) }.
 // `flowBend`: the plant leans in the water's push (B5b; only aquatic and emergent plants set it, sim/plants.js flowOptions); `bend`: the
 // lean of a tip at full push in the plant's own units; `stiffness`: 1 an average leaf.
-export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1 } = {}) {
-  const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.96, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
+export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null } = {}) {
+  const m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   m.userData.foliage = true;
   m.userData.flowBend = flowBend;
   if (FOLIAGE.mrt) m.mrtNode = mrt({ normal: vec4(packNormalToRGB(normalView), 0) });
@@ -338,7 +338,7 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
   const tone = mix(vec3(1.0), vec3(0.62, 0.74, 0.72), under).mul(vein.mul(0.035).add(patch.mul(0.12)).add(1));
   const leafTint = vec3(0.9, 0.8, 0.86).mul(tone);
   base = base.mul(leafTint);
-  if (leafVeins) {
+  if (leafVeins && !leafMap) {
     const L = attribute('leaf', 'vec2');
     const isLeaf = step(0, L.y), au = abs(L.x), lv = saturate(L.y);
     const { kind = 'pinnate', n = 8, slope = 1.6, rib = 0.07, k = 1, cross = 0 } = veins;
@@ -360,6 +360,20 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
     const shade = vec3(1).add(vec3(0.4, 0.5, 0.1).mul(ribK.add(line.mul(0.75))).mul(k))
       .mul(float(1).sub(margin.mul(0.2 * k)).sub(float(1).sub(line).mul(0.06 * k)).add(vary));
     base = base.mul(mix(vec3(1), shade, isLeaf));
+  }
+  if (leafMap) {
+    // Optional painted leaf (the orchids, sim/orchid-leaves.js), read at the leaf coordinates (u across, t along; no uv
+    // buffer): R = shade (x2, 0.5 = as the vertex colour), G = toward `leafPale` (midrib, warts), B = how much the back face
+    // takes the `leafBack` tint, A = the outline (alpha cut: smooth margins on a coarse blade). Stems (t < 0) stay as they are.
+    // The colours are uniforms, so every species with a leafMap shares one program.
+    const L = attribute('leaf', 'vec2'), isLeaf = step(0, L.y);
+    const tx = texture(leafMap, vec2(L.x.mul(0.5).add(0.5), saturate(L.y)));
+    const vc = max(attribute('color', 'vec3').mul(instanceColor), vec3(0.02));
+    const pale = uniform(new THREE.Vector3(...(leafPale ?? [0.8, 0.85, 0.65]))), back = uniform(new THREE.Vector3(...(leafBack ?? [1, 1, 1])));
+    let c = base.mul(mix(float(1), tx.r.mul(2), isLeaf));
+    c = mix(c, pale.div(vc), tx.g.mul(isLeaf));
+    base = mix(c, c.mul(back), tx.b.mul(isLeaf).mul(step(faceDirection, 0)));
+    m.opacityNode = keep.mul(mix(float(1), tx.a, isLeaf));
   }
   const [color, emissive] = wet(base, positionWorld, U.waterLevel, U.plantWater, U.plantWater.mul(0.5));
   m.colorNode = color;
