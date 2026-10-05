@@ -6,7 +6,7 @@
 //   tailBaseSwing  the tail base's yaw from the hind femurs' retraction (the caudofemoralis ties them), with its lag
 //   toePeel        the toe and finger fans' peel (0 attached flat … 1 peeled), an angle about the fan's knuckle
 //   throatFlutter  the throat channel's breathing pulse at rest; headSwell the head's swell for the jaw and throat channels
-import { PLANS, bendAngle } from './bodyplan.js';
+import { PLANS, bendAngle } from '../util/bodyplan.js';
 
 export const SWELL_CAP = 0.2, SWELL_MIN = -0.08;   // the frog's clamp on a swell (skeleton.js writeBones)
 const RAD = Math.PI / 180;

@@ -18,7 +18,11 @@
 // channels in `st`: tailBase (rad, the tail base's yaw with the hind legs), peel (0 … 1, a number or [foreL, foreR, hindL, hindR]),
 // jaw and throat (0 … 1).
 import { PLANS, bendAngle } from '../../util/bodyplan.js';
-import { lizardMuscles, swellOf, peelAxis, toePeel, headSwell } from '../../util/lizardmuscles.js';
+import { lizardMuscles, swellOf, peelAxis, toePeel, headSwell } from '../../content/lizardmuscles.js';
+import { GAIT, neutralFeet, openFeet, axialAt, bellyDrop } from '../../util/lizardgait.js';
+import { strideFor } from '../../util/gait.js';
+// the most the trunk is lowered toward the sheet's belly-down sprawl (cm, model): the skin-stretch limit's (G4a)
+export const DROP_MAX = 0.16;
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const addv = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -77,6 +81,12 @@ export function lizardRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, tu
   for (const c of chains) if (c.ends[1] != null) rig.peelAxes[c.ends[1]] = peelAxis(dir[c.ends[1]]);
   const dh = dir[byName.head], up = norm(sub([0, 1, 0], mul(dh, dh[1])));
   rig.headAxes = { up, side: norm(cross(up, dh)) };
+  // the gait (G4, util/lizardgait.js): the feet's sprawled rest places (each limb's tip, from its shoulder or hip and its reach),
+  // the trunk's lowest point at rest (bone axis minus radius, as tools/steps/lizard-cycle.mjs measures it) and its drop to the sheet's
+  rig.gait = GAIT[rig.species] ?? GAIT.gecko;
+  rig.feet0 = neutralFeet(rig.gait, chains.map((c) => ({ limb: c.limb, side: c.side, A: c.A, T: c.T, reach: c.reach0 })));
+  rig.restBelly = Math.min(...['pelvis', 'spine'].map((k) => byName[k]).flatMap((b) => [head[b][1], tail[b][1]].map((y) => y - (B[b].r ?? 0))));
+  rig.drop = Math.min(bellyDrop(rig.gait, 'ground', rig.restBelly), DROP_MAX);
   return rig;
 }
 
@@ -92,11 +102,13 @@ function planeNormal(A, K, E, fallback) {
 export function poseLizard(rig, st, out, o = 0, info = null) {
   const { n, head, parent } = rig;
   const Lr = new Array(n).fill(null);           // each bone's turn against its parent, in the rest frame about its head
+  // the trunk lowered toward the surface (st.drop, model cm; by default the sheet's belly height while it walks, none at rest)
+  const drop = st.drop ?? rig.drop * (1 - clamp(st.calm ?? 0, 0, 1));
   axial(rig, st, Lr);
   const R = new Array(n), H = new Array(n);    // world (model) rotation of each bone and where its head is
   for (let b = 0; b < n; b++) {
     const p = parent[b];
-    if (p < 0) { R[b] = Lr[b] ?? I3(); H[b] = head[b]; continue; }
+    if (p < 0) { R[b] = Lr[b] ?? I3(); H[b] = drop ? [head[b][0], head[b][1] - drop, head[b][2]] : head[b]; continue; }
     R[b] = Lr[b] ? mm(R[p], Lr[b]) : R[p];
     H[b] = addv(H[p], mv(R[p], sub(head[b], head[p])));
   }
@@ -162,13 +174,16 @@ function axial(rig, st, Lr) {
   };
   const [yN, yH] = share(st.yaw ?? 0, 'yaw'), [pN, pH] = share(st.pitch ?? 0, 'pitch');
   const [sp, nk, hd] = rig.front;
-  Lr[sp] = rotY(lim('spine', 'yaw', kB * L[sp]));
-  Lr[nk] = mm(rotY(lim('neck', 'yaw', kB * L[nk] + yN)), rotX(-pN));
-  Lr[hd] = mm(rotY(lim('head', 'yaw', kB * L[hd] + yH)), rotX(-pH));
+  // the gait's S-bend, the head turned back against it, the tail's counter-sway (util/lizardgait.js axialAt; none at calm 1)
+  const ax = axialAt(rig.gait, st.phase ?? 0, st.calm ?? 0, (rig._ax ??= {}));
+  Lr[sp] = rotY(lim('spine', 'yaw', kB * L[sp] + ax.spine));
+  Lr[nk] = mm(rotY(lim('neck', 'yaw', kB * L[nk] + yN + ax.neck)), rotX(-pN));
+  Lr[hd] = mm(rotY(lim('head', 'yaw', kB * L[hd] + yH + ax.head)), rotX(-pH));
   // the tail points back (-z): a swing toward +x is a negative yaw; the swing and the lift grow from mid-body (spine 0.5)
   for (const t of rig.tails) {
     const arcB = L[parent[t]], arcT = t === rig.tails[0] ? Math.max(0, rig.vent - 0.5) * rig.len : L[parent[t]];
-    const base = t === rig.tails[0] ? st.tailBase ?? 0 : 0;   // the tail base's swing with the hind legs (lizardmuscles.js tailBaseSwing)
+    // the tail base's swing with the hind legs (lizardmuscles.js tailBaseSwing) when the caller drives it, else the gait's sway
+    const i = rig.tails.indexOf(t), base = i === 0 && st.tailBase != null ? st.tailBase : -(ax.tail[i] ?? 0);
     Lr[t] = mm(rotY(lim('tail', 'yaw', base - (kB * arcB + kT * arcT))), rotX(lim('tail', 'pitch', kL * arcT)));
   }
 }
@@ -178,12 +193,14 @@ function axial(rig, st, Lr) {
 // limb turns about the shoulder to point the tip at it. (A two-bone IK with the foot held flat bent the ankle and the shoulder far
 // more for the same step: 0.56 % of triangles past 2x stretch in the walk against 0.2 % allowed.)
 function legs(rig, st, R, H, info) {
-  const calm = clamp(st.calm ?? 0, 0, 1), tau = st.tau ?? 0, pz = rig.turn?.pz ?? 0;
+  // the feet: st.feet (planted, util/lizardgait.js lgFeet) or the gait's closed form at the phase's stride (rig.legStride, as
+  // animals.js advances the phase), each the limb tip's place on the surface in the model frame (soles on y = 0)
+  const calm = st.feet ? 0 : clamp(st.calm ?? 0, 0, 1);
+  const F = st.feet ?? openFeet(rig.gait, rig.feet0, st.phase ?? 0, rig.gait.vSlow, 0, 1, (rig._open ??= {}), strideFor(rig.legStride)).feet;
   for (const c of rig.chains) {
-    const pR = R[rig.parent[c.u]], A = H[c.u];
-    const f = rig.foot(rig, c.limb, c.side, st.phase ?? 0, tau, calm, 0, 0);
-    let Tg = addv(addv(A, mv(pR, sub(c.T, c.A))), f.off);
-    if (f.yaw) { const x = Tg[0], z = Tg[2] - pz, cy = Math.cos(f.yaw), sy = Math.sin(f.yaw); Tg = [x * cy + z * sy, Tg[1], -x * sy + z * cy + pz]; }
+    const pR = R[rig.parent[c.u]], A = H[c.u], f = F[c.limb - 1];
+    const rest = addv(A, mv(pR, sub(c.T, c.A))), goal = [f[0], c.T[1] + f[1], f[2]];
+    const Tg = calm ? addv(mul(goal, 1 - calm), mul(rest, calm)) : goal;
     // the fold p (rad, + opens the elbow / knee) that puts the tip at the target's distance (secant steps, as the frog's hind leg)
     const D = len(sub(Tg, A)), reach = (p) => len(sub(foldTip(c, p), c.A));
     let p1 = 0;

@@ -135,6 +135,9 @@ const setup = await page.evaluate(async ({ sp, surface, seed }) => {
       const foot = [...Array(rig.n).keys()].filter((b) => under(b, c.u) && b !== c.w);
       o.feet[rig.B[c.u]?.name ?? c.limb] = foot.length ? Math.min(...foot.map(low)) : NaN;
     }
+    // (G4) each limb's tip in the world and which legs the gait has in stance (lizardpose.js keeps the last closed-form feet in rig._open)
+    o.tips = (rig.chains ?? []).map((c) => [c.limb, wd(xf(c.ends[c.ends.length - 1], c.T))]);
+    o.stance = rig._open?.stance ? [...rig._open.stance] : null;
     const trunk = [...Array(rig.n).keys()].filter((b) => /spine|pelvis|chest|trunk|torso|belly/i.test(rig.B[b].name));
     o.trunk = trunk.map((b) => rig.B[b].name).join(',');
     o.belly = trunk.length ? Math.min(...trunk.map((b) => low(b) - (rig.B[b].r ?? 0) * s)) : NaN;
@@ -177,15 +180,23 @@ if (m.trunk) say(`trunk bones: ${m.trunk}; feet: ${Object.keys(m.feet).join(',')
 
 const f2 = (v) => (v == null || Number.isNaN(v) ? 'NaN' : v.toFixed(2));
 const rows = [], shots = [];
-let prev = m.pos;
+let prev = m.pos, prevR = null;
 for (let i = 0; i < N; i++) {
   await page.evaluate(({ i, dt }) => { window.__seed(i + 1); window.__step(dt); }, { i, dt });
   await cam((await page.evaluate(() => [window.__a.pos.x, window.__a.pos.y, window.__a.pos.z])), m.len ?? 7);
   const r = await measure();
   r.v = Math.hypot(r.pos[0] - prev[0], r.pos[1] - prev[1], r.pos[2] - prev[2]) / dt; prev = r.pos;
+  // foot slip: how far a tip moved along the surface between two frames in both of which its leg was in stance (cm per frame)
+  r.slip = {};
+  if (prevR?.tips && r.tips && r.stance && prevR.stance) for (const [i, [limb, w]] of r.tips.entries()) {
+    const p = prevR.tips[i]?.[1];
+    if (p && r.stance[limb - 1] && prevR.stance[limb - 1]) r.slip[limb] = r.wall ? Math.hypot(w[0] - p[0], w[1] - p[1]) : Math.hypot(w[0] - p[0], w[2] - p[2]);
+  }
+  prevR = r;
   rows.push(r);
   shots.push(await page.screenshot());
   const feet = Object.entries(r.feet ?? {}).map(([k, v]) => `${k}=${f2(v)}`).join(' ');
+  say(`f${i} stance(LF RF LH RH)=${r.stance ? r.stance.join('') : '-'} slip[cm/frame] ${Object.entries(r.slip).map(([k, v]) => `leg${k}=${f2(v)}`).join(' ') || '-'}`);
   say(`f${i} t=${((i + 1) * dt).toFixed(2)}s ph=${f2(r.ph)} feet[cm] ${feet} belly=${f2(r.belly)} bend=${f2(r.bend)}° headYaw=${f2(r.headYaw)}° tailX=${f2(r.tailX)}cm v=${f2(r.v)}cm/s mode=${r.mode} wall=${r.wall} skinned=${r.skinned ? 'yes' : 'no'}`);
 }
 // Per-channel ranges and plain faults.
@@ -193,6 +204,7 @@ const ch = {};
 for (const r of rows) {
   for (const [k, v] of Object.entries(r.feet ?? {})) (ch[k] ??= []).push(v);
   for (const k of ['belly', 'bend', 'headYaw', 'tailX', 'v']) (ch[k] ??= []).push(r[k]);
+  for (const v of Object.values(r.slip ?? {})) (ch.slipStance ??= []).push(v);
 }
 say('ranges (min..max, span):');
 for (const [k, vs] of Object.entries(ch)) {

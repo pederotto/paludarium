@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { PLANS, bendAngle } from '../src/util/bodyplan.js';
 import { skeletonRig, poseBones } from '../src/render/creatures/skeleton.js';
-import { LIZARD_GROUPS, lizardSpecies, swellOf, tailBaseSwing, toePeel, throatFlutter, headSwell, SWELL_CAP } from '../src/util/lizardmuscles.js';
+import { LIZARD_GROUPS, lizardSpecies, swellOf, tailBaseSwing, toePeel, throatFlutter, headSwell, SWELL_CAP } from '../src/content/lizardmuscles.js';
 
 const skel = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8')).gecko.skeleton;
 const names = skel.bones.map((b) => b.name);
