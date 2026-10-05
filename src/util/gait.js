@@ -57,11 +57,11 @@ export const KICK_MEAN = (() => { let s = 0; const n = 400; for (let i = 0; i < 
 // The cycle length in seconds of a swimmer at `urgency` 0 (floating about) … 1 (a dash for the bank).
 export const kickPeriod = (urgency) => 1.7 - 0.7 * clamp01(urgency);
 
-// Buoyancy bob: a slow swell of the water surface under a floating animal plus a dip as the legs push. Centimetres, for
-// an animal of body length `size` cm. `t` seconds, `phase` the kick phase (0 when the legs are not kicking).
-export function bob(t, size, phase = 0, kicking = 0) {
-  const swell = Math.sin(t * TAU * 0.38) * 0.05 + Math.sin(t * TAU * 0.71 + 1.3) * 0.025;
-  return size * (swell - 0.05 * kicking * Math.sin(Math.PI * frac(phase)));
+// A swimming frog's own heave through a kick: a dip as the legs push. Centimetres, for an animal of body length `size` cm, at kick
+// phase `phase`; nothing when the legs are not kicking. (The water under it is not a made-up swell: it rides the drawn surface's
+// real height, ripples and all, read back from the GPU: Animals.ride.)
+export function kickHeave(size, phase = 0, kicking = 0) {
+  return -0.05 * kicking * size * Math.sin(Math.PI * frac(phase));
 }
 
 // The rig parameters of a swimming frog or toad at kick phase `phase`, ready for packAnim: `hop` (the hind-leg extension),

@@ -46,7 +46,7 @@
 //             instead of in diagonal pairs (seven pairs of isopod legs or five of a shrimp's walking in two groups shuffled).
 
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, positionLocal, normalLocal, float, vec3, vec4, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView, varyingProperty } from 'three/tsl';
+import { Fn, attribute, positionLocal, normalLocal, float, vec3, vec4, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView, varyingProperty, varying } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
 import { packAnim, unpackAnim, rig2Pack, TURN_Q } from '../../util/gait.js';
 import { limbFrame, turnFrame } from '../../util/turn.js';
@@ -435,6 +435,12 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
   // frame, so on any animal not facing the default way the coat's highlights, reflections and Fresnel rim sat in the wrong places
   // (lit where the skin faced away: the chrome streaks and grazing glow on frogs).
   m.clearcoatNormalNode = transformNormalToView(qrot(q, curl(nCoat)));
+  // A swimming frog's webbing (finish.webFold, tools/bake-frogpose.mjs): spread as the legs drive and trail, folded away along the
+  // toes as they are drawn up (the toes close then): faded out with the hind legs' extension, the hop the stroke hands the rig.
+  if (finish.webFold && pass === 'blend') {
+    const hopIn = anim.w.sub(floor(anim.w.mul(0.5)).mul(2));
+    m.opacityNode = m.opacityNode.mul(select(abs(matId.sub(2)).lessThan(0.5), varying(smoothstep(0.15, 0.4, hopIn)), float(1)));
+  }
   return m;
 }
 

@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  frogKick, kickSpeed, KICK, KICK_MEAN, kickPeriod, bob, gaitRate, sweepFor, strideFor, footSwing, footLift, footGrounded, TROT, TAU,
+  frogKick, kickSpeed, KICK, KICK_MEAN, kickPeriod, kickHeave, gaitRate, sweepFor, strideFor, footSwing, footLift, footGrounded, TROT, TAU,
   scuttleSpeed, crabStride, clawRaise, frogSwimPose, salamanderSwimPose, packAnim, unpackAnim, strideRate, hopLegs, HOP, callSac, toeTap,
 } from '../src/util/gait.js';
 
@@ -43,10 +43,11 @@ test('a kicking frog surges after each thrust and coasts: continuous speed, mean
   assert.ok(kickPeriod(1) < kickPeriod(0) && kickPeriod(1) > 0.5);
 });
 
-test('buoyancy bob stays small and shrinks with the animal', () => {
-  let m = 0; for (let t = 0; t < 30; t += 0.05) m = Math.max(m, Math.abs(bob(t, 3.5, (t * 0.7) % 1, 1)));
-  assert.ok(m > 0.02 && m < 0.5, `bob up to ${m} cm for a 3.5 cm frog`);
-  assert.ok(Math.abs(bob(7, 1.2)) < Math.abs(bob(7, 6)) + 1e-12);
+test('a kick heaves the body a little, in proportion to its size, and a frog not kicking not at all', () => {
+  let m = 0; for (let p = 0; p < 1; p += 0.01) m = Math.max(m, Math.abs(kickHeave(3.5, p, 1)));
+  assert.ok(m > 0.02 && m < 0.5, `heave up to ${m} cm for a 3.5 cm frog`);
+  assert.ok(Math.abs(kickHeave(1.2, 0.4, 1)) < Math.abs(kickHeave(6, 0.4, 1)));
+  for (let p = 0; p < 1; p += 0.1) assert.ok(kickHeave(3.5, p, 0) === 0);
 });
 
 test('a walking foot does not slide: it moves back at exactly the body speed while planted', () => {

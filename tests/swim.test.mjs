@@ -119,7 +119,7 @@ test('the fire-bellied toad rests floating, limbs spread, hardly moving', () => 
 const man = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8'));
 test('every frog with a sitting skeleton has a swimming body with its own', () => {
   for (const [id, m] of Object.entries(man)) {
-    if (m.skeleton?.bind === 'swim' || !m.skeleton || m.pose) continue;
+    if (m.skeleton?.bind === 'swim' || !m.skeleton || m.pose || (m.skeleton.plan ?? 'anuran') !== 'anuran') continue;   // (frogs only: a lizard has no swimming body)
     const sw = man[`${id}.swim`] ?? man[`${id.split(':')[0]}.swim`];      // (a morph without its own swims in the species' one)
     assert.ok(sw?.skeleton?.bind === 'swim' && sw.skeleton.bones.length === 17, `${id}.swim`);
     assert.ok(skeletonRig(sw.skeleton)?.stroke, `${id}.swim rig`);
