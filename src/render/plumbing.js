@@ -15,6 +15,11 @@
 // with Care > Water > Show equipment off, unless a view layer that shows the build is on (render/layers.js): then the same
 // geometry is drawn a second time, glowing, only where something covers it (the `ghost`, depth test reversed), so hoses
 // buried in the substrate and run behind rocks show through.
+// The hose run (every hose and pipe, the water band in them, the wall clips) is drawn only where the build is shown (X-ray,
+// Bottom): in Surface, the normal view, it is left out, as in a real paludarium where it runs behind the background and
+// through the cabinet. Devices in the tank (pump, filters, outlets, nozzles, the tower) and the jets stay. The merged mesh holds
+// the devices first and the hose run after them; a second geometry shares its buffers and draws only the device part
+// (`dev`), and the mesh swaps between the two when the layer changes (update). Show equipment still hides the devices.
 
 import * as THREE from 'three/webgpu';
 import { attribute, uniform, sin, smoothstep, vec3, float, mix, abs, dot, normalView, normalWorld, positionWorld } from 'three/tsl';
@@ -42,7 +47,7 @@ const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a
 // Merged-geometry builder: positions, normals, vertex colours and `along` (x: distance along a hose in cm, y: the water's
 // speed in it in cm/s, z: its circuit, 1 the main pump, 2 the filter; all 0 off the hoses).
 class Soup {
-  constructor() { this.p = []; this.n = []; this.c = []; this.a = []; this.i = []; }
+  constructor() { this.p = []; this.n = []; this.c = []; this.a = []; this.i = []; this.ir = []; this.run = false; }   // ir: the hose run's triangles
   get count() { return this.p.length / 3; }
   geo(g, m, color) {
     const pos = g.attributes.position, nor = g.attributes.normal, base = this.count;
@@ -50,10 +55,10 @@ class Soup {
     for (let k = 0; k < pos.count; k++) {
       v.fromBufferAttribute(pos, k).applyMatrix4(m); this.p.push(v.x, v.y, v.z);
       v.fromBufferAttribute(nor, k).applyMatrix3(nm).normalize(); this.n.push(v.x, v.y, v.z);
-      this.c.push(color.r, color.g, color.b); this.a.push(0, 0, 0);
+      this.c.push(color.r, color.g, color.b); this.a.push(0, 0, this.run ? 0.25 : 0);   // 0.25: hose run, no water band
     }
-    const idx = g.index;
-    for (let k = 0; k < idx.count; k++) this.i.push(base + idx.getX(k));
+    const idx = g.index, out = this.run ? this.ir : this.i;
+    for (let k = 0; k < idx.count; k++) out.push(base + idx.getX(k));
   }
   // A swept tube along `pts` (already dense), radius r, water at speed v (cm/s) from the first point to the last. Frames are
   // parallel-transported.
@@ -78,7 +83,7 @@ class Soup {
     }
     for (let k = 0; k < n - 1; k++) for (let s = 0; s < seg; s++) {
       const a = base + k * seg + s, b = base + k * seg + (s + 1) % seg, c = a + seg, d = b + seg;
-      this.i.push(a, c, b, b, c, d);
+      this.ir.push(a, c, b, b, c, d);
     }
   }
   build() {
@@ -87,7 +92,12 @@ class Soup {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
     g.setAttribute('along', new THREE.Float32BufferAttribute(this.a, 3));
-    g.setIndex(this.i);
+    g.setIndex(this.i.concat(this.ir));
+    // The devices alone: the same buffers, drawn up to the end of their triangles.
+    const dev = new THREE.BufferGeometry();
+    for (const k of ['position', 'normal', 'color', 'along']) dev.setAttribute(k, g.attributes[k]);
+    dev.setIndex(g.index); dev.setDrawRange(0, this.i.length);
+    g.userData.dev = dev;
     return g;
   }
 }
@@ -149,7 +159,7 @@ export class Plumbing {
     const rim = float(1).sub(abs(dot(normalView, vec3(0, 0, 1))));
     m.colorNode = mix(attribute('color', 'vec3'), vec3(0.35, 0.85, 1.0), 0.7).add(vec3(0.25, 0.55, 0.6).mul(band));
     m.opacityNode = rim.mul(0.45).add(0.3);
-    const g = new THREE.Mesh(this.mesh.geometry, m);
+    const g = new THREE.Mesh(this.full ?? this.mesh.geometry, m);
     g.frustumCulled = false; g.renderOrder = 3; g.name = 'plumbing-xray';   // before the water (5), whose depth would hide all that is merely under it
     this.group.add(g);
     return g;
@@ -200,6 +210,9 @@ export class Plumbing {
     if (!vis) return;
     if (build && !this.ghost) this.ghost = this.makeGhost();
     if (this.ghost) this.ghost.visible = build;
+    // Hose run only where the build is shown: a reference swap, done only when the layer changed (or after a rebuild, above).
+    const want = this.full && (build ? this.full : this.full.userData.dev);
+    if (want && this.mesh.geometry !== want) this.mesh.geometry = want;
     this.t += dt;
     if (this.t > 1.6) {
       this.t = 0;
@@ -273,7 +286,9 @@ export class Plumbing {
           const [x, y, z] = vis[s];
           if (y < T.heightAt(x, z) + 1.5) continue;
           const cd = zoff(k) + HR + 0.1;   // from the wall to just over the hose
+          S.run = true; S.clips = (S.clips ?? 0) + 1;
           S.geo(new THREE.BoxGeometry(2 * HR + 0.5, 0.55, cd), new THREE.Matrix4().makeTranslation(x, y, z - zoff(k) + cd / 2), CLIP);
+          S.run = false;
         }
         endY = o.pos.y;
         pts.push(V(o.pos.x, endY - 0.1, o.pos.z - 0.05));
@@ -291,10 +306,11 @@ export class Plumbing {
     const oj = this.jets.geometry;
     this.jets.geometry = J.build();
     oj.dispose();
-    const old = this.mesh.geometry;
-    this.mesh.geometry = S.build();
-    if (this.ghost) this.ghost.geometry = this.mesh.geometry;
-    old.dispose();
+    const old = this.full, first = old ? null : this.mesh.geometry;
+    this.full = S.build(); this.clips = S.clips ?? 0;
+    this.mesh.geometry = this.layer !== 'surface' ? this.full : this.full.userData.dev;
+    if (this.ghost) this.ghost.geometry = this.full;
+    if (old) { old.userData.dev.dispose(); old.dispose(); } else first.dispose();
   }
 
   // The filter (Care > Water) and the false bottom's pump tower, so the build that changes the water is there to see.
@@ -627,6 +643,7 @@ export class Plumbing {
 
   dispose() {
     this.group.removeFromParent();
-    this.mesh.geometry.dispose(); this.jets.geometry.dispose();
+    if (this.full) { this.full.userData.dev.dispose(); this.full.dispose(); } else this.mesh.geometry.dispose();
+    this.jets.geometry.dispose();
   }
 }

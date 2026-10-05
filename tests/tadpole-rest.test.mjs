@@ -83,6 +83,16 @@ test('each animal has its own seeded stream: same phase, same bouts; another pha
   assert.notEqual(seq(0.3), seq(0.9));
 });
 
+test('B3: a salamander larva uses the same rest model (restStep is species-blind): same windows, belly on the floor', () => {
+  const d = share(24, 720, { night: false, hungry: false, danger: noDanger, bh: 0.4 });
+  const n = share(24, 720, { night: true, hungry: false, danger: noDanger, bh: 0.4 });
+  assert.ok(d >= DAY[0] && d <= DAY[1] && n >= NIGHT[0] && n <= NIGHT[1], `day ${d} night ${n}`);
+  const a = { phase: 1.3, pos: { x: 0, z: 0 } };
+  let r = null;
+  for (let t = 0; t < 200 && !r?.resting; t += 0.1) r = restStep(a, 0.1, { night: true, hungry: false, danger: noDanger, bh: 0.4 });
+  assert.ok(r.resting); assert.equal(r.y, 0.4);
+});
+
 // ---- the end-to-end check, on a state dump (see the header) -----------------------------------------------------------------
 const rows = (f) => fs.readFileSync(f, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((o) => o.sp && !o.hdr && !o.end);
 const isRest = (o) => o.doing === REST_LABEL && o.speed < 0.3;

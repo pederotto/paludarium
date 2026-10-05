@@ -256,8 +256,13 @@ export class SoilSide {
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthFunc: THREE.GreaterDepth, side: THREE.DoubleSide });
     // The sheet at the sim's bodyTop (sim/plenum.js): the level, a millimetre under the ground where the ground is lower.
     m.positionNode = vec3(positionLocal.x, max(min(level, g.sub(BODY_SINK)), 0).mul(up), positionLocal.z);
-    m.colorNode = vec3(0.62, 0.45, 0.2);
-    m.opacityNode = step(minG, g).mul(up.mul(0.15).add(0.35));
+    // Coloured like the pool water in every layer (U.tint: render/water.js volume and surface, shaders.js fog), lifted a little
+    // to glow through the ground; the sheet as see-through as the pool's deep veil (water.js, 0.12 + 0.35), the walls fainter.
+    // tools/steps/below-ground.mjs reads these same uniforms through userData.look.
+    const look = { gain: uniform(0.9), lift: uniform(0.08), sheet: uniform(0.45), wall: uniform(0.3) };
+    m.colorNode = U.tint.mul(look.gain).add(look.lift);
+    m.opacityNode = step(minG, g).mul(mix(look.wall, look.sheet, up));
+    m.userData.look = () => ({ rgb: ['r', 'g', 'b'].map((k) => U.tint.value[k] * look.gain.value + look.lift.value), opacity: look.sheet.value, wall: look.wall.value });
     const b = new THREE.Mesh(new THREE.BufferGeometry(), m);
     b.name = 'water-below-xray'; b.frustumCulled = false; b.renderOrder = 3; b.visible = false;
     parent.add(b);

@@ -1,6 +1,7 @@
 // View layers: how much of the tank you see.
 //
-//   surface  what the eye sees: nothing shows through rock, ground or plants
+//   surface  what the eye sees: nothing shows through rock, ground or plants, and no hose or pipe (they run behind the background
+//            and through the cabinet, render/plumbing.js); devices in the tank (pump, filters, outlets, the tower) stay
 //   xray     the same, plus the build hidden under it (hoses buried in the substrate and run behind rocks, the pump, the
 //            filter, the false bottom's tower) drawn glowing through whatever covers it (render/plumbing.js `ghost`), and the
 //            water below the ground as a body at its simulated level (render/soilside.js `body`, sim/plenum.js belowGround)
@@ -16,8 +17,8 @@
 export const BOTTOM = 1;
 
 export const VIEW_LAYERS = {
-  surface: { name: 'Surface', blurb: 'What the eye sees: rocks, ground and plants hide what is behind them.' },
-  xray: { name: 'X-ray', blurb: 'The tank as it is, with the hidden build glowing through: hoses under the substrate and behind rocks, the pump, the filter and the water under the ground.' },
+  surface: { name: 'Surface', blurb: 'What the eye sees: rocks, ground and plants hide what is behind them, and hoses and pipes stay out of sight.' },
+  xray: { name: 'X-ray', blurb: 'The tank as it is, with the hoses and pipes and the hidden build glowing through: hoses under the substrate and behind rocks, the pump, the filter and the water under the ground.' },
   bottom: { name: 'Bottom layer', blurb: 'Only the build: substrate, background, water and equipment. Plants, animals and hardscape are left out.' },
 };
 export const LAYER_ORDER = ['surface', 'xray', 'bottom'];
