@@ -562,7 +562,10 @@ function wallThink(m, P, s, d, it, rnd) {
 
   // Fear: a freeze first, the head on the danger; flight when it comes on or stays; within grabbing distance it bolts at once.
   // The keeper's lens may freeze it but sends it running only when it nearly touches (drives(): its fear is capped at GECKO.camFear).
-  if (m.mode !== 'flee') {
+  // A camera jump or a lens that follows it (N2b) spares it from every flight path, not only the freeze: no real threat
+  // in view during a cut or a follow means its fear is the camera's, and the camera is no predator.
+  const camSpared = !!(s.camCut || s.followed) && !(s.threat && !s.threat.cam);
+  if (m.mode !== 'flee' && !camSpared) {
     const grab = th && th.d < GECKO.grabCm && m.fear > GECKO.fleeAt;
     const bolt = m.mode === 'alert' && m.fear > GECKO.fleeAt && m.modeT >= GECKO.startleS;
     const stays = m.mode === 'alert' && m.alertLeft <= 0 && m.fear >= GECKO.fleeAfter && !(th && th.cam);
