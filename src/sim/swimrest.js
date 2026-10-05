@@ -5,12 +5,14 @@
 // The shares of time spent resting are GUESSES, not from a source: by day about 40 % (the range 30-50 % is what the check
 // accepts), by night about 68 % (55-80 %). Real tadpoles graze and sit on the bottom between short swims, and are quieter in
 // the dark; the project's species data holds nothing on it. Change DAY_SHARE / NIGHT_SHARE to correct them.
+// B2x: these are the shares of an UNDISTURBED tadpole (45 % / 78 %). In the game, feeding (about 15-20 % of the time) and wakes
+// by passing fish (about one per 20 s of rest in the 12-fish test mix) take a share off: the karst dump read 32 % / 44 % at 40 / 68.
 //
 // The timer uses the animal's own seeded stream (from `a.phase`), never the global Math.random stream: a state dump stays
 // reproducible and the fish that share swim() keep their own random numbers.
 
 export const REST_LABEL = 'Resting on the bottom';
-export const DAY_SHARE = 0.4, NIGHT_SHARE = 0.68;
+export const DAY_SHARE = 0.45, NIGHT_SHARE = 0.78;
 const REST_MEAN = 14;            // s, the mean rest bout (each bout is 0.5-1.5 x the mean); the swim bout is sized for the share
 const WAKE_CHECK = 0.3;          // s between two looks for a threat while resting
 const FLEE_FOR = 1.5;            // s of fleeing after a wake
@@ -59,7 +61,7 @@ export function restStep(a, dt, ctx) {
       const d = ctx.danger();
       if (d) {
         const dx = a.pos.x - d.x, dz = a.pos.z - d.z, l = Math.hypot(dx, dz);
-        r.resting = false; r.left = MIN_SWIM_AFTER_WAKE + 3 * r.rnd();
+        r.resting = false; r.left = MIN_SWIM_AFTER_WAKE + r.rnd();
         r.flee = l > 1e-6 ? { x: dx / l, z: dz / l } : { x: Math.sin(a.phase ?? 0), z: Math.cos(a.phase ?? 0) };
         r.fleeT = FLEE_FOR;
       }
