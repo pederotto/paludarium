@@ -1,11 +1,16 @@
 // sim/filterflow.js: a filter's pump against its head (lift, media clog, hose), the water's speed in each hose, the stages.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterFlow, hoseSpeed, hoseLoss, stageClogs, pumpHose, HOSES, CABINET_DROP } from '../src/sim/filterflow.js';
-import { FILTERS, filterEff } from '../src/content/equipment.js';
+import { filterFlow, hoseSpeed, hoseLoss, stageClogs, pumpHose, HOSES, CABINET_DROP, filterPumpCurve, LIFT_MARGIN, SPOUT } from '../src/sim/filterflow.js';
+import { FILTERS, filterEff, PUMPS, PUMP_LADDER } from '../src/content/equipment.js';
 import { pumpCurve } from '../src/sim/hydro.js';
+import { TANK } from '../src/sim/tank.js';
+import { TANKS, TANK_ORDER } from '../src/content/tanks.js';
+import { readFileSync } from 'node:fs';
 
-const run = (kind, clog = 0, level = 12, o = {}) => filterFlow({ filter: true, filterKind: kind, filterDirt: clog * FILTERS[kind].hold, mediaBio: 0.5, ...o }, level);
+// B5e: a hang-on-back's pump lifts 40 cm at most, so it only runs with the water near the rim: its reference pool is 6 cm under it.
+const lvl = (k) => (FILTERS[k].mount === 'rim' ? TANK.h - 6 : 12);
+const run = (kind, clog = 0, level = lvl(kind), o = {}) => filterFlow({ filter: true, filterKind: kind, filterDirt: clog * FILTERS[kind].hold, mediaBio: 0.5, drainage: 1, ...o }, level);
 
 test('a clean filter gives about its rated flow at the starter level, and clogging takes most of it', () => {
   for (const kind of Object.keys(FILTERS)) {
@@ -13,25 +18,28 @@ test('a clean filter gives about its rated flow at the starter level, and cloggi
     assert.ok(Math.abs(c0 - F.lph) / F.lph < 0.06, `${kind}: clean ${c0} vs rated ${F.lph}`);
     assert.ok(c0 > c5 && c5 > c1, `${kind}: flow falls as it clogs (${c0} > ${c5} > ${c1})`);
     assert.ok(c1 > F.lph * 0.15 && c1 < F.lph * 0.5, `${kind}: clogged solid it still passes a trickle (${c1})`);
-    assert.ok(c0 < F.pump.lph, `${kind}: never more than its pump moves free`);
+    assert.ok(c0 < run(kind, 0).pump.lph, `${kind}: never more than its pump moves free`);
   }
 });
 
-test('an external filter gives less the higher it lifts; the corner foam filter does not care', () => {
-  for (const kind of ['sponge', 'canister']) {
-    assert.ok(run(kind, 0, 30).lph < run(kind, 0, 12).lph * 0.95, `${kind}: deeper water, more lift`);
-    const tall = filterFlow({ filter: true, filterKind: kind, filterDirt: 0 }, 12, CABINET_DROP + 12).lph;
-    assert.ok(tall < run(kind, 0, 12).lph, `${kind}: a taller cabinet, more lift`);
-    assert.ok(run(kind, 0, 30).head > run(kind, 0, 12).head);
-  }
+test('B5e: an open box in the cabinet lifts more from deeper water and gets a bigger pump; a closed canister and the in-tank pumps do not care', () => {
+  const s12 = run('sponge', 0, 12), s30 = run('sponge', 0, 30);
+  assert.ok(s30.lift > s12.lift + 17, 'the sponge box lifts from its own water to the outlet over the pool');
+  assert.ok(PUMP_LADDER.indexOf(s30.pump.id) > PUMP_LADDER.indexOf(s12.pump.id), `a bigger pump for more lift: ${s12.pump.name} > ${s30.pump.name}`);
+  assert.ok(s12.fitted && Math.abs(s30.lph - s12.lph) < FILTERS.sponge.lph * 0.06, 'its flow knob sets each to the filter\'s flow');
+  const c12 = run('canister', 0, 12), c30 = run('canister', 0, 30);
+  assert.ok(c12.lift === SPOUT && c30.lift === SPOUT, 'a closed loop: the static lift is only the outlet over the water');
+  const tall = filterFlow({ filter: true, filterKind: 'canister', filterDirt: 0, mediaBio: 0.5 }, 12, CABINET_DROP + 40);
+  assert.ok(tall.head - tall.valve > c12.head - c12.valve && tall.lift === SPOUT, 'a taller cabinet costs hose friction, not lift');
   assert.ok(Math.abs(run('matten', 0, 30).lph - run('matten', 0, 12).lph) < 3);
 });
 
-test('the working point sits on the pump curve', () => {
+test('the working point sits on the pump curve, a centrifugal pump\'s (B5e)', () => {
   for (const kind of Object.keys(FILTERS)) {
-    const r = run(kind, 0.4), F = FILTERS[kind];
-    assert.ok(Math.abs(F.pump.lph * pumpCurve(r.head, F.pump.hmax) - r.lph) < 0.5, kind);
+    const r = run(kind, 0.4);
+    assert.ok(Math.abs(r.pump.lph * filterPumpCurve(r.head, r.pump.hmax) - r.lph) < 0.5, kind);
   }
+  assert.ok(Math.abs(filterPumpCurve(50, 100) - Math.sqrt(0.5)) < 1e-12, 'H = Hmax (1 - (Q / Qmax)^2)');
   assert.equal(pumpCurve(40), pumpCurve(40, 80), 'the main pump keeps its curve');
 });
 
@@ -75,7 +83,7 @@ test('off: no flow; filterEff follows the flow the sim found', () => {
   assert.ok(r.hoses.every((h) => h.v === 0));
   const E = { filter: true, filterKind: 'sponge', filterDirt: 12 };
   assert.ok(Math.abs(filterEff(E) - (1 - 0.75 * 0.5)) < 1e-9, 'before the first step: the plain estimate');
-  E.filterFlow = filterFlow(E, 12);
+  E.filterFlow = filterFlow(E, lvl(E.filterKind));
   assert.ok(Math.abs(filterEff(E) - E.filterFlow.lph / FILTERS.sponge.lph) < 1e-9);
   E.filterKind = 'canister';
   assert.ok(Math.abs(filterEff(E) - (1 - 0.75 * 12 / 40)) < 1e-9, 'a stale result for another kind is not used');
@@ -107,10 +115,10 @@ test('B5c: every kind is a row with a gear item, a mount, real hose sizes and a 
 test('B5c: filterEff follows the flow the sim found, and clogging lowers it, for every kind', () => {
   for (const [k, F] of Object.entries(FILTERS)) {
     const E = { filter: true, filterKind: k, filterDirt: 0, mediaBio: 0.5, drainage: 1 };
-    E.filterFlow = filterFlow(E, 12);
+    E.filterFlow = filterFlow(E, lvl(E.filterKind));
     assert.ok(Math.abs(filterEff(E) - E.filterFlow.lph / F.lph) < 1e-9, k);
     const clean = filterEff(E);
-    E.filterDirt = F.hold * 0.8; E.filterFlow = filterFlow(E, 12);
+    E.filterDirt = F.hold * 0.8; E.filterFlow = filterFlow(E, lvl(E.filterKind));
     assert.ok(filterEff(E) < clean * 0.8, `${k}: clogged ${filterEff(E)} vs clean ${clean}`);
   }
 });
@@ -179,4 +187,48 @@ test('B5c: three sizes of each new family: more pump, more power, more money; pl
   }
   assert.deepEqual(['bedS', 'bedM', 'bedL'].map((k) => [FILTERS[k].pump.lph, FILTERS[k].pump.hmax, FILTERS[k].watts]), [[300, 60, 7], [600, 100, 7], [1000, 140, 15]]);
   assert.deepEqual(['bedS', 'bedM', 'bedL'].map((k) => FILTERS[k].hose.out), [[12, 16], [12, 16], [16, 22]]);
+});
+
+// ---- B5e: real pumps. Every installation's lift against its pump's maximum head, the pump fitted from a ladder of real ones ----
+test('B5e: every tank tier x filter kind: lift within 0.8 of its pump\'s head, the working point on its curve, the target met or flagged', () => {
+  const keep = { w: TANK.w, d: TANK.d, h: TANK.h };
+  try {
+    for (const t of TANK_ORDER) {
+      Object.assign(TANK, { w: TANKS[t].w, d: TANKS[t].d, h: TANKS[t].h });
+      for (const level of [12, TANKS[t].h * 0.5]) for (const k of Object.keys(FILTERS)) {
+        const r = run(k, 0, level), at = `${t} ${k} at ${level} cm`;
+        assert.ok(r.pump?.hmax > 0 && !r.blocked, at);
+        assert.ok(r.lift <= LIFT_MARGIN * r.pump.hmax || r.undersized, `${at}: lift ${r.lift} against ${r.pump.name} ${r.pump.hmax} cm, not flagged`);
+        assert.ok(Math.abs(r.pump.lph * filterPumpCurve(r.head, r.pump.hmax) - r.lph) < 0.5, `${at}: on the curve`);
+        assert.ok(r.lph >= r.target * 0.97 || r.undersized, `${at}: ${r.lph} of ${r.target} L/h, not flagged`);
+        if (r.lift >= r.pump.hmax) assert.ok(r.lph === 0 && r.low, `${at}: no head is cheated`);
+      }
+    }
+  } finally { Object.assign(TANK, keep); }
+});
+
+test('B5e: every pump figure in the data is its row on the sheet', () => {
+  const md = readFileSync(new URL('../docs/agents/lizards/FILTER_SHEETS.md', import.meta.url), 'utf8').split('## B5e pump ladder')[1];
+  const num = (c) => parseFloat(c.match(/[\d.]+/)?.[0]), seen = new Set();
+  for (const l of md.split('\n').filter((s) => /^\| [a-zA-Z]+ \|/.test(s) && !/^\| id /.test(s))) {
+    const c = l.split('|').slice(1, -1).map((s) => s.trim()), id = c[0], P = PUMPS[id] ?? FILTERS[id]?.pump;
+    assert.ok(P, `${id}: in the data`); seen.add(id);
+    assert.equal(P.lph, num(c[3]), `${id}: flow`); assert.equal(P.hmax, Math.round(num(c[4]) * 100), `${id}: head`);
+    assert.equal(PUMPS[id] ? P.watts : FILTERS[id].watts, num(c[5]), `${id}: watts`);
+    if (PUMPS[id]) assert.ok(P.bore === num(c[6]) && P.name === c[1], `${id}: bore and name`);
+  }
+  for (const id of PUMP_LADDER) assert.ok(seen.has(id), id);
+  for (const [k, F] of Object.entries(FILTERS)) assert.ok(seen.has(k) || Object.values(PUMPS).includes(F.pump), `${k}: its pump has a sheet row`);
+});
+
+test('B5e: a hang-on-back with the water far under the rim moves nothing, and the size a tank needs comes from its water', () => {
+  assert.equal(TANK.h, 60);
+  const low = run('hobM', 0, 12);
+  assert.ok(low.lph === 0 && low.low && low.undersized && low.need === null, `52 cm of lift: ${low.lift}`);
+  assert.ok(run('hobM').lph > 0 && !run('hobM').undersized);
+  const E = { filter: true, filterKind: 'internalS', filterDirt: 0, mediaBio: 0.5 };
+  assert.ok(!filterFlow(E, 12, CABINET_DROP, 20).undersized && filterFlow(E, 12, CABINET_DROP, 2000).undersized, '4 x the water an hour');
+  assert.match(filterFlow(E, 12, CABINET_DROP, 110).need ?? '', /^Internal filter (Cobble|Boulder)$/);
+  E.filterKind = 'sponge';
+  assert.ok(filterFlow(E, 12, CABINET_DROP, 100).small && !filterFlow(E, 12, CABINET_DROP, 20).small, 'a fitted pump cannot make a small filter big');
 });

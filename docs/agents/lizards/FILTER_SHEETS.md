@@ -29,3 +29,21 @@ Flow = the maker's maximum at zero head (not the flow at the game's head). src: 
 - A maker page for the large internal (Aquael): only a retailer listing. The aquaball range ends at 180 L; Fluval U4 (130-240 L, 1000 L/h, 10 W, search summary) is the nearest maker-named alternative.
 - Noticed: equipment.js comments at lines 174 and 179 name real brands (AquaClear, Tidal, Fluval U, Eheim Pickup): code comments only, not shown to the player.
 - Guess, not a sheet: HOB lift is small (an impeller lifting over a rim), so the existing hob hmax 120 cm is probably high; no sheet gave a number.
+
+## B5e pump ladder (one row per pump in the data, id = its key in src; real names stay here; tests/filterflow.test.mjs checks the data against these rows)
+| id | game name (invented) | real product | flow L/h (adj.) | head m | W | bore mm | src |
+|---|---|---|---|---|---|---|---|
+| tern | Tern | Eheim compactON 300 | 300 (170-300) | 0.6 | 7 | 12 | compactON page above (f); also the bed filter "Tower pump Tern" |
+| heron | Heron | Eheim compactON 600 | 600 (250-600) | 1.0 | 7 | 12 | same (f); bed "Tower pump Heron" |
+| crane | Crane | Eheim compactON 1000 | 1000 (400-1000) | 1.4 | 15 | 16 | same (f); bed "Tower pump Crane" |
+| stork | Stork | Eheim compactON 2100 | 2100 (1400-2100) | 2.4 | 38 | 19 | same (f, from the L row's note) |
+| pelican | Pelican | Eheim compactON 3000 | 3000 (1800-3000) | 2.7 | 55 | 25 (estimate, no sheet: the next standard size over its neighbours' 16 and 19) | same (f, from the L row's note) |
+| hobS | Hang-on-back filter Alder | Fluval AquaClear 20 | 379 | 0.4 (estimate, no sheet: real ones only run with the water near the rim) | 7 | not found | HOB rows above (s) |
+| hobM | Hang-on-back filter Birch | Fluval AquaClear 50 | 757 | 0.4 (estimate, no sheet) | 7 | not found | same (s) |
+| hobL | Hang-on-back filter Oak | Fluval AquaClear 110 | 1892 | 0.4 (estimate, no sheet) | 14 | not found | same (s) |
+| internalS | Internal filter Pebble | Eheim aquaball 60 | 480 (150-480) | 0.55 (estimate, no sheet) | 5 | not found | internal rows above (s) |
+| internalM | Internal filter Cobble | Eheim aquaball 180 | 650 (210-650) | 0.55 (estimate, no sheet) | 6 | not found | same (s) |
+| internalL | Internal filter Boulder | Aquael Turbo Filter 2000 | 2000 | 0.55 (estimate, no sheet) | 27 | not found | same (s, retailer) |
+- Sponge box, corner foam and canister have no pump of their own any more: each installation is fitted the smallest ladder pump that does its job (sim/filterflow.js pumpFit). Old invented figures removed: sponge 190 L/h / 1.45 m, corner foam 150 / 0.8, canister 560 / 1.5.
+- A mid rung (about 1.8 m, 1200-1500 L/h) would cut the 15 W to 38 W jump between Crane and Stork: not found (one maker fetch, sicce.com Syncra Silent, 404).
+- Second curve points: not found for any rung; the curve is the centrifugal parabola H = Hmax (1 - (Q/Qmax)^2).

@@ -188,59 +188,73 @@ export const ACTUATORS = {
 // hold how much dirt (detritus units) it takes before it is clogged solid (sim.js).
 // mount: where it stands (sim/filterflow.js MOUNTS: cabinet | pool | rim | internal | bed), prefilter: a sponge can be fitted over its intake; watts: the pump's power, tank: [min, max] litres the maker rates it for (max null: no upper limit).
 // The hardware (sim/filterflow.js turns it into the flow it really gives): pump is the filter pump's rating, lph moved against no
-// head and hmax the lift (cm) at which it moves nothing; hose the inner/outer diameter (mm) of the drain from the overflow down
+// head and hmax the lift (cm) at which it moves nothing (fit: 'ladder': the PUMPS size fitted at the starter, the sim fits each
+// installation its own; closed: a sealed canister, a closed loop, so its pump lifts only to the outlet over the water); hose the inner/outer diameter (mm) of the drain from the overflow down
 // to the filter (in) and of the return up to the tank (out), standard aquarium hose sizes; media the head (cm) the clean media
 // cost at the rated flow; stages the media in the order the water meets them: id, name, share of that head.
+// Filter pumps with real figures (docs/agents/lizards/FILTER_SHEETS.md, "B5e pump ladder": one maker family, invented names): lph the
+// flow at no head, hmax the head (cm) at which it moves nothing, watts, bore its hose (mm), adj the range its flow knob sets. A row with
+// fit: 'ladder' gets the smallest of these that does its job, per installation (sim/filterflow.js pumpFit). Pelican's bore is an estimate.
+export const PUMPS = {
+  tern: { id: 'tern', name: 'Tern', lph: 300, hmax: 60, watts: 7, bore: 12, adj: [170, 300] },
+  heron: { id: 'heron', name: 'Heron', lph: 600, hmax: 100, watts: 7, bore: 12, adj: [250, 600] },
+  crane: { id: 'crane', name: 'Crane', lph: 1000, hmax: 140, watts: 15, bore: 16, adj: [400, 1000] },
+  stork: { id: 'stork', name: 'Stork', lph: 2100, hmax: 240, watts: 38, bore: 19, adj: [1400, 2100] },
+  pelican: { id: 'pelican', name: 'Pelican', lph: 3000, hmax: 270, watts: 55, bore: 25, adj: [1800, 3000] },
+};
+export const PUMP_LADDER = ['tern', 'heron', 'crane', 'stork', 'pelican'];
+
 export const FILTERS = {
   sponge: { gear: 'filterSponge', mount: 'cabinet', prefilter: false, name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, lph: 120, catch: 0.5, hold: 24, blurb: 'A sponge in an external box, a strainer on its intake: gentle, shrimp-safe, small capacity; needs a rinse every few weeks.',
-    pump: { lph: 190, hmax: 145 }, hose: { in: [16, 22], out: [12, 16] }, media: 17,
+    pump: PUMPS.heron, fit: 'ladder', hose: { in: [16, 22], out: [12, 16] }, media: 17,
     stages: [['mech', 'Coarse sponge', 0.5], ['bio', 'Fine bio sponge', 0.35], ['chem', 'Carbon pad', 0.15]] },
   matten: { gear: 'filterMatten', mount: 'pool', prefilter: false, name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, lph: 150, catch: 0.45, hold: 60, blurb: 'A wall of coarse foam with a pump behind it: no suction, a huge surface, almost no current; goes months between rinses.',
-    pump: { lph: 150, hmax: 80 }, hose: { out: [12, 16] }, media: 7,
+    pump: PUMPS.tern, fit: 'ladder', hose: { out: [12, 16] }, media: 7,
     stages: [['mech', 'Coarse foam face', 0.6], ['bio', 'Foam core', 0.4]] },
   canister: { gear: 'filterCanister', mount: 'cabinet', prefilter: true, name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.',
-    pump: { lph: 560, hmax: 150 }, hose: { in: [19, 27], out: [16, 22] }, media: 22,
+    pump: PUMPS.heron, fit: 'ladder', closed: true, hose: { in: [19, 27], out: [16, 22] }, media: 22,
     stages: [['mech', 'Coarse sponge', 0.3], ['bio', 'Ceramic rings', 0.2], ['chem', 'Fine floss and carbon', 0.5]] },
   // The three new families in three sizes each, from the maker sheets of one real product line per family (docs/agents/lizards/FILTER_SHEETS.md):
   // pump.lph is the maximum flow at no head, hmax the maximum head (cm) where the sheet has one (the tower pumps), watts and tank (litres the
-  // maker rates it for) as listed, the bed's 12 / 16 mm hose from the sheet. NOT from a sheet, modelled: hmax of the hang-on-back and internal pumps
+  // maker rates it for) as listed, the bed's 12 / 16 mm hose from the sheet. estimates, no sheet: hmax of the hang-on-back (40 cm: a real one only runs with the water near the rim) and internal (55 cm) pumps;
+  // NOT from a sheet, modelled:
   // and all their hose bores, hold, catch, suction, flow, oxygen. lph (the rated flow) and media are worked out from the pump and the lift in the
   // game (sim/filterflow.js): lph the working point of a clean filter at a 12 cm pool, media the head that clogs it down to 30 % when solid.
-  hobS: { gear: 'filterHobS', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Alder', mediaMax: 0.8, flow: 0.3, oxygen: 2, suction: 0.35, lph: 260, catch: 0.7, hold: 35, watts: 7, tank: [18,76],
+  hobS: { gear: 'filterHobS', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Alder', mediaMax: 0.8, flow: 0.3, oxygen: 2, suction: 0.35, lph: 225, catch: 0.7, hold: 35, watts: 7, tank: [18,76],
     blurb: 'Hangs on the back rim: foam, carbon and ceramic rings, and a falling lip that stirs the surface. Strong in a deep pool; put a sponge over the intake for shrimp and fry. Made for tanks of 18-76 litres.',
-    pump: { lph: 379, hmax: 120 }, hose: { in: [19,27] }, media: 15,
+    pump: { lph: 379, hmax: 40 }, hose: { in: [19,27] }, media: 15,
     stages: [['mech', 'Foam pad', 0.3], ['chem', 'Carbon', 0.3], ['bio', 'Ceramic bio rings', 0.4]] },
-  hobM: { gear: 'filterHobM', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Birch', mediaMax: 0.8, flow: 0.38, oxygen: 2, suction: 0.45, lph: 515, catch: 0.7, hold: 55, watts: 7, tank: [76,190],
+  hobM: { gear: 'filterHobM', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Birch', mediaMax: 0.8, flow: 0.38, oxygen: 2, suction: 0.45, lph: 450, catch: 0.7, hold: 55, watts: 7, tank: [76,190],
     blurb: 'Hangs on the back rim: foam, carbon and ceramic rings, and a falling lip that stirs the surface. Strong in a deep pool; put a sponge over the intake for shrimp and fry. Made for tanks of 76-190 litres.',
-    pump: { lph: 757, hmax: 120 }, hose: { in: [25,34] }, media: 15,
+    pump: { lph: 757, hmax: 40 }, hose: { in: [25,34] }, media: 15,
     stages: [['mech', 'Foam pad', 0.3], ['chem', 'Carbon', 0.3], ['bio', 'Ceramic bio rings', 0.4]] },
-  hobL: { gear: 'filterHobL', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Oak', mediaMax: 0.8, flow: 0.5, oxygen: 2, suction: 0.6, lph: 1210, catch: 0.7, hold: 90, watts: 14, tank: [227,416],
+  hobL: { gear: 'filterHobL', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Oak', mediaMax: 0.8, flow: 0.5, oxygen: 2, suction: 0.6, lph: 1010, catch: 0.7, hold: 90, watts: 14, tank: [227,416],
     blurb: 'Hangs on the back rim: foam, carbon and ceramic rings, and a falling lip that stirs the surface. Strong in a deep pool; put a sponge over the intake for shrimp and fry. Made for tanks of 227-416 litres.',
-    pump: { lph: 1892, hmax: 120 }, hose: { in: [25,34] }, media: 15,
+    pump: { lph: 1892, hmax: 40 }, hose: { in: [25,34] }, media: 15,
     stages: [['mech', 'Foam pad', 0.3], ['chem', 'Carbon', 0.3], ['bio', 'Ceramic bio rings', 0.4]] },
-  internalS: { gear: 'filterInternalS', mount: 'internal', prefilter: false, name: 'Internal filter Pebble', mediaMax: 0.55, flow: 0.28, oxygen: 1.5, suction: 0.2, lph: 400, catch: 0.55, hold: 20, watts: 5, tank: [30,60],
+  internalS: { gear: 'filterInternalS', mount: 'internal', prefilter: false, name: 'Internal filter Pebble', mediaMax: 0.55, flow: 0.28, oxygen: 1.5, suction: 0.2, lph: 375, catch: 0.55, hold: 20, watts: 5, tank: [30,60],
     blurb: 'A pump and foam in one body that stands in the pool: no hoses, gentle pull, small capacity; rinse it often. Made for tanks of 30-60 litres.',
     pump: { lph: 480, hmax: 55 }, hose: { out: [12,16] }, media: 12.5,
     stages: [['mech', 'Mechanical foam', 0.6], ['bio', 'Bio foam', 0.4]] },
-  internalM: { gear: 'filterInternalM', mount: 'internal', prefilter: false, name: 'Internal filter Cobble', mediaMax: 0.55, flow: 0.34, oxygen: 1.5, suction: 0.25, lph: 495, catch: 0.55, hold: 30, watts: 6, tank: [80,180],
+  internalM: { gear: 'filterInternalM', mount: 'internal', prefilter: false, name: 'Internal filter Cobble', mediaMax: 0.55, flow: 0.34, oxygen: 1.5, suction: 0.25, lph: 475, catch: 0.55, hold: 30, watts: 6, tank: [80,180],
     blurb: 'A pump and foam in one body that stands in the pool: no hoses, gentle pull, small capacity; rinse it often. Made for tanks of 80-180 litres.',
     pump: { lph: 650, hmax: 55 }, hose: { out: [12,16] }, media: 12.5,
     stages: [['mech', 'Mechanical foam', 0.6], ['bio', 'Bio foam', 0.4]] },
-  internalL: { gear: 'filterInternalL', mount: 'internal', prefilter: false, name: 'Internal filter Boulder', mediaMax: 0.55, flow: 0.55, oxygen: 1.5, suction: 0.35, lph: 1155, catch: 0.55, hold: 50, watts: 27, tank: [350,null],
+  internalL: { gear: 'filterInternalL', mount: 'internal', prefilter: false, name: 'Internal filter Boulder', mediaMax: 0.55, flow: 0.55, oxygen: 1.5, suction: 0.35, lph: 1175, catch: 0.55, hold: 50, watts: 27, tank: [350,null],
     blurb: 'A pump and foam in one body that stands in the pool: no hoses, gentle pull, small capacity; rinse it often. Made for tanks of over 350 litres.',
     pump: { lph: 2000, hmax: 55 }, hose: { out: [16,22] }, media: 12.5,
     stages: [['mech', 'Mechanical foam', 0.6], ['bio', 'Bio foam', 0.4]] },
-  bedS: { gear: 'filterBedS', mount: 'bed', prefilter: false, name: 'Tower pump Tern', mediaMax: 1, flow: 0.15, oxygen: 0.8, suction: 0, lph: 265, catch: 0.35, hold: 80, watts: 7, tank: null,
+  bedS: { gear: 'filterBedS', mount: 'bed', prefilter: false, name: 'Tower pump Tern', mediaMax: 1, flow: 0.15, oxygen: 0.8, suction: 0, lph: 245, catch: 0.35, hold: 80, watts: 7, tank: null,
     blurb: 'A pump on the floor of the false bottom\'s slotted tower, pulling the water down through the bed of bio-rings: huge surface, nothing to pull in, slow to clog and hard to clean.',
-    pump: { lph: 300, hmax: 60 }, hose: { out: [12,16] }, media: 13,
+    pump: PUMPS.tern, hose: { out: [12,16] }, media: 13,
     stages: [['mech', 'Screen and fines', 0.3], ['bio', 'Bio-ring bed', 0.7]] },
-  bedM: { gear: 'filterBedM', mount: 'bed', prefilter: false, name: 'Tower pump Heron', mediaMax: 1, flow: 0.18, oxygen: 0.8, suction: 0, lph: 505, catch: 0.35, hold: 110, watts: 7, tank: null,
+  bedM: { gear: 'filterBedM', mount: 'bed', prefilter: false, name: 'Tower pump Heron', mediaMax: 1, flow: 0.18, oxygen: 0.8, suction: 0, lph: 470, catch: 0.35, hold: 110, watts: 7, tank: null,
     blurb: 'A pump on the floor of the false bottom\'s slotted tower, pulling the water down through the bed of bio-rings: huge surface, nothing to pull in, slow to clog and hard to clean.',
-    pump: { lph: 600, hmax: 100 }, hose: { out: [12,16] }, media: 22.5,
+    pump: PUMPS.heron, hose: { out: [12,16] }, media: 22.5,
     stages: [['mech', 'Screen and fines', 0.3], ['bio', 'Bio-ring bed', 0.7]] },
-  bedL: { gear: 'filterBedL', mount: 'bed', prefilter: false, name: 'Tower pump Crane', mediaMax: 1, flow: 0.24, oxygen: 0.8, suction: 0, lph: 885, catch: 0.35, hold: 150, watts: 15, tank: null,
+  bedL: { gear: 'filterBedL', mount: 'bed', prefilter: false, name: 'Tower pump Crane', mediaMax: 1, flow: 0.24, oxygen: 0.8, suction: 0, lph: 820, catch: 0.35, hold: 150, watts: 15, tank: null,
     blurb: 'A pump on the floor of the false bottom\'s slotted tower, pulling the water down through the bed of bio-rings: huge surface, nothing to pull in, slow to clog and hard to clean.',
-    pump: { lph: 1000, hmax: 140 }, hose: { out: [16,22] }, media: 31.5,
+    pump: PUMPS.crane, hose: { out: [16,22] }, media: 31.5,
     stages: [['mech', 'Screen and fines', 0.3], ['bio', 'Bio-ring bed', 0.7]] },
 };
 export const filterOf = (E) => FILTERS[E.filterKind] ?? FILTERS.sponge;

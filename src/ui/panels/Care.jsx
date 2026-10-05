@@ -10,6 +10,7 @@ import { Care, FEEDERS, eatersOf } from '../../app/actions.js';
 import { SPECIES } from '../../sim/animals.js';
 import { GEAR, FILTERS, filterClog, filterEff, WATER_SOURCES, SUBSTRATES, SUBSTRATE_ORDER, plenumState } from '../../content/equipment.js';
 import { TANK } from '../../sim/tank.js';
+import { filterFlow, LIFT_MARGIN, RIM_BOX, TURNOVER } from '../../sim/filterflow.js';
 
 const TABS = [['lights', 'Lights', 'sun'], ['climate', 'Climate', 'thermo'], ['rain', 'Rain', 'rain'], ['water', 'Water', 'drop'], ['feeding', 'Feeding', 'bowl'], ['foundation', 'Foundation', 'layers']];
 const hh = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:00`;
@@ -86,10 +87,21 @@ function Gated({ gear, children }) {
 
 // The filter's own pump and how clogged its media are, with the rinse that clears them.
 function FilterState({ E }) {
-  const clog = filterClog(E), F = FILTERS[E.filterKind] ?? FILTERS.sponge;
+  const clog = filterClog(E), F = FILTERS[E.filterKind] ?? FILTERS.sponge, W = ctx.game.world;
+  // The installation as it stands (sim/filterflow.js): the lift at today's water level, the pump it has, the size its litres need.
+  const L = W.water.volumeLitres?.() ?? 0, f = filterFlow(E, W.water.level, undefined, L), P = f.pump, lift = Math.round(f.lift);
+  const q = Math.round(E.filterLph ?? F.lph * filterEff(E)), warn = (c) => ({ margin: 0, flex: '1 1 100%', order: 3, color: c });
   return (
     <div class="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-      <span class="note" style={{ margin: 0, flex: '1 1 260px' }}>Its pump moves <b>{Math.round(E.filterLph ?? F.lph * filterEff(E))} L/h</b> through the media{clog > 0.15 ? <>, <span style={{ color: clog > 0.6 ? 'var(--coral)' : 'var(--amber)' }}>{Math.round(clog * 100)}% clogged</span></> : ', clean'}.</span>
+      <span class="note" style={{ margin: 0, flex: '1 1 260px' }}>Its pump{f.fitted ? <>, fitted to the job: <b>{P.name}</b></> : ''} ({P.lph} L/h free, {P.hmax / 100} m of head at most) lifts the water {lift} cm and moves <b>{q} L/h</b> through the media{clog > 0.15 ? <>, <span style={{ color: clog > 0.6 ? 'var(--coral)' : 'var(--amber)' }}>{Math.round(clog * 100)}% clogged</span></> : ', clean'}.</span>
+      {f.low ? <p class="note" style={warn('var(--bad, #c0583c)')}>{F.mount === 'rim'
+        ? `The water is too low for a hang-on-back: its pump would have to lift it ${lift} cm up to the box on the rim and lifts ${P.hmax} cm at most, so it moves nothing. Raise the water to within ${Math.floor(LIFT_MARGIN * P.hmax - RIM_BOX)} cm of the rim, or choose another filter.`
+        : `The water has to rise ${lift} cm, more than this pump can lift (${P.hmax} cm), so it moves nothing.${f.need ? ` This tank needs the ${f.need}.` : ''}`}</p>
+        : f.undersized ? <p class="note" style={warn('var(--amber)')}>{f.need
+          ? `Too small for this tank: it should move ${Math.round(f.target)} L/h (${TURNOVER} times the pool's ${Math.round(L)} L an hour) against ${lift} cm of lift. This tank needs the ${f.need}.`
+          : f.fitted ? `No pump in the range lifts ${lift} cm with room to spare: the largest, the ${P.name}, moves ${q} of the ${Math.round(f.target)} L/h this filter is made for.`
+            : `No size of this filter is enough here: ${lift} cm of lift and ${Math.round(f.target)} L/h to move. Choose another kind.`}</p> : null}
+      {f.small ? <p class="note" style={warn('var(--amber)')}>A small filter for {Math.round(L)} L of water: it moves it {(q / L).toFixed(1)} times an hour, a keeper aims for {TURNOVER}.</p> : null}
       <button class={'btn sm' + (clog > 0.6 ? ' primary' : '')} onClick={() => { toast(Care.rinseFilter(ctx.game)); refresh(); }} title="Rinse the media in a bucket of old tank water: tap water would kill the bacteria">Rinse the filter</button>
     </div>
   );
