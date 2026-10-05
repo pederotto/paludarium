@@ -143,9 +143,9 @@ export class SoilSide {
         c.assign(c.mul(float(1).sub(clamp(wet.mul(0.3).add(wick), 0, 0.55))));
         c.assign(mix(c, c.mul(0.35).add(vec3(0.02, 0.014, 0.008)), mud.mul(smoothstep(water.add(3), water.sub(0.5), y)).mul(0.9)));
         // Under the water table of a LECA layer or a plain substrate (sim/plenum.js stepGround: it stands at the pool's line,
-        // over it after rain) the soil is saturated: darker, with a wet line where the table stands.
+        // over it after rain) the soil is saturated: darker and a touch cooler, with a wet line where the table stands.
         const table = step(mode, 1.5).mul(step(0.05, water));
-        c.assign(mix(c, c.mul(vec3(0.55, 0.48, 0.4)), table.mul(step(y, water)).mul(0.85)));
+        c.assign(mix(c, c.mul(vec3(0.5, 0.5, 0.52)), table.mul(step(y, water)).mul(0.85)));   // N3b: wet sand, darker and a little cooler
         c.addAssign(vec3(0.06, 0.055, 0.045).mul(table).mul(smoothstep(0.12, 0.0, abs(y.sub(water)))));
         // Leaf litter: the top centimetre, brown leaf fragments lying flat.
         const [leafM, leafH] = blob(1.4, 0.45, 2.4, 0.22, 0.4, 61, 0, 0.35);
@@ -252,17 +252,23 @@ export class SoilSide {
   // ground that covers it like the plumbing's X-ray (render/plumbing.js makeGhost: drawn only where something is in front, after
   // the opaque pass, nothing added to the scene pass). One draw call; hidden in the Surface layer.
   makeBody(parent) {
-    const { level, minG } = this.u, g = attribute('g', 'float'), up = attribute('up', 'float');
+    const { level, minG, mode } = this.u, g = attribute('g', 'float'), up = attribute('up', 'float');
     const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthFunc: THREE.GreaterDepth, side: THREE.DoubleSide });
     // The sheet at the sim's bodyTop (sim/plenum.js): the level, a millimetre under the ground where the ground is lower.
     m.positionNode = vec3(positionLocal.x, max(min(level, g.sub(BODY_SINK)), 0).mul(up), positionLocal.z);
     // Coloured like the pool water in every layer (U.tint: render/water.js volume and surface, shaders.js fog), lifted a little
     // to glow through the ground; the sheet as see-through as the pool's deep veil (water.js, 0.12 + 0.35), the walls fainter.
     // tools/steps/below-ground.mjs reads these same uniforms through userData.look.
-    const look = { gain: uniform(0.9), lift: uniform(0.08), sheet: uniform(0.45), wall: uniform(0.3) };
-    m.colorNode = U.tint.mul(look.gain).add(look.lift);
-    m.opacityNode = step(minG, g).mul(mix(look.wall, look.sheet, up));
-    m.userData.look = () => ({ rgb: ['r', 'g', 'b'].map((k) => U.tint.value[k] * look.gain.value + look.lift.value), opacity: look.sheet.value, wall: look.wall.value });
+    // That is the false bottom's open water (mode 2). In a LECA layer or a plain substrate the water fills the pores: the zone is
+    // wet substrate, not open water, so the cut-away's sand must stay readable through it (N3b). There the body has no walls (they
+    // stand 1.5 cm behind the side and front glass and stacked over the sand as a pale block and, edge-on at the side glass, a tall
+    // column) and its sheet is a faint dark film of the tint, so it only darkens and cools what lies behind it.
+    const look = { gain: uniform(0.9), lift: uniform(0.08), sheet: uniform(0.45), wall: uniform(0.3), wetGain: uniform(0.08), wetSheet: uniform(0.12) };
+    const open = step(1.5, mode);
+    m.colorNode = mix(U.tint.mul(look.wetGain), U.tint.mul(look.gain).add(look.lift), open);
+    m.opacityNode = step(minG, g).mul(mix(look.wetSheet.mul(up), mix(look.wall, look.sheet, up), open));
+    m.userData.look = () => ({ rgb: ['r', 'g', 'b'].map((k) => U.tint.value[k] * look.gain.value + look.lift.value), opacity: look.sheet.value, wall: look.wall.value,
+      wet: { rgb: ['r', 'g', 'b'].map((k) => U.tint.value[k] * look.wetGain.value), opacity: look.wetSheet.value, wall: 0 } });
     const b = new THREE.Mesh(new THREE.BufferGeometry(), m);
     b.name = 'water-below-xray'; b.frustumCulled = false; b.renderOrder = 3; b.visible = false;
     parent.add(b);
