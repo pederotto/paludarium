@@ -142,12 +142,14 @@ export function flowerMaterial() {
   const dens = float(1).sub(smoothstep(0.02, 0.3, pv)).mul(float(1).sub(pu.mul(pu).mul(0.4)));
   const thr = mix(float(0.62), float(-0.12), dens);
   const spots = smoothstep(thr, thr.add(0.07), bn1.mul(0.7).add(bn2.mul(0.45)));
-  // 2 NET (v3): dark veins along the petal's length (lines of constant leaf u, so they converge into the tail), wavy, with finer
+  // 2 NET (v4): veins along the petal's length (lines of constant leaf u, so they converge into the tail), wavy, with finer
   // cross veins offset from strip to strip (a reticulum, no grid), over a darkened blade (Dracula vampira)
   const wq = pu.mul(4.5).add(sin(pv.mul(31).add(pu.mul(3))).mul(0.12)).add(sin(pv.mul(11).add(1.3)).mul(0.15));
   const lv = abs(fract(wq.add(0.5)).sub(0.5)), vh = hash(vec2(floor(wq), 3.1));
   const cr = abs(fract(pv.mul(vh.mul(22).add(40)).add(vh.mul(7.3)).add(sin(pu.mul(17).add(vh.mul(6))).mul(0.45))).sub(0.5));
-  const net = max(max(smoothstep(0.2, 0.1, lv), smoothstep(0.12, 0.05, cr).mul(0.9)), float(0.78));
+  // v4 (photo 1, reversed): the blade is the accent (near black) everywhere except the veins, which stay the main colour
+  // (orange-tan); the cross veins fainter
+  const net = float(1).sub(max(smoothstep(0.075, 0.025, lv), smoothstep(0.06, 0.02, cr).mul(0.4)).mul(0.9));
   // 3 VEINS: strong lengthwise stripes
   const veins = smoothstep(0.16, 0.12, abs(fract(pu.mul(3.5)).sub(0.5)));
   // 4 SPARKLE: sparse crystalline points that glint as the flower moves (D. cuthbertsonii)
@@ -156,7 +158,7 @@ export function flowerMaterial() {
     .mul(sin(kh.mul(60).add(positionWorld.x.mul(2.1)).add(positionWorld.y.mul(1.7))).mul(0.5).add(0.5));
   const is = (n) => step(n - 0.5, pk).mul(step(pk, n + 0.5));
   const pz = smoothstep(0.3, 0.7, vp.z);     // full accent at a dot/vein centre wherever the petal is mostly main colour
-  const pm = spots.mul(is(1)).add(net.mul(is(2))).add(veins.mul(is(3))).mul(pz);
+  const pm = spots.mul(is(1)).add(veins.mul(is(3))).mul(pz).add(net.mul(is(2)).mul(smoothstep(0.05, 0.35, vp.z)));   // the net darkens the whole blade
   const sparkle = glint.mul(is(4)).mul(pz);
   const pcol = mix(vc.xyz, va.xyz, pm).add(sparkle.mul(0.55));
   // faint parallel veins along each petal and a slightly deeper tone at its base (leaf coordinates; no noise)

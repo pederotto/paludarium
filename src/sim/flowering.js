@@ -167,16 +167,25 @@ function surf(b, P, { leaf = null, col, sway = () => 1, wrap = false }) {
 // and in; `cup` raises the margins toward the face. The margin is rounded and narrows in a concave curve into a thin tail of
 // `tail` length that bends toward `bend` (`hang` per step). Near the base the half-width is about tan 60 deg x the radius, so
 // three sepals close into a bowl. Leaf v: 0 ... k on the blade, k ... 1 on the tail (k = len / (len + tail)); `col(u, v)`.
-// Returns margin and face points for `bristles`. Triangles: 2 nu (rows - 1) + 2 (tRows - 1).
-function cupSepal(b, { th, r0 = 0.25, len, width, depth = 0.9, hood = 0, cup = 0.35, tail, tw = 0.06, bend = HEAD_DOWN, hang = 0.7, rows = [0, 0.14, 0.3, 0.45, 0.6, 0.74, 0.87, 1], nu = 3, tRows = 6, col }) {
-  const R = V(Math.sin(th), 0, Math.cos(th)), T = V(Math.cos(th), 0, -Math.sin(th)), F = V(0, 1, 0), k = len / (len + tail);
-  const sp = (s) => R.clone().multiplyScalar(r0 + len * s - 0.45 * hood * s * s * s).addScaledVector(F, depth * (1 - (1 - s) * (1 - s)) + hood * s * s * s);
-  const hw = (s) => tw + (width / 2 - tw) * (s < 0.3 ? 0.3 + 0.7 * Math.pow(Math.sin((Math.PI / 2) * s / 0.3), 0.7) : Math.pow(Math.cos((Math.PI / 2) * (s - 0.3) / 0.7), 1.5));
+// Returns margin and face points for `bristles`. Triangles: 2 nu (rows - 1) + 2 (tRows - 1) (x2 tails with `fork`).
+// Optional (run orchids, pass 4; missing = the shape above): `spine(s)` -> [radius, forward] replaces the bowl's spine (a
+// sepal tube: a long forward run, then the flare); `outline(s)` the half-width (rounded bodies, a narrow triangle);
+// `cupAt(s)` the margin lift (1 with outline(s) = radius closes two sepals into a tube); `vk` the leaf v at the blade's tip
+// (pattern scale; default k); `fork { f, notch, bend: [b0, b1] }` splits the tip into two tails from the margin lobes
+// (columns 0..f and nu-f..nu; the middle of the tip pulled back by `notch` of s): a fused synsepal.
+function cupSepal(b, { th, r0 = 0.25, len, width, depth = 0.9, hood = 0, cup = 0.35, tail, tw = 0.06, bend = HEAD_DOWN, hang = 0.7, rows = [0, 0.14, 0.3, 0.45, 0.6, 0.74, 0.87, 1], nu = 3, tRows = 6, col, spine = null, outline = null, cupAt = null, vk = null, fork = null }) {
+  const R = V(Math.sin(th), 0, Math.cos(th)), T = V(Math.cos(th), 0, -Math.sin(th)), F = V(0, 1, 0), k = vk ?? len / (len + tail);
+  const sp = spine ? (s) => { const [r, f] = spine(s); return R.clone().multiplyScalar(r).addScaledVector(F, f); }
+    : (s) => R.clone().multiplyScalar(r0 + len * s - 0.45 * hood * s * s * s).addScaledVector(F, depth * (1 - (1 - s) * (1 - s)) + hood * s * s * s);
+  const hw = outline ? (s) => Math.max(tw, outline(s))
+    : (s) => tw + (width / 2 - tw) * (s < 0.3 ? 0.3 + 0.7 * Math.pow(Math.sin((Math.PI / 2) * s / 0.3), 0.7) : Math.pow(Math.cos((Math.PI / 2) * (s - 0.3) / 0.7), 1.5));
+  const cq = cupAt ?? ((s) => cup * (0.4 + 0.6 * sstep(0, 0.3, s)));
   const frame = (s) => { const d = sp(Math.min(1, s + 0.01)).sub(sp(Math.max(0, s - 0.01))).normalize(); return { d, n: new THREE.Vector3().crossVectors(d, T).normalize() }; };
-  const P = [], hairs = { margin: [], face: [] };
+  const at = (s, u) => { const { n } = frame(s), w = hw(s); return sp(s).addScaledVector(T, u * w).addScaledVector(n, cq(s) * u * u * w); };
+  const P = [], hairs = { margin: [], face: [] }, last = rows[rows.length - 1];
   for (const s of rows) {
-    const c = sp(s), { d, n } = frame(s), w = hw(s), q = cup * (0.4 + 0.6 * sstep(0, 0.3, s)), row = [];
-    for (let j = 0; j <= nu; j++) { const u = -1 + (2 * j) / nu; row.push(c.clone().addScaledVector(T, u * w).addScaledVector(n, q * u * u * w)); }
+    const c = sp(s), { d, n } = frame(s), w = hw(s), q = cq(s), row = [];
+    for (let j = 0; j <= nu; j++) { const u = -1 + (2 * j) / nu; row.push(fork && s === last ? at(s - fork.notch * Math.max(0, 1 - 1.5 * Math.abs(u)), u) : at(s, u)); }
     P.push(row);
     if (s > 0.2 && s < 0.9 && P.length % 2) {     // bristles on every other row
       for (const u of [-1, 1]) hairs.margin.push({ p: row[u < 0 ? 0 : nu].clone().addScaledVector(n, 0.006), dir: T.clone().multiplyScalar(u).addScaledVector(n, 0.6).normalize(), along: d, leaf: [u, k * s] });
@@ -185,16 +194,21 @@ function cupSepal(b, { th, r0 = 0.25, len, width, depth = 0.9, hood = 0, cup = 0
     }
   }
   surf(b, P, { leaf: (i, j) => [-1 + (2 * j) / nu, k * rows[i]], col: (i, j) => col(-1 + (2 * j) / nu, k * rows[i]), sway: (i) => k * rows[i] });
-  // the tail: on from the blade's tip along its direction, bending toward `bend`, narrowing to a third
-  const L = P.length - 1, Q = [[P[L][0], P[L][nu]]], tv = (i) => k + ((1 - k) * i) / (tRows - 1);
-  let p = sp(1), d = frame(1).d;
-  for (let i = 1; i < tRows; i++) {
-    d = d.clone().addScaledVector(bend, hang).normalize();
-    p = p.clone().addScaledVector(d, tail / (tRows - 1));
-    const a = T.clone().addScaledVector(d, -T.dot(d)).normalize(), w = tw * (1 - (0.7 * i) / (tRows - 1));
-    Q.push([p.clone().addScaledVector(a, -w), p.clone().addScaledVector(a, w)]);
+  // the tail(s): on from the blade's tip along its direction, bending toward `bend`, narrowing to a third
+  const L = P.length - 1, tv = (i) => k + ((1 - k) * i) / (tRows - 1);
+  const tails = fork ? [[0, fork.f, fork.bend[0]], [nu - fork.f, nu, fork.bend[1]]] : [[0, nu, bend]];
+  for (const [ja, jb, bd] of tails) {
+    const Q = [[P[L][ja], P[L][jb]]], w0 = P[L][ja].distanceTo(P[L][jb]) / 2;
+    let p = fork ? P[L][ja].clone().add(P[L][jb]).multiplyScalar(0.5) : sp(1), d = frame(1).d;
+    for (let i = 1; i < tRows; i++) {
+      d = d.clone().addScaledVector(bd, hang).normalize();
+      p = p.clone().addScaledVector(d, tail / (tRows - 1));
+      const a = T.clone().addScaledVector(d, -T.dot(d)).normalize();
+      const w = tw * (1 - (0.7 * i) / (tRows - 1)) + (fork ? Math.max(0, w0 - tw) * Math.pow(1 - i / (tRows - 1), 3) : 0);
+      Q.push([p.clone().addScaledVector(a, -w), p.clone().addScaledVector(a, w)]);
+    }
+    surf(b, Q, { leaf: (i, j) => [j ? 1 : -1, tv(i)], col: (i, j) => col(j ? 1 : -1, tv(i)), sway: (i) => tv(i) });
   }
-  surf(b, Q, { leaf: (i, j) => [j ? 1 : -1, tv(i)], col: (i, j) => col(j ? 1 : -1, tv(i)), sway: (i) => tv(i) });
   return hairs;
 }
 
@@ -253,7 +267,8 @@ const dracLayout = once(() => {
   }
   // pendent stems: out past the leaves, up over an arch, then down, so the flower hangs facing out with its tails below it
   for (let k = 0; k < 3; k++) {
-    const a = k * 2.1 + 1.1 + r() * 0.4, out = V(Math.cos(a), 0, Math.sin(a)), L = 7.5 + r() * 1.5;
+    // (pass 4: all three over the front half, local +Z = toward the room on the wall, so no stalk grows into the mount)
+    const a = k * 1.1 + 0.45 + r() * 0.3, out = V(Math.cos(a), 0, Math.sin(a)), L = 7.5 + r() * 1.5;
     const p0 = out.clone().multiplyScalar(0.3).add(V(0, 0.3, 0));
     const pts = [p0, p0.clone().addScaledVector(out, L * 0.5).add(V(0, 5.2, 0)), p0.clone().addScaledVector(out, L).add(V(0, 4.6, 0))];
     stalks.push({ pts, tip: pts[2], face: out.clone().add(V(0, -0.55, 0)).normalize() });
@@ -451,25 +466,30 @@ export const FLOWERING = {
     get material() { return MASD_MAT(); },
     flower: {
       build(b) {
-        // The sepals fused at the base into a tube (a trumpet seen from the side), its mouth in the accent colour (the throat
-        // blotch); the narrow dorsal sepal up with a long tail, the two broad laterals fused into a lower lip for half their
-        // length, each ending in a tail curving out. Tails (and a tint of the hood) take the centre colour, the pattern the main.
-        // Tube 1.3 long flaring to a 1.05 mouth (the trumpet); the sepals start on its rim and keep flaring (negative curl).
-        tube(b, [V(0, 0, 0), V(0, 0.55, 0), V(0, 1.0, 0), V(0, 1.3, 0)], [0.16, 0.22, 0.34, 0.52], { sides: 6, color: (t) => M(1 - 0.6 * t, 0.6 * t, 0), sway: () => 0 });
-        // Dorsal: a narrow triangle across the top of the mouth, drawn into a tail 1.5x its blade, up and a little back.
-        const k = 0.4, dors = (t) => (t < k ? 0.5 * Math.pow(1 - 0.92 * t / k, 0.8) : 0.05 * (1 - 0.7 * (t - k) / (1 - k)));
-        sheet(b, { base: V(0, 1.3, 0.5), dir: V(0, 0.7, 1), face: V(0, 1, -0.7), len: 2.3, width: 0.85, outline: dors, nu: 2, rows: [0, 0.2, k, 0.7, 1], curl: -0.25, cup: 0.35,
-          color: (u, t) => { const tail = sstep(k * 0.75, k * 1.05, t), thr = 1 - sstep(0.02, 0.22, t); return M((1 - tail) * (1 - thr) * 0.7, thr * (1 - tail), tail + 0.3 * (1 - tail) * (1 - thr)); } });
-        // Laterals: broad, their inner edges overlapping on the midline for about half the blade (the fused lower blade,
-        // synsepal), spreading down and forward, each drawn into a tail 1.2x its blade that curves out and down.
-        for (const s of [-1, 1]) {
-          const kl = 0.45;
-          sheet(b, { base: V(s * 0.24, 1.3, -0.42), dir: V(s * 0.4, 0.7, -1), face: V(-s * 0.15, 1, 0.6), len: 2.7, width: 1.75, outline: tailed(kl, 0.04), nu: 2, rows: [0, 0.15, 0.3, kl, 0.72, 1], curl: -0.15, cup: 0.2,
-            color: (u, t) => { const tail = sstep(kl * 0.8, kl * 1.1, t), thr = 1 - sstep(0.02, 0.25, t); return M((1 - tail) * (1 - thr), thr * (1 - tail), tail); } });
-        }
-        // Tiny petals and lip just inside the mouth.
-        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.12, 1.2, 0.1), dir: V(s * 0.6, 0.5, 0.5), len: 0.35, width: 0.14, nu: 1, nv: 1, color: () => M(0.3, 0.7, 0) });
-        sheet(b, { base: V(0, 1.15, -0.12), dir: V(0, 0.8, -0.6), face: V(0, 0.6, 1), len: 0.5, width: 0.25, nu: 1, nv: 1, color: () => M(0, 1, 0) });
+        // Pass 4 (F2, photos 1-3): the sepals in 3D with the orchid helpers. Dorsal (up, +Z) and the synsepal (the two laterals
+        // fused, down) each start as half of a round tube (margins curled in to meet: a trumpet in side view), flare at the
+        // mouth, then the dorsal narrows to a cupped triangle drawn into a tail up and back, the synsepal stays broad and
+        // splits only near its end into two tails out and down. Colours: blade main (decumana's spots), a throat blotch at the
+        // mouth in the accent, tails (and a tint of the dorsal hood) in the centre colour.
+        const tl = 1.25, st = 0.36, rows = [0, 0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84, 0.93, 1];
+        const tubeR = (s) => 0.26 + 0.12 * Math.min(1, s / st) ** 2, ex = (s) => Math.max(0, (s - st) / (1 - st));
+        const spine = (len, fwd) => (s) => { const e = ex(s); return [tubeR(s) + len * e, tl * Math.sin((Math.PI / 2) * Math.min(1, s / st)) + fwd * e * (1 - 0.5 * e)]; };
+        const cupAt = (c) => (s) => 1 - (1 - c) * sstep(st - 0.03, st + 0.16, s);
+        const col = (vk, hood) => (u, v) => {
+          const s = v / vk, tail = sstep(0.96, 1.06, s), thr = sstep(st - 0.16, st - 0.02, s) * (1 - sstep(st + 0.04, st + 0.3, s)) * (1 - tail);
+          const h = hood * (1 - tail) * sstep(st, 0.8, s), m = (1 - tail) * (1 - thr) * (1 - h);
+          return M(m, thr, 1 - m - thr);
+        };
+        // dorsal: tube half, then a narrow cupped triangle (rounded margins), tail 1.8x its blade, up and a little back
+        cupSepal(b, { th: 0, len: 0.9, width: 0.8, tail: 1.6, tw: 0.045, nu: 3, rows, tRows: 6, vk: 0.36, spine: spine(0.9, 0.35), cupAt: cupAt(0.35),
+          outline: (s) => (s < st ? tubeR(s) : 0.4 * Math.pow(1 - ex(s), 1.1) * (1 + 0.8 * ex(s) * (1 - ex(s)))), bend: V(0, -0.3, 1).normalize(), hang: 0.3, col: col(0.36, 0.35) });
+        // synsepal: tube half, then broad (2.1 across), rounded, its tip forked into two tails (from the margin lobes)
+        cupSepal(b, { th: Math.PI, len: 1.4, width: 2.1, tail: 1.5, tw: 0.045, nu: 6, rows, tRows: 6, vk: 0.42, spine: spine(1.4, 0.5), cupAt: cupAt(0.14),
+          outline: (s) => (s < st ? tubeR(s) : (tubeR(st) + (1.05 - tubeR(st)) * Math.sin((Math.PI / 2) * Math.min(1, ex(s) / 0.4))) * (1 - 0.45 * sstep(0.55, 1, ex(s)))),
+          fork: { f: 2, notch: 0.12, bend: [V(0.55, 0.25, -1).normalize(), V(-0.55, 0.25, -1).normalize()] }, hang: 0.25, col: col(0.42, 0) });
+        // tiny petals and the lip just inside the mouth
+        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.1, tl - 0.15, 0.05), dir: V(s * 0.6, 0.5, 0.5), len: 0.32, width: 0.13, nu: 1, nv: 1, color: () => M(0.3, 0.7, 0) });
+        sheet(b, { base: V(0, tl - 0.2, -0.1), dir: V(0, 0.8, -0.6), face: V(0, 0.6, 1), len: 0.45, width: 0.22, nu: 1, nv: 1, color: () => M(0, 1, 0) });
       },
       palettes: [
         [0xc2185b, 0x6a0a30, 0x7a0a3a],      // M. coccinea, magenta, dark magenta tails (the common form)
@@ -511,19 +531,22 @@ export const FLOWERING = {
         // out and down), each narrowing in a curve into a long tail that hangs; dark bristles on the margins and the hood; a
         // white scallop-shell lip with radiating pink veins below a short column, the two tiny dark petals (the "eyes") beside it.
         // Blade in the main colour (the pattern shows here), pale at its base (centre); tails in the accent.
-        const col = (u, t) => { const tail = sstep(0.22, 0.28, t), pale = 0.7 * (1 - sstep(0.01, 0.07, t)); return M((1 - tail) * (1 - pale), tail, (1 - tail) * pale); };
-        const hair = [];
-        const lat = (s) => ({ len: 3, width: 2.7, cup: 0.3, tail: 7, tw: 0.1, bend: HEAD_DOWN.clone().add(V(s * 0.35, 0, 0)).normalize(), hang: 0.38 });
-        for (const [th, o] of [[0, { len: 2.8, width: 2.4, hood: 0.8, cup: 0.45, tail: 6.6, tw: 0.1, bend: V(0, 0.3, 1).normalize(), hang: 0.3 }], [2.15, lat(1)], [-2.15, lat(-1)]]) {
-          const h = cupSepal(b, { th, depth: 0.9, col, ...o });
-          hair.push(...h.margin, ...(th === 0 ? h.face : h.face.slice(0, 1)));
+        const col = (u, t) => { const tail = sstep(0.25, 0.31, t), pale = 0.7 * (1 - sstep(0.01, 0.07, t)); return M((1 - tail) * (1 - pale), tail, (1 - tail) * pale); };
+        // Pass 4 (photos 1-3, front view): each sepal a broad ovate blade, joined to its neighbours over the inner third (a
+        // shallow notch between them), widest at about 0.4, rounded shoulders tapering over the outer part into the tail.
+        const round = (W) => (s) => W * (s < 0.4 ? 0.7 + 0.3 * Math.sin((Math.PI / 2) * s / 0.4) : Math.pow(Math.cos((Math.PI / 2) * (s - 0.4) / 0.6), 0.8));
+        const rows = [0, 0.15, 0.3, 0.45, 0.6, 0.73, 0.85, 0.94, 1], hair = [];
+        const lat = (s) => ({ len: 3, width: 2.7, outline: round(1.35), cup: 0.3, tail: 7, tw: 0.1, bend: HEAD_DOWN.clone().add(V(s * 0.35, 0, 0)).normalize(), hang: 0.38 });
+        for (const [th, o] of [[0, { len: 2.8, width: 2.4, outline: round(1.2), hood: 0.8, cup: 0.45, tail: 6.6, tw: 0.1, bend: V(0, 0.3, 1).normalize(), hang: 0.3 }], [2.15, lat(1)], [-2.15, lat(-1)]]) {
+          const h = cupSepal(b, { th, depth: 0.9, col, rows, tRows: 5, ...o });
+          hair.push(...h.margin, ...(th === 0 ? h.face : []));
         }
-        bristles(b, hair, { len: 0.28, w: 0.035, col: M(0.2, 0.75, 0.05) });
+        bristles(b, hair.slice(0, 16), { len: 0.28, w: 0.035, col: M(0.2, 0.75, 0.05) });
         for (const s of [-1, 1]) sheet(b, { base: V(s * 0.22, 0.6, 0.3), dir: V(s, 0.7, 0.35), face: V(0, 1, 0), len: 0.4, width: 0.26, nu: 1, nv: 1, cup: 0.3, color: () => M(0.08, 0.84, 0.08) });
         tube(b, [V(0, 0.1, 0.1), V(0, 0.7, 0.3)], [0.1, 0.07], { sides: 3, color: () => M(0.25, 0.05, 0.7), sway: () => 0 });
         tube(b, [V(0, 0.1, -0.05), V(0, 0.8, -0.3)], [0.07, 0.05], { sides: 3, color: () => M(0, 0.05, 0.95), sway: () => 0 });
         shellLip(b, { c: V(0, 0.95, -0.4), axis: V(0, 1, -0.8), w: 0.62, h: 0.52, depth: 0.42,
-          col: (i, j) => (i === 0 ? M(0.05, 0.3, 0.65) : j % 2 ? M(0, 0.35, 0.65) : M(0, 0.02, 0.98)) });
+          col: (i, j) => (i === 0 ? M(0.05, 0.45, 0.5) : j % 2 ? M(0, 0.65, 0.35) : M(0, 0.04, 0.96)) });
       },
       palettes: [
         [0xf0e6d8, 0x6a1020, 0xfaf4f0, 1],   // D. simia (photo 3): cream, dense maroon spots, maroon tails, white lip
