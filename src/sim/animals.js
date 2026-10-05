@@ -410,7 +410,7 @@ export const SPECIES = {
     minL: 100, temp: [23, 27], humidity: 70, hungerHours: 260, lifeDays: 4000, eats: ['isopod', 'fly', 'flylarva', 'springtail', 'pandaking', 'cricket', 'dubia', 'earthworm', 'waxworm'], cap: 2, breed: 0.006, adultDays: 120,
     eggs: { n: 1, days: 60, into: 'skink', where: 'land' },
     bask: 28.5, uvb: 2, land: 0.8, territorial: true, flock: [1, 2], ph: [6.5, 7.8],
-    body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6, rig2: { neck: 0.13, s0: 0.03, s1: 0.17, neckY: 0.55, len: 16.8 } },
+    body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6, rig2: { neck: 0.24, s0: 0.03, s1: 0.28, neckY: 2.78, len: 16.8, tail0: 0.536, tailY: 1.83 } },   // (the baked model, manifest skink: 16.8 cm, neck base at spine 0.24 and 2.78 cm up, vent at 9/16.8 and 1.83 cm up: S1a)
     note: 'A shy, armoured little lizard of humid stream banks in New Guinea, with orange rings round its eyes. 80% land, a shallow pool (5-7 cm at most) to soak in, 23-27 °C with a 28-29 °C warm spot, 80-90% humidity, low UVB; cork bark, leaf litter and moss to hide in. Out at dusk. One, or a male and a female.',
   },
   bumblebee: {
