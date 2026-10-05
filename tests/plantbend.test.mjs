@@ -79,10 +79,17 @@ test('localFlow turns the water flow into the plant\'s own frame: the lean, turn
 // ---- render/airflow.js plantFlow: what the plant meshes' `flow` attribute receives (a fake world, no GPU) ----
 import { plantFlow, PF } from '../src/render/airflow.js';
 
-function fakeWorld(ports = null) {
+// The water as sim/hydro.js keeps it: streams and ponds in `d`; the main pool (`res` cells) holds its water as the `level`, its d is
+// a film. surfaceAt is hydro.surfaceAt's rule over flat ground at 0 (what render/water.js and Animals.waterTop read).
+function fakeWorld(ports = null, { pool = [], level = 0 } = {}) {
   const N = 16, H = {
-    N, d: new Float32Array(N).fill(5), vx: new Float32Array(N), vz: new Float32Array(N), ports,
+    N, d: new Float32Array(N).fill(5), vx: new Float32Array(N), vz: new Float32Array(N), ports, res: new Uint8Array(N), level,
     cellOf: (x, z) => Math.max(0, Math.min(3, Math.floor(z))) * 4 + Math.max(0, Math.min(3, Math.floor(x))),
+  };
+  for (const c of pool) { H.res[c] = 1; H.d[c] = 0.05; }
+  const water = {
+    hydro: H, inMainPool: (x, z) => H.res[H.cellOf(x, z)] === 1,
+    surfaceAt: (x, z, minD = 0.3) => { const n = H.cellOf(x, z); if (H.res[n]) return H.level > 0.05 ? H.level : -Infinity; return H.d[n] > minD ? H.d[n] : -Infinity; },
   };
   const geo = { attributes: { flow: { array: new Float32Array(8 * 4), needsUpdate: false }, flowDepth: { array: new Float32Array(8), needsUpdate: false } } };
   const plants = { list: [], key: () => 'v', meshes: { v: { geometry: geo } } };
@@ -90,7 +97,7 @@ function fakeWorld(ports = null) {
     const p = { pos: { x, y, z }, index: plants.list.length, _s: s, _q: { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) } };
     plants.list.push(p); return p;
   };
-  return { W: { plants, water: { hydro: H } }, H, geo, add, slot: (p) => Array.from(geo.attributes.flow.array.slice(p.index * 4, p.index * 4 + 4)) };
+  return { W: { plants, water, terrain: { heightAt: () => 0 } }, H, geo, add, slot: (p) => Array.from(geo.attributes.flow.array.slice(p.index * 4, p.index * 4 + 4)) };
 }
 const toWorld = (yaw, lx, lz) => [lx * Math.cos(yaw) + lz * Math.sin(yaw), -lx * Math.sin(yaw) + lz * Math.cos(yaw)];
 
@@ -120,11 +127,22 @@ test('plantFlow gives each plant the flow of its own cell, in its own frame, and
   assert.equal(f.geo.attributes.flow.needsUpdate, false, 'a still sample costs no upload');
 });
 
-test('plantFlow adds the filter jet, which is not in the hydro field', () => {
-  const f = fakeWorld({ lph: 900, ret: { x: 0.2, y: 2, z: 1.5, dx: 1, dz: 0, D: 1.2 } });
-  const p = f.add(3.0, 1, 1.5, -1.2);       // downstream of the return, at the nozzle's height (the plant's middle is 1 cm above its base)
+test('a plant in the main pool (stream depth 0, the pool level over the ground) leans down-flow of the filter return; filter off, no lean; land, none', () => {
+  // rows z 1..2 are the main pool, 4 cm deep over ground 0; rows 0 and 3 are land (no stream). The return is in the pool at 2 cm.
+  const f = fakeWorld({ lph: 900, ret: { x: 0.2, y: 2, z: 1.5, dx: 1, dz: 0, D: 1.2 } }, { pool: [4, 5, 6, 7, 8, 9, 10, 11], level: 4 });
+  for (const c of [0, 1, 2, 3, 12, 13, 14, 15]) f.H.d[c] = 0;
+  const p = f.add(3.0, 0, 1.5, -1.2), land = f.add(1.5, 0, 3.5, 0.4);
   plantFlow(f.W);
-  const [x, z] = toWorld(-1.2, ...f.slot(p).slice(2));
+  const dep = f.geo.attributes.flowDepth.array;
+  assert.ok(Math.abs(dep[p.index] - 2) < 1e-6, 'the pool covers it: 4 cm in its own units (scale 2), got ' + dep[p.index]);
+  const [x, z] = toWorld(-1.2, ...f.slot(p).slice(2)), on = plantBend(x, z, Math.hypot(x, z), 1);
   assert.ok(Math.hypot(x, z) > 1, 'the jet moves it');
-  assert.ok(angleBetween(x, z, 1, 0) < 5, 'along the return\'s axis');
+  assert.ok(angleBetween(x, z, 1, 0) < 10, 'down-flow, along the return\'s axis');
+  assert.deepEqual(f.slot(land), [0, 0, 0, 0]);
+  assert.equal(dep[land.index], 0, 'a land plant stands in no water');
+  f.H.ports.lph = 0;                         // the filter off: the pool stands still
+  plantFlow(f.W);
+  const [x0, z0] = toWorld(-1.2, ...f.slot(p).slice(2)), off = plantBend(x0, z0, Math.hypot(x0, z0), 1);
+  assert.ok(Math.hypot(off.x, off.z) < 1e-3 && Math.hypot(on.x, on.z) > 0.3, `tip lean on ${Math.hypot(on.x, on.z)} vs off ${Math.hypot(off.x, off.z)}`);
+  assert.ok(dep[p.index] > 0, 'still under water with the filter off');
 });
