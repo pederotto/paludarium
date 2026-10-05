@@ -19,7 +19,7 @@
 // jaw and throat (0 … 1).
 import { PLANS, bendAngle } from '../../util/bodyplan.js';
 import { lizardMuscles, swellOf, peelAxis, toePeel, headSwell } from '../../content/lizardmuscles.js';
-import { GAIT, neutralFeet, openFeet, axialAt, bellyDrop } from '../../util/lizardgait.js';
+import { GAIT, neutralFeet, openFeet, axialAt, bellyDrop, reachFit } from '../../util/lizardgait.js';
 import { strideFor } from '../../util/gait.js';
 // the most the trunk is lowered toward the sheet's belly-down sprawl (cm, model): the skin-stretch limit's (G4a)
 export const DROP_MAX = 0.16;
@@ -50,6 +50,7 @@ const TAILS = ['tail1', 'tail2', 'tail3', 'tail4', 'tail5'];
 // frame, as skeletonRig takes them.
 // N6b: the part of a foot's rest height above the lowest foot (cm) that is left as it is (see buildRig)
 const PLANT_DEAD = 0.15;
+const FOLD = 0.8;   // the elbow / knee fold's range in legs(), rad either way (the reach guard's spans use it too)
 
 export function lizardRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, turn = null, reach = 0.85 } = {}, deps = {}) {
   const plan = PLANS.lizard, B = skel.bones, n = B.length, byName = Object.fromEntries(B.map((b, i) => [b.name, i]));
@@ -96,6 +97,22 @@ export function lizardRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, tu
   // the trunk's lowest point at rest (bone axis minus radius, as tools/steps/lizard-cycle.mjs measures it) and its drop to the sheet's
   rig.gait = GAIT[rig.species] ?? GAIT.gecko;
   rig.feet0 = neutralFeet(rig.gait, chains.map((c) => ({ limb: c.limb, side: c.side, A: c.A, T: c.T, reach: c.reach0 })));
+  // N7 reach guard: each foot's fore-aft span on its sole plane that the leg reaches with the fold in its range (legs(): +-FOLD rad),
+  // then the stance centred on it and the stride capped to it (util/lizardgait.js reachFit; the planted feet, lgNew, use both).
+  rig.spans = chains.map((c) => {
+    let lo = Infinity, hi = 0;
+    for (let p = -FOLD; p <= FOLD + 1e-9; p += FOLD / 40) { const r = len(sub(foldTip(c, p), c.A)); lo = Math.min(lo, r); hi = Math.max(hi, r); }
+    const f = rig.feet0[c.limb - 1], y = c.T[1] - c.plant + f[1], ok = [];
+    for (let dz = -3; dz <= 3 + 1e-9; dz += 0.025) { const D = len(sub([f[0], y, f[2] + dz], c.A)); if (D >= lo && D <= hi) ok.push(dz); }
+    // the trunk's S-bend turns the girdle (+- wave.spine), moving the foot fore-aft against its shoulder (hip) by its lateral reach
+    // times sin(wave): that much of each end is kept free
+    const m = Math.abs(f[0] - c.A[0]) * Math.sin(rig.gait.wave.spine);
+    return { limb: c.limb, span: ok.length && ok[ok.length - 1] - ok[0] > 2 * m ? [ok[0] + m, ok[ok.length - 1] - m] : [0, 0] };
+  }).sort((a, b) => a.limb - b.limb).map((x) => x.span);
+  const fit = reachFit(rig.feet0, rig.spans, rig.gait.duty[0]);
+  // NOT YET SAFE TO DRAW WITH (N7, 5 Oct): posing on feetFit puts 0.44 % of the skin past 2x stretch (limit 0.2; shift <= 0.1 cm: 0.25 %).
+  // The closed form below stays on feet0; geckoDraw (planted feet) uses these and must not be wired until the stretch is solved.
+  rig.feetFit = fit.feet; rig.strideCap = fit.cap;
   rig.restBelly = Math.min(...['pelvis', 'spine'].map((k) => byName[k]).flatMap((b) => [head[b][1], tail[b][1]].map((y) => y - (B[b].r ?? 0))));
   rig.drop = Math.min(bellyDrop(rig.gait, 'ground', rig.restBelly), DROP_MAX);
   return rig;
@@ -220,11 +237,13 @@ function legs(rig, st, R, H, info) {
       let p0 = 0, r0 = c.reach0 - D, r1;
       p1 = 0.15; r1 = reach(p1) - D;
       for (let it = 0; it < 6 && Math.abs(r1) > 1e-4; it++) {
-        const p2 = clamp(p1 - (r1 * (p1 - p0)) / (r1 - r0 || 1e-9), -0.8, 0.8);
+        const p2 = clamp(p1 - (r1 * (p1 - p0)) / (r1 - r0 || 1e-9), -FOLD, FOLD);
         p0 = p1; r0 = r1; p1 = p2; r1 = reach(p1) - D;
       }
     }
     const Rk = rotAxis(c.nk, -p1), Tp = foldTip(c, p1);
+    // N7: how far the tip stays off its target (model cm) once the fold is at its limit: the reach guard keeps this ~0 (lizard-cycle prints it)
+    (rig._miss ??= [0, 0, 0, 0])[c.limb - 1] = Math.abs(len(sub(Tp, c.A)) - D);
     const Rl = mm(arc(norm(mv(pR, sub(Tp, c.A))), norm(sub(Tg, A))), pR), Rlow = mm(Rl, Rk);
     R[c.u] = Rl;
     R[c.w] = Rlow; H[c.w] = addv(A, mv(Rl, sub(c.K, c.A)));

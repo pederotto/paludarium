@@ -36,9 +36,10 @@ export const GAIT = {
 
 // The gait for speed v (cm/s), turn rate w (rad/s) and the feet's mean distance from the body's middle `reach` (cm): turning on
 // the spot steps as fast as the feet travel. A body drawn at `scale` takes strides that much shorter.
-export function gaitAt(P, v, w = 0, reach = 0, scale = 1, out = {}) {
+// `cap` (cm, scaled): the longest stride the legs can reach (reachFit); above it the feet step faster instead of farther.
+export function gaitAt(P, v, w = 0, reach = 0, scale = 1, out = {}, cap = Infinity) {
   const veff = Math.max(Math.abs(v), Math.abs(w) * reach);
-  const stride = clamp(veff / P.fMax, P.strideMin * P.svl * scale, P.strideMax * P.svl * scale);
+  const stride = Math.min(clamp(veff / P.fMax, P.strideMin * P.svl * scale, P.strideMax * P.svl * scale), cap);
   const t = clamp((veff - P.vSlow) / (P.vFast - P.vSlow || 1), 0, 1);
   out.veff = veff; out.stride = stride; out.f = veff / stride; out.rate = TAU / stride;
   out.duty = P.duty[0] + (P.duty[1] - P.duty[0]) * t;
@@ -129,8 +130,40 @@ export function toBody(pose, w, out = [0, 0, 0]) {
 
 // One animal's planted feet. feet: per foot 12 floats = world point 3, surface normal 3, lift-off point 3, stance 1/0, lift (cm),
 // stance fraction (-1 in the swing, 0.5 while it stands still).
-export function lgNew(P, feet0) {
-  return { phase: 0, calm: 1, f: 0, duty: P.duty[0], still: true, init: false, feet0, reach: reachOf(feet0), feet: new Float32Array(48), g: {} };
+export function lgNew(P, feet0, cap = Infinity) {
+  return { phase: 0, calm: 1, f: 0, duty: P.duty[0], still: true, init: false, feet0, cap, reach: reachOf(feet0), feet: new Float32Array(48), g: {} };
+}
+
+// N7 reach guard: each foot's stance sweep inside what its leg can reach. spans[k] = [lo, hi], the fore-aft offsets (model cm) from
+// feet0[k] at which the tip can still touch the surface (lizardpose.js lizardRig: rig.spans, the fold's range). The stance is centred
+// on its span and the stride capped so the sweep (stride x duty) fits the narrowest span: without it the fore tips fell up to 0.24 cm
+// short of a 2 cm stride's touchdown and slid onto it (lizard-cycle slip 0.08-0.14 cm/frame; G4a, N7).
+// shiftMax (cm): the most a stance centre may move off feet0 (the skin-stretch limit: centring fully gave 0.44 % past 2x, N7).
+export function reachFit(feet0, spans, duty, shiftMax = Infinity) {
+  let half = Infinity;
+  const feet = feet0.map((f, k) => {
+    const [lo, hi] = spans[k], c = clamp((lo + hi) / 2, -shiftMax, shiftMax);
+    half = Math.min(half, Math.max(0, Math.min(c - lo, hi - c)));
+    return [f[0], f[1], f[2] + c];
+  });
+  return { feet, cap: half > 0 ? (2 * half) / duty : 0 };
+}
+
+// N7 one draw step of a near skinned lizard's planted feet: the pose's state (feet, lift, peel, stance, phase, drop) in `out`.
+// s = lgNew(P, rig.feetFit, rig.strideCap); pose = { p, f: surfaceFrame }; surf as lgStep.
+export function lgDraw(s, P, pose, v, w, dt, surf, scale, drop, out = {}) {
+  lgStep(s, P, pose, v, w, dt, surf, scale);
+  lgFeet(s, P, pose, scale, out);
+  out.phase = s.phase; out.calm = s.calm; out.drop = drop;
+  return out;
+}
+
+// N7 the call site's one line for a near skinned gecko (animals.js, after the lock): the animal's planted-feet state kept on it
+// (a._lg, made on first use from the rig's reach-guarded feet and stride cap), stepped and read with the rig's belly drop.
+// a: the animal; rig: lizardpose.js lizardRig; pose = { p, f }; surf as lgStep; v, w (cm/s, rad/s); sc: the body's draw scale.
+export function geckoDraw(a, rig, pose, surf, v, w, dt, sc = 1, out = {}) {
+  const s = (a._lg ??= lgNew(rig.gait, rig.feetFit ?? rig.feet0, rig.strideCap ?? Infinity));
+  return lgDraw(s, rig.gait, pose, v, w, dt, surf, sc, rig.drop, out);
 }
 
 const _b = [0, 0, 0], _w = [0, 0, 0], _s = [0, 0, 0, 0, 0, 0], _up = [0, 1, 0];
@@ -150,7 +183,7 @@ function startPhase(s, P, pose, duty, scale) {
 export function lgStep(s, P, pose, v, w, dt, surf, scale = 1) {
   const F = s.feet, f = pose.f;
   _up[0] = f[6]; _up[1] = f[7]; _up[2] = f[8];
-  const g = gaitAt(P, v, w, s.reach * scale, scale, s.g), moving = g.veff > P.vMin * scale;
+  const g = gaitAt(P, v, w, s.reach * scale, scale, s.g, (s.cap ?? Infinity) * scale), moving = g.veff > P.vMin * scale;
   if (!s.init) {
     for (let k = 0; k < 4; k++) {
       const n = s.feet0[k], o = k * 12;

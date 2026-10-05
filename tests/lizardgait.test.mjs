@@ -3,7 +3,7 @@
 // counter-sway, foot targets that do not slide, start, stop, idle and the toe peel. Pure numbers, runs under Node.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GAIT, gaitAt, legU, stanceOf, peelOf, axialAt, neutralFeet, openFeet, lgNew, lgStep, lgFeet, bellyDrop, toBody, toWorld } from '../src/util/lizardgait.js';
+import { GAIT, gaitAt, legU, stanceOf, peelOf, axialAt, neutralFeet, openFeet, lgNew, lgStep, lgFeet, bellyDrop, toBody, toWorld, reachFit, lgDraw, geckoDraw } from '../src/util/lizardgait.js';
 import { surfaceFrame } from '../src/util/contain.js';
 
 const P = GAIT.gecko, TAU = Math.PI * 2, DEG = Math.PI / 180;
@@ -180,4 +180,28 @@ test('belly target from the sheet (:24, :27)', () => {
   assert.equal(bellyDrop(P, 'ground', 0), 0);
   const pose = { p: [1, 2, 3], f: surfaceFrame(0, 0, 1, 0.4) }, b = toBody(pose, toWorld(pose, [0.3, -0.2, 0.7], [0, 0, 0]), [0, 0, 0]);
   near(b[0], 0.3, 1e-12, 'x'); near(b[1], -0.2, 1e-12, 'y'); near(b[2], 0.7, 1e-12, 'z');
+});
+
+test('N7 reach guard: stance centred on each leg\'s span, stride capped to the narrowest, gaitAt keeps under the cap', () => {
+  const feet = [[-1, 0, 2], [1, 0, 2], [-1, 0, -0.5], [1, 0, -0.5]], spans = [[-0.8, 0.4], [-0.8, 0.4], [-0.3, 1.1], [-0.3, 1.5]];
+  const fit = reachFit(feet, spans, 0.65);
+  assert.deepEqual(fit.feet.map((f) => +f[2].toFixed(3)), [1.8, 1.8, -0.1, 0.1]);
+  assert.ok(Math.abs(fit.cap - 1.2 / 0.65) < 1e-9, `cap ${fit.cap}`);
+  const P = GAIT.gecko, g = gaitAt(P, 4.5, 0, 0, 1, {}, fit.cap), g0 = gaitAt(P, 4.5, 0, 0, 1, {});
+  assert.ok(g.stride <= fit.cap + 1e-12 && g0.stride > fit.cap, `${g.stride} vs ${g0.stride}`);
+  assert.ok(Math.abs(g.f * g.stride - 4.5) < 1e-9, 'the feet step faster, the body keeps its speed');
+  const s = lgNew(P, fit.feet, fit.cap), surf = (x, y, z, n, o) => { o[0] = x; o[1] = 0; o[2] = z; o[3] = 0; o[4] = 1; o[5] = 0; return o; };
+  const st = lgDraw(s, P, { p: [0, 0, 0], f: [0, 0, 1, 1, 0, 0, 0, 1, 0] }, 4.5, 0, 0.04, surf, 1, 0.16, {});
+  assert.equal(st.drop, 0.16); assert.equal(st.phase, s.phase); assert.equal(st.feet.length, 4);
+});
+
+test('N7 geckoDraw: keeps the planted-feet state on the animal, made from the rig\'s guarded feet and cap', () => {
+  const P = GAIT.gecko, feet = [[-1, 0, 2], [1, 0, 2], [-1, 0, -0.5], [1, 0, -0.5]], fit = reachFit(feet, [[-0.8, 0.4], [-0.8, 0.4], [-0.3, 1.1], [-0.3, 1.5]], P.duty[0]);
+  const rig = { gait: P, feet0: feet, feetFit: fit.feet, strideCap: fit.cap, drop: 0.16 }, a = {};
+  const surf = (x, y, z, n, o) => { o[0] = x; o[1] = 0; o[2] = z; o[3] = 0; o[4] = 1; o[5] = 0; return o; }, f = [0, 0, 1, 1, 0, 0, 0, 1, 0];
+  let st;
+  for (let i = 0; i < 50; i++) st = geckoDraw(a, rig, { p: [0, 0, 0.18 * i], f }, surf, 4.5, 0, 0.04, 1, {});
+  assert.ok(a._lg && a._lg.cap === fit.cap && a._lg.feet0 === fit.feet, 'state on the animal from feetFit / strideCap');
+  assert.ok(a._lg.g.stride <= fit.cap + 1e-12, `stride ${a._lg.g.stride} under the cap ${fit.cap}`);
+  assert.equal(st.drop, 0.16); assert.equal(st.feet.length, 4);
 });
