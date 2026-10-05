@@ -32,6 +32,8 @@ import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf, morphLi
 import { shrimpPalette } from '../content/morphs.js';
 import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
 import { filterDrift, filterAvoid } from './filterflow.js';
+import { fishMind, fishThink, fishOwn, fishCarry, fishAfter, REST_LABEL as FISH_REST } from './fishmind.js';
+import { flowSenses } from './currentat.js';
 
 const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -408,7 +410,7 @@ export const SPECIES = {
     minL: 100, temp: [23, 27], humidity: 70, hungerHours: 260, lifeDays: 4000, eats: ['isopod', 'fly', 'flylarva', 'springtail', 'pandaking', 'cricket', 'dubia', 'earthworm', 'waxworm'], cap: 2, breed: 0.006, adultDays: 120,
     eggs: { n: 1, days: 60, into: 'skink', where: 'land' },
     bask: 28.5, uvb: 2, land: 0.8, territorial: true, flock: [1, 2], ph: [6.5, 7.8],
-    body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6, rig2: { neck: 0.13, s0: 0.03, s1: 0.17, neckY: 0.55, len: 16.8 } },
+    body: sdfBody('skink'), anim: { amp: 0.4, wave: 1.0, lift: 0.15, stride: 0.6, rig2: { neck: 0.24, s0: 0.03, s1: 0.28, neckY: 2.78, len: 16.8, tail0: 0.536, tailY: 1.83 } },   // (the baked model, manifest skink: 16.8 cm, neck base at spine 0.24 and 2.78 cm up, vent at 9/16.8 and 1.83 cm up: S1a)
     note: 'A shy, armoured little lizard of humid stream banks in New Guinea, with orange rings round its eyes. 80% land, a shallow pool (5-7 cm at most) to soak in, 23-27 °C with a 28-29 °C warm spot, 80-90% humidity, low UVB; cork bark, leaf litter and moss to hide in. Out at dusk. One, or a male and a female.',
   },
   bumblebee: {
@@ -1020,9 +1022,12 @@ export class Animals {
     const cam = this.camera?.position;
     if (cam && rt > 0.004 && rt < 0.25) {
       const p = (this._camP ??= cam.clone()), v = (this.camVel ??= cam.clone().set(0, 0, 0)), k = Math.min(1, rt * 8);
-      v.x += ((cam.x - p.x) / rt - v.x) * k; v.y += ((cam.y - p.y) / rt - v.y) * k; v.z += ((cam.z - p.z) / rt - v.z) * k;
+      // A jump of more than 15 cm in one frame is a cut or a view jump, not a lens swooping in: no velocity, and a second's grace.
+      if (p.distanceTo(cam) > 15) { this.camCutT = 1; v.set(0, 0, 0); }
+      else { v.x += ((cam.x - p.x) / rt - v.x) * k; v.y += ((cam.y - p.y) / rt - v.y) * k; v.z += ((cam.z - p.z) / rt - v.z) * k; }
       p.copy(cam);
     } else if (cam) this._camP = cam.clone();
+    if (this.camCutT > 0) this.camCutT -= Math.min(Math.max(rt, 0), 0.25);
     if (!(dt > 0)) return;
     const E = this.world.env;
     this._wDt = (this._wDt ?? 0) + dt;
@@ -1490,6 +1495,12 @@ export class Animals {
     const desired = V(0, 0, 0);
     a.wander += (Math.random() - 0.5) * dt * 2.5;
     desired.set(Math.sin(a.wander), 0, Math.cos(a.wander)).multiplyScalar(sp.speed * 0.6);
+    // The water carries it; where it swims, and so points, is its mind's choice by energy (sim/fishmind.js, sim/currentat.js).
+    const FS = this._fs ??= flowSenses((x, z) => this.waterTop(x, z));
+    FS.W = W; FS.occ = this.avoid && this.occ.count ? this.occ : null;
+    const wv = ctl ? null : FS.probe(a.pos.x, a.pos.y, a.pos.z, a._w ??= { x: 0, y: 0, z: 0 });
+    const I = ctl || R?.resting ? null : fishThink(a.fm ??= fishMind(sp, a.phase), FS.sense(a, wv, desired, dt));
+    if (I) { desired.set(I.dir?.x ?? 0, 0, I.dir?.z ?? 0).multiplyScalar(sp.speed * 0.6); if (I.label || a.doing === FISH_REST) a.doing = I.label; }
     if (sp.school) {
       const c = V(0, 0, 0), al = V(0, 0, 0), sep = V(0, 0, 0);
       // Keep about 0.7 of a body length between neighbours (a 4 cm corydoras at the old fixed 1.8 cm lay inside its neighbours).
@@ -1565,13 +1576,16 @@ export class Animals {
     if (R?.resting) desired.set(0, (floor + R.y - a.pos.y) * 2, 0);                  // sits on the floor, body touching
     else if (R?.flee) { desired.set(R.flee.x, 0, R.flee.z).multiplyScalar(sp.speed * 2); a.wander = Math.atan2(R.flee.x, R.flee.z); a.dart = true; }
     if (a.nib) desired.multiplyScalar(0.1);
+    if (I) fishOwn(a.fm, desired, wv, a.dart || I.escape ? I.burst : I.cap, a.dart || blocked || R?.flee ? 1 : I.hold ? 2 : 0, desired);
     // (a swimmer swings round an arc, util/turn.js steerLimit: it does not stop and spin when the way it wants is behind it)
     if (!blocked && !R?.resting) steerLimit(a.vel, desired, ctl ? 1.6 : 1.2, desired);
-    a.vel.lerp(desired, Math.min(1, dt * (a.dart || R?.resting ? 4 : 1.8)));
-    const maxS = ctl ? Math.max(0.1, ctl.speed * 1.1) : sp.speed * (a.dart ? 2.1 : a.hunger > 0.25 ? 1.5 : 1);
+    a.vel.lerp(desired, Math.min(1, dt * (a.dart || R?.resting || I?.escape ? 4 : 1.8)));
+    let maxS = ctl ? Math.max(0.1, ctl.speed * 1.1) : sp.speed * (a.dart ? 2.1 : a.hunger > 0.25 ? 1.5 : 1);
+    if (I) maxS = Math.min(a.dart || I.escape ? I.burst : I.cap, maxS + Math.hypot(wv.x, wv.z));
     if (a.vel.length() > maxS) a.vel.setLength(maxS);
     const prev = a.pos.clone();
     a.pos.addScaledVector(a.vel, dt);
+    if (wv) { const c = fishCarry(wv, !!R?.resting); a.pos.x += c.x * dt; a.pos.y += c.y * dt; a.pos.z += c.z * dt; }
     a.pos.x = clamp(a.pos.x, -hx - 0.5, hx + 0.5);
     a.pos.z = clamp(a.pos.z, -hz - 0.5, hz + 0.5);
     let f2 = T.heightAt(a.pos.x, a.pos.z), L2 = this.waterTop(a.pos.x, a.pos.z);
@@ -1592,6 +1606,7 @@ export class Animals {
     if (hs > 0.05) this.turnTo(a, sp, Math.atan2(a.vel.x, a.vel.z), dt, 12, false);
     a.pitch = lerp(a.pitch, a.nib ? 0.5 : -Math.atan2(a.vel.y, Math.max(0.3, hs)) * 0.6, Math.min(1, dt * 4));
     a.swimSpeed = a.vel.length();
+    if (a.fm && wv) fishAfter(a.fm, a, wv, dt, FS.edge, this.t);
   }
 
   randomWater(minDepth) {
@@ -3976,6 +3991,9 @@ export class Animals {
       wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + (W.nearWater(V(x, g, z), 3) ? 0.5 : 0)),
       cover: wall ? 0 : this.herpCover(x, z), hunger: a.hunger, health: a.health,
       male: !!a.male, adult: a.age / 1440 >= (sp.adultDays ?? 10), mate: this.herpMate(a, sp, P),
+      // The lens is no danger to the animal being followed, nor in the second after a cut (trackTime: camCutT). Glass, bark and leaf
+      // cannot be told apart yet: a wall is 'wall'.
+      followed: a === this.watched, camCut: (this.camCutT ?? 0) > 0, surface: wall ? 'wall' : 'ground',
       prey, threat, home, reach: this.reachOf(a, sp), moved: a.hmoved ?? 0, toSurface: depth > 0.3 ? top - a.pos.y : 99,
       shore: a.hShore && { x: a.hShore.x, z: a.hShore.z, d: a.hShore.d },
       wetSpot: gecko && a.hWet ? { x: a.hWet.x, z: a.hWet.wall ? -a.hWet.y : a.hWet.z, d: Math.hypot(a.hWet.x - x, (a.hWet.wall ? -a.hWet.y : a.hWet.z) - here.z), wall: a.hWet.wall } : null,
@@ -4301,7 +4319,7 @@ export class Animals {
   herpThreat(a, sp, P, wall) {
     const planar = (v) => ({ x: v.x, z: wall ? -v.y : v.z });
     const ct = this.camThreat(a, 22);
-    let t = ct ? { ...planar(ct), d: ct.d } : null;
+    let t = ct ? { ...planar(ct), d: ct.d, cam: true } : null;   // cam: the keeper's lens (the gecko brain caps its fear, herp.js geckoSeen)
     for (const id of ['leucomelas', 'dartfrog', 'auratus', 'toad', 'crab', 'firesal', 'newt', 'axolotl', 'gecko']) {
       if (id === a.sp) continue;
       const osp = SPECIES[id];

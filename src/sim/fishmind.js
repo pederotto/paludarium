@@ -27,6 +27,9 @@ export const OVER = 10;           // weight on water faster than Us at a spot
 export const EDGE = 20;           // weight on a spot within a body length of the glass or the intake in water faster than slack
 export const GRIP = 4;            // cm/s: a body lying on the floor holds against slower water
 export const HYST = 0.2;          // a new spot must score this share better than the current goal
+export const EDGE_S = 1.5;        // s at the glass or the intake in water faster than slack before it gives the spot up (real fish leave a
+                                  // spot they cannot hold; the tank check allows 5 s)
+export const FLEE_S = 2.5;        // s it swims to the spot it fled to before it weighs spots again
 export const REST_LABEL = 'Resting in slack water';
 export const COST = { ms: 0, frames: 0, t: null };   // time spent here and in currentAt (ms) and the frames it ran in
 
@@ -38,7 +41,7 @@ export function fishMind(sp, phase = 0) {
   const rnd = seededRng((Math.floor((phase ?? 0) * 1e6) ^ 0x5BD1E995) >>> 0), v = sp.speed ?? 3;
   return {
     v, Us: SUSTAIN * v, Ub: BURST * v, flow: sp.flow ?? FLOW_DEFAULT, size: sp.size ?? 3, F: 0, work: 0, rnd,
-    next: rnd() * THINK, goal: null, best: null, tired: false, resting: false, side: rnd() < 0.5 ? -1 : 1, escT: 0,
+    next: rnd() * THINK, goal: null, best: null, tired: false, resting: false, side: rnd() < 0.5 ? -1 : 1, escT: 0, edgeT: 0, fleeT: 0, _f: { x: 0, z: 0 },
     I: { dir: null, hold: true, escape: false, cap: 0, burst: 0, label: null }, _d: { x: 0, z: 0 },
     st: { t: 0, slack: 0, pin: 0, pinMax: 0, c: 0, s: 0, d: 0 },
   };
@@ -63,7 +66,8 @@ const G = [0, 0, 0];
 export function fishOwn(m, d, w, cap, mode, out) {
   const t0 = now(), dx = d.x, dy = d.y, dz = d.z, dl = Math.hypot(dx, dz), wl = Math.hypot(w.x, w.z);
   let ox = dx - w.x, oz = dz - w.z;
-  if (dl < 1e-3 && mode !== 2) ox = oz = 0;
+  if (m.fleeT > 0 && mode !== 1) { ox = m._f.x * m.v - w.x; oz = m._f.z * m.v - w.z; }   // leaving the glass: its own way, whatever pulls
+  else if (dl < 1e-3 && mode !== 2) ox = oz = 0;
   else if (mode === 0 && dl >= 1e-3) {
     const ux = dx / dl, uz = dz / dl, wp = w.x * ux + w.z * uz;
     let n = 1, bg = 0, best = Infinity;
@@ -126,6 +130,7 @@ function choose(m, s) {
     const cx = CX[k], cz = CZ[k];
     if (k > 0 && !s.ok(cx, y, cz)) continue;
     const wc = k === 0 ? w : s.probe(cx, y, cz, WV), cl = Math.hypot(wc.x, wc.z), hold = power(m, cl);
+    if (k > 0 && cl >= SLACK * m.Us && s.edge?.(cx, y, cz, m.size)) continue;   // never a goal at the glass or the intake in moving water
     const sc = travel(m, x, z, cx, cz, w, wc) + hold * HORIZON * (m.tired ? TIRED_HOLD : 1)
       + (1 - m.flow) * Math.max(0, cl - m.flow * m.Us) + OVER * Math.max(0, cl - m.Us) - (k === wk ? WANT : 0)
       + (cl >= SLACK * m.Us && s.edge?.(cx, y, cz, m.size) ? EDGE : 0);
@@ -137,6 +142,22 @@ function choose(m, s) {
   if (gk >= 0 && bi !== gk && bs > cur - HYST * Math.abs(cur) - 0.05) return;
   m.goal ??= { x: 0, z: 0 };
   m.goal.x = CX[bi]; m.goal.z = CZ[bi];
+}
+
+// Give up a spot at the glass or the intake in moving water: the nearby spot (8 ways, 2 body lengths out) with the slowest water off the
+// edge, else straight up the current; it swims there (fishOwn) and weighs spots again after FLEE_S.
+function flee(m, s, wl) {
+  const { x, y, z, w } = s, r = 2 * m.size + 2;
+  let bs = Infinity, bx = x - w.x / wl * r, bz = z - w.z / wl * r;
+  for (let k = 0; k < 8; k++) {
+    const a = (k + m.rnd() * 0.5) * Math.PI / 4, cx = x + Math.sin(a) * r, cz = z + Math.cos(a) * r;
+    if (!s.ok(cx, y, cz)) continue;
+    const wc = s.probe(cx, y, cz, WV), sc = Math.hypot(wc.x, wc.z) + (s.edge?.(cx, y, cz, m.size) ? 100 : 0);
+    if (sc < bs) { bs = sc; bx = cx; bz = cz; }
+  }
+  m.goal ??= { x: 0, z: 0 };
+  m.goal.x = bx; m.goal.z = bz;
+  m.fleeT = FLEE_S; m.next = FLEE_S; m.edgeT = 0;
 }
 
 // One step of the mind. s = { dt, x, y, z, w (the water here), want ({x, z}, the way its behaviour wants to go, or null), probe, ok,
@@ -154,12 +175,19 @@ export function fishThink(m, s) {
     if (a !== b) m.side = a < b ? 1 : -1;
     m.escT = 1;
   }
+  m.edgeT = wl >= SLACK * m.Us && s.edge?.(x, y, z, m.size) ? m.edgeT + s.dt : 0;
+  if (m.edgeT > EDGE_S && m.fleeT <= 0) flee(m, s, wl);
   m.next -= s.dt;
   if (m.next <= 0) { m.next = Math.max(m.next + THINK, 0.1); choose(m, s); }
   const g = m.goal, dx = g ? g.x - x : 0, dz = g ? g.z - z : 0, dl = Math.hypot(dx, dz), there = !g || dl < 1;
   m.resting = m.tired && there && wl < SLACK * m.Us;
   if (dl < 1e-3) I.dir = null; else { const k = Math.min(1, dl / 2) / dl; m._d.x = dx * k; m._d.z = dz * k; I.dir = m._d; }   // slows on the last 2 cm
   I.hold = there;
+  if (m.fleeT > 0) {
+    m.fleeT = dl < 1 ? 0 : m.fleeT - s.dt;
+    if (dl > 1e-3) { m._f.x = dx / dl; m._f.z = dz / dl; }
+    I.hold = false; I.escape = true;
+  }
   I.cap = m.F > SPENT ? 0.5 * m.Us : m.tired ? 0.8 * m.Us : m.Us;
   I.burst = m.F > SPENT ? 0.8 * m.Us : m.tired ? m.Us : m.Ub;
   I.label = m.resting ? REST_LABEL : null;

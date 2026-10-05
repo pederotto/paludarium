@@ -29,15 +29,17 @@ function leg(field, gx, gz, { sp = NEON, sec = 60, dt = 0.05, seed = 0.3 } = {})
 }
 
 // A fish run by its mind in a field, as swim() runs it (glass at the box edge clamps the position).
-function swimRun(field, { sp = NEON, sec = 60, dt = 0.05, F0 = 0, start = { x: 0, z: 0 }, want = null, ok, edge = () => false, gx = 20, gz = 20, seed = 0.3 } = {}) {
+function swimRun(field, { sp = NEON, sec = 60, dt = 0.05, F0 = 0, start = { x: 0, z: 0 }, want = null, ok, edge = () => false, gx = 20, gz = 20, seed = 0.3, goal = null, pull = null } = {}) {
   const m = fishMind(sp, seed);
   m.F = F0;
+  if (goal) m.goal = { ...goal };
   const a = { pos: { x: start.x, y: 5, z: start.z }, vel: { x: 0, y: 0, z: 0 }, yaw: 0 }, w = {}, d = { x: 0, y: 0, z: 0 };
   const labels = new Set();
   for (let t = 0; t < sec; t += dt) {
     field(a.pos.x, a.pos.y, a.pos.z, w);
     const I = fishThink(m, { dt, x: a.pos.x, y: a.pos.y, z: a.pos.z, w, want, probe: field, ok: ok ?? box(gx - 1, gz - 1), edge });
     d.x = I.dir ? I.dir.x * 0.6 * sp.speed : 0; d.y = 0; d.z = I.dir ? I.dir.z * 0.6 * sp.speed : 0;
+    if (pull) { d.x += pull.x; d.z += pull.z; }
     fishOwn(m, d, w, I.escape ? I.burst : I.cap, I.hold ? 2 : 0, a.vel);
     a.pos.x = Math.max(-gx, Math.min(gx, a.pos.x + (a.vel.x + w.x) * dt));
     a.pos.z = Math.max(-gz, Math.min(gz, a.pos.z + (a.vel.z + w.z) * dt));
@@ -108,6 +110,21 @@ test('a fish released in the return jet is not pinned: it crosses out and keeps 
   assert.ok(r.m.st.pinMax <= 5, 'never held at the glass in the jet for 5 s');
 });
 
+test('a fish whose goal is at the glass in moving water, pulled there by its school, leaves within 5 s (N5b)', () => {
+  // Water 4 cm/s into or along the glass (above slack, below what a neon holds against); its goal is 1 cm off the glass and its school
+  // pulls it on toward the glass at 2 cm/s over the ground (swim() adds cohesion after the mind). Before N5b it stayed all 40 s.
+  const edge = (x, y, z, mg) => x > 20 - mg || Math.abs(z) > 20 - mg;
+  const out = [];
+  for (const [name, field] of [['into', uniform(4, 0)], ['along', uniform(0, 4)]]) {
+    for (const seed of [0.1, 0.3, 0.7]) {
+      const r = swimRun(field, { start: { x: 18.5, z: -12 }, goal: { x: 19, z: -12 }, pull: { x: 2, z: 0 }, edge, sec: 40, seed });
+      out.push(`${name}/${seed}: pin ${r.m.st.pinMax.toFixed(1)} s`);
+      assert.ok(r.m.st.pinMax <= 5, `${name} seed ${seed}: held at the glass in moving water ${r.m.st.pinMax.toFixed(1)} s`);
+    }
+  }
+  console.log('  ' + out.join(', '));
+});
+
 test('a body resting on the floor is not swept along: the floor layer slows the water, the body grips', () => {
   const N = 4, H = { vx: new Float32Array(N).fill(5), vz: new Float32Array(N), d: new Float32Array(N).fill(10), cellOf: () => 0, ports: null };
   const W = { water: { hydro: H }, terrain: { heightAt: () => 0 } };
@@ -123,4 +140,21 @@ test('the mind uses no Math.random (its stream is seeded)', () => {
   const R = Math.random;
   Math.random = () => { throw new Error('Math.random'); };
   try { swimRun(uniform(3), { sec: 5 }); } finally { Math.random = R; }
+});
+
+test('a fish in the main pool next to a filter return feels the jet (the pool keeps its water as level, its d is a film)', async () => {
+  const { poolCurrent } = await import('../src/sim/filterflow.js');
+  // sim/hydro.js:673-685 and tests/plantbend.test.mjs fakeWorld: main pool cells are `res`, d a 0.05 cm film, water to `level`.
+  const N = 16, ports = { lph: 900, ret: { x: 0.2, y: 2, z: 1.5, dx: 1, dz: 0, D: 1.2 } };
+  const H = { N, d: new Float32Array(N), vx: new Float32Array(N), vz: new Float32Array(N), ports, res: new Uint8Array(N), level: 4,
+    cellOf: (x, z) => Math.max(0, Math.min(3, Math.floor(z))) * 4 + Math.max(0, Math.min(3, Math.floor(x))) };
+  for (const c of [4, 5, 6, 7, 8, 9, 10, 11]) { H.res[c] = 1; H.d[c] = 0.05; }
+  const W = { water: { hydro: H, inMainPool: (x, z) => H.res[H.cellOf(x, z)] === 1 }, terrain: { heightAt: () => 0 } };
+  const jet = poolCurrent(H, 3, 2, 1.5, { x: 0, y: 0, z: 0 }), v = currentAt(W, 3, 2, 1.5, {});
+  console.log(`  pool fish 2.8 cm down the return: jet ${Math.hypot(jet.x, jet.z).toFixed(2)}, currentAt ${Math.hypot(v.x, v.z).toFixed(2)} cm/s`);
+  assert.ok(Math.hypot(jet.x, jet.z) > 1, 'the fixture has a jet there');
+  assert.ok(Math.abs(v.x - jet.x) < 1e-6 && Math.abs(v.z - jet.z) < 1e-6, 'currentAt returns the jet, not 0');
+  ports.lph = 0;
+  const off = currentAt(W, 3, 2, 1.5, {});
+  assert.equal(Math.hypot(off.x, off.z), 0, 'filter off: still water');
 });
