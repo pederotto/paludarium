@@ -510,8 +510,8 @@ export const SPECIES = {
     name: 'Salamander larvae', scale: 1, group: 'Amphibians', kind: 'swim', band: 'bottom', school: false, size: 1.4, speed: 1.3, young: true,
     temp: [8, 24], hungerHours: 120, lifeDays: 120, eats: ['bloodworm', 'flake'], cap: 40, breed: 0, metamorphDays: 20, from: ['firesal', 'newt', 'marbled'],
     // N1: [cm at birth/hatching, cm at metamorphosis] by parent; general knowledge, to check (fire salamander born 2.5-3.5 cm, smooth newt
-    // hatches 0.7-1.0 cm; marbled newt values a guess). cmAt1 = drawn length at scale 1 (measured).
-    sizeBy: { firesal: [3.0, 5.5], newt: [0.85, 3.5], marbled: [1.0, 5.0] }, cmAt1: 1,
+    // hatches 0.7-1.0 cm; marbled newt values a guess). cmAt1 = drawn length at scale 1 (N1b: geoLen 11.939, amph-life-day AMPH_LARVA).
+    sizeBy: { firesal: [3.0, 5.5], newt: [0.85, 3.5], marbled: [1.0, 5.0] }, cmAt1: 11.939,
     body: sdfBody('larva'), anim: { amp: 0.3, wave: 1.1 },
     note: 'Young of fire salamanders and newts: feathery gills, four legs, a finned tail. Sit on the bottom between short swims, eat small live food, and leave the water as young salamanders.',
   },

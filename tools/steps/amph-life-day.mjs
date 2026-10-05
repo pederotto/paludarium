@@ -214,11 +214,13 @@ async function runOne({ scene, seed, hours, speed, DEBUG, LARVA }) {
     for (const [id, q] of Object.entries(S)) res.sp[id] = { ...q, callers: q.callers.size, nEnd: (A.by[id] ?? []).length };
     res.notes = { moss: +w.mossFraction().toFixed(2), prey: Object.fromEntries(Object.keys(food).map((id) => [id, (A.by[id] ?? []).length])), orderCalls: window.__oc, temp: E.temp, lights: [E.lightsOn, E.lightsOff], humidity: E.humidity };
     if (LARVA) {   // N1: what the fire salamanders' young are and how they are drawn
-      const m = A.meshes?.larva, geo = (m?._lo ?? m)?.geometry, P = geo?.attributes?.position?.array, R = geo?.attributes?.rig;
+      // the bodies are built asynchronously (CreatureLOD._lo is null until ready): wait up to 20 s for both
+      for (let i = 0; i < 200 && !(A.meshFor('larva')?._lo && A.meshFor('firesal')?._lo); i++) await new Promise((r) => setTimeout(r, 100));
+      const m = A.meshes?.larva ?? A.meshFor('larva'), geo = (m?._lo ?? m)?.geometry, P = geo?.attributes?.position?.array, R = geo?.attributes?.rig;
       let zmin = Infinity, zmax = -Infinity, gill = 0, legs = 0;
       if (P) for (let i = 0; i < P.length; i += 3) { zmin = Math.min(zmin, P[i + 2]); zmax = Math.max(zmax, P[i + 2]); if (Math.abs(P[i]) > 0.9 && P[i + 2] > 1.5) gill++; }
       if (R) for (let i = 0; i < R.count; i++) if (R.getY(i) > 0.01) legs++;
-      const ext = zmax - zmin, fs = SPECIES.firesal, fm = A.meshes?.firesal, fg = (fm?._lo ?? fm)?.geometry;
+      const ext = zmax - zmin, fs = SPECIES.firesal, fm = A.meshes?.firesal ?? A.meshFor('firesal'), fg = (fm?._lo ?? fm)?.geometry;
       fg?.computeBoundingBox?.();
       const L = SPECIES.larva, len = (parent, age) => +(ext * drawScale({ parent, age }, L)).toFixed(2);
       res.larva = { young: (A.by.larva ?? []).filter((a) => a.parent === 'firesal').length, ids: [...new Set(all().filter((a) => a.parent === 'firesal').map((a) => a.sp))],
