@@ -127,3 +127,14 @@ test('8 the rig and skin attributes are in the file (glb-dump), and the original
   assert.ok(fs.existsSync(SKINK.raw));
   if (fs.existsSync(orig)) assert.equal(sha(SKINK.raw), sha(orig));
 });
+
+test('9 the game imports the baked skink: manifest key skink (both levels, 25 lizard bones in contract order, 16.8 cm long +-2 %)', () => {
+  const m = JSON.parse(fs.readFileSync(DIR + 'manifest.json', 'utf8')).skink;
+  assert.ok(m, 'manifest has no skink key: run npm run import-creatures -- --baked=skink');
+  assert.equal(m.file, 'skink.glb'); assert.equal(m.lo, 'skink.lo.glb'); assert.equal(m.rig, 'baked');
+  assert.equal(m.skeleton?.plan, 'lizard');
+  const names = m.skeleton.bones.map((b) => b.name);
+  assert.equal(names.length, 25); assert.deepEqual(names.slice(0, LIZARD_BONES.length), LIZARD_BONES);
+  for (const f of FAN_BONES) assert.ok(names.includes(f.name ?? f), `fan bone ${f.name ?? f}`);
+  assert.ok(Math.abs(m.sizeCm[2] - 16.8) <= 16.8 * 0.02, `length ${m.sizeCm[2]} cm`);
+});
