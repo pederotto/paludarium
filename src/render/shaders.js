@@ -10,6 +10,7 @@ import {
 import { noise3 } from './noise3.js';
 import { TEX } from './assets.js';
 import { positionView, cross } from 'three/tsl';   // (the floor's moss relief, substrateMaterial)
+import { positionGeometry, specularColor, specularColorBlended, specularF90 } from 'three/tsl';   // (orchid leaves: wax, mottling)
 import { U, SOIL } from './uniforms.js';
 import { AIR } from './airflow.js';
 import { BEND_MAX, V50, ATANH_HALF } from '../util/plantbend.js';
@@ -274,7 +275,7 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // cross-veins between parallel ones) }.
 // `flowBend`: the plant leans in the water's push (B5b; only aquatic and emergent plants set it, sim/plants.js flowOptions); `bend`: the
 // lean of a tip at full push in the plant's own units; `stiffness`: 1 an average leaf.
-export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null, gloss = null, leafRelief = null, relief = 1 } = {}) {
+export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null, gloss = null, leafRelief = null, relief = 1, wax = null, leafNoise = null, mottle = null } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   m.userData.foliage = true;
   m.userData.flowBend = flowBend;
@@ -375,6 +376,27 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
     c = mix(c, pale.div(vc), tx.g.mul(isLeaf));
     base = mix(c, c.mul(back), tx.b.mul(isLeaf).mul(step(faceDirection, 0)));
     m.opacityNode = keep.mul(mix(float(1), tx.a, isLeaf));
+    const Lc = vec2(L.x.mul(0.5).add(0.5), saturate(L.y));
+    if (leafNoise && mottle) {
+      // (T3) Mottling and leaf-to-leaf tone: a small tileable noise (sim/orchid-leaves.js orchidLeafNoise) read at the
+      // object-space position (positionGeometry: before the sway, so it never swims), shifted per plant by its instance
+      // colour. R = leaf-scale tone (each blade sits in another part of the field: no two leaves alike), G = patches inside
+      // a blade. Mean 0.5 = the colour unchanged; lighter patches lean yellow-green. mottle = [cycles per cm, leaf amp, patch amp].
+      const Mo = uniform(new THREE.Vector3(...mottle)), pg = positionGeometry;
+      const off = vec2(dot(instanceColor, vec3(3.7, 5.3, 2.9)), dot(instanceColor, vec3(4.1, 1.9, 6.7)));
+      const nz = texture(leafNoise, vec2(pg.x.add(pg.z.mul(0.63)), pg.y.sub(pg.z.mul(0.41))).mul(Mo.x).add(off));
+      const lt = nz.r.sub(0.5).mul(2).mul(Mo.y), pt = nz.g.sub(0.5).mul(2).mul(Mo.z);
+      base = base.mul(mix(vec3(1), vec3(1).add(lt).add(vec3(1.5, 1.3, 0.4).mul(pt)), isLeaf));
+    }
+    if (wax) {
+      // (T3) A waxy cuticle lit by the scene's own lamp and environment (no fake lobe): roughness falls from wax.y (margin,
+      // underside, stems) to wax.x where the relief map's B (wax mask) is full, and the Fresnel ceiling F90 drops from 1 to
+      // wax.z, so a blade seen edge-on cannot wash pale while the lamp-facing core stays bright. Uniforms: one program.
+      const Wx = uniform(new THREE.Vector3(...wax));
+      const wm = leafRelief ? texture(leafRelief, Lc).z : float(1);
+      m.roughnessNode = mix(Wx.y, Wx.x, wm.mul(isLeaf).mul(step(0, faceDirection)));
+      m.setupSpecular = () => { specularColor.assign(vec3(0.04)); specularColorBlended.assign(vec3(0.04)); specularF90.assign(Wx.z); };
+    }
     if (leafRelief) {
       // Optional relief (T2, sim/orchid-leaves.js orchidLeafRelief): the painted slopes across (R) and along (G) the blade
       // tilt the normal in a frame built from the screen-space change of the `leaf` coordinate (Schueler's cotangent

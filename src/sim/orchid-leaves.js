@@ -71,16 +71,16 @@ const PAR = (rel, n, from) => Math.pow(0.5 + 0.5 * Math.cos(rel * n * Math.PI * 
 // D. cuthbertsonii's warts (photo 1): silver-white raised specks in loose lengthwise rows, denser along the midrib.
 // Returns [dot, rim, height]; the relief map raises them, so the paint keeps only a faint dark foot below each.
 function warts(sx, y, rel) {
-  const cx = 0.085, cy = 0.11, gx = sx / cx, gy = y / cy;
+  const cx = 0.12, cy = 0.15, gx = sx / cx, gy = y / cy;   // (T3: larger cells, larger dots: a speckle at 40 cm)
   let dot = 0, rim = 0, h = 0;
   for (let i = Math.floor(gx) - 1; i <= Math.floor(gx) + 1; i++) for (let j = Math.floor(gy) - 1; j <= Math.floor(gy) + 1; j++) {
-    if (hash(i, j, 21) < 0.3 + 0.45 * rel) continue;
+    if (hash(i, j, 21) < 0.12 + 0.4 * rel) continue;
     const px = (i + 0.5 + (hash(i, j, 22) - 0.5) * 0.8) * cx, py = (j + 0.5 + (hash(i, j, 23) - 0.5) * 0.8) * cy;
-    const rad = 0.011 + 0.014 * hash(i, j, 24);
+    const rad = 0.026 + 0.022 * hash(i, j, 24);
     const dx = sx - px, dy = y - py, d = Math.sqrt(dx * dx + dy * dy);
     dot = Math.max(dot, sst(rad, rad * 0.45, d) * (0.65 + 0.35 * sst(-rad, rad, -dy)));
     rim = Math.max(rim, sst(rad * 1.7, rad, d) * sst(0, rad, dy) * (1 - sst(rad, rad * 0.45, d)));
-    h = Math.max(h, 0.55 * rad * sst(rad * 1.15, 0, d));
+    h = Math.max(h, 0.75 * rad * sst(rad * 1.15, 0, d));
   }
   return [dot, rim, h];
 }
@@ -114,29 +114,33 @@ const PAINT = {
     const fade = sst(0.97, 0.75, rel) * sst(0.02, 0.1, t) * sst(1, 0.85, t);
     const mott = fbm(lat * 10, y * 4, 11) - 0.5, fine = fbm(lat * 40, y * 16, 12) - 0.5;
     const shade = 0.5 + 0.08 * mott + 0.03 * fine - 0.1 * rim * fade - 0.07 * sst(0.8, 1, rel) + 0.04 * sst(0.012, 0, lat) + 0.03 * (0.5 - t);
-    return [shade + 0.03 * dot * fade, 0.42 * dot * fade, 1];
+    return [shade + 0.08 * dot * fade, 0.9 * dot * fade, 1];
   },
 };
 // The same painter's relief: the height of the front face at one point (width units), for the slope map below.
 // Each half of the blade gently domed (so the wax highlight is a band that moves over the leaf, never the whole flat
 // blade at once), a midrib groove, faint vein ridges, the raised warts of D. cuthbertsonii.
 const dome = (rel, hw, k) => k * hw * Math.sin(Math.PI * Math.min(1, rel));
+// (T3) and bowed along its length (largest slope k at base and tip), so the overhead lamp's highlight falls in a band
+// inside the upper blade of a hanging or arching leaf, not on its margin. y / t = the sheet's length in width units.
+export const BOW = { pleurothallis: 0.5, masdevallia: 0.3, dracula: 0.15, cuthbertsonii: 0.2 };
+const bow = (t, y, k) => (k * (y / Math.max(t, 1e-4)) * Math.sin(Math.PI * t)) / Math.PI;
 const RELIEF = {
   pleurothallis(t, lat, rel, y, notch, sx, hw) {
     const rib = sst(0.03, 0, lat) * (1 - 0.6 * t) * (t > notch - 0.02 ? 1 : 0);
     const vein = veinsAt(rel, PL_V, 0.03) * (t > notch ? 1 : 0.6) * sst(1, 0.9, t);
-    return dome(rel, hw, 0.1) - 0.012 * rib + 0.0018 * vein + 0.0012 * (fbm(lat * 46, y * 46, 4) - 0.5);
+    return bow(t, y, BOW.pleurothallis) + dome(rel, hw, 0.1) - 0.012 * rib + 0.0018 * vein + 0.0012 * (fbm(lat * 46, y * 46, 4) - 0.5);
   },
   masdevallia(t, lat, rel, y, _n, sx, hw) {
     const groove = sst(0.03, 0, lat) * (1 - 0.6 * t + 0.4 * sst(0.32, 0.2, t));
-    return dome(rel, hw, 0.08) - 0.012 * groove + 0.0012 * PAR(rel, 6, 0.12) + 0.0008 * (fbm(lat * 40, y * 12, 6) - 0.5);
+    return bow(t, y, BOW.masdevallia) + dome(rel, hw, 0.08) - 0.012 * groove + 0.0012 * PAR(rel, 6, 0.12) + 0.0008 * (fbm(lat * 40, y * 12, 6) - 0.5);
   },
   dracula(t, lat, rel, y, _n, sx, hw) {
-    return dome(rel, hw, 0.05) - 0.008 * sst(0.02, 0, lat) + 0.001 * PAR(rel, 7, 0.1) + 0.0008 * (fbm(lat * 36, y * 6, 10) - 0.5);
+    return bow(t, y, BOW.dracula) + dome(rel, hw, 0.05) - 0.008 * sst(0.02, 0, lat) + 0.001 * PAR(rel, 7, 0.1) + 0.0008 * (fbm(lat * 36, y * 6, 10) - 0.5);
   },
   cuthbertsonii(t, lat, rel, y, _n, sx, hw) {
     const fade = sst(0.97, 0.75, rel) * sst(0.02, 0.1, t) * sst(1, 0.85, t);
-    return dome(rel, hw, 0.07) - 0.006 * sst(0.02, 0, lat) + warts(sx, y, rel)[2] * fade;
+    return bow(t, y, BOW.cuthbertsonii) + dome(rel, hw, 0.07) - 0.006 * sst(0.02, 0, lat) + warts(sx, y, rel)[2] * fade;
   },
 };
 
@@ -185,12 +189,12 @@ export function orchidLeafMap(kind) {
 // Slopes of the relief stored per texel (T2): R = dh/dx across (+u), G = dh/dy along (+t), both in the leaf's own units
 // (height per distance, so a slope of 1 is 45 degrees), stored as 0.5 + slope / (2 * SLOPE). render/shaders.js turns
 // them into a normal with a frame built from the `leaf` coordinate (no uv or tangent buffer). Mipmaps average slopes, so
-// a far leaf is smoother, never noisier. B = how much wax highlight (less toward the margin, so no bright rim). 256 x 256 RGBA, made once.
+// a far leaf is smoother, never noisier. B = how much wax highlight (T3: 0 at the margin, so the lamp never lights a rim). 256 x 256 RGBA, made once.
 export const SLOPE = 2;
 export function orchidLeafRelief(kind) {
   if (rcache[kind]) return rcache[kind];
   const S = ORCHID_LEAF[kind], relief = RELIEF[kind], H = new Float32Array(N * N), E = new Float32Array(N), Wx = new Uint8Array(N * N);
-  eachTexel(S, (p, t, u, lat, rel, y, hw, env) => { H[p] = relief(t, lat, rel, y, S.notch, u * env, hw); E[p >> 8] = env; Wx[p] = Math.round(255 * (1 - 0.75 * sst(0.7, 1, rel))); });
+  eachTexel(S, (p, t, u, lat, rel, y, hw, env) => { H[p] = relief(t, lat, rel, y, S.notch, u * env, hw); E[p >> 8] = env; Wx[p] = Math.round(255 * sst(0.95, 0.55, rel) * sst(0, 0.06, t)); });
   const data = new Uint8Array(N * N * 4), enc = (s) => Math.round(255 * Math.min(1, Math.max(0, 0.5 + s / (2 * SLOPE))));
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const i0 = Math.max(0, i - 1), i1 = Math.min(N - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(N - 1, j + 1);
@@ -200,4 +204,35 @@ export function orchidLeafRelief(kind) {
     data[o] = enc(sx); data[o + 1] = enc(sy); data[o + 2] = Wx[j * N + i]; data[o + 3] = 255;
   }
   return (rcache[kind] = texOf(data));
+}
+
+// (T3) A small tileable noise for the mottling (render/shaders.js `leafNoise`, read at the object-space position): R = soft
+// blobs about a leaf across (each blade sits in another part of the field, so no two leaves have the same tone), G = patches
+// a quarter of that. Periodic value noise (no seam), each channel set to mean 0.5, +-2 sigma = 0..1. 64 x 64, made once.
+let ncache = null;
+export function orchidLeafNoise() {
+  if (ncache) return ncache;
+  const M = 64, raw = [new Float32Array(M * M), new Float32Array(M * M)];
+  const pv = (x, y, P, s) => {
+    const xi = Math.floor(x), yi = Math.floor(y), ux = sst(0, 1, x - xi), uy = sst(0, 1, y - yi);
+    const h = (i, j) => hash(((i % P) + P) % P, ((j % P) + P) % P, s);
+    return (h(xi, yi) * (1 - ux) + h(xi + 1, yi) * ux) * (1 - uy) + (h(xi, yi + 1) * (1 - ux) + h(xi + 1, yi + 1) * ux) * uy;
+  };
+  for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
+    const x = i / M, y = j / M;
+    raw[0][j * M + i] = 0.7 * pv(x * 4, y * 4, 4, 31) + 0.3 * pv(x * 8, y * 8, 8, 32);
+    raw[1][j * M + i] = 0.6 * pv(x * 16, y * 16, 16, 33) + 0.4 * pv(x * 32, y * 32, 32, 34);
+  }
+  const data = new Uint8Array(M * M * 4).fill(255);
+  raw.forEach((a, c) => {
+    let s = 0, q = 0; for (const v of a) { s += v; q += v * v; }
+    const mu = s / a.length, sd = Math.sqrt(Math.max(1e-9, q / a.length - mu * mu));
+    a.forEach((v, p) => { data[p * 4 + c] = Math.round(255 * Math.min(1, Math.max(0, 0.5 + (v - mu) / (4 * sd)))); });
+  });
+  const tx = new THREE.DataTexture(data, M, M, THREE.RGBAFormat);
+  tx.colorSpace = THREE.NoColorSpace;
+  tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+  tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter; tx.generateMipmaps = true;
+  tx.needsUpdate = true;
+  return (ncache = tx);
 }

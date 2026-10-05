@@ -12,7 +12,7 @@
 import * as THREE from 'three/webgpu';
 import { Builder } from '../render/geo.js';
 import { rng, clamp } from '../util/math.js';
-import { ORCHID_LEAF, orchidLeafMap, orchidLeafRelief } from './orchid-leaves.js';   // (run orchids T1: painted orchid leaves; T2: their relief)
+import { ORCHID_LEAF, orchidLeafMap, orchidLeafRelief, orchidLeafNoise } from './orchid-leaves.js';   // (run orchids T1: painted orchid leaves; T2: their relief)
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
@@ -236,7 +236,7 @@ function bristles(b, pts, { len, w, col }) {
 // Masdevallia: a dense tuft of erect, narrow spoon-shaped leaves on channelled petioles (no pseudobulbs), 8.5-12 x 1.7-2.3 cm,
 // and single flowers on wiry stems from the base, held at or above the leaves, one arching out sideways.
 // Leathery, glossy spoon leaves with a channelled midrib (painted, sim/orchid-leaves.js); the underside a little paler.
-const MASD_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, gloss: [0.34, 0.955, 0.035], leafMap: orchidLeafMap('masdevallia'), leafRelief: orchidLeafRelief('masdevallia'), leafPale: [0.62, 0.76, 0.46], leafBack: [1.1, 1.12, 1.0] });
+const MASD_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, wax: [0.38, 0.82, 0.45], leafMap: orchidLeafMap('masdevallia'), leafRelief: orchidLeafRelief('masdevallia'), leafNoise: orchidLeafNoise(), mottle: [0.08, 0.1, 0.06], leafPale: [0.62, 0.76, 0.46], leafBack: [1.1, 1.12, 1.0] });
 const masdLayout = once(() => {
   const r = rng(101), leaves = [], stalks = [];
   for (let k = 0; k < 10; k++) {
@@ -257,7 +257,7 @@ const masdLayout = once(() => {
 // Dracula: a tuft of keeled, arching leaves; the flower stems grow out sideways past the leaves and arch over, so the
 // flowers hang facing out and down (they stay above the ground when it grows on land).
 // Keeled straps with a fold line and faint parallel veins, a satin sheen, a paler underside.
-const DRAC_MAT = () => ({ ...ORCHID_MAT, rough: 0.78, gloss: [0.09, 0.93, 0.05], leafMap: orchidLeafMap('dracula'), leafRelief: orchidLeafRelief('dracula'), leafPale: [0.7, 0.8, 0.5], leafBack: [1.25, 1.25, 1.1] });
+const DRAC_MAT = () => ({ ...ORCHID_MAT, rough: 0.78, wax: [0.55, 0.82, 0.4], leafMap: orchidLeafMap('dracula'), leafRelief: orchidLeafRelief('dracula'), leafNoise: orchidLeafNoise(), mottle: [0.07, 0.1, 0.06], leafPale: [0.7, 0.8, 0.5], leafBack: [1.25, 1.25, 1.1] });
 const dracLayout = once(() => {
   const r = rng(103), leaves = [], stalks = [];
   // (photos 1-3: about a dozen long narrow straps, 13-17 cm, erect then arching out)
@@ -284,7 +284,7 @@ const HEART = (t) => (t < 0.24 ? 0.14 + 0.36 * Math.pow(Math.sin((Math.PI / 2) *
   : 0.5 * Math.pow(Math.cos((Math.PI / 2) * (t - 0.24) / 0.76), 1.1) * (1 - 0.3 * sstep(0.7, 1, t)));
 // Thick, glossy hearts: a pale midrib, very faint arcuate veins, a soft mottling; the outline (lobes, notch, acuminate tip) is
 // the texture's alpha on a coarse blade (sim/orchid-leaves.js).
-const PLEURO_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, gloss: [0.34, 0.955, 0.035], leafMap: orchidLeafMap('pleurothallis'), leafRelief: orchidLeafRelief('pleurothallis'), leafPale: [0.78, 0.86, 0.55], leafBack: [1.04, 1.07, 0.97] });
+const PLEURO_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, wax: [0.34, 0.82, 0.45], leafMap: orchidLeafMap('pleurothallis'), leafRelief: orchidLeafRelief('pleurothallis'), leafNoise: orchidLeafNoise(), mottle: [0.07, 0.12, 0.07], leafPale: [0.78, 0.86, 0.55], leafBack: [1.04, 1.07, 0.97] });
 // (F3) A smooth tepal for the bell and cup flowers of Pleurothallis and D. cuthbertsonii: from radius r0 about the head axis
 // (+Y) at angle th (0 = +Z, the dorsal side), its spine leaves at a0 from the axis and bends out to a1 at the tip (radians: a
 // trumpet that flares, or a cup); the outline widens from `base` x width to the full width at s = 0.68 and closes in a rounded
@@ -347,7 +347,7 @@ const lepLayout = once(() => {
 // dark leaves on each; one flower per bulb on a short stalk, all round the clump and facing out (photo 2), the flowers far
 // bigger than the leaves. Bulbs on a sunflower spiral; the facings from a little below the horizon to steep.
 // Small dark leaves with raised silver-white warts on top (painted), flushed red-brown underneath (the back-face tint).
-const CUTH_MAT = () => ({ ...ORCHID_MAT, rough: 0.74, gloss: [0.3, 0.97, 0.02], leafMap: orchidLeafMap('cuthbertsonii'), leafRelief: orchidLeafRelief('cuthbertsonii'), leafPale: [0.86, 0.9, 0.86], leafBack: [3.0, 0.85, 1.15] });
+const CUTH_MAT = () => ({ ...ORCHID_MAT, rough: 0.74, wax: [0.45, 0.8, 0.45], leafMap: orchidLeafMap('cuthbertsonii'), leafRelief: orchidLeafRelief('cuthbertsonii'), leafNoise: orchidLeafNoise(), mottle: [0.15, 0.1, 0.05], leafPale: [0.86, 0.9, 0.86], leafBack: [3.0, 0.85, 1.15] });
 const cuthLayout = once(() => {
   const r = rng(113), r2 = rng(117), bulbs = [], stalks = [], N = 12;
   for (let k = 0; k < N; k++) {
