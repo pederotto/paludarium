@@ -376,13 +376,18 @@ class Gen {
   // `flora: [[id, n, zone]]` adds native plants where a shared layout's own plants were dropped (n per standard tank).
   stock() {
     const P = this.P;
+    if (P.env) Object.assign(this.W.env, P.env);   // the place's climate (setpoint) over the shared layout's
     if (!P.stock?.length && !P.flora?.length) return;
     const Z = this.zones(this.info?.L ?? this.W.water.level);
     const where = (zone) => { const [k, a, b] = zone.split(':'); return k === 'deep' ? Z.deep(+a) : k === 'wet' ? Z.wet(+a, +b) : Z[k]; };
-    for (const [id, n, zone = 'flat'] of P.flora ?? []) this.scatter(id, this.cnt(n), where(zone), { gap: 4 });
+    const L = this.info?.L ?? this.W.water.level;
+    for (const [id, n, zone = 'flat'] of P.flora ?? []) {
+      if (zone === 'wall') this.wallScatter(id, Math.max(1, Math.round(n * this.wallA)), (x, y) => y > L + 6, { gap: 10 });
+      else this.scatter(id, this.cnt(n), where(zone), { gap: 4 });
+    }
     for (const [id, n, zone = 'land'] of P.stock ?? []) {
       if (this.W.animals.by[id]?.length) continue;
-      this.animal(id, this.cnt(n), where(zone));
+      if (!this.animal(id, this.cnt(n), where(zone)) && zone !== 'land' && !zone.startsWith('deep') && !zone.startsWith('wet')) this.animal(id, this.cnt(n), Z.land);
     }
   }
 
@@ -1130,11 +1135,13 @@ BUILDERS.matano = (g) => {
   g.animal('snail', g.cnt(8), Z.deep(2));
 };
 BUILDERS.everglades = (g) => {
-  BUILDERS.swamp(g);
-  restock(g, ['crab', 'shrimp'], { setpoint: 22, filterKind: 'matten', waterSource: 'remin', ph: 7.0, gh: 6 }, ['filterMatten']);
+  // On the blackwater lagoon (N15): the swamp layout holds ~5 L of pool even in the standard tank, too little for a group of
+  // pygmy sunfish (sim/scale.js waterRoom: 2 per litre per 3 cm of fish).
+  BUILDERS.blackwater(g);
+  restock(g, ['cardinal', 'cory', 'shrimp'], { setpoint: 22, filterKind: 'matten', waterSource: 'remin', ph: 7.0, gh: 6 }, ['filterMatten']);
   g.W.water.hydro.pump.rate = 30;   // a trickle over the seep, not a current: the sunfish wants still water
   const Z = g.zones(g.info.L);
-  g.animal('pygmy', 3, Z.deep(2.5));
+  g.animal('pygmy', 6, Z.deep(2.5));   // a small group (care sheet); the nano's ~2 L of pool cannot hold it (scale.js waterRoom)
 };
 
 function V(x, y, z) { return new THREE.Vector3(x, y, z); }

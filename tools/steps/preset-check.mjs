@@ -28,7 +28,7 @@ export default async (page, shot, name) => {
         const strayP = Object.keys(plants).filter((k) => P.plants && !P.plants.includes(k));
         const strayA = Object.keys(animals).filter((k) => P.animals && !P.animals.includes(k));
         const featured = (r.featured ?? []).map((f) => `${f}:${animals[f] ?? 0}`);
-        out.push({ id, seed, tier: P.ref, stamp: r.featured ? 'N15' : 'none', featured, strayP, strayA, plants, animals, warnings: r.warnings?.length ?? 0 });
+        out.push({ id, seed, tier: P.ref, stamp: r.featured ? 'N15' : 'none', featured, strayP, strayA, litres: r.litres, nPlants: w.plants.list.length, plants, animals, warnings: r.warnings?.length ?? 0 });
       }
     }
     return out;
@@ -41,7 +41,7 @@ export default async (page, shot, name) => {
   for (const r of res) {
     const miss = r.featured.some((f) => f.endsWith(':0'));
     if (r.strayP.length || r.strayA.length || miss || r.stamp !== 'N15') bad++;
-    console.log(`${r.id} s${r.seed} ${r.tier} stamp=${r.stamp} featured=${r.featured.join(',')} strayPlants=${r.strayP.join(',') || 0} strayAnimals=${r.strayA.join(',') || 0} plants=${JSON.stringify(r.plants)} animals=${JSON.stringify(r.animals)}`);
+    console.log(`${r.id} s${r.seed} ${r.tier} stamp=${r.stamp} featured=${r.featured.join(',')} litres=${r.litres} nPlants=${r.nPlants} strayPlants=${r.strayP.join(',') || 0} strayAnimals=${r.strayA.join(',') || 0} plants=${JSON.stringify(r.plants)} animals=${JSON.stringify(r.animals)}`);
   }
   console.log(`builds ${res.length}, failing ${bad}; errors: ${errors.length ? [...new Set(errors)].slice(0, 5).join(' | ') : 'none'}`);
 };
