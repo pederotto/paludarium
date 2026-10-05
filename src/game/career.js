@@ -8,12 +8,18 @@
 // kinds: 'animal' | 'plant' | 'piece' | 'gear' | 'tank'.
 
 import { START_FUNDS, entry, bulkFactor, REP_FIRST, PROMOTION_BONUS, SOURCES, ANIMALS, unlocksAt, morphFactor } from '../content/economy.js';
+import { TANKS } from '../content/tanks.js';
+import { GEAR } from '../content/equipment.js';
+import { gearPrice, upsizeCost, GEAR_SIZING } from '../content/upkeep.js';
 import { RANKS, rankFor } from '../content/levels.js';
 import { ACHIEVEMENTS } from '../content/achievements.js';
 import { sellPrice, sellQuote, isSellable } from './market.js';
 
 const COUNTERS = ['animalsBought', 'animalsSold', 'animalsBorn', 'births', 'metamorphs', 'plantsPlaced', 'piecesPlaced', 'moneyEarned', 'moneySpent', 'deaths',
-  'commissionsDone', 'vacationsSurvived', 'rulesWritten', 'rainPrograms', 'photos', 'pagesRead', 'bestGrade', 'grandBuilt', 'rainBreedings', 'heatwavesSurvived', 'axolotlDays', 'tanksBuilt', 'mirrorUsed', 'kitsPlaced', 'timelapses'];
+  'commissionsDone', 'vacationsSurvived', 'rulesWritten', 'rainPrograms', 'photos', 'pagesRead', 'bestGrade', 'grandBuilt', 'rainBreedings', 'heatwavesSurvived', 'axolotlDays', 'tanksBuilt', 'mirrorUsed', 'kitsPlaced', 'timelapses',
+  'billsPaid'];
+
+const litres = (id) => { const t = TANKS[id]; return t ? t.w * t.d * t.h : 0; };
 
 export class Career {
   constructor({ mode = 'career' } = {}) {
@@ -22,6 +28,8 @@ export class Career {
     this.rep = 0;
     this.gear = new Set();                 // bought gear (starter gear is always owned)
     this.tanks = new Set(['jar']);         // tank tiers you have bought
+    this.gearFor = {};                     // sized gear (content/upkeep.js) → the tank tier it was bought or last resized for
+    this.bills = { owed: 0, week: 0, weekParts: {}, since: 1 };   // running costs not yet paid, and this week's total
     this.known = { animal: {}, plant: {}, piece: {}, gear: {}, tank: {}, concept: {} };
     this.stats = Object.fromEntries(COUNTERS.map((k) => [k, 0]));
     this.achievements = {};                // id → day earned
@@ -46,7 +54,32 @@ export class Career {
     const e = entry(kind, id);
     if (!e) return { locked: true, level: 99, price: 0 };
     const owned = (kind === 'gear' && (e.owned || this.gear.has(id))) || (kind === 'tank' && this.tanks.has(id));
-    return { locked: e.rank > this.level, level: e.rank, price: owned ? 0 : e.price, owned, sold: e.sold !== false };
+    const out = { locked: e.rank > this.level, level: e.rank, price: owned ? 0 : kind === 'gear' || kind === 'tank' ? this.cost(kind, id) : e.price, owned, sold: e.sold !== false };
+    if (kind === 'tank' && !owned) { const up = this.upsize(id); out.upsize = up.total; out.upsizeParts = up.parts; out.tankPrice = e.price; }
+    if (kind === 'gear' && GEAR_SIZING[id]) out.sizedFor = this.gearTank();
+    return out;
+  }
+
+  // --- Gear sized for the tank ---------------------------------------------------------------------
+  // Gear is shared by all your tanks (it is fitted to whichever you are looking at), so a heater, a filter or a light is
+  // bought for the biggest tank you own and costs more when that is a bigger tank (content/upkeep.js). Buying a bigger
+  // tank resizes the sized gear you already own; the difference is part of the tank's price.
+  gearTank() {
+    let best = 'jar';
+    for (const id of this.tanks) if (TANKS[id] && litres(id) > litres(best)) best = id;
+    return best;
+  }
+
+  // What resizing your sized gear for tank `tier` costs: { total, parts: [[gear name, ¤]] }.
+  upsize(tier) {
+    const to = TANKS[tier], parts = [];
+    if (!to || this.sandbox) return { total: 0, parts };
+    for (const id of this.gear) {
+      if (!GEAR_SIZING[id]) continue;
+      const c = upsizeCost(id, TANKS[this.gearFor[id] ?? this.gearTank()], to);
+      if (c > 0) parts.push([GEAR[id]?.name ?? id, c]);
+    }
+    return { total: parts.reduce((s, p) => s + p[1], 0), parts };
   }
 
   // `morph`: the colour morph of an animal being bought (rare morphs cost more).
@@ -54,7 +87,9 @@ export class Career {
     const e = entry(kind, id);
     if (!e) return 0;
     const mf = kind === 'animal' ? morphFactor(id, morph) : 1;
-    return kind === 'gear' || kind === 'tank' ? e.price : Math.ceil(e.price * mf * n * bulkFactor(n));
+    if (kind === 'gear') return gearPrice(id, TANKS[this.gearTank()]);
+    if (kind === 'tank') return e.price + this.upsize(id).total;
+    return Math.ceil(e.price * mf * n * bulkFactor(n));
   }
 
   // Returns null when the purchase went through, or an error message.
@@ -67,11 +102,18 @@ export class Career {
     if (kind === 'gear' && (e.owned || this.gear.has(id))) return 'You already own that.';
     if (kind === 'tank' && this.tanks.has(id)) return 'You already own that tank.';
     const price = this.cost(kind, id, n, morph);
-    if (this.funds < price) return `Not enough funds: this costs ¤${price} and you have ¤${Math.floor(this.funds)}.`;
+    const up = kind === 'tank' ? this.upsize(id) : null;
+    if (this.funds < price) return `Not enough funds: this costs ¤${price}${up?.total ? ` (¤${e.price} for the tank and ¤${up.total} to resize your gear for it)` : ''} and you have ¤${Math.floor(this.funds)}.`;
     this.funds -= price;
     this.stats.moneySpent += price;
-    if (kind === 'gear') this.gear.add(id);
-    if (kind === 'tank') { this.tanks.add(id); this.stats.tanksBuilt++; }
+    if (kind === 'gear') { this.gear.add(id); if (GEAR_SIZING[id]) this.gearFor[id] = this.gearTank(); }
+    if (kind === 'tank') {
+      this.tanks.add(id); this.stats.tanksBuilt++;
+      // Owned sized gear now serves the biggest tank (resized if this one is bigger, paid for above).
+      const big = this.gearTank();
+      for (const g of this.gear) if (GEAR_SIZING[g] && litres(big) > litres(this.gearFor[g] ?? 'jar')) this.gearFor[g] = big;
+      if (up.total) this.note(`Resized your gear for the ${e.name}: ${up.parts.map(([n, c]) => `${n} ¤${c}`).join(', ')}.`, 'info');
+    }
     this.count(kind, n);
     if (!this.known[kind][id]) { this.discover(kind, id); this.addRep(REP_FIRST[kind] ?? 0, `first ${e.name}`); }
     this.changed();
@@ -137,6 +179,38 @@ export class Career {
     this.changed();
   }
 
+  // --- Running costs --------------------------------------------------------------------------------
+  // The tank's electricity, water and food (content/upkeep.js), charged as the game clock runs: `days` of a tank whose
+  // running costs are `perDay` (¤) and broken down as `parts` ([[label, ¤ a day]]). Whole coins are paid as they add up;
+  // a week's total goes in the journal. Bills never take the funds below zero: an unpaid bill is forgiven, so a broke
+  // keeper can still sell animals and finish commissions.
+  payBills(days, perDay, parts = [], day = this.day) {
+    if (this.sandbox || !(days > 0) || !(perDay > 0)) return 0;
+    const B = this.bills;
+    if (day < B.since) B.since = day;   // another tank, with its own clock: the week runs from its day
+    B.owed += perDay * days;
+    for (const [k, v] of parts) B.weekParts[k] = (B.weekParts[k] ?? 0) + v * days;
+    let paid = 0;
+    if (B.owed >= 1) {
+      const due = Math.floor(B.owed);
+      B.owed -= due;
+      paid = Math.min(due, Math.max(0, Math.floor(this.funds)));
+      this.funds -= paid;
+      this.stats.moneySpent += paid;
+      this.stats.billsPaid += paid;
+      B.week += paid;
+    }
+    if (day - B.since >= 7) {
+      if (B.week >= 1) {
+        const top = Object.entries(B.weekParts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k.toLowerCase()} ¤${Math.round(v)}`).join(', ');
+        this.note(`Running costs, days ${B.since}–${day - 1}: ¤${Math.round(B.week)} (${top}).`, 'info');
+      }
+      B.week = 0; B.weekParts = {}; B.since = day;
+    }
+    if (paid) this.changed();
+    return paid;
+  }
+
   stat(name, delta = 1) { this.stats[name] = (this.stats[name] ?? 0) + delta; }
   setStatMax(name, v) { if (v > (this.stats[name] ?? 0)) this.stats[name] = v; }
 
@@ -191,7 +265,7 @@ export class Career {
 
   serialize() {
     return {
-      v: 1, mode: this.mode, funds: this.funds, rep: this.rep, gear: [...this.gear], tanks: [...this.tanks], known: this.known,
+      v: 1, mode: this.mode, funds: this.funds, rep: this.rep, gear: [...this.gear], tanks: [...this.tanks], gearFor: this.gearFor, bills: this.bills, known: this.known,
       stats: this.stats, achievements: this.achievements, journal: this.journal.slice(0, 40), day: this.day, portfolio: this.portfolio,
     };
   }
@@ -201,6 +275,10 @@ export class Career {
     if (!o) return c;
     c.funds = o.funds ?? c.funds; c.rep = o.rep ?? 0;
     c.gear = new Set(o.gear ?? []); c.tanks = new Set(o.tanks ?? ['jar']);
+    // Saves from before gear was sized: what was bought then counts as sized for the biggest tank owned, so nothing is charged again.
+    c.gearFor = { ...(o.gearFor ?? {}) };
+    for (const id of c.gear) if (GEAR_SIZING[id] && !TANKS[c.gearFor[id]]) c.gearFor[id] = c.gearTank();
+    c.bills = { ...c.bills, ...(o.bills ?? {}) };
     c.known = { ...c.known, ...(o.known ?? {}) };
     c.stats = { ...c.stats, ...(o.stats ?? {}) };
     c.achievements = o.achievements ?? {};

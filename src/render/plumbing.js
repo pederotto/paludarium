@@ -204,8 +204,10 @@ export class Plumbing {
     const W = this.world, H = W.water.hydro;
     const poolOk = H.resVol > 2 && H.level > 0.5;
     if (poolOk) this.stirSurface(W, H, dt);
+    // A sealed jar has no pump: with no outlet to feed and no filter there is nothing to draw (its puddle is still the main pool).
+    const pumpless = TANK.closed && !H.outlets.length && !W.env.filter;
     const build = this.layer !== 'surface';
-    const vis = (this.show || build) && poolOk && !(this.hidden?.());
+    const vis = (this.show || build) && poolOk && !pumpless && !(this.hidden?.());
     this.group.visible = vis;
     if (!vis) return;
     if (build && !this.ghost) this.ghost = this.makeGhost();

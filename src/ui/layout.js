@@ -11,7 +11,9 @@ export function bindLayout(game) {
     const W = innerWidth, H = innerHeight;
     const q = (sel) => { const el = document.querySelector(sel); const b = el?.getBoundingClientRect(); return b && b.width > 0 ? b : null; };
     let l = 0, r = 0, t = 0, b = 0;
-    if (S.screen.value !== 'play' || S.photo.value) { game.rig.setInset(0, 0, 0, 0, W, H); return; }
+    // The title screen's menu covers the left of a wide screen: the room is drawn to the right of it (CameraRig.views).
+    const menu = S.screen.value === 'title' && !S.compact.value ? q('.title .box') : null;
+    if (S.screen.value !== 'play' || S.photo.value) { game.rig.setInset(menu ? Math.min(W * 0.5, menu.right + 24) : 0, 0, 0, 0, W, H); return; }
     if (S.kids.value) {
       const top = q('.kids-top'), bot = q('.kids-bottom');
       t = (top?.bottom ?? 90) + 6;

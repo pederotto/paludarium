@@ -7,6 +7,7 @@ import { loadPresets } from '../app/lazy-gen.js';
 import { KidsWorlds } from './kids/KidsWorlds.jsx';
 import { MODES } from '../app/modes.js';
 import { setMode } from '../app/modes-runtime.js';
+import { TankLineup, sizeText } from './TankScale.jsx';
 import './explorer.css';
 
 export function Title() {
@@ -66,6 +67,10 @@ function Generated({ back }) {
   const [tier, setTier] = useState('standard');
   const [seeds, setSeeds] = useState({});
   useEffect(() => { loadPresets().then(setPresets).catch(() => setPresets([])); }, []);
+  // The tank behind the menu becomes the size picked, standing in the room at its real size (Game.previewTank); leaving
+  // brings the starter tank back. A short wait, so clicking along the row builds only the size you stop at.
+  useEffect(() => { const t = setTimeout(() => ctx.game?.previewTank?.(tier), 260); return () => clearTimeout(t); }, [tier]);
+  useEffect(() => () => { ctx.game?.previewTank?.('standard'); }, []);
   const seed = (id) => seeds[id] ?? 1000 + ([...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 9000);
   const list = (presets ?? []).filter((p) => !p.tiers || p.tiers.includes(tier));
   const surprise = () => { const p = list[(Math.random() * list.length) | 0]; if (p) ctx.start.preset(p.id, (Math.random() * 99999) | 0, tier); };
@@ -74,7 +79,9 @@ function Generated({ back }) {
       <button class="btn ghost sm" onClick={back}><Icon name="chevronL" size={14} /> Back</button>
       <h1 class="serif" style={{ fontSize: 'clamp(30px, 4.5vw, 46px)', marginTop: 8 }}>Generated terrariums</h1>
       <p class="tag-line" style={{ marginTop: 8 }}>Each one is composed, planted and stocked for you, then left running. Every seed is different.</p>
-      <div class="seg" style={{ marginBottom: 12 }}>{TANK_ORDER.map((t) => <button key={t} class={tier === t ? 'on' : ''} onClick={() => setTier(t)}>{TANKS[t].name.split(' ')[0]}</button>)}</div>
+      <div class="seg tiers">{TANK_ORDER.map((t) => <button key={t} class={tier === t ? 'on' : ''} onClick={() => setTier(t)}>{TANKS[t].name.split(' ')[0]}</button>)}</div>
+      <TankLineup pick={tier} onPick={setTier} />
+      <p class="tank-size"><b>{TANKS[tier].name}</b> · {sizeText(TANKS[tier])}{TANKS[tier].closed ? ' · sealed' : ''} <span class="key">· the bar is 30 cm</span></p>
       {presets === null ? <p class="note">Loading…</p> : !presets.length ? <p class="note">The generator is not available in this build.</p> : (
         <div class="cols" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', maxHeight: '46vh', overflowY: 'auto', alignContent: 'start', gridAutoRows: 'max-content' }}>
           {list.map((p) => (

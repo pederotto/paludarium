@@ -5,8 +5,10 @@
 // (tests/kits.test.mjs). The builder that turns a kit into real pieces is
 // sim/kits.js.
 //
-// Distances are centimetres for a reference tank 90 cm wide (the standard
-// paludarium); the builder scales them to the tank you are building in.
+// Sizes and distances are real centimetres, as the kit stands in the standard
+// paludarium (90 cm wide); the builder keeps them near real size in other
+// tanks, smaller only where the tank is too low, shallow or narrow for them
+// (sim/kits.js kitScale).
 //
 //   pieces  [{ type, dx, dz, size, ... }] relative to the point you click.
 //           type   a Hardscape piece id (sim/decor.js PIECES)

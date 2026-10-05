@@ -61,6 +61,8 @@ export class Mist {
     m.vertexNode = cameraProjectionMatrix.mul(vec4(vc.xy.add(rot), vc.z, 1));
     m.colorNode = vec3(0.88, 0.93, 0.95);
     m.opacityNode = texture(this.tex, uv()).a.mul(fa.x).mul(U.daylight.mul(0.7).add(0.3));
+    // Game.unloadTank disposes the tank's materials but not their textures: the puff goes with its material.
+    m.addEventListener('dispose', () => this.tex.dispose());
     this.geo = g;
     this.mesh = new THREE.Mesh(g, m);
     this.mesh.frustumCulled = false;

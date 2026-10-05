@@ -536,7 +536,7 @@ export class Decor {
     for (let i = 0; i < n; i++) sway[i] = tg.attributes.position.getY(i);
     tg.setAttribute('sway', new THREE.BufferAttribute(sway, 1));
     tg.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    this.tuftCap = 5000;
+    this.tuftCap = 9000;     // moss is as dense per square centimetre in a show tank as in the standard one (scatterMoss)
     this.tufts = new THREE.InstancedMesh(tg, plantMaterial({ amp: 0.08, underwaterAmp: 0.3, map: TEX.cards.grassTuft }), this.tuftCap);
     this.tufts.count = 0; this.tufts.frustumCulled = false; this.tufts.receiveShadow = true;
     this.tufts.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.tuftCap * 3), 3);
@@ -1132,22 +1132,26 @@ export class Decor {
       this.tufts.setColorAt(k, c);
       k++;
     };
-    const tf = W.terrain.field;
+    // Tufts per square centimetre, not per grid cell: a big tank's grid is coarser (tank.js cellsPerCm), so each of its cells
+    // has a better chance of a tuft, and a small tank's finer cells a smaller one; moss is as dense in any tank as in the
+    // standard tank's 0.75 cm cells (rounded, so the standard tank's tufts stay exactly where they were).
+    const perCell = (f) => Math.round((f.da * f.db) / 0.5625 * 100) / 100;
+    const tf = W.terrain.field, kt = perCell(tf);
     for (let j = 0; j <= tf.ny; j++) for (let i = 0; i <= tf.nx; i++) {
       const n = tf.idx(i, j);
       if (tf.stamped[n]) continue;
       const w = tf.mat[n * NMAT + MAT.moss];
-      if (w < 0.45 || r() > (w - 0.35) * 0.6) continue;
+      if (w < 0.45 || r() > (w - 0.35) * 0.6 * kt) continue;
       const [x, z] = tf.toWorld(i + (r() - 0.5), j + (r() - 0.5));
       const y = W.terrain.heightAt(x, z);
       if (W.water.surfaceAt(x, z, 0.4) > y + 0.5) continue;
       put(p.set(x, y - 0.1, z), W.terrain.normalAt(x, z).lerp(up, 0.5).normalize(), (1.2 + r() * 1.1) * Math.min(1, w + 0.2));
     }
-    const wf = W.wall.field;
+    const wf = W.wall.field, kw = perCell(wf);
     for (let j = 0; j <= wf.ny; j++) for (let i = 0; i <= wf.nx; i++) {
       const n = wf.idx(i, j);
       const w = wf.mat[n * NMAT + MAT.moss];
-      if (w < 0.45 || r() > (w - 0.35) * 0.5) continue;
+      if (w < 0.45 || r() > (w - 0.35) * 0.5 * kw) continue;
       const [x, y] = wf.toWorld(i + (r() - 0.5), j + (r() - 0.5));
       if (y < W.water.level || y < W.terrain.heightAt(x, W.wall.zAt(x, y) + 0.5) - 0.3) continue;
       const [gx, gy] = wf.gradient(x, y);

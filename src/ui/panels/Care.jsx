@@ -9,8 +9,11 @@ import { ctx } from '../../app/ctx.js';
 import { Care, FEEDERS, eatersOf } from '../../app/actions.js';
 import { SPECIES } from '../../sim/animals.js';
 import { GEAR, FILTERS, filterClog, filterEff, WATER_SOURCES, SUBSTRATES, SUBSTRATE_ORDER, plenumState } from '../../content/equipment.js';
-import { TANK } from '../../sim/tank.js';
+import { TANK, sizeFactors } from '../../sim/tank.js';
 import { filterFlow, LIFT_MARGIN, RIM_BOX, TURNOVER } from '../../sim/filterflow.js';
+import * as EnvModule from '../../sim/env.js';
+import { upkeepOf } from '../../app/snapshot.js';
+import { RUNNING_COSTS } from '../../content/upkeep.js';
 
 const TABS = [['lights', 'Lights', 'sun'], ['climate', 'Climate', 'thermo'], ['rain', 'Rain', 'rain'], ['water', 'Water', 'drop'], ['feeding', 'Feeding', 'bowl'], ['foundation', 'Foundation', 'layers']];
 const hh = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:00`;
@@ -71,16 +74,39 @@ function PlenumControls({ E }) {
   );
 }
 
+// What a piece of gear costs this career (sized for the biggest tank you own: content/upkeep.js), '' in the sandbox.
+const gearCost = (gear) => { const info = ctx.career?.info('gear', gear); return !info ? '' : info.locked ? `Rank ${info.level}` : `¤${info.price}`; };
+
 // A control that needs gear: shows a lock note instead when it is not fitted.
 function Gated({ gear, children }) {
   const W = ctx.game.world;
   if (W.equipment.has(gear)) return children;
-  const g = GEAR[gear], info = ctx.career?.info('gear', gear);
+  const g = GEAR[gear];
   return (
     <div class="tile lock" style={{ margin: '8px 0' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><Icon name="lock" size={15} /><b>{g.name}</b></div>
       <p>{g.blurb}</p>
-      <div class="foot"><span class="price">{info?.locked ? `Rank ${info.level}` : `¤${g.price}`}</span><button class="btn sm" onClick={() => openModal('studio', 'shop')}>Open shop</button></div>
+      <div class="foot"><span class="price">{gearCost(gear)}</span><button class="btn sm" onClick={() => openModal('studio', 'shop')}>Open shop</button></div>
+    </div>
+  );
+}
+
+// "Heats up in about 10 hours": game hours to make 90% of a change (sim/env.js settleHours, read only if this build has it).
+const hoursWord = (h) => (h < 1.5 ? 'about an hour' : h > 20 ? 'about a day' : `about ${Math.round(h)} hours`);
+function settle() {
+  try { return EnvModule.settleHours?.(sizeFactors()) ?? null; } catch { return null; }
+}
+
+// The tank's size, how fast it swings and what it costs to run, at the top of every tab.
+function TankStrip() {
+  const W = ctx.game.world, u = upkeepOf(W), st = settle();
+  const career = ctx.career && !ctx.career.sandbox;
+  return (
+    <div class="note tank-strip" style={{ marginTop: 0, marginBottom: 10 }}>
+      <b>{TANK.name}</b> · {TANK.w} × {TANK.d} × {TANK.h} cm · {Math.round(sizeFactors().litres)} litres
+      {st ? <> · heats up in {hoursWord(st.temp)}, humidity settles in {hoursWord(st.humidity)}</> : null}
+      {RUNNING_COSTS ? <><br />Running costs about <b>¤{u.total.toFixed(1)} a day</b>{u.parts.length ? `: ${u.parts.slice(0, 4).map(([k, v]) => `${k.toLowerCase()} ¤${v.toFixed(1)}`).join(', ')}` : ''}.
+      {career ? ' Paid from your funds as the days pass.' : ' Free in the sandbox.'} A bigger tank needs more light, more heat and a bigger filter.</> : null}
     </div>
   );
 }
@@ -115,6 +141,7 @@ export function CarePanel() {
   const eq = W.equipment;
   return (
     <Sheet title="Care and equipment" icon="heart" tabs={TABS} tab={tab} setTab={setTab}>
+      <TankStrip />
       {tab === 'lights' ? (
         <>
           <div class="seg" style={{ marginBottom: 10 }}>{[['auto', 'Timer'], ['on', 'Always on'], ['off', 'Off']].map(([v, l]) => <button key={v} class={E.lights === v ? 'on' : ''} onClick={() => { E.lights = v; refresh(); }}>{l}</button>)}</div>
@@ -178,7 +205,7 @@ export function CarePanel() {
               return (
                 <div key={id} class={'tile' + (owned ? '' : ' lock')}>
                   <h4>{F.name}</h4><p>{F.blurb}</p>
-                  <div class="foot"><span class="price">{owned ? '' : `¤${GEAR[F.gear].price}`}</span>
+                  <div class="foot"><span class="price">{owned ? '' : gearCost(F.gear)}</span>
                     {owned ? <button disabled={F.mount === 'bed' && !(E.drainage >= 1)} title={F.mount === 'bed' && !(E.drainage >= 1) ? 'Needs a false bottom (Foundation)' : undefined} class={'btn sm' + (E.filterKind === id ? ' primary' : '')} onClick={() => { E.filterKind = id; E.mediaBio = Math.min(E.mediaBio, F.mediaMax); refresh(); }}>{E.filterKind === id ? 'In use' : 'Use'}</button> : <button class="btn sm" onClick={() => openModal('studio', 'shop')}>Shop</button>}</div>
                 </div>
               );
@@ -189,7 +216,7 @@ export function CarePanel() {
             <select value={E.waterSource} onChange={(ev) => { E.waterSource = ev.currentTarget.value; refresh(); }}>{Object.entries(WATER_SOURCES).map(([id, w]) => <option key={id} value={id}>{w.name} (pH {w.ph}, GH {w.gh})</option>)}</select>
           </label>
           <p class="note">{WATER_SOURCES[E.waterSource]?.blurb} Water changes bring the tank toward it.</p>
-          <Toggle label="Show equipment" on={ctx.game.world.plumbing?.show !== false} set={(v) => { if (ctx.game.world.plumbing) ctx.game.world.plumbing.show = v; }} title="Draw the pump, its hoses and the overflow pipe" />
+          <Toggle label="Show equipment" on={ctx.game.world.plumbing?.show !== false} set={(v) => { if (ctx.game.world.plumbing) ctx.game.world.plumbing.show = v; }} title="Draw the pump, filter and overflow in the tank (the hoses stay hidden)" />
           <Slider label="Filter media" value={E.mediaBio} min={0.2} max={(FILTERS[E.filterKind] ?? FILTERS.sponge).mediaMax} step={0.05} set={(v) => { E.mediaBio = v; }} fmt={(v) => Math.round(v * 100) + '%'} />
           <p class="note">A filter's own pump pushes the water through its media: the media trap the particles, and the bacteria living in them turn ammonia into nitrate. More media, more capacity; the trapped dirt clogs it until you rinse it. A false bottom full of bio-rings adds a filter bed under the land.</p>
           <div class="chips"><button class="chip" onClick={() => { toast(Care.ammonia(ctx.game)); refresh(); }}>Dose ammonia (fishless cycle)</button><button class="chip" onClick={() => { toast(Care.fertilise(ctx.game)); refresh(); }}>Fertilise</button></div>
@@ -217,7 +244,7 @@ export function CarePanel() {
               return (
                 <div key={id} class={'tile' + (owned ? '' : ' lock')}>
                   <h4>{name}</h4><p>{gear ? GEAR[gear].teach : 'The simplest build: soil sits straight on the glass, and stays wet.'}</p>
-                  <div class="foot"><span class="price">{owned ? '' : `¤${GEAR[gear].price}`}</span>
+                  <div class="foot"><span class="price">{owned ? '' : gearCost(gear)}</span>
                     {owned ? <button class={'btn sm' + (Math.abs(E.drainage - v) < 0.01 ? ' primary' : '')} onClick={() => { E.drainage = v; refresh(); }}>{Math.abs(E.drainage - v) < 0.01 ? 'Selected' : 'Use'}</button> : <button class="btn sm" onClick={() => openModal('studio', 'shop')}>Shop</button>}</div>
                 </div>
               );

@@ -4,7 +4,7 @@
 export const TANKS = {
   jar: {
     id: 'jar', name: 'Moss jar', w: 34, d: 26, h: 38, closed: true, cellsPerCm: 1.7, level: 1, price: 0,
-    blurb: 'A sealed glass jar: a miniature closed ecosystem. Water evaporates, condenses on the glass and rains back down, so it can run for years on its own if it is balanced.',
+    blurb: 'A sealed glass jar: a miniature closed ecosystem. Water evaporates, condenses on the glass and rains back down, so it can run for years on its own if it is balanced. Room for moss, a crew and a frog or two at most.',
   },
   nano: {
     id: 'nano', name: 'Nano paludarium', w: 60, d: 36, h: 48, closed: false, cellsPerCm: 1.5, level: 3, price: 400,
@@ -36,11 +36,28 @@ export const TANKS = {
   },
   show: {
     id: 'show', name: 'Show tank', w: 180, d: 70, h: 90, closed: false, cellsPerCm: 0.85, level: 11, price: 9800,
-    blurb: 'A 1,130-litre exhibition tank: a full river valley under a tall canopy. The coarsest grid, so it still runs smoothly.',
+    blurb: 'A 1,130-litre exhibition tank: a full river valley under a tall canopy. Slow to warm and steady: it takes about a day to settle, and it costs about three times as much as the standard tank to light, heat and filter.',
+  },
+  // Common glass-terrarium sizes (front-opening, 30-90 cm): more upright and low shapes for real variety. Names invented.
+  spire: {
+    id: 'spire', name: 'Nano column', w: 30, d: 30, h: 45, closed: false, cellsPerCm: 1.9, level: 2, price: 180,
+    blurb: 'A 40-litre upright nano: half again as tall as it is wide, for a bromeliad wall, a vine and a pair of tiny frogs.',
+  },
+  column: {
+    id: 'column', name: 'Cloud column', w: 45, d: 45, h: 60, closed: false, cellsPerCm: 1.6, level: 4, price: 700,
+    blurb: 'A 122-litre square upright: a deep, tall background and a little pool, a classic home for a group of dart frogs.',
+  },
+  tower: {
+    id: 'tower', name: 'Canopy tower', w: 90, d: 45, h: 90, closed: false, cellsPerCm: 1.25, level: 8, price: 3200,
+    blurb: 'A 365-litre high display as tall as it is wide: a full tree-fern canopy over a stream, room for climbers at every height.',
+  },
+  low: {
+    id: 'low', name: 'Low meadow', w: 90, d: 45, h: 45, closed: false, cellsPerCm: 1.33, level: 5, price: 1200,
+    blurb: 'A 182-litre low, wide tank: twice as wide as it is high, a broad floor of moss, leaf litter and a shallow creek.',
   },
 };
 
-export const TANK_ORDER = ['jar', 'cube', 'nano', 'tall', 'standard', 'long', 'wide', 'grand', 'show'];
+export const TANK_ORDER = ['jar', 'cube', 'spire', 'nano', 'column', 'tall', 'low', 'standard', 'long', 'tower', 'wide', 'grand', 'show'];
 
 // --- Custom size (sandbox) ---------------------------------------------------------------------------------
 // Safe limits for the sliders, in centimetres, and the largest volume the grid can take.
