@@ -21,7 +21,7 @@ import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from '.
 import { hideScore } from './habitat.js';
 import { herpSpot, depthCap, depthOk, deepWithin } from './placement.js';
 import { HABITAT } from '../content/habitats.js';
-import { restStep, isNight, REST_LABEL } from './swimrest.js';
+import { restStep, isNight, REST_LABEL, LARVA_REST } from './swimrest.js';
 import { SKINK, skinkMind, skinkThink } from './skink.js';
 import { SHRIMP, shrimpMind, shrimpThink, shrimpDoing } from './shrimp.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
@@ -1494,7 +1494,8 @@ export class Animals {
     }
     a.stranded = false;
     // A tadpole rests on the floor between swim bouts, wakes and flees from a threat, and still feeds (sim/swimrest.js).
-    const env = this.world.env, R = sp.young && !ctl ? restStep(a, dt, { night: isNight(env.minute, env.lightsOn, env.lightsOff), hungry: a.hunger > 0.25 && this.food.length > 0, danger: () => this.danger(a, sp, true), bh: a.bh }) : null;
+    const env = this.world.env, RP = sp === SPECIES.larva ? LARVA_REST : undefined;   // N19: the larva ambushes from the floor
+    const R = sp.young && !ctl ? restStep(a, dt, { profile: RP, night: isNight(env.minute, env.lightsOn, env.lightsOff), hungry: a.hunger > 0.25 && this.food.length > 0, foodNear: !!RP && this.food.some((f) => !f.eaten && eatsItem(sp, f) && f.pos.distanceTo(a.pos) < 3), danger: () => this.danger(a, sp, true), bh: a.bh }) : null;
     if (R) a.doing = R.resting ? REST_LABEL : null;
     const desired = V(0, 0, 0);
     a.wander += (Math.random() - 0.5) * dt * 2.5;
