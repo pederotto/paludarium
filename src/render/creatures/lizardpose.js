@@ -14,7 +14,11 @@
 //          (hip) and its elbow (knee) opened or closed for the reach. With the legs still (calm 1) every bone is exactly at rest.
 //   cut    a gecko that dropped its tail: the tail bones past the cut collapse onto it (the stump); the dropped piece itself (another
 //          instance, `piece` > 0) shows only the tail bones past its cut.
-import { PLANS } from '../../util/bodyplan.js';
+// The muscles (G2, util/lizardmuscles.js): the plan's bellies swell through the frog's writeBones (one a bone a frame, the strongest);
+// channels in `st`: tailBase (rad, the tail base's yaw with the hind legs), peel (0 … 1, a number or [foreL, foreR, hindL, hindR]),
+// jaw and throat (0 … 1).
+import { PLANS, bendAngle } from '../../util/bodyplan.js';
+import { lizardMuscles, swellOf, peelAxis, toePeel, headSwell } from '../../util/lizardmuscles.js';
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const addv = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -64,8 +68,15 @@ export function lizardRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, tu
   const rig = { n, B, byName, head, tail, dir, L, parent, chains, tails, plan, legLift, legStride, limb, turn, reach,
     front: ['spine', 'neck', 'head'].map((k) => byName[k]), len: Math.abs(z0 - z1) || 1, sOf, vent: tails.length ? sOf[tails[0]] : 1,
     limits: B.map((b) => plan.joints[b.name.replace(/[LR]$/, '').replace(/\d+$/, '')] ?? null),
-    pose: poseLizard, write: deps.writeBones, foot: deps.footOffset };
-  rig.muscles = deps.musclesOf ? deps.musclesOf(plan, B, byName, parent, dir, L) : [];
+    pose: poseLizard, write: deps.writeBones, foot: deps.footOffset, species: skel.species ?? 'gecko' };
+  // the muscles (G2): every belly of the plan (`bellies`); `muscles` is what the last pose swells (one a bone)
+  rig.bellies = lizardMuscles(B, byName, parent, dir, L, rig.species, plan);
+  rig.muscles = rig.bellies; rig.active = []; rig.best = new Int32Array(n);
+  // the fans' peel axes (rest frame, by bone) and the head's axes for the jaw (side) and the throat (up) swell
+  rig.peelAxes = [];
+  for (const c of chains) if (c.ends[1] != null) rig.peelAxes[c.ends[1]] = peelAxis(dir[c.ends[1]]);
+  const dh = dir[byName.head], up = norm(sub([0, 1, 0], mul(dh, dh[1])));
+  rig.headAxes = { up, side: norm(cross(up, dh)) };
   return rig;
 }
 
@@ -91,9 +102,50 @@ export function poseLizard(rig, st, out, o = 0, info = null) {
   }
   if (info) info.tips = {};
   legs(rig, st, R, H, info);
+  peel(rig, st, R);
+  swellHead(rig, st, R);
   cut(rig, st, R, H);
+  rig.muscles = active(rig, R);
   rig.write(rig, R, H, out, o);
   return info;
+}
+
+// The toe channel (G2): st.peel, one number for all four feet or [foreL, foreR, hindL, hindR], 0 attached flat … 1 peeled: each fan
+// (toes, fingers) turns about its knuckle so its tip goes up and back toward the heel (util/lizardmuscles.js toePeel, peelAxis).
+function peel(rig, st, R) {
+  const p = st.peel;
+  if (!p) return;
+  for (const c of rig.chains) {
+    const f = c.ends[1], v = typeof p === 'number' ? p : p[c.limb - 1] ?? 0;
+    const a = f == null ? 0 : toePeel(v, c.limb >= 3 ? 'toes' : 'fingers', rig.plan);
+    if (a > 0) R[f] = mm(R[f], rotAxis(rig.peelAxes[f], a));
+  }
+}
+
+// The jaw and throat channels (G2): st.jaw (0 … 1, the adductors clenched) widens the head, st.throat (0 … 1, the gular pump; at rest
+// util/lizardmuscles.js throatFlutter) deepens it: the head bone swollen about its axis, S = I + jaw s sᵀ + throat u uᵀ.
+function swellHead(rig, st, R) {
+  if (!st.jaw && !st.throat) return;
+  const { jaw, throat } = headSwell(st.jaw ?? 0, st.throat ?? 0, rig.species), { up: u, side: s } = rig.headAxes, hd = rig.front[2];
+  const S = [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => (r === c ? 1 : 0) + jaw * s[r] * s[c] + throat * u[r] * u[c]));
+  R[hd] = mm(R[hd], S);
+}
+
+// The bellies this pose swells. The frog's writeBones swells a bone by one belly (the last it meets), so of a bone's bellies (the
+// hip's swing and push, the tail base pulled by either leg) it gets the strongest one shortening, else the most stretched.
+function active(rig, R) {
+  const { bellies, parent, dir, best } = rig, act = rig.active;
+  act.length = 0; best.fill(-1);
+  for (const m of bellies) {
+    const pj = parent[m.j];
+    if (R[m.j] === ZERO || R[pj] === ZERO) continue;          // a bone of a dropped tail's piece
+    const k = swellOf(m, bendAngle(mv(R[pj], rig.dir[pj]), mv(R[m.j], dir[m.j])));
+    if (Math.abs(k) < 1e-4) continue;
+    const i = best[m.b];
+    if (i < 0) { best[m.b] = act.length; act.push(m); m.now = k; }
+    else if (k > 0 ? k > act[i].now : act[i].now < 0 && k < act[i].now) { act[i] = m; m.now = k; }
+  }
+  return act;
 }
 
 // The trunk, neck, head and tail: the rig2 channels as joint yaw and pitch, each inside its range.
@@ -116,7 +168,8 @@ function axial(rig, st, Lr) {
   // the tail points back (-z): a swing toward +x is a negative yaw; the swing and the lift grow from mid-body (spine 0.5)
   for (const t of rig.tails) {
     const arcB = L[parent[t]], arcT = t === rig.tails[0] ? Math.max(0, rig.vent - 0.5) * rig.len : L[parent[t]];
-    Lr[t] = mm(rotY(lim('tail', 'yaw', -(kB * arcB + kT * arcT))), rotX(lim('tail', 'pitch', kL * arcT)));
+    const base = t === rig.tails[0] ? st.tailBase ?? 0 : 0;   // the tail base's swing with the hind legs (lizardmuscles.js tailBaseSwing)
+    Lr[t] = mm(rotY(lim('tail', 'yaw', base - (kB * arcB + kT * arcT))), rotX(lim('tail', 'pitch', kL * arcT)));
   }
 }
 
