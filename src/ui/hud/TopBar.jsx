@@ -49,7 +49,7 @@ export function TopBar() {
     let free = false;
     const pre = (e) => {
       free = e.key === 'Escape' && !S.modal.value && !S.selection.value && S.tool.value === 'view' && !S.sub.value.kit && !S.piece.value
-        && !S.hub.value && !S.coach.value?.event && !document.body.classList.contains('zen') && !S.photo.value && !S.timelapse.value;
+        && !S.hub.value && !S.coach.value?.event && !document.body.classList.contains('zen') && !S.focusHide.value && !S.photo.value && !S.timelapse.value;
       if (e.key === 'Escape' && S.hub.value) { S.hub.value = null; }
     };
     const post = (e) => { if (e.key === 'Escape' && free) { free = false; S.right.value = false; S.hub.value = 'menu'; } };

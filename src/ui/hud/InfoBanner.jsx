@@ -130,7 +130,7 @@ export function InfoBanner() {
   const acts = (guide) => (
     <div class="bn-acts">
       <button class="btn sm primary" onClick={() => T.zoomTo(sel)}><Icon name="search" size={14} />Zoom in</button>
-      {sel.kind === 'animal' ? <button class={'btn sm' + (following ? ' amber' : '')} onClick={() => T.follow(following ? null : sel.obj)}><Icon name="eye" size={14} />{following ? 'Stop following' : 'Follow'}</button> : null}
+      {sel.kind === 'animal' ? <button class={'btn sm' + (following ? ' amber' : '')} onClick={() => T.followMode(following ? null : sel.obj)}><Icon name="eye" size={14} />{following ? 'Stop following' : 'Follow'}</button> : null}
       {guide ? <button class="btn sm" onClick={() => openModal('codex', guide)}><Icon name="book" size={14} />Field guide</button> : null}
     </div>
   );
