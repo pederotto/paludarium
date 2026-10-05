@@ -238,21 +238,13 @@ ankles and feet, the order measured for a frog's take-off (Biomimetics 9(3):168,
 flight; folded before the landing; the forelegs drawn back under the chest, then reaching forward and down to land on). The sitting
 body is drawn on the ground before and after. This replaces the sitting skeleton's hop, whose skin stretched about threefold.
 
-**Webbing** (2026-10-04): the swimming body's hind feet carry a membrane between each two toes, for the species that have one
-(`WEB` in tools/bake-frogpose.mjs): the fire-bellied toad nearly to the tips (Bombina orientalis), the red-eyed tree frog and the
-reed frog most of the way. The poison frogs have free toes with discs and the bumblebee toad only a trace at the base: none drawn.
-The bake finds the toes on the scan (`hindToes`: walking the foot's surface from the skeleton's ankle joint, the toes are the parts
-that stay apart as the distance falls; each toe's centre line from the foot's end to its disc) and spans a thin sheet between
-neighbours (`webSheet`): its sides run along the two toes from inside the foot, past the fork, to `ext` of their free length, its free
-edge a shallow curve (`dep`). Both faces, material id 2 (a membrane: see-through, drawn in the blended pass, `finOpacity` 0.38), a
-paler wash of the toes' colour; each vertex takes the binding of the nearest scan vertex, so the web moves with the toes' bones.
-The toes have one bone between them, so they cannot fan out and close: the web is faded with the hind legs' extension instead
-(`finish.webFold`, render/creatures/instanced.js; the hop the stroke and the leap hand the rig), open as the legs drive and trail,
-gone as they are drawn up (the toes close then in a real frog). The owner's verdict on a first try (webs reaching half to three
-quarters out, a deep notch between toes, opaque and toe-coloured): "more than webbing it looks like handicaps; webbing is
-translucent, fills all the space between fingers". Check: `node tools/steps/web-look.mjs` (the foot on the bench through a stroke)
-and `tools/steps/ripple-look.mjs --views=feet` (in a tank). Open: per-toe bones would let the toes fan out and close for real (21
-bones fit a row of the bone texture: two more a foot).
+**Open (noted by the owner, 2026-10-04)**: the swimming body has no webbing between its toes. A swimming frog's foot is a paddle:
+the web spreads as the foot drives back and folds as it trails. Built and parked on the local branch `feat/webbing` (on top of
+`feat/water2`), not shipped: a see-through membrane between the hind toes out to near the tips for the fire-bellied toad, the red-eyed
+tree frog and the reed frog (tools/bake-frogpose.mjs `hindToes`, `webSheet`; faded with the legs' extension, render/creatures/
+instanced.js `webFold`), waiting for the owner's verdict on its third pass (the first, opaque and reaching half to three quarters
+out, "looks like handicaps; webbing is translucent, fills all the space between fingers"). Until then the foot's hull sphere stands
+in for the web in the water coupling (`poseStroke` hull: a foot counts 2.2 times its bone's width).
 
 **Adding a frog**: a job in tools/bake-frogpose.mjs (size, painter, eyes: `node tools/bake-frogpose.mjs <id>.swim`), a SWIM row in
 bodyplan.js (copy the nearest species, then set kick rate and reach from its biology: a weak swimmer 0.4-0.5 body lengths a kick, a

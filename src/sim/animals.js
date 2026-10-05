@@ -4561,8 +4561,7 @@ export class Animals {
         if (leapMesh?.strokes) {
           const t = a.hop.t;
           q.setFromEuler(e.set((a.pitch ?? 0) - 0.22 * (1 - t), a.yaw, 0, 'YXZ'));
-          // (the hop: the legs' extension through the leap, which spreads a webbed frog's toes and web: render/creatures/instanced.js webFold)
-          leapMesh.put(_p.copy(a.pos).setY(a.pos.y + 0.27 * sp.size * sc), q, sc, 0, 0, 0, packAnim(hopLegs(t) * 0.5, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, leapStroke(t, a.leapA ??= { legA: new Float32Array(9), armA: new Float32Array(6) }));
+          leapMesh.put(_p.copy(a.pos).setY(a.pos.y + 0.27 * sp.size * sc), q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, leapStroke(t, a.leapA ??= { legA: new Float32Array(9), armA: new Float32Array(6) }));
         } else if (sleepMesh) sleepMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (breathing, eyes shut)
         else if (swimMesh) {
           sw.stroke.info = a.swTips ??= {};
