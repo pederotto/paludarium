@@ -192,6 +192,8 @@ async function runOne({ scene, seed, hours, speed, DEBUG, LARVA }) {
             const ly = a.pos.y - gg < 0.9 ? 'bottom' : tp - a.pos.y < 0.9 ? 'surface' : 'mid';
             (air ? q.layerAir : q.layer)[ly] += dMin;
             if (resting && !air && ly === 'bottom') q.floorRest = (q.floorRest ?? 0) + dMin;   // N1: at rest on the floor
+            // N19: on the floor and not self-propelled (own horizontal velocity under 0.15 cm/s; drift in the current and sinking count as rest), day 08-20 / night 20-08.
+            if (!air) { const k = isDay ? 'D' : 'N', own = Math.hypot(a.vel?.x ?? 0, a.vel?.z ?? 0), fr = ly === 'bottom' && own < 0.15; q['wet' + k] = (q['wet' + k] ?? 0) + dMin; if (fr) q['fr' + k] = (q['fr' + k] ?? 0) + dMin; if (fr && !p.fr) q.frBouts = (q.frBouts ?? 0) + 1; p.fr = fr; }
             if (air && !/^air/.test(p.st ?? '')) q.airN++;
             if (a.pos.y < gg - 0.25 || (A.occ.count && A.occ.solidAt(a.pos.x, a.pos.y + 0.3, a.pos.z))) q.bankMin += dMin;
             if (mv > 1e-4) q.swimMin += dMin;
@@ -228,6 +230,10 @@ async function runOne({ scene, seed, hours, speed, DEBUG, LARVA }) {
         firesalAdultCm: fg ? +((fg.boundingBox.max.z - fg.boundingBox.min.z) * drawScale({ age: 1e7 }, fs)).toFixed(2) : null,
         cm: Object.fromEntries(['firesal', 'newt', 'marbled'].map((p) => [p, [len(p, 0), len(p, L.metamorphDays * 1440)]])),
         floorRest: S.larva ? +(100 * (S.larva.floorRest ?? 0) / Math.max(1e-9, S.larva.wetMin)).toFixed(1) : null };
+      { const Q = S.larva ?? {}, pc = (a, b) => +(100 * (a ?? 0) / Math.max(1e-9, b ?? 0)).toFixed(1); let prof = 'none';
+        try { const m = await import('/src/sim/swimrest.js'); prof = m.LARVA_REST ? JSON.stringify(m.LARVA_REST) : 'none'; } catch (e) { prof = 'import failed'; }
+        res.larva.n19 = { day: pc(Q.frD, Q.wetD), night: pc(Q.frN, Q.wetN), wetMinD: Math.round(Q.wetD ?? 0), wetMinN: Math.round(Q.wetN ?? 0), bouts: Q.frBouts ?? 0, profile: prof };
+        console.log('N19 floorRest v1 (own-vel<0.15, day/night)', seed, JSON.stringify(res.larva.n19)); }
       console.log('N1 larva', JSON.stringify(res.larva));
     }
     res.errors = errors; res.thrown = thrown; res.debug = debug;

@@ -120,3 +120,35 @@ test('DUMP+BASE: the bottom-band fish rest as often as before (shares, not rows)
     assert.ok(Math.abs(pa - pb) <= tol, `${id} ${pa} vs ${pb}`);
   }
 });
+
+// N19: salamander larvae are bottom-dwelling sit-and-wait hunters (general knowledge, "check"): at least 60 % of the time on the
+// floor by day and by night. LARVA_REST ambushes instead of leaving to feed, wakes only for a close threat and settles sooner.
+test('N19: with LARVA_REST a larva rests >= 60 % by day and by night; the tadpole default is unchanged', async () => {
+  const { LARVA_REST } = await import('../src/sim/swimrest.js');
+  assert.ok(LARVA_REST, 'LARVA_REST is not exported');
+  const P = { profile: LARVA_REST, hungry: false, danger: noDanger, bh: 0.4 };
+  const d = share(24, 3600, { ...P, night: false }), n = share(24, 3600, { ...P, night: true });
+  assert.ok(d >= 0.60 && d <= 0.95 && n >= 0.60 && n <= 0.95, `larva day ${d} night ${n}`);
+});
+
+test('N19: a resting larva stays down while hungry unless food is within reach; a far threat does not wake it, a close one does', async () => {
+  const { LARVA_REST } = await import('../src/sim/swimrest.js');
+  const a = { phase: 2.1, pos: { x: 0, z: 0 } };
+  const C = (o) => ({ profile: LARVA_REST, night: false, hungry: false, foodNear: false, danger: noDanger, bh: 0.4, ...o });
+  let r = null;
+  for (let t = 0; t < 600 && !r?.resting; t += 0.1) r = restStep(a, 0.1, C({}));
+  assert.ok(r.resting, 'never settled');
+  for (let t = 0; t < 3 && r.resting; t += 0.1) r = restStep(a, 0.1, C({ hungry: true }));
+  assert.ok(r.resting, 'left the floor to feed with no food in reach');
+  for (let t = 0; t < 3 && r.resting; t += 0.1) r = restStep(a, 0.1, C({ danger: () => ({ x: 10, z: 0 }) }));
+  assert.ok(r.resting, 'a threat 10 cm away woke it');
+  r = restStep(a, 0.4, C({ danger: () => ({ x: 2, z: 0 }) }));
+  assert.ok(!r.resting && r.flee, 'a threat 2 cm away did not wake it');
+  let back = null;
+  for (let t = 0; t < 10; t += 0.1) { if (restStep(a, 0.1, C({})).resting) { back = t; break; } }
+  assert.ok(back != null && back <= 3, `settled again after ${back} s`);
+  const b = { phase: 2.1, pos: { x: 0, z: 0 } };
+  for (let t = 0; t < 600 && !r?.resting; t += 0.1) r = restStep(b, 0.1, C({}));
+  r = null; for (let t = 0; t < 600 && !r?.resting; t += 0.1) r = restStep(b, 0.1, C({}));
+  assert.equal(restStep(b, 0.1, C({ hungry: true, foodNear: true })).resting, false, 'food in reach did not wake it');
+});
