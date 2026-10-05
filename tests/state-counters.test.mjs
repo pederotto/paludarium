@@ -92,7 +92,7 @@ test('coverage: a late arrival is fine, a missing sample is not, a final animal 
 
 test('parseDump and summary', () => {
   const rows = dump([gecko('gecko-0', () => ({ gd: 4 })), { id: 'newt-0', sp: 'newt', at: () => ({ inWater: 1, swim: 1 }) }]);
-  const text = [{ hdr: 1, sizes: SIZES }, ...rows, { end: 1, alive: ['gecko-0', 'newt-0'] }].map((o) => JSON.stringify(o)).join('\n') + '\n';
+  const text = [{ hdr: 1, sizes: SIZES }, ...rows, { end: 1, alive: ['gecko-0', 'newt-0'], stuckStats: { unstuck: 2 } }].map((o) => JSON.stringify(o)).join('\n') + '\n';
   const d = parseDump(text);
   assert.equal(d.rows.length, rows.length);
   assert.equal(d.hdr.sizes.gecko, 9.5);
@@ -102,4 +102,6 @@ test('parseDump and summary', () => {
   assert.equal(s.species.gecko.stuck, 1);
   assert.equal(s.species.newt.water, 1);
   assert.equal(s.coverage.ok, true);
+  assert.deepEqual(s.gameStuck, { unstuck: 2 });
+  assert.equal(s.T, 60);
 });

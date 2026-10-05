@@ -33,15 +33,25 @@ async function init(cfg) {
   const { TANK } = await import('/src/sim/tank.js');
   const { SPECIES } = await import('/src/sim/animals.js');
   const w = await game.loadTank(cfg.tier, { layout: 'empty' });
-  window.requestAnimationFrame = () => 0;                       // no render loop from here: it would consume the seeded stream
+  // No render loop, and nothing a stray game frame could do to the sim: a frame that is still queued or looping calls sim.step(0),
+  // animals.move(0) and draw with the REAL Math.random, which re-rolls animal modes and timers at wall-clock moments (the first
+  // determinism check failed that way: every animal differed by t = 10 s). The gate lets those calls through only inside our own
+  // synchronous blocks (enter/leave below); how many it stopped is in <dump>.meta.json (blocked).
+  try { game.renderer?.setAnimationLoop?.(null); } catch (e) { /* not three's loop */ }
+  window.requestAnimationFrame = () => 0;
+  const G = (window.__sdGate = { inChunk: false, blocked: 0 });
+  for (const [obj, name] of [[w.sim, 'step'], [w.animals, 'move'], [w.animals, 'draw'], [w.water, 'animate']]) {
+    const f = obj && obj[name];
+    if (typeof f === 'function') obj[name] = function (...args) { if (!G.inChunk) { G.blocked++; return undefined; } return f.apply(this, args); };
+  }
   await new Promise((r) => setTimeout(r, 400));                  // (a frame already queued runs out)
   // ---- synchronous from here to the end: nothing else can run between these lines ----
   const realRandom = Math.random, realNow = performance.now.bind(performance);
   let s = (cfg.seed * 9973 + 17) >>> 0;
   const rnd = () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const S = (window.__sd = { cfg, w, A: w.animals, E: w.env, SPECIES, rnd, vnow: 1e7, f: 0, thrown: 0, errors: [], meta: new WeakMap(), nid: {}, prey: {}, lastHr: null });
-  S.enter = () => { Math.random = rnd; performance.now = () => S.vnow; };
-  S.leave = () => { Math.random = realRandom; performance.now = realNow; };
+  S.enter = () => { G.inChunk = true; Math.random = rnd; performance.now = () => S.vnow; };
+  S.leave = () => { G.inChunk = false; Math.random = realRandom; performance.now = realNow; };
   const A = S.A, E = S.E;
   S.place = (id, n, extra = {}) => {
     let made = 0;
@@ -183,8 +193,8 @@ export async function runDump(page, cfg, log = console.log) {
   const end = await page.evaluate(() => window.__sd.footer());
   fs.writeSync(fd, JSON.stringify(end) + '\n');
   fs.closeSync(fd);
-  const wallS = (Date.now() - t0) / 1000, gameDays = end.gameMinutes / 1440;
-  fs.writeFileSync(file.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({ wallS, gameDays, wallPerGameDay: gameDays ? wallS / gameDays : null, cfg }, null, 1));
+  const wallS = (Date.now() - t0) / 1000, gameDays = end.gameMinutes / 1440, blocked = await page.evaluate(() => window.__sdGate?.blocked ?? null);
+  fs.writeFileSync(file.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({ wallS, gameDays, blocked, wallPerGameDay: gameDays ? wallS / gameDays : null, cfg }, null, 1));
   return { file, hdr, end, rows: nRows, wallS, gameDays };
 }
 

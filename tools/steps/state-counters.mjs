@@ -1,7 +1,7 @@
 // Pure counters over a state dump (tools/steps/state-dump.mjs; row format: docs/agents/lizards/CONTRACTS.md "State dump row").
 // A dump is JSON lines: a header ({hdr:1,...}), one row per animal per sample, a footer ({end:1,...}). Everything here takes the rows
 // (an array, in file order = time order per animal) and returns plain numbers, so a check can read them without a browser.
-//   node tools/steps/state-counters.mjs test-output/state/<dump>.jsonl [--T=12] [--pileT=300] [--r=1]
+//   node tools/steps/state-counters.mjs test-output/state/<dump>.jsonl [--T=60] [--pileT=300] [--r=1]
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -21,7 +21,7 @@ const bump = (o, k, v = 1) => { o[k] = (o[k] ?? 0) + v; };
 
 // Stuck: awake, has a goal farther than `r` cm, and stayed within `r` cm (3-D) of where the run began for longer than T s.
 // One episode per run; its dur is the last still sample minus the first. Needs the dump's `every` <= T / 3 to resolve T.
-export function stuck(rows, { T = 12, r = 1 } = {}) {
+export function stuck(rows, { T = 60, r = 1 } = {}) {
   const episodes = [];
   for (const [id, list] of byId(rows)) {
     let anchor = null, ep = null;
@@ -126,7 +126,7 @@ export function coverage(rows, end = null) {
 }
 
 // One table: per species, everything above.
-export function summary(rows, hdr = null, end = null, { T = 12, r = 1, pileT = 300 } = {}) {
+export function summary(rows, hdr = null, end = null, { T = 60, r = 1, pileT = 300 } = {}) {
   const sizes = hdr?.sizes ?? {};
   const st = stuck(rows, { T, r }), pa = pile(rows, { T: pileT, sizes, awakeOnly: true }), pl = pile(rows, { T: pileT, sizes }), wt = waterTime(rows, { lights: hdr?.lights }), sol = inSolid(rows), tn = tunnel(rows);
   const species = {}, sp0 = new Map(rows.map((x) => [x.id, x.sp]));
@@ -137,7 +137,7 @@ export function summary(rows, hdr = null, end = null, { T = 12, r = 1, pileT = 3
     q.water = wt[sp]?.share ?? 0; q.waterAwake = wt[sp]?.shareAwake ?? 0; q.waterDay = wt[sp]?.dayShare ?? 0; q.waterNight = wt[sp]?.nightShare ?? 0;
     q.stuck = st.bySp[sp] ?? 0; q.pileAwake = pcount(pa, sp); q.pileAll = pcount(pl, sp); q.inSolid = sol.bySp[sp]?.rows ?? 0; q.tun = tn.bySp[sp] ?? 0;
   }
-  return { species, stuck: st, pileAwake: pa, pileAll: pl, inSolid: sol, tunnel: tn, coverage: coverage(rows, end), ids: sp0.size };
+  return { T, species, gameStuck: end?.stuckStats ?? null, stuck: st, pileAwake: pa, pileAll: pl, inSolid: sol, tunnel: tn, coverage: coverage(rows, end), ids: sp0.size };
 }
 
 export function formatSummary(s) {
@@ -146,16 +146,16 @@ export function formatSummary(s) {
   for (const [sp, q] of Object.entries(s.species)) L.push(`${sp.padEnd(12)} ${String(q.count).padEnd(8)} ${String(q.rows).padEnd(7)} ${[pc(q.water), pc(q.waterAwake), pc(q.waterDay), pc(q.waterNight)].join(' / ').padEnd(33)} ${String(q.stuck).padEnd(6)} ${(q.pileAwake + ' / ' + q.pileAll).padEnd(16)} ${String(q.inSolid).padEnd(8)} ${q.tun}`);
   const c = s.coverage;
   L.push(`coverage: ${c.ok ? 'OK' : 'FAIL'} (${c.animals} animals, ${c.atEnd} present at the last of ${c.samples} samples, ${c.gaps.length} with gaps, ${c.missing.length} alive without a final row)`);
-  L.push(`stuck: ${s.stuck.count} episodes, longest ${s.stuck.maxDur} s; pile: ${s.pileAwake.count} awake / ${s.pileAll.count} all (longest ${s.pileAll.maxDur} s); inSolid: ${s.inSolid.rows} rows, ${s.inSolid.animals} animals; tunnel: ${s.tunnel.total}`);
+  L.push(`stuck (T=${s.T} s): ${s.stuck.count} episodes, longest ${s.stuck.maxDur} s; the game's own stuckStats: ${JSON.stringify(s.gameStuck)}; pile: ${s.pileAwake.count} awake / ${s.pileAll.count} all (longest ${s.pileAll.maxDur} s); inSolid: ${s.inSolid.rows} rows, ${s.inSolid.animals} animals; tunnel: ${s.tunnel.total}`);
   return L.join('\n');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2), file = args.find((a) => !a.startsWith('--'));
   const opt = (k, d) => { const a = args.find((x) => x.startsWith(`--${k}=`)); return a ? +a.split('=')[1] : d; };
-  if (!file) { console.log('usage: node tools/steps/state-counters.mjs <dump.jsonl> [--T=12] [--pileT=300] [--r=1]'); process.exit(1); }
+  if (!file) { console.log('usage: node tools/steps/state-counters.mjs <dump.jsonl> [--T=60] [--pileT=300] [--r=1]'); process.exit(1); }
   const { hdr, rows, end } = parseDump(fs.readFileSync(file, 'utf8'));
-  const s = summary(rows, hdr, end, { T: opt('T', 12), r: opt('r', 1), pileT: opt('pileT', 300) });
+  const s = summary(rows, hdr, end, { T: opt('T', 60), r: opt('r', 1), pileT: opt('pileT', 300) });
   console.log(formatSummary(s));
   for (const e of s.stuck.episodes.slice(0, 8)) console.log(`  stuck ${e.id} day ${e.day} ${e.hour} h  t=${e.t0}  ${e.dur} s in ${e.mode} at (${e.x}, ${e.y}, ${e.z})`);
 }
