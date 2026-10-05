@@ -26,6 +26,8 @@
 import { PLANS, bendAngle } from '../../util/bodyplan.js';
 import { strokeAngles, armAngles, HIND, FORE } from '../../util/gait.js';
 import { lizardRig } from './lizardpose.js';
+import { bellyRig, writeBellies, MUSCLE_TEXEL0 } from './muscles.js';
+export { MUSCLE_TEXEL0 };
 
 export const ROW_TEXELS = 75;                  // (25 bones: a lizard's) texels in an instance's row of the bone texture (RGBA float each)
 export const BONE_TEXELS = 3;                  // a bone is an affine 3 x 4 matrix: three rows of [m0, m1, m2, t]
@@ -41,6 +43,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const len = (a) => Math.hypot(a[0], a[1], a[2]);
 const norm = (a) => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerpN = (a, b, t) => a + (b - a) * t;
 // 3 x 3 matrices as 9 numbers, row-major
 const I3 = () => [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const mv = (m, v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
@@ -82,7 +85,7 @@ const foldReach = (c, p) => len(sub(fold(c, p).T, c.A));
 // The runtime form of a baked skeleton: indices, rest directions and lengths, the leg chains and the muscles. `anim`: the species'
 // rig numbers ({ legLift, legStride, limb }) and its turning frame ({ pz, R }: render/creatures/instanced.js turnFinish). Returns
 // null for a skeleton this runtime cannot pose (another plan, too many bones, a missing leg).
-export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, turn = null, reach = 0.85 } = {}) {
+export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, turn = null, reach = 0.85, muscles = false } = {}) {
   if (!skel?.bones?.length || skel.bones.length > MAX_BONES) return null;
   const plan = PLANS[skel.plan ?? 'anuran'];
   if (skel.plan === 'lizard') return lizardRig(skel, { legLift, legStride, limb, turn, reach }, { musclesOf, writeBones, footOffset });
@@ -102,7 +105,9 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
         limbs.push({ side, hind, limb: B[bones[0]].limb, bones, u0: bones.map((b) => across(dir[b], UP)) });
       }
     }
-    return { n, B, byName, head, tail, dir, L, parent, limbs, muscles: musclesOf(plan, B, byName, parent, dir, L), plan, stroke: true,
+    // (with a muscle binding the bellies replace the bones' radial swell: render/creatures/muscles.js)
+    const belly = muscles ? bellyRig(skel) : null;
+    return { n, B, byName, head, tail, dir, L, parent, limbs, muscles: belly ? [] : musclesOf(plan, B, byName, parent, dir, L), belly, plan, stroke: true,
       limits: B.map((b) => plan.joints[b.name.replace(/[LR]$/, '')] ?? null) };
   }
   // The trunk's line as baked (pelvis to head): a scanned frog sits nose up, so "behind the body" is down and back in the model.
@@ -127,7 +132,8 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
         swimExt: norm(addv(addv(mul(tf, -1), mul(ventral, 0.12)), [s === 'L' ? -0.42 : 0.42, 0, 0])) });
     }
   }
-  return { n, B, byName, head, tail, dir, L, parent, chains, muscles: musclesOf(plan, B, byName, parent, dir, L), plan, legLift, legStride, limb, turn, reach, ventral,
+  const belly = muscles ? bellyRig(skel) : null;
+  return { n, B, byName, head, tail, dir, L, parent, chains, muscles: belly ? [] : musclesOf(plan, B, byName, parent, dir, L), belly, plan, legLift, legStride, limb, turn, reach, ventral,
     limits: B.map((b) => plan.joints[b.name.replace(/[LR]$/, '')] ?? null) };
 }
 
@@ -238,13 +244,13 @@ export function poseBones(rig, st, out, o = 0, info = null) {
     for (const e of c.ends) { R[e] = Rend; H[e] = addv(E, mv(Rend, sub(head[e], c.E))); }
     if (info) info.tips[c.limb] = addv(E, mv(Rend, legT0));
   }
-  writeBones(rig, R, H, out, o);
+  writeBones(rig, R, H, out, o, st);
   return info;
 }
 
 // The bones' matrices packed for the GPU: 12 floats a bone (rows of [R | t], posed = R · rest + t) into `out` from `o`, each bone
 // turned by R[b] about its head, now at H[b]; the muscles swell first.
-function writeBones(rig, R, H, out, o) {
+function writeBones(rig, R, H, out, o, st = null) {
   const { n, head, dir, muscles } = rig;
   // muscles: radial swell of a bone about its rest axis, S = I + k (I - d dᵀ), applied before the bone's rotation
   const S = new Array(n).fill(null);
@@ -263,6 +269,7 @@ function writeBones(rig, R, H, out, o) {
     out[p + 4] = M[3]; out[p + 5] = M[4]; out[p + 6] = M[5]; out[p + 7] = t[1];
     out[p + 8] = M[6]; out[p + 9] = M[7]; out[p + 10] = M[8]; out[p + 11] = t[2];
   }
+  if (rig.belly) writeBellies(rig.belly, R, H, head, out, o, st, !!rig.stroke);
 }
 
 // --- The swimming body's stroke ----------------------------------------------------------------------------------------------------
@@ -300,19 +307,23 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
   for (const c of limbs) {
     const left = c.side < 0, k = c.bones.length;
     let A;
-    if (c.hind && s.legA) A = s.legA;                 // (angles given outright: a leap, util/gait.js leapStroke)
+    if (c.hind && s.legA) A = s.legA.length >= 18 ? s.legA.subarray(left ? 0 : 9, left ? 9 : 18) : s.legA;   // (a hop gives each leg its own: util/gait.js leapPose)
     else if (!c.hind && s.armA) A = s.armA;
     else if (c.hind) {
-      A = strokeAngles(left ? s.pL : s.pR, _hind, 0, left ? s.ampL : s.ampR, s.float);
+      A = strokeAngles(left ? s.pL : s.pR, _hind, 0, left ? s.ampL : s.ampR, s.float, s.floatPose);
       // (floating, the legs scull gently about their spread, one side then the other)
       if (s.float > 0) { const w = s.float * (s.scull ?? 0) * (left ? 1 : -1) * 60; A[0] += w; A[1] += w * 0.6; A[2] -= w * 0.8; }
-    } else A = armAngles(s.arms, _fore, 0, s.float);
+    } else A = armAngles(s.arms, _fore, 0, s.float, s.floatPose);
     // (sitting on the bottom: the legs folded and the hands down, as it sits on land)
-    if (s.sit > 0 && !s.legA) { const to = c.hind ? HIND.cock : FORE.stand; for (let i = 0; i < to.length; i++) A[i] += (to[i] - A[i]) * s.sit; }
+    if (s.sit > 0 && !s.legA) { const to = c.hind ? HIND.fold : FORE.stand; for (let i = 0; i < to.length; i++) A[i] += (to[i] - A[i]) * s.sit; }
     let J = head[c.bones[0]], dPrev = null;
+    // (a hind leg still pushing in a hop's launch: its toes stay where they were planted; util/gait.js leapPose, util/hop.js hopFrame)
+    const P = c.hind ? plantDirs(rig, c, A, s) : null;
     for (let i = 0; i < k; i++) {
-      const b = c.bones[i], d1 = segDir(A[i], A[k + i], c.side);
-      let u1 = across(d1, UP);
+      const b = c.bones[i], d1 = P ? P[i] : segDir(A[i], A[k + i], c.side);
+      // (a hop turns each bone by the shortest arc from its rest, so nothing rolls about its length but the foot's roll; the swimming
+      // stroke keeps each bone's back up, as approved)
+      let u1 = s.hop ? mv(arc(dir[b], d1), c.u0[i]) : across(d1, UP);
       // (the foot rolls about its own length: the web upright as it pushes, flat as it trails)
       if (c.hind && i >= 2 && A[8]) u1 = mv(rotAxis(d1, A[8] * RAD * c.side), u1);
       R[b] = frameRot(dir[b], c.u0[i], d1, u1);
@@ -323,10 +334,109 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
       if (info) info.hull.push([J[0], J[1], J[2], Math.max(0.12, (rig.B[b].r ?? 0.15) * (c.hind && i >= 2 ? 2.2 : 1.1))]);    // (a foot is a paddle: its web is wider than its bone)
       dPrev = d1;
     }
+    // (in a hop no limb goes through the floor: a limb reaching below it turns up about its root just enough to rest on it, as a
+    // limb pressing on the ground does; util/hop.js frames carry the body's place, so the floor is known in the model's terms)
+    if (s.frames) J = floorLimb(c, R, H, J, head[c.bones[0]], s.frames.ft);
     if (info) info.tips[c.limb] = J;
   }
-  writeBones(rig, R, H, out, o);
+  writeBones(rig, R, H, out, o, s);
   return info;
+}
+
+// A limb's bones (R, H, its tip J) turned up about the limb's root until no joint and not the tip lies below the floor (in the hop's
+// frame `fr`: the take-off ground at 0, the landing ground at the plan's rise); returns the tip.
+function floorLimb(c, R, H, J, root, fr) {
+  // (the take-off ground through the launch, the landing ground from mid-flight: a hop up onto a stone lands higher)
+  const at = fr.at, floor = !at || at.phase === 'launch' || (at.phase === 'flight' && at.u < 0.5) ? 0 : fr.plan?.rise ?? 0;
+  const pts = () => [...c.bones.slice(1).map((b) => H[b]), J];
+  const upM = norm(sub(fr.toModel([fr.pos[0], fr.pos[1] + 1, fr.pos[2]]), fr.toModel(fr.pos)));
+  for (let it = 0; it < 4; it++) {
+    const P = pts(), ys = P.map((p) => fr.toWorld(p)[1] - floor), lo = Math.min(...ys);
+    if (lo >= 0) break;
+    const k = ys.indexOf(lo), arm = sub(P[k], root), reach = len(arm);
+    if (reach < 1e-4) break;
+    const ax = norm(cross(arm, upM));
+    if (len(ax) < 1e-6) break;
+    const Q = rotAxis(ax, Math.min(0.6, (-lo / reach) * 1.05 + 0.002));
+    for (const b of c.bones) { R[b] = mm(Q, R[b]); H[b] = addv(root, mv(Q, sub(H[b], root))); }
+    J = addv(root, mv(Q, sub(J, root)));
+  }
+  return J;
+}
+
+const PEEL = 30;                          // deg below the horizontal as the toes leave the ground: the toes peeling (guess from clip A)
+const MIN_KA = 0.6;                       // the knee's nearest to the planted toe joint, beyond |shank - tarsus|, in thigh lengths
+
+// A planted hind leg's four segment directions, or null when the leg is free: the toes end where the crouch planted them (the
+// crouch's toe tip carried from the hop's start frame into this one: s.frames { f0, ft }, util/hop.js hopFrame) and peel up; the
+// thigh swings out to a wide knee and the shank and tarsus reach from it to the toes (below), so the leg pushes without sliding or
+// twisting.
+function plantDirs(rig, c, A, s) {
+  const side = c.side < 0 ? 'L' : 'R', rel = s.release?.[side] ?? 0;
+  if ((!s.plant?.[side] && !rel) || !s.frames) return null;
+  const k = c.bones.length, L = c.bones.map((b) => rig.L[b]), hip = rig.head[c.bones[0]];
+  const tip0 = ((rig.crouchTip ??= {})[side] ??= (() => {
+    let J = hip;
+    for (let i = 0; i < k; i++) J = addv(J, mul(segDir(HIND.crouch[i], HIND.crouch[k + i], c.side), L[i]));
+    return J;
+  })());
+  const f0 = s.frames.f0, ft = s.frames.ft, w0 = f0.toWorld(tip0);
+  const T = ft.toModel([w0[0], Math.max(w0[1], 0), w0[2]]);                // (the planted tip on the floor, not a hair under it)
+  // the toes and tarsus set against the ground, not the tilting body (the body pitches nose up as it pushes: a slant read in its
+  // frame turned the toes up and sank the ankle into the floor): each keeps the heading it had in the crouch, the toes peel up to
+  // PEEL as the push goes on and the heel lifts the tarsus to HEEL (deg below the horizontal, toward the toe tip)
+  const e = s.plant?.[side] ?? 1, wdir = (fr, p, d) => { const a = fr.toWorld(p), b = fr.toWorld(addv(p, d)); return norm(sub(b, a)); };
+  const mdir = (fr, d) => { const a = fr.toModel(fr.pos), b = fr.toModel(addv(fr.pos, d)); return norm(sub(b, a)); };
+  const slant = (d0, deg) => { const h = norm([d0[0], 0, d0[2]]), r = (deg * Math.PI) / 180; return [h[0] * Math.cos(r), -Math.sin(r), h[2] * Math.cos(r)]; };
+  const C = HIND.crouch, cD = [0, 1, 2, 3].map((i) => segDir(C[i], C[k + i], c.side));
+  const cT = wdir(f0, tip0, cD[3]), sT = (Math.asin(Math.max(-1, Math.min(1, -cT[1]))) * 180) / Math.PI;
+  const dT = mdir(ft, slant(cT, sT + (PEEL - sT) * e)), Bp = sub(T, mul(dT, L[3]));
+  // The leg from the hip down, set in the world as clip A shows it from behind (0.97-1.29 s; the owner, 13:47, "pics 2,3,4 ... the
+  // hips and first half of the leg"): the thigh swings out of the crouch to the side and back a little, near level, to a wide knee
+  // (down and back in a long jump's push, clip B); the shank and the tarsus then reach from the knee to the planted toes with the
+  // heel behind the knee and out under it, so from behind the shank drops from the knee. (Solved from the toes up, as until 13:50,
+  // the ankle sat in by the vent and pulled the knee in under the hip.) The scan's shank and tarsus are long (together 2.7 thighs;
+  // a real frog's about 1.6), so the knee keeps between MIN_KA and their full reach from the toes: closer, the shank and tarsus fold
+  // flat on each other and the toes slide.
+  // (sh: how much of a short hop it is, sharpened: below 0.25 a long jump's push, above 0.75 a short hop's)
+  const sh0 = clamp(((s.short ?? 1) - 0.25) / 0.5, 0, 1), sh = sh0 * sh0 * (3 - 2 * sh0), eTh = e * e * (3 - 2 * e), eA = Math.min(1, e / 0.35), eAs = eA * eA * (3 - 2 * eA);
+  const hipW = ft.toWorld(hip), BpW = ft.toWorld(Bp);
+  const crouchK = addv(hip, mul(cD[0], L[0])), crouchA = addv(crouchK, mul(cD[1], L[1]));
+  // (a long jump's push retracts the thigh, the thigh and tarsus parallel from above, the shank swinging in to the midline at
+  // take-off, no wide knees: Porro et al. 2017, the owner's clips C and D; anatomy specialists A1 14 and A2 19. A short hop's push is
+  // wide-kneed: clip A)
+  const thE = (lerpN(20, 85, sh) * Math.PI) / 180, elE = (lerpN(-22, -8, sh) * Math.PI) / 180;
+  const dE = [c.side * Math.sin(thE) * Math.cos(elE), Math.sin(elE), -Math.cos(thE) * Math.cos(elE)];
+  const dThW = norm(addv(mul(wdir(f0, hip, cD[0]), 1 - eTh), mul(dE, eTh)));
+  let K = addv(hipW, mul(dThW, L[0]));
+  // A long jump's push (Porro et al. 2017, read by anatomy specialist A1: control/anatomy-A1.md 14): the shank keeps its crouch
+  // direction through the first ~80 % of the push and retracts at the end; the thigh and the tarsus turn together, parallel from
+  // above. With the shank fixed, the thigh and tarsus close the chain to the planted toes in the one vertical plane: a two-link reach,
+  // its knee the one nearer the crouch's. (Retracting the thigh on its own, the knee went behind the toes, the shank and tarsus folded
+  // shut and the heel dipped under the floor.) Blended with the short hop's wide knees by `sh`.
+  const sC = wdir(f0, crouchK, cD[1]), late = clamp((e - 0.8) / 0.2, 0, 1), lt = late * late * (3 - 2 * late);
+  const s1 = norm(addv(mul(sC, 1 - lt), mul(norm([0, -0.55, -1]), lt)));
+  if (sh < 1) {
+    const V = sub(sub(BpW, hipW), mul(s1, L[1])), X = Math.hypot(V[0], V[2]), hx = X > 1e-6 ? [V[0] / X, 0, V[2] / X] : [0, 0, -1];
+    const Dd = clamp(Math.hypot(X, V[1]), Math.abs(L[0] - L[2]) + 1e-3, (L[0] + L[2]) * 0.999), base = Math.atan2(V[1], X);
+    const A1 = Math.acos(clamp((L[0] * L[0] + Dd * Dd - L[2] * L[2]) / (2 * L[0] * Dd), -1, 1));
+    const thighAt = (el) => [hx[0] * Math.cos(el), Math.sin(el), hx[2] * Math.cos(el)], cTh = wdir(f0, hip, cD[0]);
+    const ta = thighAt(base + A1), tb = thighAt(base - A1), dL = dot(ta, cTh) >= dot(tb, cTh) ? ta : tb;
+    K = addv(hipW, mul(norm(addv(mul(dL, 1 - sh), mul(norm(sub(K, hipW)), sh))), L[0]));
+  }
+  // (out of the shank and tarsus's reach, or too near the toes: the knee on the thigh's circle nearest the wanted direction at the
+  // nearest distance allowed)
+  // (the long jump's chain is exact, so it may fold the shank and tarsus closer than the short hop's guard)
+  const far = (L[1] + L[2]) * 0.995, near = Math.min(far, Math.abs(L[1] - L[2]) + lerpN(0.05, MIN_KA * L[0], sh)), dK = len(sub(BpW, K));
+  if (dK > far || dK < near) K = ik2(hipW, BpW, L[0], dK > far ? far : near, dThW).K;
+  // (the heel: a short hop's back and down, out under the knee; a long jump's along the shank it keeps)
+  const poleShort = norm(addv(mul(norm(sub(f0.toWorld(crouchA), f0.toWorld(crouchK))), 1 - eAs), mul(norm([c.side * 0.25, -0.45, -1]), eAs)));
+  const pole = norm(addv(mul(s1, 1 - sh), mul(poleShort, sh)));
+  const r = ik2(K, BpW, L[1], L[2], pole);
+  const P = [mdir(ft, norm(sub(K, hipW))), mdir(ft, norm(sub(r.K, K))), mdir(ft, norm(sub(r.E, r.K))), norm(sub(T, Bp))];
+  if (s.plant?.[side]) return P;
+  // just off the ground: from the pushing leg into the pose in the air
+  return P.map((d, i) => norm(addv(mul(d, rel), mul(segDir(A[i], A[k + i], c.side), 1 - rel))));
 }
 
 // Two-bone IK: from root A toward target E with bone lengths a and b, the joint on its circle at the point nearest A + `toward`. The

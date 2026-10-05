@@ -67,7 +67,7 @@ export class CreatureMesh {
   constructor(scene, geometry, { cap = 64, wave = 2.2, legLift = 0.25, legStride = 0.35, finish = {}, material = null, textures = null, legAxis = 'z', limb = 1, skin = null } = {}) {
     finish = turnFinish(finish, geometry);
     if (skin) {
-      this.skinRig = skeletonRig(skin, { legLift, legStride, limb, turn: finish.turnSweep && typeof finish.turnSweep === 'object' ? finish.turnSweep : null });
+      this.skinRig = skeletonRig(skin, { legLift, legStride, limb, turn: finish.turnSweep && typeof finish.turnSweep === 'object' ? finish.turnSweep : null, muscles: !!geometry.attributes.musc });
       this.skinCap = Math.min(cap, this.skinRig?.stroke ? SKIN.strokes : SKIN.cap);
       this.row0 = this.skinRig ? rows.take(this.skinCap) : -1;
       if (this.row0 < 0) { if (this.skinRig) console.warn('skin: no rows of the bone texture left (SKIN_ROWS): this body draws without its bones'); this.skinRig = null; this.skinCap = 0; }
@@ -92,7 +92,7 @@ export class CreatureMesh {
     this.geometry = g;
 
     if (material) this.material = material;
-    else this.material = buildMaterial(finish, wave, legLift, legStride, textures, hasTranslucent(geometry, finish), legAxis, limb, !!this.skinRig);
+    else this.material = buildMaterial(finish, wave, legLift, legStride, textures, hasTranslucent(geometry, finish), legAxis, limb, this.skinRig ? (this.skinRig.belly ? 'musc' : true) : false);
     this.mesh = new THREE.Mesh(g, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.userData.keepGeometry = true;   // its attributes are shared with the species' cached geometry: never dispose them on unload
@@ -210,7 +210,7 @@ const texId = (t) => { if (!t) return 0; if (!texIds.has(t)) texIds.set(t, nextT
 const finishKey = (_, v) => (v && v.isTexture ? 'tex' + texId(v) : v);
 
 function buildMaterial(finish, wave, legLift, legStride, textures = null, translucent = false, legAxis = 'z', limb = 1, skin = false) {
-  const key = JSON.stringify([finish, wave, legLift, legStride, translucent, textures && Object.entries(textures).map(([k, t]) => [k, texId(t)]), legAxis, limb, ...(skin ? ['skin'] : [])], finishKey);
+  const key = JSON.stringify([finish, wave, legLift, legStride, translucent, textures && Object.entries(textures).map(([k, t]) => [k, texId(t)]), legAxis, limb, ...(skin ? [skin === 'musc' ? 'skin+musc' : 'skin'] : [])], finishKey);   // (a muscle-bound mesh has its own shader: it reads `musc`)
   let m = MATERIALS.get(key);
   if (!m) { m = buildUncached(finish, wave, legLift, legStride, textures, translucent, legAxis, limb, skin); MATERIALS.set(key, m); }
   return m;
@@ -438,7 +438,7 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     const isFin = abs(matId.sub(2)).lessThan(0.5);
     p.addAssign(normalLocal.mul(sin(anim.x.mul(1.7).add(positionLocal.z.mul(4)).add(positionLocal.y.mul(3))).mul(flutter).mul(isFin.select(float(1), float(0)))));
     if (skin) {
-      const sv = skinVertex(p, normalLocal);
+      const sv = skinVertex(p, normalLocal, skin === 'musc');
       vSkinN.assign(sv.nrm);
       return qrot(q, sv.pos.mul(iPos.w)).add(iPos.xyz);
     }

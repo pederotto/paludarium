@@ -12,8 +12,8 @@
 //             rig on the fine mesh, as before. SKIN.swim (a frog's swimming body, a handful of instances at most): off only with
 //             ?noskin.
 import * as THREE from 'three/webgpu';
-import { attribute, textureLoad, ivec2, int, vec3, vec4, dot, normalize } from 'three/tsl';
-import { ROW_TEXELS, ROW_FLOATS, RowAllocator } from './skeleton.js';
+import { attribute, textureLoad, ivec2, int, vec3, vec4, dot, normalize, floor, fract, sin, clamp } from 'three/tsl';
+import { ROW_TEXELS, ROW_FLOATS, RowAllocator, MUSCLE_TEXEL0 } from './skeleton.js';
 
 // on: near vertebrates drawn by their bones; swim: a frog's swimming body drawn by its stroke (at any distance: without its bones it
 // is one frozen pose); cap: rows a species' mesh may hold (more of it near the camera draw with the rig)
@@ -38,20 +38,29 @@ if (typeof window !== 'undefined') window.__skin = { get drawn() { let s = 0; fo
 const SKIN_GEO = new WeakMap();
 export function skinGeometry(geo) {
   if (SKIN_GEO.has(geo)) return SKIN_GEO.get(geo);
-  const rig = geo.attributes.rig, sk = geo.attributes.skin, sx = geo.attributes._skinx, n = rig.count, S = 12, arr = new Float32Array(n * S);
+  const rig = geo.attributes.rig, sk = geo.attributes.skin, sx = geo.attributes._skinx, mc = geo.attributes._musc, mu = geo.attributes._musu;
+  const n = rig.count, S = mc && mu ? 16 : 12, arr = new Float32Array(n * S);
   for (let i = 0; i < n; i++) {
     const o = i * S, w0 = sk.getZ(i), w2 = sx ? sx.getZ(i) : 0, w3 = sx ? sx.getW(i) : 0, w1 = Math.max(0, 1 - w0 - w2 - w3);   // (glb.js keeps x y z of _SKIN)
     arr[o] = rig.getX(i); arr[o + 1] = rig.getY(i); arr[o + 2] = rig.getZ(i); arr[o + 3] = rig.getW(i);
     arr[o + 4] = sk.getX(i); arr[o + 5] = sk.getY(i); arr[o + 6] = w0; arr[o + 7] = w1;
     arr[o + 8] = sx ? Math.round(sx.getX(i) * 32) : sk.getX(i); arr[o + 9] = sx ? Math.round(sx.getY(i) * 32) : sk.getX(i);
     arr[o + 10] = w2; arr[o + 11] = w3;
+    // the muscle binding (tools/rig/muscles.mjs): two belly slots, each `slot + 0.999 u` (where along the belly) and its weight times
+    // the belly's rest radius (cm): musc = (s0 + u0, s1 + u1, w0 R0, w1 R1)
+    if (S === 16) {
+      arr[o + 12] = Math.round(mc.getX(i) * 32) + 0.999 * Math.min(1, Math.max(0, mu.getX(i)));
+      arr[o + 13] = Math.round(mc.getY(i) * 32) + 0.999 * Math.min(1, Math.max(0, mu.getY(i)));
+      arr[o + 14] = mc.getZ(i) * mu.getZ(i); arr[o + 15] = mc.getW(i) * mu.getW(i);
+    }
   }
   const ib = new THREE.InterleavedBuffer(arr, S);
   const g = new THREE.BufferGeometry();
-  for (const [k, a] of Object.entries(geo.attributes)) if (k !== 'rig' && k !== 'skin' && k !== '_skinx') g.setAttribute(k, a);
+  for (const [k, a] of Object.entries(geo.attributes)) if (!['rig', 'skin', '_skinx', '_musc', '_musu'].includes(k)) g.setAttribute(k, a);
   g.setAttribute('rig', new THREE.InterleavedBufferAttribute(ib, 4, 0));
   g.setAttribute('skin', new THREE.InterleavedBufferAttribute(ib, 4, 4));
   g.setAttribute('skin2', new THREE.InterleavedBufferAttribute(ib, 4, 8));
+  if (S === 16) g.setAttribute('musc', new THREE.InterleavedBufferAttribute(ib, 4, 12));
   g.setIndex(geo.index);
   g.boundingBox = geo.boundingBox;
   g.userData = geo.userData;
@@ -60,9 +69,20 @@ export function skinGeometry(geo) {
 }
 
 // The skinned position and normal of a vertex (nodes, vertex stage): `p` and `n` in the rest pose (after the rig's breathing,
-// throat and eyes), the instance's row in anim.y.
-export function skinVertex(p, n) {
+// throat and eyes), the instance's row in anim.y. `musc`: the mesh has a muscle binding, so the bellies under the skin first push it
+// out or let it in along its normal, as their state in the instance's row says (render/creatures/muscles.js writes it: one texel a
+// belly after the bones, [dR / R0, slide, activation, 0]): the belly's profile sin²(π u) along it, swollen and slid, less the rest one.
+export function skinVertex(p, n, musc = false) {
   const sk = attribute('skin', 'vec4'), s2 = attribute('skin2', 'vec4'), row = int(attribute('iAnim', 'vec4').y);
+  if (musc) {
+    const mu = attribute('musc', 'vec4');
+    const belly = (x, a) => {
+      const slot = floor(x), u = fract(x).div(0.999), st = textureLoad(boneTexture, ivec2(int(slot).add(MUSCLE_TEXEL0), row));
+      const prof = (v) => { const sv = sin(clamp(v, 0, 1).mul(Math.PI)); return sv.mul(sv); };
+      return a.mul(st.x.add(1).mul(prof(u.sub(st.y))).sub(prof(u)));
+    };
+    p = p.add(n.mul(belly(mu.x, mu.z).add(belly(mu.y, mu.w))));
+  }
   const b = [sk.x, sk.y, s2.x, s2.y].map((x) => int(x).mul(3)), w = [sk.z, sk.w, s2.z, s2.w];
   const r = (k) => b.map((bi, j) => textureLoad(boneTexture, ivec2(bi.add(k), row)).mul(w[j])).reduce((a, c) => a.add(c));
   const r0 = r(0).toVar(), r1 = r(1).toVar(), r2 = r(2).toVar();

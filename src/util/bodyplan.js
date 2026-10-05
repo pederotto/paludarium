@@ -148,13 +148,14 @@ export const PLANS = {
 //            a glide dies away (1/s)
 //   sink     the line of its belly under the surface, in species size units (eyes and snout stay above); level: the pitch that lays
 //            the sitting model level (its skeleton's trunk pitch, pelvis to head, as baked: measured from the manifest); headUp: the nose lifted at the surface (rad)
-//   float    rests at the surface with its limbs spread between swims (the fire-bellied toad); hang: how far its body hangs down
-//            from its nostrils as it rests there (rad)
+//   float    rests at the surface between swims; floatPose: how (the owner, 5 Oct: "species based mix"): 'spread', limbs spread and
+//            hanging (the fire-bellied toad, spread-eagled), or 'trail', legs trailing back and the body near level (the owner's toad
+//            clip); hang: how far its body hangs down from its nostrils as it rests there (rad)
 //   dive     it dives: kicks down to the bottom, sits there a while and comes up again (a frog at home in the water)
 //   arms     how far the forelegs are held out, [as it draws its legs up, through the kick and glide] (0 laid back along the flanks
 //            … 1 out to the sides): a poison frog, a poor swimmer, keeps them well out to balance; a strong swimmer lays them back
 export const SWIM = {
-  anuran: { kickHz: [1.0, 2.2], reach: 0.55, burst: [2, 4], rest: [0.3, 0.9], drag: 3, sink: 0.65, level: 0.24, headUp: 0.1, float: false, hang: 0.3, arms: [1, 0.15] },
+  anuran: { kickHz: [1.0, 2.2], reach: 0.55, burst: [2, 4], rest: [0.3, 0.9], drag: 3, sink: 0.65, level: 0.24, headUp: 0.1, float: false, floatPose: 'trail', hang: 0.08, arms: [1, 0.15] },
   // poison frogs: weak swimmers, head up, short bursts straight for the nearest grip
   dartfrog: { kickHz: [1.1, 2.5], reach: 0.5, headUp: 0.12, level: 0.253 },
   leucomelas: { kickHz: [1.1, 2.5], reach: 0.5, headUp: 0.12, level: 0.243 },
@@ -166,7 +167,7 @@ export const SWIM = {
   reedfrog: { kickHz: [1.0, 2.4], reach: 0.6, level: 0.208, arms: [0.8, 0.08] },
   redeye: { kickHz: [0.9, 2.0], reach: 0.6, arms: [0.8, 0.08] },
   // Bombina: at home in the water, long glides, rests floating spread-eagled at the surface
-  toad: { kickHz: [0.8, 2.0], reach: 0.65, burst: [1, 3], rest: [0.6, 2], drag: 1.8, sink: 0.45, headUp: 0.04, float: true, dive: true, level: 0.179, arms: [0.6, 0.05] },
+  toad: { kickHz: [0.8, 2.0], reach: 0.65, burst: [1, 3], rest: [0.6, 2], drag: 1.8, sink: 0.45, headUp: 0.04, float: true, floatPose: 'spread', hang: 0.3, dive: true, level: 0.179, arms: [0.6, 0.05] },
 };
 export const swimProfile = (id) => ({ ...SWIM.anuran, ...(SWIM[id] ?? {}) });
 
