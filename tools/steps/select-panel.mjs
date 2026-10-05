@@ -7,12 +7,16 @@
 // opacity 1 and lies inside the viewport. On a miss: "d" = the target's distance to the click ray in units at the moment of the
 // release, "win" = what Animals.pick returned, "wd" = its distance. Rows:
 //   plant-foot                a plant clicked on its foot with NO animal in the tank (asserted when none);
-//   plant-stem                the same plants 3 units up the stem: REPORT only. Open: that click ends on the ground behind the plant and
-//                             the 4-unit test (controller.js tap) takes the plant standing there, or none (a fallback ray test helps then);
+//   plant-stem                the same plants up the stem (3 units, or 0.6 of a shorter plant's height), no animal (asserted when none);
 //   gecko skink dartfrog      each animal clicked at its own projected position, in the crowd of 30 (asserted);
-//   plant-crowd               the same plants again with the 30 animals present: REPORT only (Animals.pick radius, not this file's);
+//   plant-crowd               the plants clicked on the foot again among the 30 animals: REPORT (an animal in front of one may win);
+//   plant-front               an animal put 1.5 behind each plant (away from the camera), the plant clicked up the stem (asserted 8/10);
+//   animal-front              an animal put 1.5 in front of each plant (toward the camera), the animal clicked (asserted 9/10);
 //   gecko-stall               the main thread is busy for 650 ms right after the press, so the release is handled late.
-// PASS = every asserted row at 9 of 10 or better and the stall probe selects. Numbers only, no screenshots.
+// "animal on ray"/"plant on ray" = clicks where, at the release, the old test (Animals.pick without depth) found an animal / Plants.onRay
+// found a plant: how contested the row was. A click whose target is behind another plant's leaves (its mesh, ray-cast at the
+// release) and that selects that plant is counted apart as "covered" (context: the player may see that plant there); rates are raw. PASS = every asserted row at its rate (9 of 10 unless stated) and the stall probe selects.
+// Numbers only, no screenshots.
 //   node tools/shot.mjs --steps=tools/steps/select-panel.mjs --url=http://127.0.0.1:4630/ [--only=desktop|phone] [--query=?webgl]
 const N = 10;
 export default async (page, shot, name) => {
@@ -56,7 +60,7 @@ export default async (page, shot, name) => {
       if (W.plants.list.length > before) plants.push(W.plants.list.at(-1));
     }
     window.__tg['plant-foot'] = plants.map((obj) => ({ obj, off: 0 }));
-    window.__tg['plant-stem'] = plants.map((obj) => ({ obj, off: 3 }));
+    window.__tg['plant-stem'] = plants.map((obj) => ({ obj, off: Math.min(3, 0.6 * W.plants.heightOf(obj)) }));
     window.__tg['plant-crowd'] = window.__tg['plant-foot'];
     return `plants ${have}+${plants.length - have}`;
   }, N);
@@ -76,8 +80,8 @@ export default async (page, shot, name) => {
 
   const click = (pt) => (name === 'phone' ? page.touchscreen.tap(pt.x, pt.y) : page.mouse.click(pt.x, pt.y));
   let bad = 0;
-  const runType = async (type, assert) => {
-    let hits = 0, n = 0;
+  const runType = async (type, assert, min = 9) => {
+    let hits = 0, n = 0, onA = 0, onP = 0, cov = 0;
     const misses = [], lost = {};
     const crowd = await page.evaluate(() => window.game.world.animals.all.length);
     for (let i = 0; i < N; i++) {
@@ -96,7 +100,8 @@ export default async (page, shot, name) => {
           const rc = new T.ray.constructor(); rc.setFromCamera(m, g.camera);
           const tp = e.obj.pos.clone(); tp.y += e.off;
           const w = g.world.animals.pick(rc.ray, 2.2);
-          window.__pr = { armed: !!T._tap, dt: T._tap ? Math.round(ev.timeStamp - T._tap.t) : null, d: +rc.ray.distanceToPoint(tp).toFixed(1), win: w ? `${w.sp}#${w.id}` : 'none', wd: w ? +rc.ray.distanceToPoint(w.pos).toFixed(1) : 0 };
+          const ons = g.world.plants.onRay?.(rc.ray) ?? [], td = tp.clone().sub(rc.ray.origin).dot(rc.ray.direction) - (e.off || e.obj.sp ? 0.5 : 0);
+          window.__pr = { pl: ons.length, cov: ons.find((h) => h.obj !== e.obj && h.mt < td)?.obj.id ?? null, armed: !!T._tap, dt: T._tap ? Math.round(ev.timeStamp - T._tap.t) : null, d: +rc.ray.distanceToPoint(tp).toFixed(1), win: w ? `${w.sp}#${w.id}` : 'none', wd: w ? +rc.ray.distanceToPoint(w.pos).toFixed(1) : 0 };
         }, { capture: true, once: true });
         const top = document.elementFromPoint(x, y);
         return { x, y, off: x < 0 || y < 0 || x > innerWidth || y > innerHeight, top: top ? top.tagName.toLowerCase() + (typeof top.className === 'string' && top.className.trim() ? '.' + top.className.trim().split(/\s+/)[0] : '') : 'none' };
@@ -113,26 +118,50 @@ export default async (page, shot, name) => {
         return { sel: !!sel && sel.obj === o, banner: !!b, op, inView, won, pr: window.__pr, taps: (window.__tapN ?? 0) - window.__tapN0, after: window.__afterTap };
       }, [type, i]);
       n++;
+      if (r.pr && r.pr.win !== 'none') onA++;
+      if (r.pr?.pl) onP++;
       const ok = r.sel && r.banner && Number(r.op) === 1 && r.inView;
-      if (ok) hits++; else {
+      if (ok) hits++; else if (r.pr?.cov && r.won === 'plant:' + r.pr.cov) cov++; else {
         lost[r.won || 'no card'] = (lost[r.won || 'no card'] ?? 0) + 1;
         misses.push(`#${i}@${Math.round(pt.x)},${Math.round(pt.y)} on=${pt.top}${pt.off ? ' OFFSCREEN' : ''} sel=${r.sel ? 'yes' : 'no'}${r.won ? ' won=' + r.won : ''} banner=${r.banner ? 'yes' : 'no'} op=${r.op} inView=${r.inView ? 'yes' : 'no'} d=${r.pr?.d} win=${r.pr?.win} wd=${r.pr?.wd} armed=${r.pr?.armed} dt=${r.pr?.dt} tapCalls=${r.taps} afterTap=${r.after}`);
       }
       if (i === 0) console.log(`${name} click-time ${type}: ${await flags()} elementFromPoint=${pt.top}`);
     }
     const asserted = assert(crowd);
-    const typeOk = n >= N && hits >= 9;
+    const typeOk = n >= N && hits >= min;   // raw hits; "covered" is printed for context only
     if (asserted && !typeOk) bad++;
-    console.log(`${name} ${type.padEnd(11)} hits ${hits}/${n} (animals in tank: ${crowd}) ${asserted ? (typeOk ? 'PASS' : 'FAIL') : typeOk ? 'REPORT ok' : 'REPORT'}${Object.keys(lost).length ? '  lost to ' + JSON.stringify(lost) : ''}${misses.length ? '  misses: ' + misses.slice(0, 3).join(' | ') : ''}`);
+    console.log(`${name} ${type.padEnd(11)} hits ${hits}/${n} (min ${min}, animals in tank: ${crowd}, animal on ray ${onA}, plant on ray ${onP}, covered by another plant's leaves and given to it ${cov}) ${asserted ? (typeOk ? 'PASS' : 'FAIL') : typeOk ? 'REPORT ok' : 'REPORT'}${Object.keys(lost).length ? '  lost to ' + JSON.stringify(lost) : ''}${misses.length ? '  misses: ' + misses.slice(0, 3).join(' | ') : ''}`);
   };
 
   console.log(`${name} ${await addPlants()}`);
   await runType('plant-foot', (c) => c === 0);
-  await runType('plant-stem', () => false);   // REPORT: open, see the header
+  await runType('plant-stem', (c) => c === 0);
   console.log(`${name} ${await addAnimals()}`);
   await page.waitForTimeout(2500);   // added animals drop and settle before they are clicked
   for (const type of ['gecko', 'skink', 'dartfrog']) await runType(type, () => true);
   await runType('plant-crowd', () => false);
+  // An animal put 1.5 units behind (side -1) or in front of (side 1) each plant target, on the camera's side; the last batch goes.
+  const placeBy = (side) => page.evaluate((side) => {
+    const g = window.game, W = g.world, sps = ['gecko', 'skink', 'dartfrog'], out = [];
+    for (const a of window.__placed ?? []) W.animals.remove(a, 'removed');
+    window.__placed = [];
+    window.__tg['plant-foot'].forEach(({ obj }, i) => {
+      const dir = g.camera.position.clone().sub(obj.pos); dir.y = 0; dir.normalize();
+      const p = obj.pos.clone().addScaledVector(dir, side * 1.5); p.y += 0.8;
+      const a = W.animals.add(sps[i % 3], p, { age: 1e6 }) ?? W.animals.by[sps[i % 3]]?.at(-1);
+      if (a && !window.__placed.includes(a)) { window.__placed.push(a); out.push({ obj: a, off: 0 }); }
+    });
+    window.__tg['animal-front'] = out;
+    window.__tg['plant-front'] = window.__tg['plant-foot'].map(({ obj }) => ({ obj, off: Math.min(2, 0.5 * W.plants.heightOf(obj)) }));
+    return `placed ${out.length} animals ${side > 0 ? 'in front of' : 'behind'} the plants`;
+  }, side);
+  console.log(`${name} ${await placeBy(-1)}`);
+  await page.waitForTimeout(1200);
+  await runType('plant-front', () => true, 8);
+  console.log(`${name} ${await placeBy(1)}`);
+  await page.waitForTimeout(1200);
+  await runType('animal-front', () => true, 9);
+  await page.evaluate(() => { for (const a of window.__placed) window.game.world.animals.remove(a, 'removed'); window.__placed = []; });
 
   // Regression case: the main thread is busy for 650 ms right after the press (a slow machine, a shader build), so the release is
   // handled late. The event carries its own time stamp; a tap that times the handlers instead drops the click.
