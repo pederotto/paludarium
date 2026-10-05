@@ -33,7 +33,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, uniform, uniformArray, texture, uv, vec2, vec3, vec4, float, exp, clamp, max, abs, dot, normalize, refract,
   sin, cos, time, varying, positionLocal, dFdx, dFdy, mix, smoothstep, pow, cameraPosition, positionWorld,
-  transformNormalToView, min, viewportSharedTexture, viewportSafeUV, screenUV, reflect, int, step, If,
+  transformNormalToView, min, screenUV, reflect, int, step, If, nodeObject, viewportDepthTexture, linearDepth, viewportSharedTexture,
   cameraViewMatrix, cameraProjectionMatrix, getScreenPosition,
 } from 'three/tsl';
 import { TANK } from '../sim/tank.js';
@@ -418,6 +418,24 @@ export const causticLight = Fn(([pw]) => FX.caustics.sample(tankUV(pw.xz)).rgb);
 // rather than by the standard lighting (whose bright environment map turned
 // the surface milky at low angles).
 const LAMP = 5;                    // the LED strip's brightness to a reflection, against the lit scene (bloom takes the excess)
+// Every read of the rendered scene behind the surface shares one copy of it a render. Each viewportSharedTexture node is copied
+// on its own (three.js copies the framebuffer once a render per node, and a tile GPU ends and restarts its pass for each copy):
+// the reflection's read, the refraction's and the Low preset's as three nodes cost about 4.5 ms a frame at 1920 x 1200 on the M1
+// (the lizard session's A/B of the joint push, 2026-10-04).
+class OneScreenCopy extends THREE.ViewportSharedTextureNode {
+  constructor(uvNode, copyKey) { super(uvNode); this.copyKey = copyKey; }
+  updateReference() { return this.copyKey; }
+  clone() { return new OneScreenCopy(this.uvNode, this.copyKey); }
+}
+const screenReader = () => { const key = {}; return (uvNode) => nodeObject(new OneScreenCopy(uvNode, key)); };
+// The rendered scene behind a see-through surface at `uvNode`, where what that point shows does not lie in front of the surface
+// (else straight behind): what viewportSharedTexture(viewportSafeUV(uv)) gives, but made once. viewportSafeUV is an Fn, and its
+// depth read is made again on every build of the material, each one more copy of the depth buffer a frame. Call it when the
+// material is made, not inside an Fn.
+export function sceneBehind(uvNode) {
+  const safe = linearDepth(viewportDepthTexture(uvNode)).sub(linearDepth()).lessThan(0).select(screenUV, uvNode);
+  return viewportSharedTexture(safe);
+}
 // The most water a ripple's bending is followed down through (cm). What lies behind a pixel is not always the floor: an animal
 // floating at the surface, a stem or a leaf just under it bend far less than the floor would, and bent as much they shattered
 // into streaks. Without the scene's depth here (it cannot be read in every pass: multisampling), a few centimetres is the
@@ -444,32 +462,19 @@ export function waterSurfaceMaterial({ ripples = true, opacity = 0.12, refract: 
   }
   // The Low preset keeps the old surface (U.surfaceDetail: a branch on a uniform, so the reads and the projections are not made
   // there, and no shader is rebuilt when the preset changes): a dim constant for the room, the directional light's glint, the view
-  // bent by a fixed share of the ripples' slope. It costs less on a weak GPU (the full surface measured about +0.85 ms a frame at
-  // 1920 x 1200 on the M1, with the animals' waterline).
-  m.colorNode = Fn(() => {
-    const col = vec3(0).toVar();
-    If(U.surfaceDetail.greaterThan(0.5), () => {
-      // The lamp's own glint is its mirror image below (the strip, next); the light it casts adds a soft sheen on the wavelets.
-      const glint = pow(rl, 60).mul(0.15).mul(U.daylight);
-      // What the mirrored ray meets. The strip: where it crosses the strip's height, inside its footprint (soft edges).
-      const lampY = TANK.h + 2.85, lampZ = -TANK.d * 0.09, lampX = TANK.w * 0.39;
-      const L = P.add(r.mul(float(lampY).sub(P.y).div(max(r.y, 0.02))));
-      const lamp = smoothstep(lampX + 0.3, lampX - 0.3, abs(L.x)).mul(smoothstep(0.9, 0.5, abs(L.z.sub(lampZ)))).mul(step(0.02, r.y)).mul(FX.lamp);
-      // The back: where it meets the plane of the background (in front of the back glass by the relief), inside the tank, and
-      // that point's picture on the screen (the lit wall, or whatever stands in front of it there); off the screen, the wall's
-      // average colour.
-      const B = P.add(r.mul(float(-TANK.d / 2 + 2.5).sub(P.z).div(min(r.z, -0.02))));
-      const inTank = step(0.02, r.z.negate()).mul(step(B.y, TANK.h)).mul(step(abs(B.x), TANK.w / 2));
-      const bv = cameraViewMatrix.mul(vec4(B, 1)).xyz;
-      const buv = getScreenPosition(bv, cameraProjectionMatrix);
-      const onScreen = step(0.003, buv.x).mul(step(buv.x, 0.997)).mul(step(0.003, buv.y)).mul(step(buv.y, 0.997)).mul(step(bv.z, -1));
-      const wallAvg = vec3(0.05, 0.06, 0.045).mul(U.daylight.mul(0.8).add(0.2));
-      const wall = mix(wallAvg, viewportSharedTexture(viewportSafeUV(buv)).rgb, onScreen);
-      // (from under the surface, looking up through the front glass: the old dark room)
-      const above = step(U.waterLevel, cameraPosition.y);
-      const refl = mix(room, mix(room, wall, inTank).add(vec3(1, 0.97, 0.9).mul(lamp).mul(LAMP).mul(U.daylight)), above).add(glint);
-      // The view ray into the water through this rippled surface and through a still one, followed down to the floor under this
-      // point: the floor point seen moves by the difference.
+  // bent by a fixed share of the ripples' slope.
+  // The reads of the rendered scene (its colour, and its depth for the refraction's check) are made here, once, outside the branch:
+  // three.js copies the framebuffer for every such node a render, and nodes made inside an Fn are made again on every build of it.
+  // Made inside the branch (and through viewportSafeUV, itself an Fn), the surface ran about sixteen copies of the depth buffer
+  // a frame and cost 4.5 ms at 1920 x 1200 on the M1; now one colour copy and one depth copy.
+  const high = U.surfaceDetail.greaterThan(0.5);
+  const screen = screenReader();
+  // Where the view into the water lands on the screen, bent by the ripples. High: the view ray into the water through this
+  // rippled surface and through a still one, followed down to the floor under this point; the floor point seen moves by the
+  // difference. Low: a fixed share of the ripples' slope.
+  const bentUV = Fn(() => {
+    const v = screenUV.add(n.xz.mul(0.035)).toVar();
+    If(high, () => {
       const D = clamp(P.y.sub(FX.terrainH.sample(tankUV(P.xz)).r), 0, DEPTH_CAP);
       const into = view.negate();
       const t1 = refract(into, n, 1 / IOR), t0 = refract(into, vec3(0, 1, 0), 1 / IOR);
@@ -477,12 +482,41 @@ export function waterSurfaceMaterial({ ripples = true, opacity = 0.12, refract: 
       const F = P.add(into.mul(D.div(max(into.y.negate(), 0.08))));               // the floor point behind this pixel (unbent)
       const fv = cameraViewMatrix.mul(vec4(F.add(vec3(dW.x, 0, dW.z)), 1)).xyz;
       const off = getScreenPosition(fv, cameraProjectionMatrix).sub(screenUV);
-      const below = viewportSharedTexture(viewportSafeUV(screenUV.add(clamp(off, vec2(-0.06), vec2(0.06)).mul(step(fv.z, -1))))).rgb;
-      col.assign(mix(below.mul(vec3(0.94, 0.98, 0.98)), refl, fres).add(glint.mul(float(1).sub(fres))));
+      v.assign(screenUV.add(clamp(off, vec2(-0.06), vec2(0.06)).mul(step(fv.z, -1))));
+    });
+    return v;
+  })();
+  // (as viewportSafeUV: where what the bent view lands on lies in front of the surface, the unbent view instead)
+  const safeUV = linearDepth(viewportDepthTexture(bentUV)).sub(linearDepth()).lessThan(0).select(screenUV, bentUV);
+  const below = screen(safeUV).rgb;
+  // The reflection: what the mirrored ray meets. The strip: where it crosses the strip's height, inside its footprint (soft
+  // edges). The back: where it meets the plane of the background (in front of the back glass by the relief), inside the tank,
+  // and that point's picture on the screen (the lit wall, or whatever stands in front of it there); off the screen, the wall's
+  // average colour.
+  const lampY = TANK.h + 2.85, lampZ = -TANK.d * 0.09, lampX = TANK.w * 0.39;
+  const L = P.add(r.mul(float(lampY).sub(P.y).div(max(r.y, 0.02))));
+  const lamp = smoothstep(lampX + 0.3, lampX - 0.3, abs(L.x)).mul(smoothstep(0.9, 0.5, abs(L.z.sub(lampZ)))).mul(step(0.02, r.y)).mul(FX.lamp);
+  const B = P.add(r.mul(float(-TANK.d / 2 + 2.5).sub(P.z).div(min(r.z, -0.02))));
+  const inTank = step(0.02, r.z.negate()).mul(step(B.y, TANK.h)).mul(step(abs(B.x), TANK.w / 2));
+  const bv = cameraViewMatrix.mul(vec4(B, 1)).xyz;
+  const buv = getScreenPosition(bv, cameraProjectionMatrix);
+  const onScreen = step(0.003, buv.x).mul(step(buv.x, 0.997)).mul(step(0.003, buv.y)).mul(step(buv.y, 0.997)).mul(step(bv.z, -1));
+  const wallPic = screen(clamp(buv, vec2(0.003), vec2(0.997))).rgb;
+  m.colorNode = Fn(() => {
+    const seen = below.toVar();
+    const col = vec3(0).toVar();
+    If(high, () => {
+      // The lamp's own glint is its mirror image (the strip); the light it casts adds a soft sheen on the wavelets.
+      const glint = pow(rl, 60).mul(0.15).mul(U.daylight);
+      const wallAvg = vec3(0.05, 0.06, 0.045).mul(U.daylight.mul(0.8).add(0.2));
+      const wall = mix(wallAvg, wallPic, onScreen);
+      // (from under the surface, looking up through the front glass: the old dark room)
+      const above = step(U.waterLevel, cameraPosition.y);
+      const refl = mix(room, mix(room, wall, inTank).add(vec3(1, 0.97, 0.9).mul(lamp).mul(LAMP).mul(U.daylight)), above).add(glint);
+      col.assign(mix(seen.mul(vec3(0.94, 0.98, 0.98)), refl, fres).add(glint.mul(float(1).sub(fres))));
     }).Else(() => {
       const glint = pow(rl, 900).mul(6).add(pow(rl, 60).mul(0.25)).mul(U.daylight);
-      const below = viewportSharedTexture(viewportSafeUV(screenUV.add(n.xz.mul(0.035)))).rgb;
-      col.assign(mix(below.mul(vec3(0.94, 0.98, 0.98)), room.add(glint), fres).add(glint.mul(float(1).sub(fres))));
+      col.assign(mix(seen.mul(vec3(0.94, 0.98, 0.98)), room.add(glint), fres).add(glint.mul(float(1).sub(fres))));
     });
     return col;
   })();

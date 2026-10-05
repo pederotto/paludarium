@@ -10,12 +10,12 @@
 import * as THREE from 'three/webgpu';
 import {
   float, vec3, vec2, uv, time, mix, smoothstep, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
-  attribute, fract, length, max, min, Fn, reflect, viewportSharedTexture, viewportSafeUV, screenUV,
+  attribute, fract, length, max, min, Fn, reflect, screenUV,
 } from 'three/tsl';
 import { noise3 } from './noise3.js';
 import { TANK, MINUTES_PER_SECOND } from '../sim/tank.js';
 import { U } from './uniforms.js';
-import { waterSurfaceMaterial, SIM, FX, rippleAt } from './waterfx.js';
+import { waterSurfaceMaterial, SIM, FX, rippleAt, sceneBehind } from './waterfx.js';
 import { Hydro, WET } from '../sim/hydro.js';
 import { Erosion, ERO } from '../sim/erosion.js';
 import { Jobs } from '../sim/jobs.js';
@@ -764,7 +764,7 @@ function makeFlowMaterial() {
   // over it (more of it with depth, cloudiness and the sheen), the reflection with the angle, foam on top. Opaque, so
   // nothing is drawn twice; at the banks it fades out to the plain ground.
   const bendK = mix(float(0.02), float(0.06), flowK);
-  const below = viewportSharedTexture(viewportSafeUV(screenUV.add(nrm.xz.mul(bendK)))).rgb;
+  const below = sceneBehind(screenUV.add(nrm.xz.mul(bendK))).rgb;
   const veil = clamp(float(0.12).add(flowK.mul(0.1)).add(sheen.mul(0.15)).add(deep.mul(0.35)).add(tur.mul(0.3)), 0, 0.85);
   const under = mix(below.mul(vec3(0.9, 0.96, 0.97)), flowing, veil);
   m.colorNode = mix(mix(under, room, fres), vec3(0.8, 0.85, 0.88).mul(lit), foam).add(glint);
@@ -801,7 +801,7 @@ function makeFallMaterial() {
   const white = aer.mul(mix(float(0.3), float(1), froth)).mul(solid.mul(0.4).add(0.6));
   const glass = float(1).sub(aer).mul(float(1).sub(white));
   const lit = U.daylight.mul(0.8).add(0.12);
-  const below = viewportSharedTexture(viewportSafeUV(screenUV.add(vec2(streak.mul(0.01), fine.mul(0.005))))).rgb;
+  const below = sceneBehind(screenUV.add(vec2(streak.mul(0.01), fine.mul(0.005)))).rgb;
   const sheen = smoothstep(0.25, 0.65, streak).mul(glass).mul(0.22).mul(lit);
   const airyCol = mix(vec3(0.5, 0.64, 0.68), vec3(0.9, 0.93, 0.95), white).mul(lit);
   m.colorNode = mix(below.mul(vec3(0.86, 0.95, 0.97)), airyCol, float(1).sub(glass)).add(sheen);
