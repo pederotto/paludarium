@@ -21,6 +21,7 @@ import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from '.
 import { hideScore } from './habitat.js';
 import { herpSpot } from './placement.js';
 import { HABITAT } from '../content/habitats.js';
+import { restStep, isNight, REST_LABEL } from './swimrest.js';
 import { SKINK, skinkMind, skinkThink } from './skink.js';
 import { SHRIMP, shrimpMind, shrimpThink, shrimpDoing } from './shrimp.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
@@ -1468,6 +1469,9 @@ export class Animals {
       return;
     }
     a.stranded = false;
+    // A tadpole rests on the floor between swim bouts, wakes and flees from a threat, and still feeds (sim/swimrest.js).
+    const env = this.world.env, R = sp.young && !ctl ? restStep(a, dt, { night: isNight(env.minute, env.lightsOn, env.lightsOff), hungry: a.hunger > 0.25 && this.food.length > 0, danger: () => this.danger(a, sp), bh: a.bh }) : null;
+    if (R) a.doing = R.resting ? REST_LABEL : null;
     const desired = V(0, 0, 0);
     a.wander += (Math.random() - 0.5) * dt * 2.5;
     desired.set(Math.sin(a.wander), 0, Math.cos(a.wander)).multiplyScalar(sp.speed * 0.6);
@@ -1543,10 +1547,12 @@ export class Animals {
       desired.addScaledVector(a.home.clone().sub(a.pos).setY(0).normalize(), sp.speed * 2.5);
       a.wander = Math.atan2(a.home.x - a.pos.x, a.home.z - a.pos.z);
     }
+    if (R?.resting) desired.set(0, (floor + R.y - a.pos.y) * 2, 0);                  // sits on the floor, body touching
+    else if (R?.flee) { desired.set(R.flee.x, 0, R.flee.z).multiplyScalar(sp.speed * 2); a.wander = Math.atan2(R.flee.x, R.flee.z); a.dart = true; }
     if (a.nib) desired.multiplyScalar(0.1);
     // (a swimmer swings round an arc, util/turn.js steerLimit: it does not stop and spin when the way it wants is behind it)
-    if (!blocked) steerLimit(a.vel, desired, ctl ? 1.6 : 1.2, desired);
-    a.vel.lerp(desired, Math.min(1, dt * (a.dart ? 4 : 1.8)));
+    if (!blocked && !R?.resting) steerLimit(a.vel, desired, ctl ? 1.6 : 1.2, desired);
+    a.vel.lerp(desired, Math.min(1, dt * (a.dart || R?.resting ? 4 : 1.8)));
     const maxS = ctl ? Math.max(0.1, ctl.speed * 1.1) : sp.speed * (a.dart ? 2.1 : a.hunger > 0.25 ? 1.5 : 1);
     if (a.vel.length() > maxS) a.vel.setLength(maxS);
     const prev = a.pos.clone();
@@ -1555,7 +1561,7 @@ export class Animals {
     a.pos.z = clamp(a.pos.z, -hz - 0.5, hz + 0.5);
     let f2 = T.heightAt(a.pos.x, a.pos.z), L2 = this.waterTop(a.pos.x, a.pos.z);
     if (!(L2 - f2 >= 1.3)) { a.pos.copy(prev); f2 = T.heightAt(a.pos.x, a.pos.z); L2 = L; }
-    a.pos.y = clamp(a.pos.y, f2 + 0.5, Math.max(f2 + 0.6, L2 - 0.5));
+    a.pos.y = clamp(a.pos.y, f2 + (R?.resting ? R.y : 0.5), Math.max(f2 + 0.6, L2 - 0.5));
     if (occ && occ.solidAt(a.pos.x, a.pos.y, a.pos.z)) {
       // Inside a piece: slide along it on whichever single axis is free, else stay where we were.
       const t = [[a.pos.x, prev.y, prev.z], [prev.x, a.pos.y, prev.z], [prev.x, prev.y, a.pos.z]];
