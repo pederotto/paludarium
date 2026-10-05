@@ -214,7 +214,7 @@ export class ToolController {
       if (this.smart.on) return;      // smart placement listens for taps itself (tools/smart.js)
       if (this.tool === 'view' || this.tool === 'inspect') {
         // A tap (not a drag) selects whatever is under the pointer; on water it also ripples.
-        this._tap = { x: e.clientX, y: e.clientY, t: performance.now() };
+        this._tap = { x: e.clientX, y: e.clientY, t: e.timeStamp };   // event time, not handler time: a stalled frame must not turn a tap into a long press
         return;
       }
       this.down = true;
@@ -232,7 +232,7 @@ export class ToolController {
     el.addEventListener('pointerup', (e) => {
       const t = this._tap;
       this._tap = null;
-      if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 6 && performance.now() - t.t < 500 && this.W) {
+      if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 6 && e.timeStamp - t.t < 500 && this.W) {
         this.setMouse(e);
         this.tap();
         this._taps = [...(this._taps ?? []).slice(-1), performance.now()];
@@ -266,7 +266,7 @@ export class ToolController {
     if (a && S.pairing.value) { this.finishPairing(a); return; }
     if (a) { this.select({ kind: 'animal', obj: a }); return; }
     if (hit) {
-      const plant = bare ? null : W.plants.near(hit.point, 4);
+      const plant = bare ? null : (W.plants.near(hit.point, 4) ?? this.plantOnRay(hit));
       if (plant) { this.select({ kind: 'plant', obj: plant }); return; }
       const piece = hit.object && W.decor.pieceAt(hit.object);
       if (piece) { this.select({ kind: 'piece', obj: piece }); return; }
@@ -274,6 +274,25 @@ export class ToolController {
       if (pool) { this.select({ kind: 'pool', obj: pool }); return; }
     }
     this.select(null);
+  }
+
+  // Second chance when no plant stands within 4 of the ground the ray ends on: a click on the leaves of a tall plant ends far behind
+  // it. The plant the ray went through: it passes the stem (a segment from the foot up its height) within the crown, in front of
+  // the ground, wall or stone it meets; the first one along the ray wins. (Open: a plant standing behind the clicked one can still
+  // win the 4-unit test first, see tools/steps/select-panel.mjs row plant-stem.)
+  plantOnRay(hit) {
+    const P = this.W.plants, r = this.ray.ray, a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Vector3(), s = new THREE.Vector3();
+    let best = null, bt = Infinity;
+    for (const p of P.list) {
+      const h = P.heightOf?.(p);
+      a.copy(p.pos); b.copy(p.pos).y += Math.max(1, Number.isFinite(h) ? h : 4);
+      const rad = Math.max(1.2, Math.min(4, (p.reach ?? 4) * (0.3 + 0.7 * (p.grown ?? 1)) * 0.35));
+      if (r.distanceSqToSegment(a, b, q, s) > rad * rad) continue;
+      const t = q.distanceTo(r.origin);
+      if (hit?.distance !== undefined && t > hit.distance + rad) continue;
+      if (t < bt) { bt = t; best = p; }
+    }
+    return best;
   }
 
   select(sel) {
