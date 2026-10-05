@@ -1275,6 +1275,7 @@ export class Animals {
 
   // Is it plausible that this animal is trying to get somewhere right now?
   wantsMove(a, sp = SPECIES[a.sp]) {
+    if (a.rest?.resting) return false;                          // (a tadpole at rest on the floor is not stuck: swim() holds it still)
     if (a.dead || a.hop || a.onWall || a.stranded) return false;
     switch (sp.kind) {
       case 'swim': return true;
