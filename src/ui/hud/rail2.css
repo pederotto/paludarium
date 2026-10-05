@@ -17,13 +17,15 @@
 .oc-acts { display: flex; gap: 0; }
 .oc-acts .btn.icon { padding: 6px; color: var(--dim); }
 
-.seg { display: flex; gap: 2px; margin: 4px 12px 8px; padding: 2px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); border-radius: 10px; flex: none; }
-.seg button { flex: 1; min-width: 0; padding: 6px 2px; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-weight: 600; font-size: 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; touch-action: manipulation; }
-.seg button:hover { color: var(--text); }
-.seg button.on { background: rgba(143, 214, 164, 0.16); color: var(--moss); }
-.seg button.lock { opacity: 0.55; }
-.seg.sm { margin: 0 0 10px; }
-.seg.sm button { padding: 6px 4px; font-size: 11.5px; }
+/* The card's tab strip and small segmented choices: equal-width buttons that ellipsize. Scoped to the card, so the other
+   .seg controls (the title's tier picker, the panels, the speed control) keep their own sizes. */
+.oc .seg { display: flex; gap: 2px; margin: 4px 12px 8px; padding: 2px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); border-radius: 10px; flex: none; }
+.oc .seg button { flex: 1; min-width: 0; padding: 6px 2px; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-weight: 600; font-size: 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; touch-action: manipulation; }
+.oc .seg button:hover { color: var(--text); }
+.oc .seg button.on { background: rgba(143, 214, 164, 0.16); color: var(--moss); }
+.oc .seg button.lock { opacity: 0.55; }
+.oc .seg.sm { margin: 0 0 10px; }
+.oc .seg.sm button { padding: 6px 4px; font-size: 11.5px; }
 
 .oc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 12px 0; overscroll-behavior: contain; }
 .oc-body::-webkit-scrollbar { width: 6px; }
@@ -63,6 +65,7 @@
 .th-l b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .th-s { font-size: 11.5px; display: flex; align-items: center; gap: 6px; }
 .th-n { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.th-room { color: var(--dim); display: block; white-space: normal; }
 .oc-foot .btn.sm { flex: none; color: var(--dim); }
 
 /* --- Collapsed chip -------------------------------------------------------------------------- */

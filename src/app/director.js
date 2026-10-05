@@ -8,7 +8,12 @@ import { Commissions } from '../game/commissions.js';
 import { Tutorial } from '../game/tutorial.js';
 import { EventDirector } from '../game/events.js';
 import { computeMetrics } from '../game/metrics.js';
-import { score, GRADE_ORDER } from '../game/curator.js';
+import { score, GRADE_ORDER, visitorAppeal } from '../game/curator.js';
+import { stockAdvice } from '../game/stocking.js';
+import { upkeepOf } from './snapshot.js';
+import { RUNNING_COSTS } from '../content/upkeep.js';
+import { SPECIES } from '../sim/animals.js';
+import { sizeFactors } from '../sim/tank.js';
 import { FIRST_COMMISSION } from '../content/commissions.js';
 import { TUTORIAL } from '../content/tutorial.js';
 import { S, toast, closeModal } from '../ui/store.js';
@@ -35,7 +40,8 @@ export class Director {
     this._t = 0; this._curT = 0; this._saveT = 0;
     this.metrics = null;
     game.tickHooks.push((dt) => this.tick(dt));
-    game.events.on('unload', (w) => this.events?.cancel(w));
+    game.events.on('unload', (w) => { this.events?.cancel(w); this.curator = null; this._bill = null; });
+    game.events.on('placed', (kind, id) => { if (kind === 'animal') this.stockWarning(id); });
     game.controls.addEventListener('controlstart', () => game.events.emit('looked'));
   }
 
@@ -56,7 +62,14 @@ export class Director {
     career.onAchievement = (a) => toast(`Achievement: ${a.name}`, 'gold', 5000);
     career.onSell = (a, price) => { g.world.animals.remove(a, 'sold'); toast(`Sold for ¤${price}.`, 'good'); S.selection.value = null; };
     this.events.onEvent = (e, reward) => {
-      S.coach.value = { title: e.title, text: e.text + (e.fix ? `\n\nWhat to do: ${e.fix}` : ''), concept: e.concept, kind: e.kind, event: true };
+      let text = e.text;
+      // Visitors are impressed by what the tank shows for its size: a big, varied tank, or a small one kept perfectly.
+      if (reward && e.id === 'visitors') {
+        const m = this.metrics;
+        reward = visitorAppeal(reward, { litres: sizeFactors().litres, grade: this.curator?.grade, species: m?.animals.species ?? 0, target: m?.speciesTarget ?? 8 });
+        text += ' ' + reward.text;
+      }
+      S.coach.value = { title: e.title, text: text + (e.fix ? `\n\nWhat to do: ${e.fix}` : ''), concept: e.concept, kind: e.kind, event: true };
       if (reward) { career.addFunds(reward.funds, e.title); career.addRep(reward.rep, e.title); }
     };
     this.events.onEnd = () => { if (S.coach.value?.event) S.coach.value = null; };
@@ -116,7 +129,9 @@ export class Director {
     this._t = 0;
     const W = this.game.world, E = W.env, c = this.career;
     const m = this.metrics = computeMetrics(W);
+    m.grade = this.curator ? GRADE_ORDER.indexOf(this.curator.grade) + 1 : 0;   // for goals about this tank's grade
     c.day = E.day + 1;
+    this.bill(W);
     c.stats.births = W.stats.births; c.stats.deaths = W.stats.deaths; c.stats.metamorphs = W.stats.metamorphs;
     if (this.lastMinute != null && (W.animals.by.axolotl?.some((a) => a.health > 0.7))) c.stats.axolotlDays += Math.max(0, E.minute - this.lastMinute) / 1440;
     this.lastMinute = E.minute;
@@ -136,6 +151,33 @@ export class Director {
     if (W.animals.by.springtail) this.trackBreeding(W);
     S.career.value = c.snapshot();
     if (this._saveT > 60) { this._saveT = 0; this.save().catch(() => {}); }
+  }
+
+  // Running costs (content/upkeep.js): charged for the game time that has passed, at what the tank costs to run now.
+  // Restarts when another tank is loaded (the clock is that tank's own), and never charges for time the clock ran back.
+  bill(W) {
+    const c = this.career, E = W.env;
+    if (c.sandbox || !RUNNING_COSTS) return;
+    if (!this._bill || this._bill.world !== W || E.minute < this._bill.minute) { this._bill = { world: W, minute: E.minute }; return; }
+    const days = (E.minute - this._bill.minute) / 1440;
+    if (days <= 0) return;
+    this._bill.minute = E.minute;
+    const u = upkeepOf(W);
+    c.payBills(days, u.total, u.parts, E.day + 1);
+  }
+
+  // After animals are released: say so when the tank is too small for them or they now crowd each other (the simulation's
+  // own room, game/stocking.js), once per species and verdict until the tank changes.
+  stockWarning(id) {
+    const W = this.game.world, sp = SPECIES[id];
+    if (!W || !sp) return;
+    const a = stockAdvice(id, sp, W.animals.count(id), sizeFactors(), { water: W.water.volumeLitres() });
+    if (!['small', 'over', 'group'].includes(a.verdict)) return;
+    const key = `${W.env.tankDays | 0}|${id}|${a.verdict}`;
+    this._warned ??= new Set();
+    if (this._warned.has(key)) return;
+    this._warned.add(key);
+    toast(`${sp.name}: ${a.text}.${a.verdict === 'over' ? ' Crowded animals stress each other and foul the water: take some out, or give them a bigger tank.' : ''}`, 'bad', 6000);
   }
 
   // One reading per game hour for the Lab charts (kept for 14 days).

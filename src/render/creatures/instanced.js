@@ -111,6 +111,18 @@ export class CreatureMesh {
     }
     scene.add(this.mesh);
     this.n = 0;
+    // Game.unloadTank disposes a creature mesh's materials but not its geometry, whose vertex attributes are shared with the
+    // species' cache. This InstancedBufferGeometry is the tank's own, though, and three keeps every geometry it has drawn
+    // until it is disposed, together with the first mesh that drew it, and through that mesh's parent the whole tank: every
+    // World ever left stayed in memory (a heap snapshot after tools/steps/tank-sizes.mjs, 2026-10-03). So the wrapper goes
+    // when its material is disposed on unload. (The shared vertex buffers are uploaded again by the next tank that draws the
+    // species, as after a portrait or a species leaving a tank: dispose() below has always disposed the wrapper.) Only the
+    // geometry: the mesh stays where it is, since unloadTank is walking the scene graph when it disposes the material.
+    // Only its own (per-instance) buffers: the vertex attributes and index are the species' cache, drawn by other tanks'
+    // and portraits' geometries too, and three destroys every attribute of a disposed geometry on the GPU ("Buffer used in
+    // submit while destroyed", journey on WebGPU, N20).
+    this._onUnload = () => { this.material.removeEventListener('dispose', this._onUnload); disposeOwn(this.geometry); };
+    this.material.addEventListener('dispose', this._onUnload);
   }
 
   begin() { this.n = 0; }
@@ -146,7 +158,11 @@ export class CreatureMesh {
   // (gives its rows of the bone texture back)
   releaseSkin() { if (this.skinRig) { rows.free(this.row0, this.skinCap); live.delete(this); this.skinRig = null; this.skinCap = 0; } }
 
-  dispose() { this.releaseSkin(); this.geometry.dispose(); this.mesh.removeFromParent(); }
+  dispose() {
+    this.releaseSkin();
+    this.material.removeEventListener('dispose', this._onUnload);   // (the material is shared by every tank: let go of this mesh)
+    disposeOwn(this.geometry); this.mesh.removeFromParent();
+  }
 }
 
 // Does the geometry carry membrane (2) or glass (7) material ids? Then it needs the second, blended pass.
@@ -543,4 +559,18 @@ export class CreatureLOD {
   // Takes the meshes out of the scene without freeing the (shared) geometry; anything still in flight is dropped.
   remove() { this.removed = true; this._lo?.mesh.removeFromParent(); this.hi?.mesh.removeFromParent(); this.skinned?.mesh.removeFromParent(); this.skinned?.releaseSkin(); }
   dispose() { this.removed = true; this._lo?.dispose(); this.hi?.dispose(); this.skinned?.dispose(); }
+}
+
+// Dispose an instanced wrapper geometry without its shared attributes: hide everything that is not per-instance (and the
+// index) from three while it disposes, then put it back so the species' cache keeps them.
+function disposeOwn(g) {
+  const shared = {};
+  for (const [k, a] of Object.entries(g.attributes)) {
+    if (!(a.isInstancedBufferAttribute || a.data?.isInstancedInterleavedBuffer)) { shared[k] = a; delete g.attributes[k]; }
+  }
+  const index = g.index;
+  g.index = null;
+  g.dispose();
+  Object.assign(g.attributes, shared);
+  g.index = index;
 }

@@ -15,7 +15,7 @@
 // on those arrays, so it runs under Node for the tests: `world` only needs
 // climate, env, animals.count(id), terrain.heightAt and plants.list.
 
-import { TANK } from './tank.js';
+import { TANK, sizeFactors } from './tank.js';
 import { clamp } from '../util/math.js';
 
 
@@ -113,8 +113,9 @@ export class Humus {
     const W = this.world, C = this.C, E = W.env, days = dtMin / 1440;
     const n = C.nx * C.nz, { litter: L, humus: H, fert: F } = C;
     const count = (id) => { try { return W.animals?.count?.(id) ?? 0; } catch { return 0; } };
-    // The clean-up crew: isopods and springtails eat litter and leave frass (humus).
-    const crew = clamp(count('isopod') * 0.05 + count('purpleiso') * 0.05 + count('pandaking') * 0.12 + count('springtail') * 0.012 + count('springpink') * 0.014 + count('springsea') * 0.004 + count('earthworm') * 0.08 + count('flylarva') * 0.006, 0, 2.5);
+    // The clean-up crew: isopods and springtails eat litter and leave frass (humus). Each works so much floor, so what they do
+    // for a cell goes by how many there are for the tank's floor (the same ten isopods are a lot in a cube, few in a show tank).
+    const crew = clamp((count('isopod') * 0.05 + count('purpleiso') * 0.05 + count('pandaking') * 0.12 + count('springtail') * 0.012 + count('springpink') * 0.014 + count('springsea') * 0.004 + count('earthworm') * 0.08 + count('flylarva') * 0.006) / sizeFactors().area, 0, 2.5);
     this.crew = crew;
     const crewShare = crew / (1 + crew);
     let moldLoad = 0, changed = false;

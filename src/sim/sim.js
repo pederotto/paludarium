@@ -18,7 +18,7 @@ import { FruitView } from '../render/fruit.js';
 import { U } from '../render/uniforms.js';
 import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../util/math.js';
-import { TANK, tankLitres } from './tank.js';
+import { TANK, tankLitres, sizeFactors, roomFor, CROWDS } from './tank.js';
 import { HABITAT } from '../content/habitats.js';
 import { filterOf, filterClog, filterEff, substrateOf } from '../content/equipment.js';
 import { filterFlow } from './filterflow.js';
@@ -73,25 +73,14 @@ export class Sim {
     if (E.rain < 0.02) E.rain = 0;
 
     // --- Climate ------------------------------------------------------
+    // Temperature and humidity (Env.stepAir): how fast they move, and how much one fogger or basking lamp does, depends on the
+    // tank's size (sizeFactors in tank.js). Falls wet the air (up to a point), less when the pump stops.
+    const size = sizeFactors();
     const area = W.water.surfaceArea();
     const floor = TANK.w * TANK.d;
     const waterFrac = clamp(area / floor, 0, 1);
-    // Falls wet the air and the water (up to a point); less when the pump stops.
-    const falls = Math.min(4, W.water.falls.length) * (W.water.hydro.pump.running ? 1 : 0.3);
     const open = !(E.lid || closed);
-    let tTarget = E.room + light * 1.3 + (open ? 0 : 0.8) - E.rain * 1.2 - E.fogger * 0.8 + E.basking * 1.5;
-    if (E.heater && tTarget < E.setpoint) tTarget = E.setpoint;
-    tTarget = lerp(tTarget, E.room, E.fan * 0.5);
-    if (E.chill) tTarget = Math.min(tTarget, E.coolSet);
-    E.temp = lerp(E.temp, tTarget, clamp(d * 0.004, 0, 1));
-    // Humidity: water, falls, moss and plants add it; an open lid, a fan and a
-    // warm tank take it away. Rain and a fogger add a lot.
-    let hTarget = 35 + waterFrac * 36 + falls * 3.5 + E.mist * 30 + (open ? -8 : 12) + (closed ? 14 : 0) + W.mossFraction() * 10 + Math.min(8, W.plants.list.length * 0.06)
-      + E.rain * 26 + E.fogger * 22;
-    hTarget -= Math.max(0, E.temp - 24) * 1.2;
-    hTarget = lerp(hTarget, E.roomHumidity, E.fan * 0.55);
-    E.humidity = clamp(lerp(E.humidity, clamp(hTarget, 20, 100), clamp(d * 0.01, 0, 1)), 15, 100);
-    E.mist = Math.max(0, E.mist - d / 90);
+    E.stepAir(d, { light, waterFrac, falls: W.water.falls.length, pump: W.water.hydro.pump.running ? 1 : 0.3, moss: W.mossFraction(), plants: W.plants.list.length, closed }, size);
     // Evaporation. A sealed jar loses almost nothing: it condenses and runs back down.
     const evapArea = area * (open ? 1 : 0.4) * (1 + E.fan * 0.8) + E.fogger * 250;
     W.water.hydro.evaporate(d, E.humidity, E.temp, evapArea * (closed ? 0.06 : 1));
@@ -115,6 +104,9 @@ export class Sim {
     const F = filterOf(E), eff = filterEff(E);
     E.filterLph = E.filterFlow.lph;
     const poolL = Math.max(1, W.water.hydro.resVol / 1000);
+    // Turnover: how many times an hour the filter passes the main pool's water (the same filter turns a cube's saucer of water
+    // over many times an hour and a show tank's lagoon less than once). For the panels; the catch below already works per litre.
+    E.turnover = E.filterLph / poolL;
     const passed = 1 - Math.exp(-E.filterLph / 60 * d / poolL);
     const caught = E.detritus * 0.02 * passed * F.catch;
     E.detritus -= caught;
@@ -139,9 +131,11 @@ export class Sim {
     E.drainEff = pl?.state === 'mud' ? 0 : E.drainage;
     if (pl?.state === 'mud' && E.day !== E._mudLogged) { E._mudLogged = E.day; W.log('The water is over the false bottom\'s mesh: the soil above is soaking it up and turning to mud. ' + (pl.open ? 'Lower the water or raise the egg-crate.' : 'Siphon it out through the access tower (Care > Foundation).'), 'warn'); }
     // Surface film: a skin of protein and oil on still water (rotting food, detritus). It slows the oxygen the water takes up
-    // (waterbodies.js). Current at the surface breaks it; seashore springtails (`film`) graze it off.
+    // (waterbodies.js). Current at the surface breaks it; seashore springtails (`film`) graze it off, as many as there are for
+    // the floor they have to cover.
     let grazers = 0;
     for (const id in SPECIES) if (SPECIES[id].film) grazers += W.animals.count(id) * SPECIES[id].film;
+    grazers /= size.area;
     const flowNow = E.flow ?? 0.1;   // the filter's current and the pump's turnover (waterbodies.js)
     E.film = clamp((E.film ?? 0) + d * (0.00012 * clamp(E.detritus / 4, 0, 2) - 0.0005 * flowNow - grazers * 0.000012 - (E.film ?? 0) * 0.0002), 0, 1);
 
@@ -222,14 +216,23 @@ export class Sim {
     a.noBask = sp.bask && a.baskAvg < 1 / 48 ? (a.noBask ?? 0) + d : Math.max(0, (a.noBask ?? 0) - d * 2);
     if (a.noBask > 1440 * 3) { st += 0.04; why.push(this.warmSpot < sp.bask - 1.5 ? 'no warm spot to bask' : 'not basking (the warm spot is out of reach)'); }
     st += this.tankRules(a, sp, why);
-    if (sp.flock) {
-      const n = W.animals.count(a.sp);
-      if (n < sp.flock[0] && sp.flock[0] > 1) { st += 0.06 * (1 - n / sp.flock[0]); why.push(`lonely: keep ${sp.flock[0]} or more`); }
-      else if (n > sp.flock[1]) { st += 0.06; why.push('too many of its kind'); }
+    // Room for its kind (tank.js roomFor): the top of the flock and the crowding limit grow and shrink with the tank, so a group
+    // that suits the standard tank is a crowd in a cube and has room to spare in a show tank. Only the keeper's animals mind a
+    // crowd; the clean-up crew, feeders and larvae are kept in check by the breeding room instead.
+    const R = this.roomOf(a.sp), n = W.animals.count(a.sp);
+    if (sp.flock && n < sp.flock[0] && sp.flock[0] > 1) { st += 0.06 * (1 - n / sp.flock[0]); why.push(`lonely: keep ${sp.flock[0]} or more`); }
+    else if (sp.flock && n > R.most) { st += 0.06; why.push(R.k < 1 ? `too many of its kind for a tank this size (room for ${R.most})` : 'too many of its kind'); }
+    else if (!sp.flock && CROWDS.has(sp.kind) && a.sp !== 'tadpole' && n > R.crowd) {
+      // Mild at first (it adds to any other trouble), as bad as a wrong flock at twice the limit.
+      st += 0.03 + 0.03 * clamp((n - R.crowd) / R.crowd, 0, 1);
+      why.push(`crowded: room for about ${R.crowd} in a tank this size`);
     }
+    // Territorial males fight when they cannot keep apart: one territory in the standard tank, more on a bigger floor.
     if (sp.territorial && a.age > (sp.adultDays ?? 10) * 1440) {
       a.male ??= Math.random() < 0.5;
-      if (a.male && W.animals.by[a.sp].some((b) => b !== a && b.male && b.age > (sp.adultDays ?? 10) * 1440)) { st += 0.08; why.push('rival male'); }
+      let rivals = 0;
+      if (a.male) for (const b of W.animals.by[a.sp]) if (b !== a && b.male && b.age > (sp.adultDays ?? 10) * 1440) rivals++;
+      if (rivals >= R.territories) { st += 0.08; why.push(R.territories > 1 ? `rival males (room for ${R.territories} territories)` : 'rival male'); }
     }
     // Poor swimmers drown in water deeper than they can stand in (content/habitats.js maxDepth) when they cannot get out.
     if (sp.drowns) {
@@ -241,6 +244,13 @@ export class Sim {
       if (a.sunk && a.under > 15) why.unshift('drowned: fell in at a steep bank with no ramp out');
     }
     return st;
+  }
+
+  // Room for a species in this tank (tank.js roomFor), worked out once per species until the tank changes.
+  roomOf(id) {
+    const f = sizeFactors();
+    if (this._roomF !== f) { this._roomF = f; this._room = {}; }
+    return this._room[id] ??= roomFor(SPECIES[id], f);
   }
 
   // The tank's shape against the keeper's sheet: litres and height (minL, minH) and the share of land (land). Mild: a cramped
@@ -264,7 +274,7 @@ export class Sim {
     const food = clamp(E.detritus / 8, 0, 1) * 0.7 + clamp((E.soil - 0.8) * 5, 0, 1) * 0.6 * substrateOf(E).mould;
     let crew = 0;
     for (const id in SPECIES) if (SPECIES[id].crew) crew += W.animals.count(id) * SPECIES[id].crew;   // isopods 1, springtails 0.25 … (animals.js `crew`)
-    crew /= 40;
+    crew /= 40 * sizeFactors().area;   // the crew works the floor: forty isopods keep a standard tank clean, not a show tank
     const rate = stale * food * 0.9 - crew * 0.6 - E.fan * 0.25 - 0.04;
     E.mold = clamp(E.mold + (rate * d) / 1440 * 1.2 * (rate > 0 ? W.realism?.mould ?? 1 : 1), 0, 1);
     U.mold.value = E.mold;
@@ -274,6 +284,9 @@ export class Sim {
   animals(d, light) {
     const W = this.world, E = this.env;
     const births = [];
+    const size = sizeFactors();
+    // Prey hide in moss and litter, and a hunter meets them as often as they are packed together: both go by the floor.
+    const preyRoom = clamp(size.area, 0.5, 2);
     // The warmest spot in the tank (the basking lamp's patch), for animals that need a warm spot (`bask`).
     let warm = -99;
     for (const t of W.climate.temp) if (t > warm) warm = t;
@@ -291,7 +304,7 @@ export class Sim {
           a.hunger = Math.max(0, a.hunger - bite * 40);
         }
         if (sp.eats.includes('biofilm') && E.biofilm > 0.05) {
-          E.biofilm -= d * 0.00002;
+          E.biofilm -= d * 0.00002 / size.area;   // a grazer's share of the surfaces: a bigger tank has more of them
           a.hunger = Math.max(0, a.hunger - d * 0.0016);
         }
         if (sp.kind === 'fly' && E.detritus > 0.05) a.hunger = Math.max(0, a.hunger - d * 0.002);
@@ -308,8 +321,8 @@ export class Sim {
           for (const pid of dietOf(sp)) {
             const prey = isItem(pid) ? W.animals.food.filter((f) => !f.eaten && (f.kind ?? 'flake') === pid) : W.animals.by[pid] ?? [];
             // Refuge: moss and litter hide the last few of any prey species (not a cup of feeders, which do not breed).
-            const hidden = isItem(pid) || SPECIES[pid]?.feeder ? 0 : 6 + Math.round(W.mossFraction() * 20);
-            if (prey.length <= hidden || Math.random() > (d / 420) * Math.min(1, (prey.length - hidden) / 10)) continue;
+            const hidden = isItem(pid) || SPECIES[pid]?.feeder ? 0 : Math.round((6 + Math.round(W.mossFraction() * 20)) * preyRoom);
+            if (prey.length <= hidden || Math.random() > (d / 420) * Math.min(1, (prey.length - hidden) / (10 * preyRoom))) continue;
             // The meal is due. The animal hunts a prey near it (animals.js: stalk, strike, swallow) and eats when it
             // strikes; if it cannot by the deadline (always at high speed) it eats at once, as it always did.
             if (W.animals.order(a, pid)) break;
@@ -412,11 +425,12 @@ export class Sim {
       // Breeding.
       if (sp.breed && a.age > (sp.adultDays ?? 10) * 1440 && a.hunger < 0.5 && a.health > 0.7) {
         const pop = W.animals.count(a.sp) + births.filter((b) => b.sp === a.sp).length;
-        const room = 1 - pop / sp.cap;
+        const cap = this.roomOf(a.sp).cap;   // the breeding room grows and shrinks with the tank (tank.js roomFor)
+        const room = 1 - pop / cap;
         // Amphibians need damp air to breed; clutches count toward the limit.
         const damp = !sp.eggs || sp.group !== 'Amphibians' || E.humidity > (sp.humidity ?? 60) + 5;
         const clutches = W.animals.by.eggs.filter((e) => e.parent === a.sp).length * (sp.eggs?.n ?? 0);
-        const room2 = room - clutches / sp.cap;
+        const room2 = room - clutches / cap;
         const suck = (sp.kind === 'crawlWater' || sp.kind === 'swim') && E.filter ? filterOf(E).suction * (E.prefilter ? 0.08 : 1) : 0;   // a canister intake takes babies
         if (damp && room2 > 0 && Math.random() < sp.breed * (d / 1440) * room2 * (sp.kind === 'crawlWater' ? E.cycle : 1) * (1 - suck * 0.7) * ((a.courtedUntil ?? 0) > E.minute ? 2.5 : 1)) {   // (a courted pair breeds more readily: sim/herp.js)
           // Species with genes need two parents: a marked pair if there is one, else any fit adult.

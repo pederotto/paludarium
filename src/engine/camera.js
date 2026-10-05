@@ -4,6 +4,7 @@
 import * as THREE from 'three/webgpu';
 import CameraControls from 'camera-controls';
 import { TANK } from '../sim/tank.js';
+import { roomFrame } from './fittings.js';
 
 let installed = false;
 const _ct = new THREE.Vector3(), _cp = new THREE.Vector3(), _cd = new THREE.Vector3();
@@ -70,6 +71,7 @@ export class CameraRig {
     this.free = { w: 1, h: 1 };                   // fraction of the view left free
     this.size = { w: 1, h: 1 };
     this.moved = false;   // the player has taken the camera: don't re-frame on resize
+    this.room = true;     // the room round the tank is drawn (title screen): frame it at a physical scale (Game.setRoom)
     c.addEventListener('controlstart', () => { this.moved = true; this.handling = true; });
     c.addEventListener('controlend', () => { this.handling = false; this.handledAt = performance.now(); });
     // The wheel is ours (camera-controls' own wheel is switched off in the editor's setButtons, see wheel()).
@@ -103,13 +105,13 @@ export class CameraRig {
   // Distance that frames the tank: the vertical field of view fits its
   // height, the horizontal one (which depends on the aspect ratio, so a phone
   // in portrait gets a different answer than a 16:9 monitor) fits its width.
-  fitDistance(wide = 1.16, tall = 1.2) {
+  fitDistance(wide = 1.16, tall = 1.2, free = this.free) {
     const { w, h } = TANK;
     const tv = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const aspect = Math.max(0.3, this.camera.aspect);
     // Panels cover part of the screen: fit the tank into what is left (but
     // never shrink it below 72% of the full view).
-    const fw = this.free.w, fh = this.free.h;
+    const fw = free.w, fh = free.h;
     const dv = ((h * tall) / 2 / tv) / fh;
     const dh = ((w * wide) / 2 / (tv * aspect)) / fw;
     return Math.max(dv, dh);
@@ -125,14 +127,39 @@ export class CameraRig {
     // the spare height to show the floor and the ponds.
     const D = this.fitDistance(portrait ? 1.22 : 1.16) + d * 0.5;
     const el = THREE.MathUtils.degToRad(46), ty = h * 0.34, tz = d * 0.05;
-    return {
+    // A close look is as close in centimetres in every tank (the standard tank's 63 cm), not a fraction of the tank's width.
+    const cw = Math.min(w, 90);
+    const v = {
       front: portrait ? [0, ty + D * Math.sin(el), tz + D * Math.cos(el), 0, ty, tz] : [0, h * 0.62, D, 0, h * 0.44, 0],
       top: [0, h * 2.7 + w * 0.15, d * 0.3, 0, h * 0.13, 0],
       left: [-w * 1.65, h * 0.75, d * 0.9, 0, h * 0.37, -d * 0.09],
       right: [w * 1.65, h * 0.75, d * 0.9, 0, h * 0.37, -d * 0.09],
-      close: [-w * 0.09, h * 0.5, w * 0.7, -w * 0.045, h * 0.3, -d * 0.18],
+      close: [-cw * 0.09, Math.min(h * 0.5, 30), cw * 0.7, -cw * 0.045, Math.min(h * 0.3, 18), -Math.min(d * 0.18, 8.1)],
       hero: [-w * 0.3 * Math.min(1.5, D / w) * 0.62 - w * 0.18, h * 0.5, D * 0.86, aspect > 1.2 ? -w * 0.2 : 0, h * 0.42, -d * 0.1],
     };
+    if (!this.physical()) return v;
+    // The room (title screen): the whole scene from the lamp down to the floor (engine/fittings.js roomFrame), seen a little
+    // from above like someone standing in the room, and the three-quarter view from the left a little further back. Both
+    // look at the middle of the scene, so the slow orbit of the title screen turns round the tank and keeps it in place;
+    // the menu's side of the screen is left out by shifting the picture, not the camera (setInset, ui/layout.js).
+    const R = this.roomDistance(), fr = roomFrame(TANK), down = 0.14, a = -0.36, Rh = R * 1.05, hz = -d * 0.1;
+    v.front = [0, fr.y + R * down, R, 0, fr.y, 0];
+    v.hero = [Rh * Math.sin(a), fr.y + Rh * down, hz + Rh * Math.cos(a), 0, fr.y, hz];
+    return v;
+  }
+
+  // The framing the camera returns to while the player has not taken it (a new tank, a resize, a panel opening).
+  home() { return this.physical() ? 'hero' : 'front'; }
+
+  // The room is framed at a physical scale on a landscape screen; a portrait one shrinks the cabinet to a plinth
+  // (Stage.fitScreen) and frames the tank as in play.
+  physical() { return this.room && this.camera.aspect >= 0.8; }
+
+  // The room's distance: the frame of engine/fittings.js roomFrame, so a jar stands small on its table and the show tank
+  // is the big piece of furniture it is.
+  roomDistance() {
+    const { w, h, d } = TANK, f = roomFrame(TANK);
+    return this.fitDistance(f.w / w, f.h / h, { w: 1, h: 1 }) + d * 0.5;
   }
 
   // The camera goes where the player puts it, and nowhere else. The game never turns, tilts, pulls in or swings it on its
@@ -215,7 +242,7 @@ export class CameraRig {
     this.moved = false;
     if (this.zone && !this.orbit) { this.setZone(this.zone, false); return; }
     this.freeLimits();
-    this.view('front', false);
+    this.view(this.home(), false);
   }
 
   // The free camera of the title screen, the time-lapse and the kids' tanks: out into the room.
@@ -223,8 +250,11 @@ export class CameraRig {
     const { w, d, h } = TANK, c = this.controls;
     c.minPolarAngle = 0; c.maxPolarAngle = Math.PI * 0.64;
     c.minDistance = 3;
-    c.maxDistance = Math.max(w * 3, this.fitDistance(1.3, 1.3) * 1.5);
-    c.setBoundary(new THREE.Box3(new THREE.Vector3(-w * 0.7, -4, -d * 0.8), new THREE.Vector3(w * 0.7, h * 1.25, d * 1.05)));
+    // Far enough for the room's framing too, and the look-at point may sit off a small tank's side (roomViews' hero).
+    const room = this.physical(), fr = room ? roomFrame(TANK) : null;
+    c.maxDistance = Math.max(w * 3, this.fitDistance(1.3, 1.3) * 1.5, room ? this.roomDistance() * 1.6 : 0);
+    const bx = w * 0.7, by = room ? Math.min(-4, fr.y - 10) : -4;
+    c.setBoundary(new THREE.Box3(new THREE.Vector3(-bx, by, -d * 0.8), new THREE.Vector3(bx, h * 1.25, d * 1.05)));
   }
 
   // The player's camera: all the way round the tank, from straight above down to a little below level, from 3 cm to far
@@ -302,7 +332,7 @@ export class CameraRig {
     // On a portrait phone the width is the limit and the thin right-hand rail may overlap the tank: do not shrink for it.
     const fw = W / H < 0.8 ? Math.max(0.94, (W - l - r * 0.3) / W) : Math.max(0.72, (W - l - r) / W);
     this.free = { w: fw, h: Math.max(0.72, (H - t - b) / H) };
-    if (!this.moved && TANK.w) this.view('front', true);
+    if (!this.moved && TANK.w) this.view(this.home(), true);
   }
 
   update(dt) {
@@ -326,6 +356,6 @@ export class CameraRig {
   resize(aspect) {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
-    if (!this.moved && TANK.w) this.view('front', false);
+    if (!this.moved && TANK.w) this.view(this.home(), false);
   }
 }

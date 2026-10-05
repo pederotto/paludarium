@@ -71,13 +71,42 @@ export class Game {
     this.events.emit('resize', w, h);
   }
 
+  // The room around the tank (furniture, floor, wall): shown on the title screen, hidden in play, where the camera stays with
+  // the tank. The camera frames the room at a physical scale and the tank alone to fill the view (CameraRig.room).
+  // The free camera's limits depend on the room (its framing stands much further back from a small tank), so they follow it.
+  setRoom(on) { this.room = on; this.rig.room = on; this.stage?.setRoom(on); if (!this.rig.zone) this.rig.freeLimits(); }
+
+  // One build at a time: a build waits for the world's setup, and a second one started meanwhile (a game started while the
+  // title screen's size picker is building its preview) would tear down a half-built world. Any build but a preview also
+  // cancels a preview still waiting (previewTank).
+  async loadTank(id, opts = {}) {
+    if (!opts.preview) this._want = null;
+    const before = this._loading;
+    let done;
+    this._loading = new Promise((r) => { done = r; });
+    try { await before; return await this.buildTank(id, opts); } finally { done(); }
+  }
+
+  // The title screen's size picker shows the size you pick in the room, at its real size among the furniture, a mug and
+  // a light switch: the title tank becomes an empty tank of that size (the standard tank keeps its starter layout). Only
+  // the latest pick is built, and starting a game in that size reuses it (restartTank), so the build is paid for once.
+  // A portrait screen frames the tank alone (CameraRig.physical), so there it would only cost a build: it keeps the size
+  // drawings of the picker.
+  async previewTank(id) {
+    if (S.screen.value !== 'title' || !TANKS[id] || (id !== 'standard' && !this.rig.physical())) return;
+    this._want = id;
+    await this._loading;
+    if (this._want !== id || this.tankId === id) return;
+    await this.loadTank(id, { layout: id === 'standard' ? 'starter' : 'empty', showcase: true, preview: true });
+    if (this._want !== id || S.screen.value !== 'title') return;
+    this.rig.startOrbit(0.04);
+    this.rig.view('hero', false);
+  }
+
   // Builds a tank of the given kind and fills it. `layout`: 'empty', 'starter'
   // (only the standard tank has one); `save`: a saved world object to load instead. `showcase`: it is the title
   // screen's tank (see restartTank).
-  // The room around the tank (cabinet, floor): shown on the title screen, hidden in play, where the camera stays with the tank.
-  setRoom(on) { this.room = on; this.stage?.setRoom(on); }
-
-  async loadTank(id, { layout = 'empty', save = null, showcase = false } = {}) {
+  async buildTank(id, { layout = 'empty', save = null, showcase = false } = {}) {
     const same = TANKS[id] ?? TANKS.standard;
     if (this.world && this.showcase && this.tankId === same.id && same.id !== 'custom') return this.restartTank(same, layout, save);
     this.unloadTank();
@@ -90,6 +119,7 @@ export class Game {
     this.stage = new Stage(this.scene);
     this.stage.fitScreen(this.camera.aspect);
     this.stage.setRoom(this.room ?? true);
+    this.rig.room = this.room ?? true;
     this.worldRoot = new THREE.Group();
     this.worldRoot.name = 'world';
     this.scene.add(this.worldRoot);
@@ -154,6 +184,9 @@ export class Game {
       for (const m of mats) m.dispose?.();
     };
     this.worldRoot.traverse(kill);
+    // After the traverse, which frees the lens's meshes with the rest: its signal effects would otherwise keep the old world
+    // alive (render/lens.js).
+    this.lens?.dispose();
     this.worldRoot.removeFromParent();
     this.world = null;
   }

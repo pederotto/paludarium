@@ -19,7 +19,7 @@ import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
-import { herpSpot } from './placement.js';
+import { herpSpot, depthCap, depthOk, deepWithin } from './placement.js';
 import { HABITAT } from '../content/habitats.js';
 import { restStep, isNight, REST_LABEL } from './swimrest.js';
 import { SKINK, skinkMind, skinkThink } from './skink.js';
@@ -839,7 +839,7 @@ export class Animals {
         if (surf > ground) return { pos: V(x, surf - 0.3, z) };
         return { pos: V(x, ground, z) };
       case 'newt': case 'axolotl': {          // (placement.js herpSpot: the habitat row decides; a fire salamander is never put on a pool floor)
-        const r = herpSpot(HABITAT[id], { ground, surf, wl, nearWater: (d) => W.nearWater(V(x, ground, z), d) });
+        const r = herpSpot(HABITAT[id], { ground, surf, wl, nearWater: (d) => W.nearWater(V(x, ground, z), d), deepNear: (r, m) => deepWithin((px, pz) => this.wDepth(px, pz), x, z, r, m) });
         return r.error ? r : { pos: V(x, r.y, z) };
       }
       case 'gecko':
@@ -1209,7 +1209,7 @@ export class Animals {
       const [gx, gz] = T.field.gradient(a.pos.x, a.pos.z), l = Math.hypot(gx, gz), nx = a.pos.x - gx / l * 0.3, nz = a.pos.z - gz / l * 0.3;
       // (a frog does not slide off into water deeper than half its body: it scrambles to a place it can sit instead, frogOut)
       if ((sp.kind === 'frog' || sp.kind === 'toad') && this.tooDeep(a, sp, nx, nz)) { this.frogOut(a, sp); return; }
-      if (this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = T.heightAt(nx, nz); }
+      if ((this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)) && this.depthOkFor(a, sp, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = T.heightAt(nx, nz); }
       return;
     }
   }
@@ -1261,12 +1261,16 @@ export class Animals {
     }
     const nx = x0 + ux * 0.3, nz = z0w + uz * 0.3;
     if (l < 1e-6 || Math.abs(nx) > TANK.w / 2 - 0.5 || Math.abs(nz) > TANK.d / 2 - 0.5 || (!a.swimming && this.cliffAt(nx, nz)) || (this.occ.count && this.occ.solidAt(nx, T.heightAt(nx, nz) + 0.5, nz))
-      || (!a.swimming && !(this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)))
+      || (!a.swimming && !((this.okFor(this.mediumOf(sp), nx, nz, 99) || this.okFor('any', nx, nz, 99)) && this.depthOkFor(a, sp, nx, nz)))
       || (frog && this.tooDeep(a, sp, nx, nz))) { if (frog) this.frogOut(a, sp); return; }   // (not pushed off into deep water: it scrambles out)
     a.pos.x = nx; a.pos.z = nz;
     if (!a.swimming) a.pos.y = T.heightAt(nx, nz);
     a._oob = { t: this.t, x: ux, z: uz };
   }
+
+  // Water depth at (x, z) (-Infinity dry), and whether a land salamander may go there from where it is (placement.js depthOk, N9s).
+  wDepth(x, z) { return this.world.water.surfaceAt(x, z) - this.world.terrain.heightAt(x, z); }
+  depthOkFor(a, sp, nx, nz) { const cap = depthCap(HABITAT[a.sp], sp.kind); return cap >= 99 || depthOk(cap, this.wDepth(a.pos.x, a.pos.z), this.wDepth(nx, nz)); }
 
   // Water at (x, z) deeper than half a frog's body: what a poison frog, a toad or a tree frog does not wade into (nor is pushed into).
   tooDeep(a, sp, x, z) {
@@ -1382,7 +1386,7 @@ export class Animals {
     if (pivot && tf.legs && tf.pz && !swim && !a.hop && !a.wallMode && !a.onWall) {
       const [dx, dz] = pivotShift(y0, a.yaw, tf.pz, drawScale(a, sp));
       const nx = a.pos.x + dx, nz = a.pos.z + dz;
-      if (!(this.avoid && this.occ.count && this.occ.solidAt(nx, this.bodyY(a, sp), nz))) { a.pos.x = nx; a.pos.z = nz; a.pivotMoved = (a.pivotMoved ?? 0) + Math.hypot(dx, dz); }
+      if (!(this.avoid && this.occ.count && this.occ.solidAt(nx, this.bodyY(a, sp), nz)) && this.depthOkFor(a, sp, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.pivotMoved = (a.pivotMoved ?? 0) + Math.hypot(dx, dz); }
     }
     return a.yaw;
   }
@@ -4121,7 +4125,7 @@ export class Animals {
     const solid = (nx, nz) => this.avoid && this.occ.count && this.occ.solidAt(nx, this.world.terrain.heightAt(nx, nz) + 0.5, nz);
     // (and nothing solid between here and there: a long step at the fast speeds walked through thin wood, B4b)
     const swept = (nx, nz) => !this.avoid || this.occ.walkFree(a, x, a.pos.y, z, nx, this.world.terrain.heightAt(nx, nz), nz) === 1;
-    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz) && swept(nx, nz);
+    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz) && swept(nx, nz) && this.depthOkFor(a, sp, nx, nz);
     const probe = Math.max(step, 0.15);       // (the first step of a start has no length yet)
     if (!free(x + ux * probe, z + uz * probe)) {
       const sd = a.side ?? 1, base = Math.atan2(ux, uz);

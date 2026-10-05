@@ -1,10 +1,13 @@
 import { Icon } from '../icons.jsx';
+import { RUNNING_COSTS } from '../../content/upkeep.js';
 import { S, toast, openModal, hudRules } from '../store.js';
 import { chemChip } from '../../app/modes.js';
 import { ctx } from '../../app/ctx.js';
 import { Care } from '../../app/actions.js';
 import { SPECIES } from '../../sim/animals.js';
 import { PLANTS } from '../../sim/plants.js';
+import { sizeFactors } from '../../sim/tank.js';
+import { stockAdvice } from '../../game/stocking.js';
 
 // A ring gauge: `good` is the comfortable range; outside it the ring warms to amber then coral.
 function Gauge({ icon, label, value, text, unit, good, warn, onClick }) {
@@ -55,7 +58,10 @@ export function Readings({ live }) {
           <Gauge icon="flask" label="Water" value={waterScore(e)} text={waterWord(e)} unit="" good={[0.7, 1]} warn={0.25} onClick={() => openModal('lab', 'nitrogen')} />
         </div>
       ) : <p class="note">Fit a thermo-hygrometer in the Studio shop to read temperature and humidity.</p>}
+      <Row label="Tank" value={`${live.tank.w}×${live.tank.d}×${live.tank.h} cm, ${live.tank.litres} L`} />
       <Row label="Water" value={`${live.water.litres.toFixed(1)} L`} level={live.water.outlets && !live.water.pumpRunning && live.water.pumpOn ? 'bad' : ''} />
+      {live.stock?.over?.length ? <Row label="Crowded" value={live.stock.over.map((o) => `${SPECIES[o.id]?.name ?? o.id} ${o.n}/${o.room}`).join(', ')} level="warn" onClick={() => openModal('codex', 'animal:' + live.stock.over[0].id)} /> : null}
+      {RUNNING_COSTS && live.upkeep && S.career.value?.mode === 'career' ? <Row label="Running costs" value={`¤${live.upkeep.total.toFixed(1)} a day`} onClick={() => openModal('care')} /> : null}
       {!hud.numbers ? <WaterChips e={e} /> : null}
       {hud.numbers && testKit ? (
         <>
@@ -137,6 +143,15 @@ export function QuickCare() {
   );
 }
 
+// How many of its kind fit in this tank (game/stocking.js), for the inspector.
+function RoomRow({ id, live }) {
+  const sp = SPECIES[id];
+  if (!live || !sp || sp.feeder) return null;
+  const a = stockAdvice(id, sp, live.stock?.counts?.[id] ?? 0, sizeFactors(), { water: live.water.litres });
+  if (a.verdict === 'free') return null;
+  return <Row label="Room here" value={a.verdict === 'ok' || a.verdict === 'full' ? `${a.have} of about ${a.room}` : a.text} level={a.verdict === 'over' || a.verdict === 'small' ? 'bad' : a.verdict === 'ok' ? '' : 'warn'} />;
+}
+
 // What the player selected with Inspect: how it is doing, and why.
 function Inspector({ live }) {
   const s = S.selection.value;
@@ -153,6 +168,7 @@ function Inspector({ live }) {
         <Row label="Hunger" value={Math.round(a.hunger * 100) + '%'} level={a.hunger > 0.75 ? 'bad' : a.hunger > 0.5 ? 'warn' : ''} />
         {a.T != null ? <Row label="Where it sits" value={`${a.T.toFixed(1)} °C${a.RH != null && sp.humidity ? `, ${Math.round(a.RH)}% RH` : ''}`} /> : null}
         <Row label="Needs" value={`${sp.temp[0]}–${sp.temp[1]} °C${sp.humidity ? `, ${sp.humidity}%+ RH` : ''}`} />
+        <RoomRow id={a.sp} live={live} />
         {a.why?.length ? <Row label="Stress" value={a.why.join(', ')} level="bad" /> : <Row label="Status" value="content" level="good" />}
         <p class="note">{sp.note}</p>
       </div>
