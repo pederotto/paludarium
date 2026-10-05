@@ -31,8 +31,8 @@ const FIX = {
   'damp': [{ humidity: 74 }, { humidity: 76 }],
   'two-frogs': [{ animals: { byId: { dartfrog: 1 } } }, { animals: { byId: { dartfrog: 2 } } }],
   'feed-frogs': [{ $c: { fed: 3 }, $b: { fed: 3 } }, { $c: { fed: 4 }, $b: { fed: 3 } }],
-  'pond': [{ features: { shallowpool: false, bromeliad2: false } }, { features: { shallowpool: true, bromeliad2: false } }],
-  'cups': [{ features: { shallowpool: true, bromeliad2: false } }, { features: { shallowpool: true, bromeliad2: true } }],
+  'pond': [{ pools: 1, $b: { pools: 1 } }, { pools: 2, $b: { pools: 1 } }],
+  'cups': [{ $c: { cups: 3 }, $b: { cups: 2 } }, { $c: { cups: 4 }, $b: { cups: 2 } }],
   'baby': [{ births: 2, $b: { births: 2 } }, { births: 3, $b: { births: 2 } }],
   'six-neons': [{ animals: { byId: { neon: 5 } } }, { animals: { byId: { neon: 6 } } }],
   'water-plants': [{ plants: { total: 6, water: 1 } }, { plants: { total: 6, water: 2 } }],
@@ -99,6 +99,19 @@ test('counts are what the child added since the chapter began', () => {
   const x = STORY[0].challenges[0];
   assert.equal(x.test({ ...base(), plants: { total: 50, water: 0 } }, {}, { land: 47 }), true);
   assert.equal(x.test({ ...base(), plants: { total: 49, water: 0 } }, {}, { land: 47 }), false, 'a full world does not finish it alone');
+});
+
+test('N18b: a world that already has a pool or 2 cup plants does not finish pond or cups at once', () => {
+  const ch = STORY.findIndex((c) => c.id === 'babies');
+  const full = { ...base(), pools: 1, features: { shallowpool: true, bromeliad2: true } };
+  let { p } = storyStep({ ...newProgress(), chapter: ch }, full, { fed: 0, cups: 2 }, 1);
+  assert.equal(!!p.done.pond, false, 'pond: the pool was there before the chapter');
+  assert.equal(!!p.done.cups, false, 'cups: the 2 cup plants were there before the chapter');
+  ({ p } = storyStep(p, { ...full, pools: 2 }, { fed: 0, cups: 3 }, 1));
+  assert.equal(!!p.done.pond, true, 'a pond the child dug counts');
+  assert.equal(!!p.done.cups, false, 'one new cup plant is not 2');
+  ({ p } = storyStep(p, { ...full, pools: 2 }, { fed: 0, cups: 4 }, 1));
+  assert.equal(!!p.done.cups, true, '2 new cup plants count');
 });
 
 test('storyStep walks the chapters in order, holds need their time, counters use the chapter baseline', () => {
