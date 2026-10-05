@@ -270,6 +270,30 @@ const HEART = (t) => (t < 0.24 ? 0.14 + 0.36 * Math.pow(Math.sin((Math.PI / 2) *
 // Thick, glossy hearts: a pale midrib, very faint arcuate veins, a soft mottling; the outline (lobes, notch, acuminate tip) is
 // the texture's alpha on a coarse blade (sim/orchid-leaves.js).
 const PLEURO_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, gloss: [0.55, 0.985, 0.012], leafMap: orchidLeafMap('pleurothallis'), leafPale: [0.78, 0.86, 0.55], leafBack: [1.04, 1.07, 0.97] });
+// (F3) A smooth tepal for the bell and cup flowers of Pleurothallis and D. cuthbertsonii: from radius r0 about the head axis
+// (+Y) at angle th (0 = +Z, the dorsal side), its spine leaves at a0 from the axis and bends out to a1 at the tip (radians: a
+// trumpet that flares, or a cup); the outline widens from `base` x width to the full width at s = 0.68 and closes in a rounded
+// tip by the last row; `cup` [at the base, at the tip] curls the margins inward. `fr` { o, X, Y, Z } places it (right-handed;
+// default the head frame). `col(u, s)`. Leaf v = s. Triangles: 2 nu (rows - 1).
+function bellTepal(b, { th, y0 = 0, r0 = 0.2, len, width, a0 = 0.25, a1 = 1.3, base = 0.45, cup = [0.5, 0.15], nu = 3, rows = [0, 0.22, 0.44, 0.63, 0.79, 0.91, 0.97], fr = null, col }) {
+  const R = V(Math.sin(th), 0, Math.cos(th)), T = V(Math.cos(th), 0, -Math.sin(th)), F = V(0, 1, 0);
+  const at = (p) => (fr ? fr.o.clone().addScaledVector(fr.X, p.x).addScaledVector(fr.Y, p.y).addScaledVector(fr.Z, p.z) : p);
+  const ang = (s) => a0 + (a1 - a0) * s * s;
+  const sp = (s) => {
+    const p = R.clone().multiplyScalar(r0).addScaledVector(F, y0), n = 12, ds = s / n;
+    for (let i = 0; i < n; i++) { const a = ang((i + 0.5) * ds); p.addScaledVector(R, Math.sin(a) * len * ds).addScaledVector(F, Math.cos(a) * len * ds); }
+    return p;
+  };
+  const hw = (s) => (width / 2) * (base + (1 - base) * Math.pow(Math.sin((Math.PI / 2) * Math.min(1, s / 0.68)), 0.8)) * (s > 0.68 ? Math.sqrt(Math.max(0, 1 - ((s - 0.68) / 0.32) ** 2)) : 1);
+  const P = rows.map((s) => {
+    const a = ang(s), d = R.clone().multiplyScalar(Math.sin(a)).addScaledVector(F, Math.cos(a)), n = new THREE.Vector3().crossVectors(d, T);
+    const c = sp(s), w = hw(s), q = cup[0] + (cup[1] - cup[0]) * s, row = [];
+    for (let j = 0; j <= nu; j++) { const u = -1 + (2 * j) / nu; row.push(at(c.clone().addScaledVector(T, u * w).addScaledVector(n, q * u * u * w))); }
+    return row;
+  });
+  surf(b, P, { leaf: (i, j) => [-1 + (2 * j) / nu, rows[i]], col: (i, j) => col(-1 + (2 * j) / nu, rows[i]), sway: (i) => rows[i] });
+}
+
 const pleuroLayout = once(() => {
   // (T1b) On the wall (wallTilt 1.6, wallSpin 0.35) local +Y is up-and-out, world-down is about local (0, -0.85, 0.53) and the
   // wall's normal local (0, 0.53, 0.85). So the stems fan over the sides and the front (never local -Z: into the wall), arch
@@ -310,7 +334,7 @@ const lepLayout = once(() => {
 // Small dark leaves with raised silver-white warts on top (painted), flushed red-brown underneath (the back-face tint).
 const CUTH_MAT = () => ({ ...ORCHID_MAT, rough: 0.74, gloss: [0.3, 0.98, 0.015], leafMap: orchidLeafMap('cuthbertsonii'), leafPale: [0.86, 0.9, 0.86], leafBack: [3.0, 0.85, 1.15] });
 const cuthLayout = once(() => {
-  const r = rng(113), bulbs = [], stalks = [], N = 12, C = V(0, 1.5, 0);
+  const r = rng(113), r2 = rng(117), bulbs = [], stalks = [], N = 12;
   for (let k = 0; k < N; k++) {
     const a = k * 2.39996 + (r() - 0.5) * 0.4, d = 0.25 + 0.85 * Math.sqrt((k + 0.5) / N), out = V(Math.cos(a), 0, Math.sin(a));
     const p = out.clone().multiplyScalar(d), lean = V(out.x * 0.3, 1, out.z * 0.3).normalize(), h = 0.7 + r() * 0.35;
@@ -320,9 +344,13 @@ const cuthLayout = once(() => {
       leaves.push({ dir: V(Math.cos(b) * 0.65, 1, Math.sin(b) * 0.65), len: 1.5 + r() * 1.0, width: 0.62 + r() * 0.14, red: r() });
     }
     bulbs.push({ a, p, top, lean, h, leaves });
-    const e = -0.3 + 1.05 * ((k * 0.618034) % 1), ce = Math.sqrt(1 - e * e), face = V(Math.cos(a) * ce, e, Math.sin(a) * ce);
-    const tip = C.clone().addScaledVector(face, 2.3);
-    stalks.push({ pts: [top.clone(), tip], tip, face });
+    // (F3) Not a wreath (photos 2-3): the outer ten bulbs each carry one flower on a short stalk that leaves the bulb top
+    // outward and up; the flower faces out and a little down, its turn and tilt varied (own rng: the body's draws unchanged).
+    if (k < 2) continue;
+    const az = a + (r2() - 0.5) * 0.9, e = -0.3 + 1.0 * ((k * 0.618034 + 0.3) % 1), ce = Math.cos(e);
+    const face = V(Math.cos(az) * ce, Math.sin(e), Math.sin(az) * ce);
+    const sd = V(Math.cos(az) * 0.8, 0.5 + 0.6 * r2(), Math.sin(az) * 0.8).normalize(), tip = top.clone().addScaledVector(sd, 0.5 + 1.1 * r2());
+    stalks.push({ pts: [top.clone(), tip], tip, face, age: r2() });
   }
   return { bulbs, stalks };
 });
@@ -570,18 +598,24 @@ export const FLOWERING = {
     get material() { return PLEURO_MAT(); },
     flower: {
       build(b) {
-        // One fascicle: five tiny tubular-cupped flowers (~6-8 mm) bunched in the leaf notch, each a hooded dorsal sepal and the
-        // fused lateral sepals (synsepal) cupped toward each other into a short tube, its throat in the centre colour.
-        for (let i = 0; i < 5; i++) {
-          const a = i * 2.4, rr = i ? 0.3 : 0, o = V(Math.cos(a) * rr, 0.05 + 0.08 * (i % 2), Math.sin(a) * rr), lx = Math.cos(a) * rr * 1.5, lz = Math.sin(a) * rr * 1.5;
-          sheet(b, { base: o.clone().add(V(0, 0, 0.05)), dir: V(lx, 1, lz + 0.35), face: V(0, -0.2, -1), len: 0.4, width: 0.32, outline: OVATE, nu: 1, nv: 2, cup: 0.7, curl: 0.25,
-            color: (u, t) => M(1, 0.15 * Math.abs(u), 0.6 * (1 - sstep(0, 0.4, t))) });
-          sheet(b, { base: o.clone().add(V(0, 0, -0.05)), dir: V(lx, 1, lz - 0.35), face: V(0, -0.2, 1), len: 0.36, width: 0.34, outline: OVATE, nu: 1, nv: 2, cup: 0.6, curl: 0.15,
-            color: (u, t) => M(0.65, 0.35, 0.5 * (1 - sstep(0, 0.4, t))) });
+        // (F3) One fascicle in the leaf notch (photos 3-4): eight tiny flowers on short pedicels from one point, four open and
+        // four buds. An open flower (~6 mm) is a deep cup of three concave sepals (the dorsal and the two laterals), the
+        // throat in the centre colour, the sepal tips a little accent; a bud is a swollen spindle in the main colour.
+        const FL = [[0.3, 0.5, 0.22, 1], [2.45, 0.6, 0.2, 1], [4.4, 0.55, 0.25, 1], [1.3, 0.1, 0.16, 1],
+          [3.4, 0.85, 0.14, 0], [5.5, 0.9, 0.18, 0], [1.0, 1.0, 0.12, 0], [3.9, 0.35, 0.1, 0]];   // [azimuth, tilt, pedicel, open]
+        for (const [az, tl, pl, open] of FL) {
+          const Y = V(Math.sin(tl) * Math.cos(az), Math.cos(tl), Math.sin(tl) * Math.sin(az)), o = Y.clone().multiplyScalar(pl);
+          if (!open) { tube(b, [V(0, 0, 0), o, o.clone().addScaledVector(Y, 0.24)], [0.022, 0.075, 0.015], { sides: 3, color: (t) => M(0.4 + 0.6 * t, 0.6 - 0.6 * t, 0), sway: () => 0 }); continue; }
+          tube(b, [V(0, 0, 0), o], [0.022, 0.02], { sides: 3, color: () => M(0.3, 0.7, 0), sway: () => 0 });
+          const Z = V(0, 0, 1).addScaledVector(Y, -Y.z); if (Z.lengthSq() < 1e-3) Z.set(1, 0, 0);
+          Z.normalize();
+          const fr = { o, X: new THREE.Vector3().crossVectors(Y, Z), Y, Z };
+          for (const th of [0, 2.15, -2.15]) bellTepal(b, { th, r0: 0.03, len: th ? 0.4 : 0.44, width: th ? 0.44 : 0.4, a0: 0.42, a1: 0.5, base: 0.6, cup: [0.75, 0.65], nu: 2, rows: [0, 0.4, 0.75, 0.97], fr,
+            col: (u, t) => { const thr = 0.6 * (1 - sstep(0.1, 0.55, t)), ac = 0.3 * sstep(0.6, 1, t); return M((1 - thr) * (1 - ac), ac, thr); } });
         }
       },
       palettes: [
-        [0x6e1028, 0x3a0816, 0xd04a6a],   // P. cardiothallis: dark wine red
+        [0x5e0c22, 0x3a0816, 0x962a44],   // P. cardiothallis: dark wine-maroon (photo 4)
         [0x9a2a5a, 0x5a1030, 0xf0c040],   // purple-red (P. palliolata)
         [0xe8a020, 0x7a3a12, 0xc05a20],   // yellow-orange with brown (photo 1)
         [0x7a3a1a, 0x4a1a10, 0xc89040],   // brown-maroon (P. cordata type, photo 3)
@@ -593,10 +627,10 @@ export const FLOWERING = {
         if (grown < 0.5) return [];
         const out = [];
         pleuroLayout().stems.forEach((s, k) => {
-          if (r() > 0.6 || out.length >= 6) return;   // at most 7 heads: triangles stay under 2x the old plant
+          if (r() > 0.6 || out.length >= 7) return;   // (F3) at most 8 notch heads + 6 on the midribs: <= 15
           const p = s.top.clone().addScaledVector(s.dir, 0.08 * s.len).addScaledVector(s.nrm, 0.1), f = s.nrm.clone().addScaledVector(s.dir, 0.4).normalize();
           out.push([p.x, p.y, p.z, f.x, f.y, f.z, 0.9 + r() * 0.2]);
-          if (k === 2) for (const t of [0.3, 0.5]) { const q = s.top.clone().addScaledVector(s.dir, t * s.len).addScaledVector(s.nrm, 0.15); out.push([q.x, q.y, q.z, s.nrm.x, s.nrm.y, s.nrm.z, 0.8]); }
+          if (k === 2 || k === 7) for (const t of [0.28, 0.45, 0.62]) { const q = s.top.clone().addScaledVector(s.dir, t * s.len).addScaledVector(s.nrm, 0.12); out.push([q.x, q.y, q.z, s.nrm.x, s.nrm.y, s.nrm.z, 0.7]); }   // (F3) a line along the midrib (photo 1)
         });
         return out;
       },
@@ -665,38 +699,39 @@ export const FLOWERING = {
     get material() { return CUTH_MAT(); },
     flower: {
       build(b) {
-        // A 3D tubular bell (photos 1-3): five broad tepals joined at their bases into a tube along +Y that flare out at the
-        // mouth; the lateral sepals run back into a long chin (mentum) below and behind; a narrow rolled tongue lip in the
-        // throat, its tip orange-red (centre). Tips accent (the white form's pink tips), a touch of centre deep in the throat.
-        const tipped = (a0) => (u, t) => { const a = a0 * sstep(0.62, 1, t), thr = 0.3 * (1 - sstep(0, 0.3, t)); return M((1 - a) * (1 - thr), a, thr); };
-        const tepal = (phi, y0, r0, len, width, outline, splay, curl, a0) => {
-          const e = V(Math.sin(phi), 0, Math.cos(phi));
-          sheet(b, { base: e.clone().multiplyScalar(r0).setY(y0), dir: V(0, 1, 0).addScaledVector(e, splay), face: e.clone().negate(), len, width, outline, nu: 4, rows: [0, 0.3, 0.55, 0.8, 0.95], cup: 0.4, curl, color: tipped(a0) });   // ends at 0.95: blunt, rounded tips
-        };
-        tepal(0, -0.35, 0.2, 1.75, 1.1, ROUND, 0.35, -0.25, 0.8);                 // dorsal sepal, hooded over the mouth
+        // (F3) A smooth 3D trumpet (photos 1-3). The head's origin is the back of the chin, so a bud folds forward along +Y
+        // (nothing behind the origin to swing through the flower). Five broad tepals rise from a narrow tube on the axis
+        // (z = ZA) and flare out to rounded tips; the lateral sepals start lower, over a rounded chin (mentum) that runs back
+        // and down to the origin; a narrow rolled tongue lip lies in the lower throat, its tip orange-red (centre). Tips
+        // accent (the white form's pink tips), the throat the centre colour (cream to orange, never dark).
+        const ZA = 0.45, fr = { o: V(0, 0, ZA), X: V(1, 0, 0), Y: V(0, 1, 0), Z: V(0, 0, 1) };
+        const tint = (a0) => (u, t) => { const a = a0 * sstep(0.7, 1, t), thr = 0.45 * (1 - sstep(0.05, 0.4, t)); return M((1 - a) * (1 - thr), a, thr); };
+        bellTepal(b, { th: 0, y0: 0.8, r0: 0.2, len: 1.9, width: 1.25, a0: 0.18, a1: 1.45, base: 0.5, cup: [0.6, 0.1], fr, col: tint(0.8) });      // dorsal sepal
         for (const s of [-1, 1]) {
-          tepal(s * 1.2, -0.3, 0.2, 1.7, 1.35, OBOVATE, 0.4, -0.35, 0.8);        // broad petals, flaring sideways
-          tepal(s * 2.55, -1.25, 0.5, 2.65, 1.4, ROUND, 0.12, -0.3, 0.6);     // lateral sepals: the chin behind, then the lower lobes
+          bellTepal(b, { th: s * 1.22, y0: 0.8, r0: 0.2, len: 1.8, width: 1.35, a0: 0.24, a1: 1.5, base: 0.45, cup: [0.55, 0.08], fr, col: tint(0.8) });   // broad petals
+          bellTepal(b, { th: s * 2.5, y0: 0.55, r0: 0.3, len: 2.0, width: 1.4, a0: 0.3, a1: 1.4, base: 0.5, cup: [0.6, 0.12], fr, col: tint(0.6) });      // lateral sepals
         }
-        sheet(b, { base: V(0, -1.3, -0.7), dir: V(0, 1, 0.4), face: V(0, 0, 1), len: 1.2, width: 0.7, outline: ROUND, nu: 2, rows: [0, 0.5, 1], cup: 0.6, color: () => M(1, 0, 0) });   // floor of the chin
-        sheet(b, { base: V(0, -0.4, -0.08), dir: V(0, 1, -0.12), face: V(0, 0.3, 1), len: 1.9, width: 0.55, outline: OBOVATE, nu: 4, rows: [0, 0.45, 0.75, 1], cup: 1.0, curl: -0.3,
-          color: (u, t) => { const c = sstep(0.5, 0.9, t); return M(0.4 * (1 - c), 0.6 * (1 - c), c); } });   // the tongue lip
-        tube(b, [V(0, -0.8, 0.12), V(0, -0.1, 0.08)], [0.08, 0.1], { sides: 3, color: () => M(1, 0, 0), sway: () => 0 });   // ovary, into the top of the chin
+        // the chin: a rounded sac from the origin (back, below the axis) up into the tube under the lateral sepals
+        const ring = (y, z, rx, rz) => Array.from({ length: 5 }, (_, j) => { const q = (j / 5) * Math.PI * 2; return V(Math.cos(q) * rx, y, z + Math.sin(q) * rz); });
+        surf(b, [ring(0.02, 0.02, 0.05, 0.05), ring(0.25, 0.1, 0.2, 0.18), ring(0.55, 0.25, 0.3, 0.27), ring(0.88, 0.4, 0.33, 0.3)], { wrap: true, leaf: (i) => [0, 0.05 * i], col: () => M(1, 0, 0), sway: () => 0 });
+        // the tongue lip: narrow, rolled, along the lower throat and out of the mouth, its tip orange-red
+        bellTepal(b, { th: Math.PI, y0: 0.85, r0: 0.1, len: 1.75, width: 0.42, a0: 0.1, a1: 0.6, base: 0.65, cup: [0.9, 0.5], nu: 2, rows: [0, 0.4, 0.75, 0.97], fr,
+          col: (u, t) => { const c = sstep(0.55, 0.92, t); return M(0.25 * (1 - c), 0.75 * (1 - c), c); } });
       },
       // [main, accent (tips, lip), centre (lip tip, throat), 4 SPARKLE: the crystalline sheen]
       palettes: [
         [0xe0221a, 0xf0581c, 0xf5901c, 4],   // scarlet, orange lip (photo 1)
-        [0xe878b8, 0xf2dcec, 0xf08a2a, 4],   // pink with a lavender sheen, cream lip tipped orange (photo 2)
+        [0xe878b8, 0xf6e8d2, 0xf08a2a, 4],   // pink with a lavender sheen, cream lip tipped orange (photo 2)
         [0xfaf6f4, 0xf088b0, 0xf05a1e, 4],   // white with pink tips, red-orange lip tip (photo 3)
         [0xf2701a, 0xf8a040, 0xe8401a, 4],   // orange
         [0xf6d424, 0xf8e890, 0xf07a1a, 4],   // yellow
         [0x9a2c8c, 0xf2c83a, 0xf07020, 4],   // purple tipped yellow (bicolour)
       ],
-      // One per bulb, at the tip of its short stalk, facing out all round the clump (10-15 on a mature clump: 12).
+      // One per outer bulb (10), at the tip of its short stalk, facing out and a little down all round the clump.
       heads(r, grown) {
         r = warm(r);
         if (grown < 0.5) return [];
-        return cuthLayout().stalks.map((s) => [s.tip.x, s.tip.y, s.tip.z, s.face.x, s.face.y, s.face.z, 0.95 + r() * 0.15]);   // every stalk of the body ends in a flower
+        return cuthLayout().stalks.map((s) => [s.tip.x, s.tip.y, s.tip.z, s.face.x, s.face.y, s.face.z, (0.82 + 0.26 * s.age) * (0.95 + r() * 0.1)]);   // every stalk of the body ends in a flower; younger ones smaller
       },
       translucent: 0.15, daily: null,
       cycle: { budDays: 45, openDays: 150, fadeDays: 10, restDays: 60, season: 'any', minLight: 0.3, minHumidity: 75 },
