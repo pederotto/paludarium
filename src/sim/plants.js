@@ -800,7 +800,10 @@ export class Plants {
       const n = p.normal.clone().lerp(new THREE.Vector3(0, 1, 0), 0.6).normalize();
       q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
     }
-    q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot));
+    // `wallSpin` (optional, radians): on a wall the random turn stays within +-wallSpin, so the body's local +Z keeps pointing
+    // down the wall (leaves that must hang, the orchids); missing = the full random turn as before.
+    const spin = p.surface === 'wall' ? PLANTS[p.id].wallSpin : undefined;
+    q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), spin == null ? p.rot : ((((p.rot / (Math.PI * 2)) % 1) + 1) % 1 - 0.5) * 2 * spin));
     // Near a wall the plant leans inward so its canopy stays inside the glass.
     if (p.reach && PLANTS[p.id].habitat !== 'floating') {
       const f = plantFit(p.pos.x, p.pos.z, p.reach * (0.3 + 0.7 * p.grown), TANK, { clampZ: p.surface !== 'wall' });

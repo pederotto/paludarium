@@ -274,7 +274,7 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // cross-veins between parallel ones) }.
 // `flowBend`: the plant leans in the water's push (B5b; only aquatic and emergent plants set it, sim/plants.js flowOptions); `bend`: the
 // lean of a tip at full push in the plant's own units; `stiffness`: 1 an average leaf.
-export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null } = {}) {
+export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null, gloss = null } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   m.userData.foliage = true;
   m.userData.flowBend = flowBend;
@@ -361,6 +361,7 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
       .mul(float(1).sub(margin.mul(0.2 * k)).sub(float(1).sub(line).mul(0.06 * k)).add(vary));
     base = base.mul(mix(vec3(1), shade, isLeaf));
   }
+  let spec = null;
   if (leafMap) {
     // Optional painted leaf (the orchids, sim/orchid-leaves.js), read at the leaf coordinates (u across, t along; no uv
     // buffer): R = shade (x2, 0.5 = as the vertex colour), G = toward `leafPale` (midrib, warts), B = how much the back face
@@ -374,6 +375,18 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
     c = mix(c, pale.div(vc), tx.g.mul(isLeaf));
     base = mix(c, c.mul(back), tx.b.mul(isLeaf).mul(step(faceDirection, 0)));
     m.opacityNode = keep.mul(mix(float(1), tx.a, isLeaf));
+    if (gloss) {
+      // Optional waxy highlight (T1b): a small, soft-edged spot where the lamp's half-vector meets the visible face, added as
+      // light (never a whitening of the whole blade, which the low roughness did at grazing angles). gloss = [strength,
+      // size (cos of the spot's edge), softness]; the warts and midrib (tx.g) keep it a little less.
+      // (uniforms, so every orchid with a gloss shares one program)
+      // The lamp as a point over the tank's middle (not the sun's direction): L and V turn across a flat blade, so the spot is
+      // small and moves over the leaf as the camera moves, like the photos' wax.
+      const G = uniform(new THREE.Vector3(...gloss)), Ls = normalize(vec3(0, TANK.h + 25, 0).sub(positionWorld)), Vw = normalize(cameraPosition.sub(positionWorld)), H = normalize(Ls.add(Vw));
+      const nh = saturate(dot(normalWorld, H));
+      spec = smoothstep(G.y.sub(G.z), G.y.add(G.z.mul(0.5)), nh).mul(G.x).mul(U.daylight)
+        .mul(isLeaf).mul(float(1).sub(tx.g.mul(0.5))).mul(saturate(dot(normalWorld, Ls).mul(3)));
+    }
   }
   const [color, emissive] = wet(base, positionWorld, U.waterLevel, U.plantWater, U.plantWater.mul(0.5));
   m.colorNode = color;
@@ -386,7 +399,7 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
   const facing = dot(normalWorld, vec3(0, 1, 0));
   const back = saturate(facing.mul(-0.7).add(0.35));
   const glow = sat.mul(vec3(1.0, 1.1, 0.7)).mul(U.daylight.mul(0.16).add(0.02)).mul(back.mul(0.8).add(0.3));
-  m.emissiveNode = tinted.add(glow.mul(color));
+  m.emissiveNode = spec ? tinted.add(glow.mul(color)).add(vec3(1, 0.98, 0.92).mul(spec)) : tinted.add(glow.mul(color));
   return m;
 }
 
