@@ -31,6 +31,7 @@ export const HABITAT = {
   loach: { noun: 'clown loach', zone: 'water', minDepth: 3, need: 'open water at least 3 cm deep' },
   oto: { noun: 'otocinclus', zone: 'water', minDepth: 3, need: 'open water at least 3 cm deep' },
   tadpole: { noun: 'tadpole', zone: 'water', minDepth: 3, need: 'open water at least 3 cm deep' },
+  larva: { noun: 'salamander larva', zone: 'water', minDepth: 3, need: 'open water at least 3 cm deep' },
   shrimp: { noun: 'cherry shrimp', zone: 'water', minDepth: 1, need: 'water at least 1 cm deep' },
   snail: { noun: 'trumpet snail', zone: 'water', minDepth: 1, need: 'water at least 1 cm deep' },
   axolotl: { noun: 'axolotl', zone: 'water', minDepth: 4, tMax: 26, need: 'cold, open water at least 4 cm deep' },

@@ -304,8 +304,8 @@ export const SPECIES = {
   },
   newt: {
     name: 'Paddle-tail newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.6, speed: 2,
-    temp: [15, 24], humidity: 60, hungerHours: 200, lifeDays: 3000, eats: ['springtail', 'fly', 'isopod', 'flake', 'tadpole', 'flylarva', 'earthworm'], cap: 8, breed: 0.03, adultDays: 30,
-    eggs: { n: 6, days: 8, into: 'tadpole', where: 'water' },
+    temp: [15, 24], humidity: 60, hungerHours: 200, lifeDays: 3000, eats: ['springtail', 'fly', 'isopod', 'flake', 'tadpole', 'larva', 'flylarva', 'earthworm'], cap: 8, breed: 0.03, adultDays: 30,
+    eggs: { n: 6, days: 8, into: 'larva', where: 'water' },
     body: sdfBody('newt'), anim: { amp: 0.85, wave: 1.25, lift: 0.3, stride: 0.85, rig2: { neck: 0.22, s0: 0.05, s1: 0.32, neckY: 0.64, len: 11 } },
     note: 'A cool-stream newt. Wedges itself between rocks by day, walks the bottom at night with its head sweeping, swims in bursts, rises to gulp air, and on damp nights may wander the bank. Needs cool water (under 24 °C) and a hide.',
   },
@@ -317,7 +317,7 @@ export const SPECIES = {
   },
   axolotl: {
     name: 'Axolotl', scale: 1, group: 'Amphibians', kind: 'axolotl', size: 2.6, speed: 1.4,
-    minL: 80, temp: [14, 21], hungerHours: 260, lifeDays: 5000, eats: ['shrimp', 'flake', 'tadpole'], cap: 8, breed: 0.03, adultDays: 30,
+    minL: 80, temp: [14, 21], hungerHours: 260, lifeDays: 5000, eats: ['shrimp', 'flake', 'tadpole', 'larva'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 4, days: 10, into: 'axolotl', where: 'water' },
     body: sdfBody('axolotl'), anim: { amp: 0.9, wave: 1.1, lift: 0.22, stride: 0.6, rig2: { neck: 0.27, s0: 0.05, s1: 0.31, neckY: 0.9, len: 12 } },
     note: 'Fully aquatic and needs cold water (14–21 °C): turn the heater down or it will suffer. Shuns bright light (give it a cave or shade), sits on the bottom with its gills fanning, rises now and then to gulp air, and finds food by smell. A pair lays eggs in the water; its colour genes make morphs.',
@@ -437,8 +437,8 @@ export const SPECIES = {
   },
   marbled: {
     name: 'Marbled newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.8, speed: 1.8,
-    minL: 60, temp: [14, 21], humidity: 75, hungerHours: 220, lifeDays: 5000, eats: ['flake', 'tadpole', 'springtail', 'isopod', 'flylarva', 'fly', 'earthworm', 'cricket'], cap: 6, breed: 0.02, adultDays: 60,
-    eggs: { n: 6, days: 10, into: 'tadpole', where: 'water' },
+    minL: 60, temp: [14, 21], humidity: 75, hungerHours: 220, lifeDays: 5000, eats: ['flake', 'tadpole', 'larva', 'springtail', 'isopod', 'flylarva', 'fly', 'earthworm', 'cricket'], cap: 6, breed: 0.02, adultDays: 60,
+    eggs: { n: 6, days: 10, into: 'larva', where: 'water' },
     ph: [7, 7.5], flow: 0.2, land: 0.5, flock: [2, 4],
     body: sdfBody('marbled'), anim: { amp: 0.85, wave: 1.25, lift: 0.3, stride: 0.9, rig2: { neck: 0.24, s0: 0.04, s1: 0.31, neckY: 0.7, len: 11.9 } },
     note: 'A European newt in velvet green laced with black, the females with an orange stripe down the back. Needs it cool: 15-21 °C, and suffers above 23 °C. Half water (10-15 cm, still, with a slate ramp) and half damp mossy land. One male to two or three females.',
@@ -504,6 +504,17 @@ export const SPECIES = {
     body: sdfBody('tadpole'), anim: { amp: 0.25, wave: 1.2 },
     note: 'Hatch from eggs; grow legs and leave the water after about two weeks.',
   },
+  // B3: the aquatic young of fire salamanders (born as larvae) and newts (hatched from eggs); `from` lists the parents (world.js
+  // loads their old 'tadpole' saves as larvae). Size, metamorphDays and hungerHours are guesses; the body is bodies/salamanders.js.
+  larva: {
+    name: 'Salamander larvae', scale: 1, group: 'Amphibians', kind: 'swim', band: 'bottom', school: false, size: 1.4, speed: 1.3, young: true,
+    temp: [8, 24], hungerHours: 120, lifeDays: 120, eats: ['bloodworm', 'flake'], cap: 40, breed: 0, metamorphDays: 20, from: ['firesal', 'newt', 'marbled'],
+    // N1: [cm at birth/hatching, cm at metamorphosis] by parent; general knowledge, to check (fire salamander born 2.5-3.5 cm, smooth newt
+    // hatches 0.7-1.0 cm; marbled newt values a guess). cmAt1 = drawn length at scale 1 (N1b: geoLen 11.939, amph-life-day AMPH_LARVA).
+    sizeBy: { firesal: [3.0, 5.5], newt: [0.85, 3.5], marbled: [1.0, 5.0] }, cmAt1: 11.939,
+    body: sdfBody('larva'), anim: { amp: 0.3, wave: 1.1 },
+    note: 'Young of fire salamanders and newts: feathery gills, four legs, a finned tail. Sit on the bottom between short swims, eat small live food, and leave the water as young salamanders.',
+  },
   eggs: {
     name: 'Egg clutches', scale: 1, group: 'Amphibians', kind: 'egg', size: 1, speed: 0, young: true,
     temp: [12, 32], hungerHours: 1e9, lifeDays: 60, eats: [], cap: 30, breed: 0,
@@ -511,7 +522,7 @@ export const SPECIES = {
   },
 };
 
-export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', flylarva: 'fruit fly maggot', flypupa: 'fruit fly pupa', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog', cpd: 'celestial pearl danio', pygmy: 'pygmy sunfish', blueshrimp: 'blue dream shrimp', panther: 'panther crab', skink: 'crocodile skink', bumblebee: 'bumblebee toad', reedfrog: 'starry night reed frog', redeye: 'red-eyed tree frog', marbled: 'marbled newt', purpleiso: 'dwarf purple isopod', pandaking: 'panda king isopod', springpink: 'pink springtail', springsea: 'seashore springtail', cricket: 'cricket', dubia: 'dubia roach', earthworm: 'earthworm', waxworm: 'waxworm', flake: 'flake', pellet: 'pellet', bloodworm: 'bloodworm' };
+export const ONE = { neon: 'neon tetra', guppy: 'guppy', cory: 'corydoras', loach: 'clown loach', shrimp: 'cherry shrimp', crab: 'vampire crab', isopod: 'isopod', springtail: 'springtail', fly: 'fruit fly', flylarva: 'fruit fly maggot', flypupa: 'fruit fly pupa', dartfrog: 'blue dart frog', strawberry: 'strawberry dart frog', toad: 'fire-bellied toad', newt: 'newt', firesal: 'fire salamander', axolotl: 'axolotl', gecko: 'gecko', tadpole: 'tadpole', larva: 'salamander larva', eggs: 'egg clutch', cardinal: 'cardinal tetra', ember: 'ember tetra', betta: 'betta', oto: 'otocinclus', snail: 'trumpet snail', leucomelas: 'yellow-banded poison frog', auratus: 'green and black poison frog', cpd: 'celestial pearl danio', pygmy: 'pygmy sunfish', blueshrimp: 'blue dream shrimp', panther: 'panther crab', skink: 'crocodile skink', bumblebee: 'bumblebee toad', reedfrog: 'starry night reed frog', redeye: 'red-eyed tree frog', marbled: 'marbled newt', purpleiso: 'dwarf purple isopod', pandaking: 'panda king isopod', springpink: 'pink springtail', springsea: 'seashore springtail', cricket: 'cricket', dubia: 'dubia roach', earthworm: 'earthworm', waxworm: 'waxworm', flake: 'flake', pellet: 'pellet', bloodworm: 'bloodworm' };
 export const one = (id) => ONE[id] ?? SPECIES[id]?.name.toLowerCase() ?? (isItem(id) ? id : String(id));
 
 export const FOOD_VALUE = { fly: 0.25, flylarva: 0.03, springtail: 0.07, springpink: 0.08, springsea: 0.07, isopod: 0.12, pandaking: 0.3, shrimp: 0.35, blueshrimp: 0.35, snail: 0.3, flake: 0.3, pellet: 0.4, bloodworm: 0.12, tadpole: 0.2, cricket: 0.3, dubia: 0.4, earthworm: 0.45, waxworm: 0.35 };
@@ -1009,9 +1020,12 @@ export class Animals {
     const cam = this.camera?.position;
     if (cam && rt > 0.004 && rt < 0.25) {
       const p = (this._camP ??= cam.clone()), v = (this.camVel ??= cam.clone().set(0, 0, 0)), k = Math.min(1, rt * 8);
-      v.x += ((cam.x - p.x) / rt - v.x) * k; v.y += ((cam.y - p.y) / rt - v.y) * k; v.z += ((cam.z - p.z) / rt - v.z) * k;
+      // A jump of more than 15 cm in one frame is a cut or a view jump, not a lens swooping in: no velocity, and a second's grace.
+      if (p.distanceTo(cam) > 15) { this.camCutT = 1; v.set(0, 0, 0); }
+      else { v.x += ((cam.x - p.x) / rt - v.x) * k; v.y += ((cam.y - p.y) / rt - v.y) * k; v.z += ((cam.z - p.z) / rt - v.z) * k; }
       p.copy(cam);
     } else if (cam) this._camP = cam.clone();
+    if (this.camCutT > 0) this.camCutT -= Math.min(Math.max(rt, 0), 0.25);
     if (!(dt > 0)) return;
     const E = this.world.env;
     this._wDt = (this._wDt ?? 0) + dt;
@@ -1474,7 +1488,7 @@ export class Animals {
     }
     a.stranded = false;
     // A tadpole rests on the floor between swim bouts, wakes and flees from a threat, and still feeds (sim/swimrest.js).
-    const env = this.world.env, R = sp.young && !ctl ? restStep(a, dt, { night: isNight(env.minute, env.lightsOn, env.lightsOff), hungry: a.hunger > 0.25 && this.food.length > 0, danger: () => this.danger(a, sp), bh: a.bh }) : null;
+    const env = this.world.env, R = sp.young && !ctl ? restStep(a, dt, { night: isNight(env.minute, env.lightsOn, env.lightsOff), hungry: a.hunger > 0.25 && this.food.length > 0, danger: () => this.danger(a, sp, true), bh: a.bh }) : null;
     if (R) a.doing = R.resting ? REST_LABEL : null;
     const desired = V(0, 0, 0);
     a.wander += (Math.random() - 0.5) * dt * 2.5;
@@ -1941,7 +1955,8 @@ export class Animals {
 
   // The nearest danger to a small animal, or null: the camera within 7 cm (as the crabs feel it), or an animal that eats it
   // (or a fish, frog, newt or crab twice its size) within its own body length plus 3 cm, on its level.
-  danger(a, sp) {
+  // threatOnly (a resting tadpole or larva; B3, at the lead's request): only a predator or a camera swoop, not any big fish passing.
+  danger(a, sp, threatOnly = false) {
     const ct = this.camThreat(a, 9);
     if (ct) return ct;
     const reach = 3 + 2 * (a.rad ?? 0.4);
@@ -1949,7 +1964,7 @@ export class Animals {
     const visit = (b) => {
       if (b === a || b.dead || b.sp === a.sp) return;
       const bs = SPECIES[b.sp];
-      if (!(bs.eats.includes(a.sp) || ((bs.kind === 'swim' || VIS.has(bs.kind) || bs.kind === 'crab') && bs.size > sp.size * 2))) return;
+      if (!(bs.eats.includes(a.sp) || (!threatOnly && (bs.kind === 'swim' || VIS.has(bs.kind) || bs.kind === 'crab') && bs.size > sp.size * 2))) return;
       if (Math.abs(b.pos.y - a.pos.y) > 3) return;
       const dd = Math.hypot(b.pos.x - a.pos.x, b.pos.z - a.pos.z) - (b.rad ?? 0.5);
       if (dd < bd) { bd = dd; best = { x: b.pos.x, z: b.pos.z }; }
@@ -3246,7 +3261,7 @@ export class Animals {
   validPrey(p, a) { return !!p && !p.dead && !p.eaten && (!p.taken || p.takenBy === a); }
 
   huntable(a, sp, pid, p) {
-    const water = isItem(pid) || pid === 'tadpole' || pid === 'shrimp' || pid === 'blueshrimp' || pid === 'cpd';
+    const water = isItem(pid) || pid === 'tadpole' || pid === 'larva' || pid === 'shrimp' || pid === 'blueshrimp' || pid === 'cpd';
     switch (sp.kind) {
       case 'frog': case 'toad': return !water && !a.swimming;
       case 'newt': return water === !!a.swimming;
@@ -3964,6 +3979,9 @@ export class Animals {
       wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + (W.nearWater(V(x, g, z), 3) ? 0.5 : 0)),
       cover: wall ? 0 : this.herpCover(x, z), hunger: a.hunger, health: a.health,
       male: !!a.male, adult: a.age / 1440 >= (sp.adultDays ?? 10), mate: this.herpMate(a, sp, P),
+      // The lens is no danger to the animal being followed, nor in the second after a cut (trackTime: camCutT). Glass, bark and leaf
+      // cannot be told apart yet: a wall is 'wall'.
+      followed: a === this.watched, camCut: (this.camCutT ?? 0) > 0, surface: wall ? 'wall' : 'ground',
       prey, threat, home, reach: this.reachOf(a, sp), moved: a.hmoved ?? 0, toSurface: depth > 0.3 ? top - a.pos.y : 99,
       shore: a.hShore && { x: a.hShore.x, z: a.hShore.z, d: a.hShore.d },
       wetSpot: gecko && a.hWet ? { x: a.hWet.x, z: a.hWet.wall ? -a.hWet.y : a.hWet.z, d: Math.hypot(a.hWet.x - x, (a.hWet.wall ? -a.hWet.y : a.hWet.z) - here.z), wall: a.hWet.wall } : null,
@@ -4251,7 +4269,7 @@ export class Animals {
   // A fire salamander gives birth in the shallows: larvae into the water nearby (they grow up as tadpoles do, and leave it).
   herpBirth(a, sp, n) {
     const W = this.world, T = W.terrain;
-    const mine = this.by.tadpole.filter((t) => t.parent === a.sp).length + this.by[a.sp].length;
+    const mine = (this.by.larva ?? []).filter((t) => t.parent === a.sp).length + this.by[a.sp].length;
     const room = Math.max(0, sp.cap * 2 - mine);
     const pt = this.crabFind(a.pos.x, a.pos.z, 40, (px, pz, d) => d >= 1.6);
     if (!pt || !room) return;
@@ -4260,7 +4278,7 @@ export class Animals {
       const x = pt.x + (Math.random() - 0.5) * 2, z = pt.z + (Math.random() - 0.5) * 2;
       const g = T.heightAt(x, z), top = this.waterTop(x, z);
       if (!(top - g > 1.2)) continue;
-      const c = this.add('tadpole', V(x, g + (top - g) * 0.4, z), { age: 0, hunger: 0.3 });
+      const c = this.add('larva', V(x, g + (top - g) * 0.4, z), { age: 0, hunger: 0.3 });
       if (c) { c.parent = a.sp; k++; }
     }
     if (k) W.log(`A ${one(a.sp)} gave birth to ${k} larvae in the water.`, 'good');
@@ -4289,7 +4307,7 @@ export class Animals {
   herpThreat(a, sp, P, wall) {
     const planar = (v) => ({ x: v.x, z: wall ? -v.y : v.z });
     const ct = this.camThreat(a, 22);
-    let t = ct ? { ...planar(ct), d: ct.d } : null;
+    let t = ct ? { ...planar(ct), d: ct.d, cam: true } : null;   // cam: the keeper's lens (the gecko brain caps its fear, herp.js geckoSeen)
     for (const id of ['leucomelas', 'dartfrog', 'auratus', 'toad', 'crab', 'firesal', 'newt', 'axolotl', 'gecko']) {
       if (id === a.sp) continue;
       const osp = SPECIES[id];
@@ -4707,7 +4725,11 @@ const HULL = { frog: 0.55, toad: 0.5, newt: 0.3, axolotl: 0.3, swim: 0.2, crab: 
 // further than a small body would follow.
 const RIDE_MAX = 0.8, RIDE_TIP = 0.35;
 
-function drawScale(a, sp) {
+export function drawScale(a, sp) {
+  // N1: salamander larvae grow from their parent species' length at birth/hatching to their length at metamorphosis (cm, sizeBy),
+  // drawn at `cm / cmAt1` (cmAt1: the drawn length of the body at scale 1, measured by tools/steps/amph-life-day.mjs AMPH_LARVA=1).
+  const L = sp.sizeBy && (sp.sizeBy[a.parent] ?? sp.sizeBy.newt);
+  if (L) return (L[0] + (L[1] - L[0]) * clamp(a.age / 1440 / sp.metamorphDays, 0, 1)) / sp.cmAt1;
   const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
   return (sp.scale ?? sp.size) * grow * (a.sizeK ?? 1);
 }

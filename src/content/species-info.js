@@ -384,6 +384,13 @@ export const ANIMAL_INFO = {
     care: ['Clean water, and something to graze.'],
     lesson: 'parental-care',
   },
+  larva: {
+    sci: 'Caudata larvae', family: '', status: '', region: 'Ponds and streams in Europe',
+    habitat: 'Water. Fire salamanders give birth to larvae in cool streams and pools; newts lay eggs on water plants and the larvae hatch there.',
+    facts: ['A salamander larva is not a tadpole: it has feathery gills behind the head, four legs and a finned tail, and it eats small animals from the start.', 'At metamorphosis the gills and the tail fin are reabsorbed and the young salamander leaves the water.'],
+    care: ['Cool, clean water, a soft bottom to rest on, and small live food.'],
+    lesson: 'parental-care',
+  },
   eggs: {
     sci: '', family: '', status: '', region: '',
     habitat: 'Laid in water, at the water\'s edge or on a leaf, depending on the species.',

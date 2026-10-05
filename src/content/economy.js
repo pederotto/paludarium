@@ -91,6 +91,7 @@ export const ANIMALS = {
   axolotl: { name: 'Axolotl', price: 60, rank: 8, resale: 0.5, source: 'captive', adult: 30, group: 'Amphibians' },
   // Young stock: raised, never bought.
   tadpole: { name: 'Tadpoles', price: 0, rank: 1, sold: false, sellable: false, source: 'captive', adult: 10, group: 'Amphibians' },
+  larva: { name: 'Salamander larvae', price: 0, rank: 1, sold: false, sellable: false, source: 'captive', adult: 10, group: 'Amphibians' },
   eggs: { name: 'Egg clutches', price: 0, rank: 1, sold: false, sellable: false, source: 'captive', adult: 10, group: 'Amphibians' },
 };
 
