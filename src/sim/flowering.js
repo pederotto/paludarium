@@ -141,18 +141,21 @@ const DICOT_MAT = { amp: 0.2, speed: 0.7, veins: { kind: 'pinnate', n: 6, slope:
 // ---------------------------------------------------------------------------------------------------------------------
 // Orchids
 
-// Masdevallia: a tuft of stalked, spoon-shaped leaves (no pseudobulbs) and single flowers on wiry stems above them.
+// Masdevallia: a dense tuft of erect, narrow spoon-shaped leaves on channelled petioles (no pseudobulbs), 8.5-12 x 1.7-2.3 cm,
+// and single flowers on wiry stems from the base, held at or above the leaves, one arching out sideways.
 const masdLayout = once(() => {
   const r = rng(101), leaves = [], stalks = [];
-  for (let k = 0; k < 8; k++) {
-    const a = k * 2.4 + r() * 0.5, o = 0.2 + r() * 0.3, lean = 0.22 + r() * 0.25;
-    leaves.push({ a, base: V(Math.cos(a) * o, 0, Math.sin(a) * o), dir: V(Math.cos(a) * lean, 1, Math.sin(a) * lean), len: 7 + r() * 2.5, width: 1.4 + r() * 0.3 });
+  for (let k = 0; k < 10; k++) {
+    const a = k * 2.4 + r() * 0.5, o = 0.15 + r() * 0.35, lean = 0.15 + r() * 0.22;
+    leaves.push({ a, base: V(Math.cos(a) * o, 0, Math.sin(a) * o), dir: V(Math.cos(a) * lean, 1, Math.sin(a) * lean), len: 8.5 + r() * 3.5, width: 1.7 + r() * 0.6 });
   }
-  for (let k = 0; k < 3; k++) {
-    const a = k * 2.1 + 0.6 + r() * 0.4, h = 9.5 + r() * 2, out = V(Math.cos(a), 0, Math.sin(a));
+  for (let k = 0; k < 4; k++) {
+    // Stems over the front three-quarters of the tuft (local +Z: toward the room on the wall), each flower held out
+    // sideways, about 30 degrees above level (on the wall plant "up" points at the viewer, so they face the room there too).
+    const a = k * 1.05 + 0.05 + r() * 0.3, arch = k === 3, h = arch ? 10.5 : 12 + r() * 2, out = V(Math.cos(a), 0, Math.sin(a));
     const p0 = out.clone().multiplyScalar(0.3);
-    const pts = [p0, p0.clone().add(V(0, h * 0.5, 0)).addScaledVector(out, 0.5), p0.clone().add(V(0, h, 0)).addScaledVector(out, 1.7)];
-    stalks.push({ pts, tip: pts[2], face: out.clone().add(V(0, 0.35, 0)).normalize() });
+    const pts = [p0, p0.clone().add(V(0, h * 0.5, 0)).addScaledVector(out, arch ? 1.8 : 0.5), p0.clone().add(V(0, h, 0)).addScaledVector(out, arch ? 5 : 1.6)];
+    stalks.push({ pts, tip: pts[2], face: out.clone().add(V(0, arch ? 0.3 : 0.55, 0)).normalize() });
   }
   return { leaves, stalks };
 });
@@ -174,16 +177,25 @@ const dracLayout = once(() => {
   return { leaves, stalks };
 });
 
-// Heart-leaf Pleurothallis: thin stems each ending in one heart-shaped leaf; the flowers sit in the notch on the leaf.
+// Heart-leaf Pleurothallis: a clump of thin wiry stems (ramicauls), each as long as or longer than its leaf and ending in one
+// heart-shaped leaf; the blades held steeply out and down, overlapping in all directions. A fascicle of tiny flowers sits in
+// the notch on the leaf's upper face. Leaves 6.5-9.5 cm (7.5-11 along the curve), width 0.55-0.92 x length (P. coriacardia narrow, P. cordata round).
+// The heart: rounded base lobes reaching back past the stem into a deep notch, a smooth margin, the tip drawn out (acuminate).
+const HEART = (t) => (t < 0.24 ? 0.14 + 0.36 * Math.pow(Math.sin((Math.PI / 2) * t / 0.24), 0.55)
+  : 0.5 * Math.pow(Math.cos((Math.PI / 2) * (t - 0.24) / 0.76), 1.1) * (1 - 0.3 * sstep(0.7, 1, t)));
 const pleuroLayout = once(() => {
   const r = rng(107), stems = [];
-  for (let k = 0; k < 6; k++) {
-    const a = k * 2.4 + r() * 0.5, lean = 0.12 + r() * 0.2, h = 4.8 + r() * 3.2, out = V(Math.cos(a), 0, Math.sin(a));
-    const p0 = out.clone().multiplyScalar(0.25), top = p0.clone().add(V(Math.cos(a) * lean * h, h, Math.sin(a) * lean * h));
-    // the blade held steeply, its face turned outward
-    const dir = V(Math.cos(a) * 0.5, 1, Math.sin(a) * 0.5).normalize(), len = 4 + r() * 1.5, face = V(Math.cos(a), 0.3, Math.sin(a));
+  for (let k = 0; k < 11; k++) {
+    // stems rise from a short creeping rhizome (bases 1-3 cm apart), 1-1.55x the leaf, arching out in different directions
+    const a = k * 2.4 + r() * 0.6, lean = 0.08 + r() * 0.25, out = V(Math.cos(a), 0, Math.sin(a)), len0 = 6.5 + r() * 3, h = len0 * (1 + r() * 0.55);
+    const p0 = V(-1.5 + 3 * r(), 0, -1 + 2 * r());
+    const top = p0.clone().add(V(Math.cos(a) * lean * h, h * (1 - lean * 0.3), Math.sin(a) * lean * h));
+    const mid = p0.clone().lerp(top, 0.5).addScaledVector(out, 0.12 * h);
+    // the blade turned out and held steeply, from a little above level to hanging blade-down
+    const bA = a + (r() - 0.5) * 1.2, yv = -1.1 + r() * 1.4, dir = V(Math.cos(bA), yv, Math.sin(bA)).normalize();
+    const len = len0, ratio = k % 3 === 0 ? 0.82 + r() * 0.12 : 0.6 + r() * 0.2, face = V(Math.cos(bA), 1.4, Math.sin(bA));
     const { nrm } = faceOf(dir, face);
-    stems.push({ p0, top, dir, face, len, width: 3 + r() * 0.6, nrm });
+    stems.push({ p0, mid, top, dir, face, len, width: len * ratio, nrm, tone: k % 4 === 1 ? 'wine' : k % 5 === 3 ? 'flush' : 'green' });
   }
   return { stems };
 });
@@ -337,38 +349,49 @@ export const FLOWERING = {
     build() {
       const b = new Builder(), L = masdLayout();
       for (const l of L.leaves) {
-        sheet(b, { base: l.base, dir: l.dir, face: V(-Math.cos(l.a), 0.6, -Math.sin(l.a)), len: l.len, width: l.width, outline: PETIOLATE, nu: 2, rows: [0, 0.28, 0.45, 0.65, 0.85, 1], cup: 0.35, droop: 0.12, twist: 0.3,
+        sheet(b, { base: l.base, dir: l.dir, face: V(-Math.cos(l.a), 0.6, -Math.sin(l.a)), len: l.len, width: l.width, outline: PETIOLATE, nu: 2, rows: [0, 0.28, 0.45, 0.65, 0.85, 1], cup: 0.4, droop: 0.06, twist: 0.25,
           color: (u, t) => (t < 0.28 ? lc(0x6f7f3c, 0x2f5a26, t / 0.28) : lc(0x2f5a26, 0x3e7330, (t - 0.28) / 0.72)) });
       }
-      for (const s of L.stalks) tube(b, s.pts, [0.08, 0.06, 0.045], { sides: 3, color: (t) => lc(0x6a7a3a, 0x7a8a40, t) });
+      for (const s of L.stalks) tube(b, s.pts, [0.07, 0.055, 0.04], { sides: 3, color: (t) => lc(0x6a7a3a, 0x7a6a40, t) });
       return b.build();
     },
     material: ORCHID_MAT,
     flower: {
       build(b) {
-        // The fused sepal tube (its throat in the centre colour), then the three sepals: the dorsal up, the laterals down-left and
-        // down-right, broad and overlapping into a lower lip; each drawn out into a tail. Tiny petals and lip in the throat.
-        tube(b, [V(0, 0, 0), V(0, 0.5, 0), V(0, 0.95, 0)], [0.16, 0.3, 0.4], { sides: 4, color: (t) => M(1 - 0.4 * t, 0, 0.4 * t), sway: () => 0 });
-        for (const [th, len, w, k] of [[0, 3.4, 1.1, 0.5], [2.25, 2.9, 1.5, 0.58], [-2.25, 2.9, 1.5, 0.58]]) {
-          sheet(b, { base: V(Math.sin(th) * 0.28, 0.9, Math.cos(th) * 0.28), dir: V(Math.sin(th), 0.5, Math.cos(th)), face: V(-Math.sin(th) * 0.3, 1, -Math.cos(th) * 0.3), len, width: w, outline: tailed(k), nu: 2, rows: [0, 0.18, 0.36, k, (1 + k) / 2, 1], curl: -0.12, cup: 0.15,
-            color: (u, t) => { const tail = sstep(k * 0.85, k * 1.15, t), thr = 1 - sstep(0.02, 0.2, t); return M((1 - tail) * (1 - thr), tail + 0.12 * Math.abs(u) * (1 - tail), thr); } });
+        // The sepals fused at the base into a tube (a trumpet seen from the side), its mouth in the accent colour (the throat
+        // blotch); the narrow dorsal sepal up with a long tail, the two broad laterals fused into a lower lip for half their
+        // length, each ending in a tail curving out. Tails (and a tint of the hood) take the centre colour, the pattern the main.
+        // Tube 1.3 long flaring to a 1.05 mouth (the trumpet); the sepals start on its rim and keep flaring (negative curl).
+        tube(b, [V(0, 0, 0), V(0, 0.55, 0), V(0, 1.0, 0), V(0, 1.3, 0)], [0.16, 0.22, 0.34, 0.52], { sides: 6, color: (t) => M(1 - 0.6 * t, 0.6 * t, 0), sway: () => 0 });
+        // Dorsal: a narrow triangle across the top of the mouth, drawn into a tail 1.5x its blade, up and a little back.
+        const k = 0.4, dors = (t) => (t < k ? 0.5 * Math.pow(1 - 0.92 * t / k, 0.8) : 0.05 * (1 - 0.7 * (t - k) / (1 - k)));
+        sheet(b, { base: V(0, 1.3, 0.5), dir: V(0, 0.7, 1), face: V(0, 1, -0.7), len: 2.3, width: 0.85, outline: dors, nu: 2, rows: [0, 0.2, k, 0.7, 1], curl: -0.25, cup: 0.35,
+          color: (u, t) => { const tail = sstep(k * 0.75, k * 1.05, t), thr = 1 - sstep(0.02, 0.22, t); return M((1 - tail) * (1 - thr) * 0.7, thr * (1 - tail), tail + 0.3 * (1 - tail) * (1 - thr)); } });
+        // Laterals: broad, their inner edges overlapping on the midline for about half the blade (the fused lower blade,
+        // synsepal), spreading down and forward, each drawn into a tail 1.2x its blade that curves out and down.
+        for (const s of [-1, 1]) {
+          const kl = 0.45;
+          sheet(b, { base: V(s * 0.24, 1.3, -0.42), dir: V(s * 0.4, 0.7, -1), face: V(-s * 0.15, 1, 0.6), len: 2.7, width: 1.75, outline: tailed(kl, 0.04), nu: 2, rows: [0, 0.15, 0.3, kl, 0.72, 1], curl: -0.15, cup: 0.2,
+            color: (u, t) => { const tail = sstep(kl * 0.8, kl * 1.1, t), thr = 1 - sstep(0.02, 0.25, t); return M((1 - tail) * (1 - thr), thr * (1 - tail), tail); } });
         }
-        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.1, 0.85, 0.08), dir: V(s * 0.6, 1, 0.4), len: 0.4, width: 0.16, nu: 1, nv: 1, color: () => M(0.3, 0, 0.7) });
-        sheet(b, { base: V(0, 0.82, -0.08), dir: V(0, 1, -0.6), face: V(0, 0.4, 1), len: 0.55, width: 0.28, nu: 1, nv: 1, color: () => M(0, 0.25, 0.75) });
+        // Tiny petals and lip just inside the mouth.
+        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.12, 1.2, 0.1), dir: V(s * 0.6, 0.5, 0.5), len: 0.35, width: 0.14, nu: 1, nv: 1, color: () => M(0.3, 0.7, 0) });
+        sheet(b, { base: V(0, 1.15, -0.12), dir: V(0, 0.8, -0.6), face: V(0, 0.6, 1), len: 0.5, width: 0.25, nu: 1, nv: 1, color: () => M(0, 1, 0) });
       },
       palettes: [
-        [0xc2185b, 0x8e0f45, 0xf3d7e0],   // M. coccinea, magenta (the common form)
-        [0xd8261c, 0xa01a14, 0xf6d36a],   // scarlet (M. ignea)
-        [0xf06a12, 0x8a2a6a, 0xf8c040],   // orange with purple hairs (M. veitchiana)
-        [0xf2c418, 0xd99a10, 0xfff0b0],   // yellow (M. coccinea 'xanthina')
-        [0xf4f0ea, 0xd8d0c0, 0xf6e8a0],   // white (alba)
+        [0xc2185b, 0x6a0a30, 0x7a0a3a],      // M. coccinea, magenta, dark magenta tails (the common form)
+        [0xd8261c, 0x8a1010, 0xa01a14],      // scarlet (M. ignea)
+        [0xf06a12, 0x8a2a6a, 0xd85a10],      // orange with purple hairs (M. veitchiana)
+        [0xe89ab0, 0x6a0f2a, 0xf0c030, 1],   // M. decumana: pink, densely spotted maroon, yellow tails (photo 1)
+        [0xf2e2b0, 0xb0182a, 0xf0d070],      // cream-yellow with a magenta-red throat blotch (photo 2)
+        [0xfaf8f2, 0xf0a020, 0xf2c418],      // white with an orange-yellow throat and long yellow tails (photo 3)
       ],
       // One flower on each wiry stem of the body; a young plant does not flower.
       heads(r, grown) {
         r = warm(r);
         if (grown < 0.5) return [];
         const S = masdLayout().stalks, n = (r(), S.length);   // every stalk of the body ends in a flower (no bare stalks)
-        return S.slice(0, n).map((s) => [s.tip.x, s.tip.y, s.tip.z, s.face.x, s.face.y, s.face.z, 1.05 + r() * 0.2]);
+        return S.slice(0, n).map((s) => [s.tip.x, s.tip.y, s.tip.z, s.face.x, s.face.y, s.face.z, 0.95 + r() * 0.15]);
       },
       translucent: 0.3, daily: null,
       cycle: { budDays: 21, openDays: 21, fadeDays: 5, restDays: 120, season: 'any', minLight: 0.2, minHumidity: 70 },
@@ -421,41 +444,56 @@ export const FLOWERING = {
   },
 
   pleurothallis: {
-    name: 'Heart-leaf orchid', habitat: 'wall|land', humidity: [70, 100], light: 0.25, size: 10, tall: 0.07, wallTilt: 0.5,
+    name: 'Heart-leaf orchid', habitat: 'wall|land', humidity: [70, 100], light: 0.25, size: 18, tall: 0.07, wallTilt: 0.5,
     note: 'Pleurothallis: each stem carries one heart-shaped leaf with the small flowers sitting on it. Humid shade.',
     build() {
       const b = new Builder();
+      // glossy mid/yellow-green with a pale midrib; some leaves wine-purple (young P. teaguei type), some green with a purple flush
+      const TONE = { green: [0x2e5a1a, 0x4f7e26, 0x86a850], wine: [0x4a2232, 0x5e3446, 0x34141e], flush: [0x2e521a, 0x4a7024, 0x80a050] };
       for (const s of pleuroLayout().stems) {
-        tube(b, [s.p0, s.p0.clone().lerp(s.top, 0.5), s.top], [0.07, 0.055, 0.045], { sides: 3, color: (t) => lc(0x9a8a5a, 0x4f6a32, t * 1.5) });
-        sheet(b, { base: s.top, dir: s.dir, face: s.face, len: s.len, width: s.width, outline: CORDATE, shift: 0.12, nu: 2, rows: [0, 0.15, 0.38, 0.65, 1], cup: 0.12, droop: 0.15,
-          color: (u, t) => lc(0x2a5a22, 0x3c7a2e, t), sway: (t) => 0.6 + 0.4 * t });
+        tube(b, [s.p0, s.mid, s.top], [0.06, 0.045, 0.035], { sides: 3, color: (t) => lc(0x8a7a4a, 0x5a7a32, t * 1.4) });
+        const [c0, c1, rib] = TONE[s.tone];
+        sheet(b, { base: s.top, dir: s.dir, face: s.face, len: s.len, width: s.width, outline: HEART, shift: 0.2, nu: 2, rows: [0, 0.06, 0.14, 0.24, 0.42, 0.62, 0.82, 1], cup: 0.1, droop: 0.22,
+          color: (u, t) => {
+            const c = lc(c0, c1, Math.min(1, t * 1.3));
+            if (s.tone === 'flush') c.lerp(new THREE.Color(0x4a2232), 0.45 * Math.abs(u));
+            return c.lerp(new THREE.Color(rib), 0.55 * (1 - sstep(0.05, 0.3, Math.abs(u))) * (1 - 0.6 * t));
+          }, sway: (t) => 0.6 + 0.4 * t });
       }
       return b.build();
     },
     material: ORCHID_MAT,
     flower: {
       build(b) {
-        // A cupped dorsal sepal, the fused lateral sepals (synsepal) below, tiny petals and lip around the column.
-        sheet(b, { base: V(0, 0.1, 0.05), dir: V(0, 0.6, 1), face: V(0, 1, -0.3), len: 0.9, width: 0.6, outline: OVATE, nu: 2, rows: [0, 0.35, 0.7, 1], cup: 0.35, curl: 0.15, color: (u, t) => M(1, 0.1 * Math.abs(u), 0.5 * (1 - sstep(0, 0.3, t))) });
-        sheet(b, { base: V(0, 0.1, -0.05), dir: V(0, 0.6, -1), face: V(0, 1, 0.3), len: 0.85, width: 0.75, outline: OVATE, nu: 2, rows: [0, 0.35, 0.7, 1], cup: 0.3, curl: 0.12, color: (u, t) => M(0.75, 0.25, 0.3 * (1 - sstep(0, 0.3, t))) });
-        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.08, 0.15, 0), dir: V(s, 0.5, 0.2), len: 0.3, width: 0.15, nu: 1, nv: 1, color: () => M(0.3, 0.7, 0) });
-        sheet(b, { base: V(0, 0.15, -0.05), dir: V(0, 1, -0.3), face: V(0, 0.3, 1), len: 0.3, width: 0.18, nu: 1, nv: 1, color: () => M(0, 0.2, 0.8) });
-        tube(b, [V(0, 0, 0), V(0, 0.3, 0.05)], [0.05, 0.04], { sides: 3, color: () => M(0.2, 0, 0.8), sway: () => 0 });
+        // One fascicle: five tiny tubular-cupped flowers (~6-8 mm) bunched in the leaf notch, each a hooded dorsal sepal and the
+        // fused lateral sepals (synsepal) cupped toward each other into a short tube, its throat in the centre colour.
+        for (let i = 0; i < 5; i++) {
+          const a = i * 2.4, rr = i ? 0.3 : 0, o = V(Math.cos(a) * rr, 0.05 + 0.08 * (i % 2), Math.sin(a) * rr), lx = Math.cos(a) * rr * 1.5, lz = Math.sin(a) * rr * 1.5;
+          sheet(b, { base: o.clone().add(V(0, 0, 0.05)), dir: V(lx, 1, lz + 0.35), face: V(0, -0.2, -1), len: 0.4, width: 0.32, outline: OVATE, nu: 1, nv: 2, cup: 0.7, curl: 0.25,
+            color: (u, t) => M(1, 0.15 * Math.abs(u), 0.6 * (1 - sstep(0, 0.4, t))) });
+          sheet(b, { base: o.clone().add(V(0, 0, -0.05)), dir: V(lx, 1, lz - 0.35), face: V(0, -0.2, 1), len: 0.36, width: 0.34, outline: OVATE, nu: 1, nv: 2, cup: 0.6, curl: 0.15,
+            color: (u, t) => M(0.65, 0.35, 0.5 * (1 - sstep(0, 0.4, t))) });
+        }
       },
       palettes: [
         [0x6e1028, 0x3a0816, 0xd04a6a],   // P. cardiothallis: dark wine red
         [0x9a2a5a, 0x5a1030, 0xf0c040],   // purple-red (P. palliolata)
-        [0xd8b030, 0x8a5a1a, 0xc03040],   // yellow (P. palliolata yellow form)
+        [0xe8a020, 0x7a3a12, 0xc05a20],   // yellow-orange with brown (photo 1)
+        [0x7a3a1a, 0x4a1a10, 0xc89040],   // brown-maroon (P. cordata type, photo 3)
         [0xb8b860, 0x7a3a2a, 0x8a2a3a],   // greenish yellow, brown-striped (P. phyllocardia type)
       ],
-      // In the notch at the base of each leaf, on its upper face.
+      // A fascicle in the notch of most leaves, on the upper face; on one leaf more flowers in a line along the midrib (photo 1).
       heads(r, grown) {
         r = warm(r);
         if (grown < 0.5) return [];
-        return pleuroLayout().stems.filter(() => r() < 0.8).map((s) => {
-          const p = s.top.clone().addScaledVector(s.dir, 0.06 * s.len).addScaledVector(s.nrm, 0.12), f = s.nrm.clone().addScaledVector(s.dir, 0.5).normalize();
-          return [p.x, p.y, p.z, f.x, f.y, f.z, 0.9 + r() * 0.2];
+        const out = [];
+        pleuroLayout().stems.forEach((s, k) => {
+          if (r() > 0.6 || out.length >= 6) return;   // at most 7 heads: triangles stay under 2x the old plant
+          const p = s.top.clone().addScaledVector(s.dir, 0.08 * s.len).addScaledVector(s.nrm, 0.1), f = s.nrm.clone().addScaledVector(s.dir, 0.4).normalize();
+          out.push([p.x, p.y, p.z, f.x, f.y, f.z, 0.9 + r() * 0.2]);
+          if (k === 2) for (const t of [0.3, 0.5]) { const q = s.top.clone().addScaledVector(s.dir, t * s.len).addScaledVector(s.nrm, 0.15); out.push([q.x, q.y, q.z, s.nrm.x, s.nrm.y, s.nrm.z, 0.8]); }
         });
+        return out;
       },
       translucent: 0.3, daily: null,
       cycle: { budDays: 14, openDays: 14, fadeDays: 4, restDays: 60, season: 'any', minLight: 0.15, minHumidity: 70 },
@@ -841,7 +879,7 @@ export function previewGeometry(def, { palette = null, grown = 1, seed = 5 } = {
       out.col.push(bc.getX(i), bc.getY(i), bc.getZ(i)); out.sway.push(bs.getX(i));
       if (bl) out.leaf.push(bl.getX(i), bl.getY(i)); else out.leaf.push(0, -1);
     }
-    f.palettes[k].forEach((hex, j) => cols[j].setHex(hex));
+    f.palettes[k].slice(0, 3).forEach((hex, j) => cols[j].setHex(hex));
     for (const h of hs) {
       const m = headMatrix(h), nm = new THREE.Matrix3().getNormalMatrix(m);
       for (let i = 0; i < head.pos.length / 3; i++) {
