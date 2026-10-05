@@ -12,7 +12,7 @@
 //      axes head -> tail and radius `r`, as the frog's manifest entry) and the measures in the mesh's extras. The manifest entry
 //      (CONTRACTS.md "Lizard bone list") is written when the game draws the model with its bones (block B), not here.
 //
-//   node tools/bake-lizard.mjs [gecko|skink] [--no-fans]        (--no-fans: the 21-bone list, digits bound to the hand and foot)
+//   node tools/bake-lizard.mjs [gecko|skink|firesal] [--no-fans]        (--no-fans: the 21-bone list, digits bound to the hand and foot)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +28,8 @@ const SPECIES = {
   gecko: async () => { const m = await import('./rig/lizard-gecko.mjs'); return { cfg: m.GECKO, measure: m.measureGecko, readRaw: m.readRaw }; },
   // (the skink's readRaw levels its sloping tail in the side view first: tools/rig/lizard-skink.mjs; nothing else differs here)
   skink: async () => { const m = await import('./rig/lizard-skink.mjs'); return { cfg: m.SKINK, measure: m.measureSkink, readRaw: m.readRaw }; },
+  // (R2: the fire salamander's scan has no UVs: painted per vertex by tools/paint/firesal.mjs, the hind knees bent in the bake)
+  firesal: async () => { const m = await import('./rig/lizard-firesal.mjs'); return { cfg: m.FIRESAL, measure: m.measureFiresal, readRaw: m.readRaw }; },
 };
 const args = process.argv.slice(2), fans = !args.includes('--no-fans'), ids = args.filter((a) => !a.startsWith('--'));
 await MeshoptSimplifier.ready; await MeshoptEncoder.ready; await MeshoptDecoder.ready;
@@ -39,7 +41,8 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 function simplified(pos, uv, idx, targetTris) {
   let out = idx, err = 0, used = 0;
   for (const e of [0.002, 0.005, 0.01, 0.02, 0.04, 0.08]) {
-    const [o, r] = MeshoptSimplifier.simplifyWithAttributes(idx, pos, 3, uv, 2, [0.5, 0.5], null, Math.floor(targetTris * 3), e, []);
+    const [o, r] = uv ? MeshoptSimplifier.simplifyWithAttributes(idx, pos, 3, uv, 2, [0.5, 0.5], null, Math.floor(targetTris * 3), e, [])
+      : MeshoptSimplifier.simplify(idx, pos, 3, Math.floor(targetTris * 3), e, []);
     if (out !== idx && o.length > out.length * 0.98) continue;   // (no smaller: keep the lesser error)
     out = o; err = r; used = e;
     if (out.length / 3 <= targetTris * 1.02) break;
@@ -52,16 +55,24 @@ function simplified(pos, uv, idx, targetTris) {
 
 async function writeGlb(file, name, a, tex0, extras) {
   const doc = new Document(), buf = doc.createBuffer();
+  const acc = (type, arr) => doc.createAccessor().setType(type).setArray(arr).setBuffer(buf);
+  let prim;
+  if (a.col) {   // (vertex colours, no texture: a scan without UVs)
+    prim = doc.createPrimitive()
+      .setAttribute('POSITION', acc('VEC3', a.pos)).setAttribute('NORMAL', acc('VEC3', a.nor)).setAttribute('COLOR_0', acc('VEC3', a.col))
+      .setAttribute('_RIG', acc('VEC4', a.rig)).setAttribute('_SKIN', acc('VEC4', a.skin)).setIndices(acc('SCALAR', a.idx))
+      .setMaterial(doc.createMaterial(name).setBaseColorFactor([1, 1, 1, 1]).setMetallicFactor(0).setRoughnessFactor(0.6));
+  } else {
   doc.createExtension(EXTTextureWebP).setRequired(true);
   const tex = doc.createTexture(name).setImage(tex0.getImage()).setMimeType(tex0.getMimeType());
-  const acc = (type, arr) => doc.createAccessor().setType(type).setArray(arr).setBuffer(buf);
-  const prim = doc.createPrimitive()
+  prim = doc.createPrimitive()
     .setAttribute('POSITION', acc('VEC3', a.pos)).setAttribute('NORMAL', acc('VEC3', a.nor)).setAttribute('TEXCOORD_0', acc('VEC2', a.uv))
     .setAttribute('_RIG', acc('VEC4', a.rig)).setAttribute('_SKIN', acc('VEC4', a.skin)).setIndices(acc('SCALAR', a.idx))
     .setMaterial(doc.createMaterial(name).setBaseColorFactor([1, 1, 1, 1]).setBaseColorTexture(tex).setMetallicFactor(0).setRoughnessFactor(0.6));
+  }
   if (a.skinx) prim.setAttribute('_SKINX', acc('VEC4', a.skinx));
   doc.createScene().addChild(doc.createNode(name).setMesh(doc.createMesh(name).addPrimitive(prim).setExtras(extras)));
-  await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 14, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+  await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 14, quantizeGeneric: 12, ...(a.col ? { quantizeColor: 8 } : {}) }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   await io.write(file, doc);
   return fs.statSync(file).size;
 }
@@ -70,7 +81,7 @@ for (const id of ids.length ? ids : Object.keys(SPECIES)) {
   const { cfg, measure, readRaw } = await SPECIES[id]();
   // 1. the original, copied in untouched (never overwritten)
   if (!fs.existsSync(cfg.raw)) fs.copyFileSync(cfg.source.replace(/^~/, os.homedir()), cfg.raw);
-  const raw = await readRaw(cfg.raw), m = measure(raw.pos, cfg), n = raw.pos.length / 3;
+  const raw = await readRaw(cfg.raw), m = measure(raw.pos, cfg, raw.idx), n = raw.pos.length / 3;
   // 2. midline on x = 0, soles on y = 0 (model units)
   const sh = (p) => [p[0] - m.cx, p[1] - m.ySole, p[2]];
   const pos = new Float32Array(n * 3);
@@ -104,17 +115,34 @@ for (const id of ids.length ? ids : Object.keys(SPECIES)) {
   const measures = {
     svlCm: r3((zmax - J.vent[2]) * k * 100), totalCm: r3((zmax - zmin) * k * 100), tailCm: r3((J.vent[2] - zmin) * k * 100),
     sizeCm: [r3((xmax - xmin) * 100), r3(ymax * 100), r3((zmax - zmin) * k * 100)], modelRatio: r3(m.svl / m.total),
+    ...(m.legReach ? { restLegs: m.legReach(m.restJ, k * 100), legs: m.legReach(J, k * 100), bend: m.bend, tailLevel: raw.level } : {}),
     asymPct: m.asym, vertsPerBone: Object.fromEntries(bones.map((b, i) => [b.name, held[i]])),
   };
+  // (no UVs: per-vertex paint in the frame of tools/bake-creature.mjs build(): cm, u snout 0 ... tail 1, h, s, the legs by position)
+  let col = null;
+  if (!raw.uv && cfg.paint) {
+    const { paint } = await import(`./paint/${cfg.paint}.mjs`);
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+    for (let i = 0; i < n; i++) { x0 = Math.min(x0, P[i*3]); x1 = Math.max(x1, P[i*3]); y0 = Math.min(y0, P[i*3+1]); y1 = Math.max(y1, P[i*3+1]); z0 = Math.min(z0, P[i*3+2]); z1 = Math.max(z1, P[i*3+2]); }
+    const hw = Math.max(x1, -x0), zmid = (z0 + z1) / 2, xFrac = 0.32, yFrac = 0.62;
+    col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const h = (P[i*3+1] - y0) / (y1 - y0), s = Math.abs(P[i*3]) / hw, isLeg = cfg.legs && s > xFrac && h < yFrac;
+      const leg = isLeg ? (P[i*3+2] > zmid ? 1 : 3) + (P[i*3] > 0 ? 1 : 0) : 0, legT = isLeg ? Math.min(1, (s - xFrac) / (1 - xFrac)) : 0;
+      const c = paint({ u: (z1 - P[i*3+2]) / (z1 - z0), x: P[i*3] * 100, y: P[i*3+1] * 100, z: P[i*3+2] * 100, s, h, leg, legT, n: [nor[i*3], nor[i*3+1], nor[i*3+2]] });
+      col[i*3] = c[0]; col[i*3+1] = c[1]; col[i*3+2] = c[2];
+    }
+  }
   // 6-7. two levels of detail
-  const tex0 = raw.doc.getRoot().listMaterials()[0].getBaseColorTexture(), report = { id, ...measures, levels: {} };
+  const tex0 = raw.uv ? raw.doc.getRoot().listMaterials()[0].getBaseColorTexture() : null, report = { id, ...measures, levels: {} };
   for (const [level, target] of [['hi', cfg.tris[0]], ['lo', cfg.tris[1]]]) {
     const g = simplified(P, raw.uv, raw.idx, target), c = g.from.length;
     const a = { idx: g.idx, pos: new Float32Array(c * 3), nor: new Float32Array(c * 3), uv: new Float32Array(c * 2), rig: new Float32Array(c * 4), skin: new Float32Array(c * 4) };
+    if (col) { a.col = new Float32Array(c * 3); for (let i = 0; i < c; i++) for (let q = 0; q < 3; q++) a.col[i * 3 + q] = col[g.from[i] * 3 + q]; }
     for (let i = 0; i < c; i++) {
       const o = g.from[i];
       for (let q = 0; q < 3; q++) { a.pos[i * 3 + q] = P[o * 3 + q]; a.nor[i * 3 + q] = nor[o * 3 + q]; }
-      for (let q = 0; q < 2; q++) a.uv[i * 2 + q] = raw.uv[o * 2 + q];
+      if (raw.uv) for (let q = 0; q < 2; q++) a.uv[i * 2 + q] = raw.uv[o * 2 + q];
       for (let q = 0; q < 4; q++) { a.rig[i * 4 + q] = rig[o * 4 + q]; a.skin[i * 4 + q] = skin[o * 4 + q]; }
     }
     ({ skin: a.skin, skinx: a.skinx } = skinFour(a.pos, a.idx, a.skin, SKIN_PASSES[id] ?? SKIN_PASSES.lizard));   // (SK1: four bones a vertex)
