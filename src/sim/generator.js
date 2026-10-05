@@ -61,6 +61,7 @@ class Gen {
     this.Wl = world.wall;
     this.WF = this.Wl.field;
     this.preset = preset;
+    this.P = PRESETS[preset];   // the set's recipe: what its real place holds (content/presets.js SETS)
     this.seed = seed;
     this.tier = tier;
     this.w = TANK.w; this.d = TANK.d; this.h = TANK.h;
@@ -234,6 +235,7 @@ class Gen {
 
   // --- Plants ---------------------------------------------------------------------
   plant(id, x, z, o = {}) {
+    id = this.allowPlant(id);
     const sp = PLANTS[id], W = this.W, T = this.T;
     if (!sp) return null;
     const y = T.heightAt(x, z);
@@ -249,6 +251,8 @@ class Gen {
   }
 
   wallPlant(id, x, y, o = {}) {
+    id = this.allowPlant(id);
+    if (!id) return null;
     const W = this.W, Wl = this.Wl;
     const z = Wl.zAt(x, y);
     const [gx, gy] = this.WF.gradient(x, y);
@@ -330,6 +334,7 @@ class Gen {
   // `n` is what the recipe asks for; the tank decides (sim/scale.js stockCount): none of a species the tank is too small or too
   // low for or whose smallest group the water cannot hold, never fewer than that group, never more than the room it has.
   animal(id, n, test, o = {}) {
+    if (!this.allowAnimal(id)) return 0;
     const W = this.W, sp = SPECIES[id];
     n = stockCount(sp, n, this.dims, W.water.volumeLitres());
     let made = 0;
@@ -346,6 +351,7 @@ class Gen {
 
   // A gecko (or anything that climbs) placed on the background.
   wallAnimal(id, x, y) {
+    if (!this.allowAnimal(id)) return null;
     const W = this.W, sp = SPECIES[id];
     if (!stockCount(sp, 1, this.dims)) return null;   // a tank too low to climb in (minH)
     const z = this.Wl.zAt(x, y) + 0.35;
@@ -353,6 +359,31 @@ class Gen {
     const a = W.animals.add(id, V3(x, y, z), { age: (sp.adultDays ?? 10) * 1440 * 1.5, hunger: 0.15 });
     if (a) { a.onWall = true; a.wallMode = true; a.normal = V3(-gx, -gy, 1).normalize(); }
     return a;
+  }
+
+  // --- What the set's real place holds (N15) ---------------------------------------------------------------------
+  // A layout builder may be shared by several sets; each set lists the plants and animals of its place. Anything else a
+  // builder asks for is dropped, and a stand-in the set names in `swap` becomes the native plant. A set without lists
+  // (none today) places everything.
+  allowPlant(id) {
+    const P = this.P, m = P.swap?.[id] ?? id;
+    return !P.plants || P.plants.includes(m) ? m : null;
+  }
+  allowAnimal(id) { return !this.P.animals || this.P.animals.includes(id); }
+
+  // The set's own stock (`stock: [[id, n, zone]]`, zone a zones() predicate name, 'deep:4' or 'wet:1:6'), for animals its
+  // layout builder does not place. Species already in the tank are left alone.
+  // `flora: [[id, n, zone]]` adds native plants where a shared layout's own plants were dropped (n per standard tank).
+  stock() {
+    const P = this.P;
+    if (!P.stock?.length && !P.flora?.length) return;
+    const Z = this.zones(this.info?.L ?? this.W.water.level);
+    const where = (zone) => { const [k, a, b] = zone.split(':'); return k === 'deep' ? Z.deep(+a) : k === 'wet' ? Z.wet(+a, +b) : Z[k]; };
+    for (const [id, n, zone = 'flat'] of P.flora ?? []) this.scatter(id, this.cnt(n), where(zone), { gap: 4 });
+    for (const [id, n, zone = 'land'] of P.stock ?? []) {
+      if (this.W.animals.by[id]?.length) continue;
+      this.animal(id, this.cnt(n), where(zone));
+    }
   }
 
   // Predicates for where things may go, for a tank whose main water level is L.
@@ -1158,7 +1189,8 @@ export function generateTerrarium(world, { preset, seed = 1, tier } = {}) {
   const g = new Gen(world, preset, seed, tier);
   if (tier !== TANK.id) g.warn(`world is a ${TANK.id} tank, not ${tier}`);
   resetWorld(g);
-  BUILDERS[preset](g);
+  BUILDERS[PRESETS[preset].layout ?? preset](g);
+  g.stock();
 
   // Let everything settle into the finished picture.
   const W = world;
@@ -1176,6 +1208,7 @@ export function generateTerrarium(world, { preset, seed = 1, tier } = {}) {
   const animals = Object.fromEntries(Object.entries(W.animals.by).filter(([, v]) => v.length).map(([k, v]) => [k, v.length]));
   return {
     preset, seed, tier, name, biotope: PRESETS[preset].biotope, blurb: PRESETS[preset].blurb,
+    featured: PRESETS[preset].featured ?? [], place: PRESETS[preset].place ?? null,
     litres: +W.water.volumeLitres().toFixed(1), level: +W.water.level.toFixed(1),
     falls: W.water.falls.length, pools: W.water.pools.length, plants: W.plants.list.length, wallPlants: g.counts.wall,
     animals, pieces: W.decor.pieces.length, gear: [...g.gear], warnings: g.warnings, ...(g.info ?? {}),

@@ -12,7 +12,7 @@ export const PRESETS = {
   },
   reedpool: {
     id: 'reedpool', name: 'Reed frog marsh', biotope: 'madagascar',
-    blurb: 'A Madagascar marsh: mostly water under reeds, sedges and wall bromeliads for starry night reed frogs to perch on, with pearl danios and blue shrimp below.',
+    blurb: 'A southern Madagascar marsh: mostly water under papyrus sedge, reedmace and grass for starry night reed frogs to perch on.',
     tiers: ['tall', 'low', 'standard', 'long', 'tower', 'wide', 'grand', 'show'], tags: ['reed frogs', 'deep water', 'false bottom', 'shrimp'],
     adjectives: ['Starry', 'Reedy', 'Warm', 'Tall', 'Glinting'], noun: 'Marsh',
   },
@@ -44,7 +44,7 @@ export const PRESETS = {
   },
   blackwater: {
     id: 'blackwater', name: 'Blackwater lagoon', biotope: 'blackwater',
-    blurb: 'A deep tea-dark lagoon of driftwood and roots, planted, with a school of tetras, corydoras and shrimp.',
+    blurb: 'A deep tea-dark Rio Negro lagoon of driftwood and roots under floating plants, with a school of cardinal tetras and corydoras.',
     tiers: ['nano', 'column', 'tall', 'low', 'standard', 'long', 'tower', 'wide', 'grand', 'show'], tags: ['fish', 'deep water', 'driftwood', 'planted'],
     adjectives: ['Tea-dark', 'Drowned', 'Amber', 'Still', 'Rio Negro', 'Twilight', 'Sunken'],
     noun: 'Lagoon',
@@ -79,11 +79,77 @@ export const PRESETS = {
   },
 };
 
+// --- What each set is a copy of (N15) ---------------------------------------------------------------------------------
+// featured: the animal(s) the set shows off (crew species in pairs); place: the real place; ref: the tank it is authored for;
+// water: share of the floor under water; climate: air °C and RH % (species board, care sheets, habitats.js).
+// plants / animals: everything the set may hold. The generator drops whatever a layout builder places that is not listed
+// (Gen.allowPlant / allowAnimal), and `swap` turns a stand-in into the native plant, so nothing is passed off as real.
+// flora / stock: [id, n per standard tank, zone] added after the layout builder (sim/generator.js Gen.stock).
+// blockedBy: an open bug the set's check waits on. needs: missing assets (BB/ASSETS.md); hidden: cannot exist without them.
+const SETS = {
+  cascade: {
+    featured: ['newt'], place: 'Guangdong hill torrent, southern China', ref: 'standard', water: 0.45, climate: { temp: [16, 22], rh: [70, 95] },
+    plants: ['javafern', 'fernph', 'fern', 'grass', 'vallisneria', 'pothos', 'javamoss'], animals: ['newt', 'shrimp', 'isopod', 'springtail'],
+    needs: ['Tanichthys albonubes'],
+  },
+  suriname: {
+    featured: ['dartfrog'], place: 'Sipaliwini forest islands, Suriname', ref: 'tall', water: 0.05, climate: { temp: [21, 27], rh: [80, 100] },
+    plants: ['bromeliad', 'guzmania', 'fern', 'grass', 'monstera'], swap: { pothos: 'monstera', fernph: 'fern' },
+    animals: ['dartfrog', 'isopod', 'springtail', 'fly'],
+  },
+  blackwater: {
+    featured: ['cardinal'], place: 'Rio Negro igapó, Brazil', ref: 'standard', water: 0.75, climate: { temp: [24, 29], rh: [70, 100] },
+    plants: ['sword', 'frogbit', 'fern', 'grass', 'monstera', 'bromeliad'], swap: { pothos: 'monstera', fernph: 'fern' },
+    animals: ['cardinal', 'cory'],
+  },
+  stream: {
+    featured: ['toad'], place: 'Gyeonggi hill stream, South Korea', ref: 'standard', water: 0.3, climate: { temp: [16, 24], rh: [60, 90] },
+    plants: ['fernph', 'grass', 'vallisneria'], swap: { fern: 'fernph' }, animals: ['toad', 'shrimp', 'isopod', 'springtail'],
+  },
+  jar: {
+    featured: ['springtail', 'isopod'], place: 'Forest-floor moss cushion, western Java', ref: 'jar', water: 0, climate: { temp: [22, 26], rh: [85, 100] },
+    plants: ['fern', 'grass', 'javamoss'], swap: { fernph: 'fern' }, animals: ['isopod', 'springtail'],
+  },
+  karst: {
+    featured: ['gecko'], place: 'Coastal limestone of Viti Levu, Fiji', ref: 'tall', water: 0.15, climate: { temp: [23, 30], rh: [55, 85] },
+    plants: ['cattail', 'grass', 'fern'], swap: { fernph: 'fern' }, animals: ['gecko', 'springtail', 'isopod', 'fly'],
+    flora: [['fern', 5, 'flat'], ['grass', 4, 'bank']],
+    blockedBy: ['N10'], needs: ['coconut palm seedling', "bird's-nest fern"],
+  },
+  swamp: {
+    featured: ['crab'], place: 'Streamside forest of western Java', ref: 'standard', water: 0.35, climate: { temp: [24, 28], rh: [80, 90] },
+    plants: ['fern', 'cattail', 'grass'], swap: { fernph: 'fern' }, animals: ['crab', 'isopod', 'springtail'],
+    blockedBy: ['N11'],
+  },
+  streambank: {
+    featured: ['skink'], place: 'Madang lowland creek bank, Papua New Guinea', ref: 'standard', water: 0.2, climate: { temp: [23, 27], rh: [80, 98] },
+    plants: ['fern', 'cattail', 'grass'], swap: { fernph: 'fern' }, animals: ['skink', 'purpleiso', 'isopod', 'springtail'],
+    needs: ['sago palm seedling'],
+  },
+  reedpool: {
+    featured: ['reedfrog'], place: 'Marsh near Toliara, southern Madagascar', ref: 'tall', water: 0.65, climate: { temp: [24, 29], rh: [70, 90] },
+    plants: ['cattail', 'bamboo', 'grass', 'lily'], animals: ['reedfrog', 'springtail', 'fly'],
+    flora: [['bamboo', 6, 'edge'], ['cattail', 6, 'edge'], ['lily', 3, 'deep:8'], ['grass', 6, 'bank']],
+    needs: ['Bedotia geayi', 'Aponogeton madagascariensis', 'Pandanus'],
+  },
+  matano: {
+    featured: ['panther'], place: 'Shore of Lake Matano, Sulawesi', ref: 'standard', water: 0.8, climate: { temp: [26, 29], rh: [70, 100] },
+    plants: ['vallisneria', 'grass'], animals: ['panther', 'snail'],
+    needs: ['Tylomelania', 'Matano Caridina'],
+  },
+  everglades: {
+    featured: ['pygmy'], place: 'Everglades slough margin, Florida', ref: 'nano', water: 0.7, climate: { temp: [18, 24], rh: [65, 95] },
+    plants: ['cattail', 'grass', 'fern'], swap: { fernph: 'fern' }, animals: ['pygmy', 'springtail', 'isopod'],
+    needs: ['Limnobium spongia'],
+  },
+};
+for (const [id, s] of Object.entries(SETS)) Object.assign(PRESETS[id], s);
+
 export const PRESET_ORDER = ['cascade', 'suriname', 'blackwater', 'stream', 'karst', 'swamp', 'streambank', 'reedpool', 'matano', 'everglades', 'jar'];
 
 // Presets that suit a tank size, in menu order.
 export function presetsForTier(tier) {
-  return PRESET_ORDER.map((id) => PRESETS[id]).filter((p) => p.tiers.includes(tier));
+  return PRESET_ORDER.map((id) => PRESETS[id]).filter((p) => p.tiers.includes(tier) && !p.hidden);
 }
 
 export function defaultPreset(tier) {
