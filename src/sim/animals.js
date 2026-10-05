@@ -13,7 +13,9 @@ import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, kickHeave, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
 import { limbFrame, turnFrame, turnStep, pivotShift, turnSteps, turnPose, steerLimit } from '../util/turn.js';
 import { PLANS, planOf, limitRig, swimProfile } from '../util/bodyplan.js';
-import { swimState, swimStep, swimPose, leapStroke } from '../util/gait.js';
+import { swimState, swimStep, swimPose, leapPose } from '../util/gait.js';
+import { hopPlan, hopAt, hopPitch, hopFrame, svlOf } from '../util/hop.js';
+import { buccalState, buccalStep, pumpThroat, pumpBreath, swallowDrive, eyeStep } from '../content/anuranheadmuscles.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { Occupancy } from './occupancy.js';
@@ -2737,11 +2739,19 @@ export class Animals {
       const hp = a.hop;
       hp.t += dtS / hp.dur;
       const t = Math.min(1, hp.t);
-      a.pos.lerpVectors(hp.from, hp.to, t);
-      a.pos.y += 4 * hp.h * t * (1 - t);
+      if (hp.plan) {
+        // along a real frog's path (util/hop.js): its reference point forward along the line to the landing place and up
+        const at = hopAt(hp.plan, t), d = Math.max(1e-6, hp.plan.d);
+        a.pos.lerpVectors(hp.from, hp.to, Math.min(1, at.pos[2] / d));
+        a.pos.y = hp.from.y + at.pos[1];
+        a.pitch = hopPitch(hp.plan, at);
+      } else {
+        a.pos.lerpVectors(hp.from, hp.to, t);
+        a.pos.y += 4 * hp.h * t * (1 - t);
+        a.pitch = -Math.atan2(hp.to.y - hp.from.y + 4 * hp.h * (1 - 2 * t), Math.max(0.1, hp.from.distanceTo(hp.to))) * 0.6;
+      }
       // (the twist toward the landing is made as the legs push off and in the first part of the flight, not in one frame)
       if (hp.y1 != null) a.yaw = hp.y0 + angDiff(hp.y1, hp.y0) * Math.min(1, t / 0.3);
-      a.pitch = -Math.atan2(hp.to.y - hp.from.y + 4 * hp.h * (1 - 2 * t), Math.max(0.1, hp.from.distanceTo(hp.to))) * 0.6;
       if (t >= 1) {
         a.hop = null;
         a.pitch = 0;
@@ -3272,13 +3282,16 @@ export class Animals {
     const h = 0.5 + dist * 0.25 + Math.max(0, rise);
     // Standing in a puddle or the shallows: the arc starts at the surface.
     const y0 = Math.max(a.pos.y, W.water.surfaceAt(a.pos.x, a.pos.z, 0.05));
-    // The arc must clear everything under it: ground, rocks and water.
+    // The path a real frog takes (util/hop.js: the launch along the take-off line, then a ballistic arc) must clear everything under
+    // it: ground, rocks and water in the middle of the flight (it starts and ends on the ground), solids all the way.
+    const plan = hopPlan({ d: dist, rise: to.y - y0 }, svlOf(sp.size, drawScale(a, sp)));
+    if (!plan.ok) return null;             // (no arc comes down onto it: too high a ledge for so short a hop)
     for (let i = 1; i < 8; i++) {
-      const t = i / 8;
-      const x = a.pos.x + (to.x - a.pos.x) * t, z = a.pos.z + (to.z - a.pos.z) * t;
-      const y = y0 + (to.y - y0) * t + 4 * h * t * (1 - t);
+      const u = i / 8, at = hopAt(plan, (plan.tLaunch + u * plan.tFlight) / plan.dur), k = at.pos[2] / Math.max(1e-6, dist), t = u;
+      const x = a.pos.x + (to.x - a.pos.x) * k, z = a.pos.z + (to.z - a.pos.z) * k;
+      const y = y0 + at.pos[1];
       const under = Math.max(T.heightAt(x, z), W.water.surfaceAt(x, z, 0.3));
-      if (y < under + 0.3 && !(wet && t > 0.75)) return null;
+      if (u >= 0.25 && u <= 0.75 && y < under + Math.min(0.3, plan.v * plan.v * Math.sin(plan.theta) ** 2 / (2 * 981) * 0.5) && !(wet && t > 0.75)) return null;
       // (its nose and the top of its back too, not only its middle: the arc may not pass through wood or a rock)
       if (this.avoid && (this.occ.solidAt(x, y + 0.4, z) || this.occ.solidAt(x + ux * nose, y + 0.4, z + uz * nose) || this.occ.solidAt(x, y + H, z))) return null;
     }
@@ -3292,10 +3305,27 @@ export class Animals {
     return true;
   }
 
+  // A frog's drawn frame in its hop (util/hop.js hopFrame) at hop time t (default: now), about its swimming body's hips.
+  // `mesh`: the swimming body's mesh (its skeleton's hips are the pivot), or none for where the frog is and which body draws it.
+  leapFrame(a, sp, sc, t = a.hop.t, mesh = null) {
+    const rig = mesh?.skinned?.skinRig ?? null;
+    let pv = rig ? PIVOTS.get(rig) : null;
+    if (rig && pv === undefined) {
+      const L = rig.byName.thighL, R = rig.byName.thighR;
+      pv = L != null && R != null ? rig.head[L].map((v, i) => (v + rig.head[R][i]) / 2) : null;
+      PIVOTS.set(rig, pv);
+    }
+    return hopFrame(Math.min(1, t), a.hop, sp.size, sc, pv);
+  }
+
   startHop(a, to, h, splash = false) {
     const d = a.pos.distanceTo(to);
     a.hopFail = 0;
-    a.hop = { from: a.pos.clone(), to, t: 0, dur: (0.22 + Math.sqrt(d) * 0.09) * (0.9 + Math.random() * 0.2), h: Math.max(h, 0.5), splash, y0: a.yaw ?? 0, y1: Math.atan2(to.x - a.pos.x, to.z - a.pos.z) };
+    // (a real frog's hop: launch, ballistic flight, landing, util/hop.js; which leg leads and by how much drawn once a hop. Until 5 Oct:
+    // one floating parabola of 0.22 + 0.09 sqrt(d) s)
+    const sp = SPECIES[a.sp.split(':')[0]] ?? SPECIES[a.sp], dd = Math.hypot(to.x - a.pos.x, to.z - a.pos.z);
+    const plan = hopPlan({ d: dd, rise: to.y - a.pos.y }, svlOf(sp?.size ?? 1, sp ? drawScale(a, sp) : 1), [Math.random(), Math.random()]);
+    a.hop = { from: a.pos.clone(), to, t: 0, dur: plan.dur, plan, h: Math.max(h, 0.5), splash, y0: a.yaw ?? 0, y1: Math.atan2(to.x - a.pos.x, to.z - a.pos.z) };
     a.floating = false;
     a.crouch = 0;
   }
@@ -3870,11 +3900,19 @@ export class Animals {
     v.blinkT -= dtV;
     if (v.blinkT <= 0) { v.blink = 0.2; v.blinkT = 2.5 + Math.random() * 9; }
     if (v.blink > 0) { eye = Math.sin(Math.PI * (1 - v.blink / 0.2)); v.blink -= dtV; }
-    // Gulp: two throat pulses, eyes pulled in.
-    if (st && st.ph === 'gulp') {
-      const g = st.t / st.dur;
-      th = Math.max(th, Math.pow(Math.sin(g * Math.PI * 2), 2) * (1 - g * 0.3) * 0.62);
-      eye = Math.max(eye, Math.sin(Math.min(1, g * 1.4) * Math.PI));
+    const gulp = st && st.ph === 'gulp' ? st.t / st.dur : -1;
+    if (frog) {
+      // A frog breathes with its throat (content/anuranheadmuscles.js): the floor muscles flutter it, and every dozen or so flutters
+      // a lung breath empties the flanks and pumps them full again; a swallow pulls the eyes down twice with the floor raised.
+      const bu = (v.bu ??= buccalState()), sw = gulp >= 0 ? swallowDrive(gulp) : null;
+      buccalStep(bu, dtV, v.alert, sw ? { hi: sw.hi } : null);
+      v.breath = pumpBreath(bu); th = pumpThroat(bu);
+      v.eyeA = eyeStep(v.eyeA ?? 0, sw ? sw.eye : 0, dtV);
+      eye = Math.max(eye, v.eyeA);
+    } else if (gulp >= 0) {
+      // Gulp: two throat pulses, eyes pulled in.
+      th = Math.max(th, Math.pow(Math.sin(gulp * Math.PI * 2), 2) * (1 - gulp * 0.3) * 0.62);
+      eye = Math.max(eye, Math.sin(Math.min(1, gulp * 1.4) * Math.PI));
     }
     // Calling: a male dart frog sits up and buzzes, the vocal sac pulsing, in bouts of a few seconds, mostly in the morning
     // after the lamp comes on and after rain. A calling male sets off the other males near it.
@@ -4629,11 +4667,18 @@ export class Animals {
         // A frog in the air is drawn in its swimming body too, posed as a leap (util/gait.js leapStroke): that body's legs are apart
         // and straighten cleanly, where the sitting scan's folded legs smear when they are stretched. From just after the feet leave
         // the ground to just before they land; the body's line follows the leap, nose up as it goes.
-        const leapMesh = frogish && a.hop && !a.hop.kind && a.hop.t > 0.06 && a.hop.t < 0.9 && !sleepMesh ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
+        // (since 5 Oct the whole hop, launch and landing included, as real frogs hop: util/hop.js and leapPose; the sitting body only once
+        // the landing has settled)
+        const hf0 = frogish && a.hop?.plan && !a.hop.kind && !sleepMesh ? this.leapFrame(a, sp, sc) : null;
+        const leapMesh = hf0?.body === 'swim' ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
         if (leapMesh?.strokes) {
-          const t = a.hop.t;
-          q.setFromEuler(e.set((a.pitch ?? 0) - 0.22 * (1 - t), a.yaw, 0, 'YXZ'));
-          leapMesh.put(_p.copy(a.pos).setY(a.pos.y + 0.27 * sp.size * sc), q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, leapStroke(t, a.leapA ??= { legA: new Float32Array(9), armA: new Float32Array(6) }));
+          const hp = a.hop, hf = this.leapFrame(a, sp, sc, hp.t, leapMesh), st = a.leapA = leapPose(hp.plan, hf.at, a.leapA ?? null);
+          st.frames = { f0: hp.f0 ??= this.leapFrame(a, sp, sc, 0, leapMesh), ft: hf };
+          // (the frame is the hop's own, heading along its line: turned into the tank by that heading, the body by its yaw)
+          const hd = hp.y1 ?? a.yaw, ch = Math.cos(hd), sh = Math.sin(hd);
+          _p.set(hp.from.x + hf.pos[0] * ch + hf.pos[2] * sh, hp.from.y + hf.pos[1], hp.from.z - hf.pos[0] * sh + hf.pos[2] * ch);
+          q.setFromEuler(e.set(hf.pitch, a.yaw, hf.roll, 'YXZ'));
+          leapMesh.put(_p, q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, st);
         } else if (sleepMesh) sleepMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (breathing, eyes shut)
         else if (swimMesh) {
           sw.stroke.info = a.swTips ??= {};
@@ -4795,6 +4840,7 @@ function pick(o, keys) {
 }
 
 const NO_TURN = [0, 0, 0];
+const PIVOTS = new WeakMap();        // a swimming body's rig -> its hips (the point a hop pitches it about)
 
 function angDiff(to, from) {
   return ((to - from + Math.PI) % TAU + TAU) % TAU - Math.PI;

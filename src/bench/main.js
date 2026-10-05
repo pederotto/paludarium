@@ -18,7 +18,8 @@ import { SKIN } from '../render/creatures/skin.js';
 import { FINISH } from '../render/creatures/material.js';
 import { BODIES } from '../render/creatures/bodies/index.js';
 import { packAnim } from '../render/creatures/instanced.js';
-import { frogSwimPose, salamanderSwimPose, hopLegs, swimPose, TAU } from '../util/gait.js';
+import { frogSwimPose, salamanderSwimPose, hopLegs, swimPose, TAU, leapPose } from '../util/gait.js';
+import { hopPlan, hopFrame, svlOf } from '../util/hop.js';
 import { swimProfile } from '../util/bodyplan.js';
 
 const q = new URLSearchParams(location.search);
@@ -127,7 +128,19 @@ const POSES = {
     ? { ...frogSwimPose(t, { level: sp.anim?.level ?? 0.28 }), phase: 0, amp: 0, gait: 0 }
     : { ...salamanderSwimPose(0.6), amp: (sp.anim?.amp ?? 0.6) * 1.0, phase: t * TAU, gait: 0 }),     // (as the game: amp x (0.6 + 0.6 x 0.6), the wave travelling back)
   walk: (t) => ({ calm: 0, gait: t * TAU, phase: t * TAU, amp: (sp.anim?.amp ?? 0), hop: 0, pose: 0, hy: sp.anim?.rig2 ? 0.2 * Math.sin(t * TAU + 1) : 0 }),       // (hy: the head swings against the body wave, as Animals.draw does)
-  hop: (t) => ({ calm: 1, hop: hopLegs(t), pose: 0, gait: 0, y: 4 * 1.2 * t * (1 - t), pitch: -0.35 * Math.cos(Math.PI * t) }),   // the game's leg timing (util/gait.js hopLegs) on a 1.2 cm arc
+  hop: (t) => ({ calm: 1, hop: hopLegs(t), pose: 0, gait: 0, y: 4 * 1.2 * t * (1 - t), pitch: -0.35 * Math.cos(Math.PI * t) }),
+  // (&body=swim: the leap as a frog near the camera is drawn mid-hop, sim/animals.js leapMesh: the swimming body posed by util/gait.js
+  // leapStroke, its body pitched as the game pitches it along the arc)
+  // (&body=swim; extra { d: hop cm, lead: 0 … 1, lag: 0 … 1 }: the hop as the game makes it since 5 Oct, util/hop.js and leapPose,
+  // the toes planted through the launch: the body placed and pitched by hopFrame about its hips)
+  leap: (t, x = {}) => {
+    const hop = { d: x.d ?? 3, rise: 0 }, rig = lod.skinned?.skinRig, L = rig?.byName.thighL, R = rig?.byName.thighR;
+    const pv = rig && L != null && R != null ? rig.head[L].map((v, i) => (v + rig.head[R][i]) / 2) : null;
+    hop.plan = hopPlan(hop, svlOf(sp.size, 1), [x.lead ?? 0.8, x.lag ?? 0.7]);
+    const f = hopFrame(t, hop, sp.size, 1, pv), st = leapPose(hop.plan, f.at);
+    st.frames = { f0: hopFrame(0, hop, sp.size, 1, pv), ft: f };
+    return { calm: 1, hop: 0, pose: 0, gait: 0, x: f.pos[0], y: f.pos[1], z: f.pos[2] - hop.d / 2, pitch: f.pitch, roll: f.roll, stroke: st };
+  },   // the game's leg timing (util/gait.js hopLegs) on a 1.2 cm arc
   claw: (t) => ({ calm: 1, pose: 1, phase: t * TAU * 3, gait: 0 }),
   // rig2: head sweeps (yaw over a cycle), head up/down, a C-curve, a tail swing
   look: (t) => ({ calm: 1, hy: 0.55 * Math.sin(t * TAU), hp: 0 }),

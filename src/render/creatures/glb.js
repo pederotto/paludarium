@@ -19,6 +19,10 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
+// The vertex attributes a creature model keeps (everything else in the file is dropped): the bake's rig, skin binding (two and four
+// bones a vertex) and muscle binding. tests/glb-keep.test.mjs checks every attribute the bakes write is here.
+export const KEEP = ['position', 'normal', 'uv', 'color', '_rig', '_skin', '_skinx', '_musc', '_musu'];
+
 const base = new URL(`${import.meta.env.BASE_URL}assets/creatures/`, location.href);
 let manifestPromise = null;
 
@@ -46,7 +50,9 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     if (!o.isMesh) return;
     let g = o.geometry.clone();
     // Meshopt/quantised files store positions as normalised integers: make them real floats before scaling.
-    for (const k of ['position', 'normal', 'uv', 'color', '_rig', '_skin']) {
+    // (three.js names custom attributes in lower case: _SKINX -> _skinx; a name missing here was dropped below, so the game skinned
+    // with two bones while the files carried four, 5 Oct; _musc / _musu: the muscle binding, tools/rig/muscles.mjs)
+    for (const k of KEEP) {
       const a = g.attributes[k];
       if (!a || a.array instanceof Float32Array) continue;
       const f = new Float32Array(a.count * a.itemSize);
@@ -55,7 +61,7 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     }
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(sc, new THREE.Matrix4().multiplyMatrices(rot, o.matrixWorld)));
     // Keep only what the shader uses; a missing uv becomes zeros so parts can merge.
-    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', '_rig', '_skin'].includes(k)) g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (!KEEP.includes(k)) g.deleteAttribute(k);
     if (g.attributes.color && g.attributes.color.itemSize === 4) {   // RGBA: keep RGB
       const c4 = g.attributes.color, c3 = new Float32Array(c4.count * 3);
       for (let i = 0; i < c4.count; i++) { c3[i * 3] = c4.getX(i); c3[i * 3 + 1] = c4.getY(i); c3[i * 3 + 2] = c4.getZ(i); }

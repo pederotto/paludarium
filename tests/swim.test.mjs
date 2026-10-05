@@ -52,7 +52,8 @@ test('swimming, the legs work: little of the time without a stroke', () => {
 
 test('the stroke: the legs kick out, close and trail through the glide, draw up in the recovery; posture level, head up', () => {
   const prof = swimProfile('leucomelas'), at = (phase) => swimPose({ phase, rest: 0 }, prof);
-  assert.ok(at(0.01).hop < 0.1 && at(STROKE.thrust).hop > 0.75 && at(0.3).hop === 1 && at(0.55).hop === 1 && at(0.8).hop < 0.5 && at(0.99).hop < 0.05);
+  // (the glide 0.26-0.55, the diamond held 0.68-0.74 half drawn, the turn-out from 0.9: STROKE_KEYS since 5 Oct 15:2x)
+  assert.ok(at(0.01).hop < 0.1 && at(STROKE.thrust).hop > 0.75 && at(0.3).hop === 1 && at(0.5).hop === 1 && at(0.8).hop < 0.5 && at(0.99).hop < 0.05);
   // the legs are drawn up (a sitting frog's fold) only briefly before each thrust: about a quarter of the stroke
   let folded = 0; for (let p = 0; p < 1; p += 0.001) if (at(p).hop < 0.3) folded++;
   assert.ok(folded < 260, `${folded / 10}% of the stroke folded`);
@@ -61,8 +62,8 @@ test('the stroke: the legs kick out, close and trail through the glide, draw up 
     assert.ok(s.calm === 1 && s.stroke.ampL === 1 && s.stroke.ampR === 1 && s.stroke.pL === s.stroke.pR, 'both legs together, the walk off');
     assert.ok(s.pitch < prof.level && s.pitch > prof.level - 0.3, 'trunk flat with the nose a little up');
   }
-  // the forelegs are held out as it draws its legs up and laid back as it drives
-  assert.ok(at(0.95).stroke.arms > at(0.4).stroke.arms + 0.4);
+  // the forelegs are braced forward as it draws its legs up (at most halfway) and laid back as it drives
+  assert.ok(at(0.95).stroke.arms > at(0.4).stroke.arms + 0.35 && at(0.95).stroke.arms <= 0.5);
 });
 
 test('the stroke as joint angles: cocked, a wide kick, legs together in the glide, a diamond in the recovery', () => {
@@ -74,21 +75,47 @@ test('the stroke as joint angles: cocked, a wide kick, legs together in the glid
   assert.ok(worst < 5, `largest step ${worst.toFixed(1)} degrees in 1/400 of a stroke`);
   // it passes through its keys
   for (const [t, k] of STROKE_KEYS) for (let c = 0; c < 9; c++) assert.ok(Math.abs(A(t % 1)[c] - HIND[t === 1 ? 'cock' : k][c]) < 0.6, `${k} channel ${c}`);
-  // cocked: thighs forward of straight out, the feet turned out; the kick drives the thigh back (proximal first: half way through
-  // the thrust the thigh has moved further than the foot); the glide: every segment within 15 degrees of straight back
+  // cocked: the knees at the sides at or a little ahead of the hips (thigh 95-110: the owner's pool frog 14.7 s and toad 3.2 s,
+  // .agents/muscles/refs/SWIM.md; until 5 Oct > 110), the feet turned out to the sides; the kick drives the thigh back (proximal
+  // first: half way through the thrust the thigh has moved further than the foot); the glide: every segment within 15 degrees of
+  // straight back
   const cock = A(0), mid = A(STROKE.thrust / 2), open = A(STROKE.thrust), glide = A(0.4), draw = A(0.74);
-  assert.ok(cock[0] > 110 && cock[2] > 80);
+  assert.ok(cock[0] >= 95 && cock[0] <= 110 && cock[2] >= 80);
   assert.ok(cock[0] - mid[0] > cock[2] - mid[2], 'the hip leads the ankle');
   assert.ok(open[0] < 45 && open[0] > 25, 'legs straight in a V at the end of the thrust');
   for (let c = 0; c < 4; c++) assert.ok(Math.abs(glide[c]) < 15, `glide: segment ${c} at ${glide[c].toFixed(0)}`);
-  assert.ok(draw[0] > 50 && draw[1] < -25, 'recovery: knees out, shins angled back in (a diamond from above)');
-  // a leg that kicks less stays nearer the floating posture; floating is the floating posture
-  for (let c = 0; c < 9; c++) { assert.ok(Math.abs(A(0.4, 0)[c] - HIND.float[c]) < 1e-3); assert.ok(Math.abs(A(0.1, 1, 1)[c] - HIND.float[c]) < 1e-3); }
+  // the diamond (pool 12.6-13.7 s: thigh 40-50 out of straight back, shins angled back in to the heels) at 0.72, held there by a frog
+  // pottering (swimStep's DIAMOND_HOLD, tested below)
+  const dia = A(0.72);
+  assert.ok(dia[0] > 40 && dia[1] < -25 && draw[0] > 40, 'recovery: knees out, shins angled back in (a diamond from above)');
+  for (let c = 0; c < 9; c++) assert.ok(Math.abs(dia[c] - HIND.draw[c]) < 0.6, `the diamond at 0.72: channel ${c}`);
+  // the turn-out: the heels part as the feet turn out (pool 14.6-14.7: no X behind the body), the shin no further in than -25
+  const turn = A(0.92); assert.ok(turn[1] >= -25.5 && turn[2] >= 40, `turn-out: shin ${turn[1].toFixed(0)}, foot ${turn[2].toFixed(0)}`);
+  // a leg that kicks less holds the diamond (pool 13.8-14.4 s: one leg kicks to turn, the other holds); floating is the species'
+  // floating posture (the owner, 5 Oct: "species based mix")
+  for (let c = 0; c < 9; c++) {
+    assert.ok(Math.abs(A(0.4, 0)[c] - HIND.draw[c]) < 1e-3);
+    assert.ok(Math.abs(A(0.1, 1, 1)[c] - HIND.float[c]) < 1e-3);
+    assert.ok(Math.abs(Array.from(strokeAngles(0.1, new Float32Array(9), 0, 1, 1, 'trail'))[c] - HIND.floatTrail[c]) < 1e-3);
+  }
   assert.ok(legExtension(0) === 0 && legExtension(0.4) === 1);
-  // forelegs: laid back to held out
-  const F = (o, fl = 0) => Array.from(armAngles(o, new Float32Array(6), 0, fl));
-  assert.deepEqual(F(0), FORE.tuck); assert.deepEqual(F(1), FORE.spread); assert.deepEqual(F(0.3, 1), FORE.hang);
+  // forelegs: laid back to braced forward with the elbow bent (never out like wings: the pool frog's arms lie along the body in the
+  // glide; A2, control/anatomy-A2.md 26); floating, the spread-eagled toad hangs them, the others keep them back
+  const F = (o, fl = 0, fp = 'spread') => Array.from(armAngles(o, new Float32Array(6), 0, fl, fp));
+  assert.deepEqual(F(0), FORE.tuck); assert.deepEqual(F(1), FORE.brace); assert.deepEqual(F(0.3, 1), FORE.hang); assert.deepEqual(F(0.3, 1, 'trail'), FORE.tuck);
   assert.ok(armOpen(0.95, 1, 0.3) === 1 && Math.abs(armOpen(0.4, 1, 0.3) - 0.3) < 1e-9);
+});
+
+// The diamond held longer by a frog pottering than by one fleeing (the pool frog held it about twice its draw: SWIM.md; A2 25 asks for
+// a hold that varies, none for a fleeing frog).
+test('a frog pottering holds the diamond a moment; one fleeing goes straight through', () => {
+  const held = (urgency) => {
+    const prof = swimProfile('dartfrog'), st = swimState(seeded()); let inHold = 0, n = 0;
+    for (let i = 0; i < 30 * 60; i++) { swimStep(st, prof, { urgency, bodyLen: 4.2, rnd: seeded(5) }, 1 / 60); if (st.rest > 0) continue; n++; if (st.hold > 0) inHold++; }
+    return inHold / n;
+  };
+  const slow = held(0.1), fast = held(1);
+  assert.ok(fast === 0 && slow > 0.05, `diamond held ${(slow * 100).toFixed(0)} % of the time pottering, ${(fast * 100).toFixed(0)} % fleeing`);
 });
 
 test('pottering it kicks one leg after the other; turning, the inner leg trails', () => {
@@ -161,7 +188,7 @@ test('a leap, by the same body: cocked on the ground, legs straight and trailing
   const hipZ = rig.head[rig.byName.thighR][2], sh = rig.head[rig.byName.armR];
   // on the ground the legs are cocked and the hands under the shoulders; mid-air the toes trail far behind the hips, the hands are
   // drawn back behind the shoulders; landing, the hands are ahead of and below the shoulders and the legs folded again
-  assert.deepEqual(Array.from(at(0).s.legA), HIND.cock); assert.deepEqual(Array.from(at(0).s.armA), FORE.stand);
+  assert.deepEqual(Array.from(at(0).s.legA), HIND.fold); assert.deepEqual(Array.from(at(0).s.armA), FORE.stand);
   const air = at(0.35), land = at(0.82), end = at(1);
   assert.ok(hipZ - air.info.tips[4][2] > 3.5, `toes ${(hipZ - air.info.tips[4][2]).toFixed(1)} cm behind the hips in the air`);
   assert.ok(air.info.tips[2][2] < sh[2], 'hands behind the shoulders in the air');
@@ -169,7 +196,7 @@ test('a leap, by the same body: cocked on the ground, legs straight and trailing
   assert.ok(hipZ - end.info.tips[4][2] < 2.5, 'legs folded at the landing');
   // the hips and knees straighten before the ankles and feet
   const e = at(0.07).s.legA;
-  assert.ok((HIND.cock[0] - e[0]) / (HIND.cock[0] - HIND.leap[0]) > (HIND.cock[2] - e[2]) / (HIND.cock[2] - HIND.leap[2]) + 0.1);
+  assert.ok((HIND.fold[0] - e[0]) / (HIND.fold[0] - HIND.leap[0]) > (HIND.fold[2] - e[2]) / (HIND.fold[2] - HIND.leap[2]) + 0.1);
   // continuous, and every joint inside a frog's range all the way
   let prev = at(0).s, worst = 0;
   for (let i = 1; i <= 200; i++) {
