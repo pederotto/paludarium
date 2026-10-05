@@ -61,12 +61,53 @@ export const PLANS = {
       spine: { min: 0, max: 50 }, head: { min: 0, max: 50 }, tail: { min: 0, max: 120 },
       thigh: { min: 20, max: 160 }, shin: { min: 0, max: 130 }, foot: { min: 0, max: 110 },
       arm: { min: 20, max: 160 }, forearm: { min: 0, max: 140 }, hand: { min: 0, max: 110 },
+      neck: { min: 0, max: 40 }, fingers: { min: 0, max: 90 }, toes: { min: 0, max: 90 },
+    },
+    // The baked skeleton's joints (tools/rig/lizard.mjs, 25 bones; a joint is named by its child bone, tail1 … tail5 are each a
+    // `tail`), in degrees about the bone's axes at rest: yaw about the body's up, pitch about its side (+ up), protraction (forward),
+    // elevation (up) and twist (about the bone) at the shoulder and hip balls, hinges at the elbow, knee, wrist, ankle and the digit
+    // fans (negative: the digits curled up off the surface, a gecko peeling its pads). The trunk's and tail's ranges are per joint;
+    // the totals above bound their sums. Anatomy estimates for a sprawling gecko (RIG_gecko.md), to be checked on MOTION_gecko.md.
+    rom: {
+      spine: { yaw: [-25, 25], pitch: [-10, 15] }, neck: { yaw: [-35, 35], pitch: [-20, 30] }, head: { yaw: [-20, 20], pitch: [-25, 25] },
+      tail: { yaw: [-30, 30], pitch: [-15, 25] },
+      arm: { protract: [-60, 60], elevate: [-30, 40], twist: [-40, 40] }, forearm: { hinge: [0, 140] }, hand: { hinge: [0, 110], twist: [-30, 30] },
+      thigh: { protract: [-65, 65], elevate: [-30, 45], twist: [-50, 50] }, shin: { hinge: [0, 130] }, foot: { hinge: [0, 110], twist: [-30, 30] },
+      fingers: { hinge: [-60, 30] }, toes: { hinge: [-75, 30] },
     },
     rig: { head: deg(45), bend: 0.45, tail: 0.3 },
+    // The muscles (G2: util/lizardmuscles.js builds the records, the frog's writeBones swells them). One list for every lizard; the
+    // gains are per species (`species` below). `acts`: what bends the joint as the muscle shortens ('fold' away from straight,
+    // 'retract' / 'protract' the limb back / forward about the body's up, 'peel' the digits up off the surface); `channel`: driven by
+    // a pose channel (st.jaw, st.throat), not a joint. `note`: the anatomy, one line.
     muscles: [
-      { name: 'thigh (caudofemoralis)', bone: 'thigh', joint: 'shin', from: 0.1, to: 0.7, gain: 0.08 },
-      { name: 'jaw (adductor)', bone: 'head', joint: null, from: 0.4, to: 0.8, gain: 0 },
+      { id: 'trunk', name: 'longissimus, iliocostalis', bone: 'spine', joint: 'spine', acts: 'fold', from: 0.15, to: 0.85, note: 'epaxial and hypaxial trunk: the side that shortens in the walk\'s side-to-side bend thickens' },
+      { id: 'tailBase', name: 'caudofemoralis longus', bone: 'tail1', joint: 'thigh', acts: 'retract', from: 0.1, to: 0.9, note: 'tail base to the femur\'s fourth trochanter: pulls the hind leg back in stance, so tail base and leg move together' },
+      { id: 'hipSwing', name: 'puboischiofemoralis internus, iliofemoralis', bone: 'thigh', joint: 'thigh', acts: 'protract', from: 0, to: 0.5, note: 'pelvis to femur: swings the thigh forward in the recovery' },
+      { id: 'hipPush', name: 'adductor femoris, puboischiotibialis', bone: 'thigh', joint: 'thigh', acts: 'retract', from: 0.2, to: 0.8, note: 'underside of the thigh: pulls it back and down, the stance push with the caudofemoralis' },
+      { id: 'shoulderSwing', name: 'deltoideus, supracoracoideus', bone: 'arm', joint: 'arm', acts: 'protract', from: 0, to: 0.5, note: 'shoulder girdle to humerus: swings the arm forward' },
+      { id: 'shoulderPush', name: 'pectoralis, latissimus dorsi', bone: 'arm', joint: 'arm', acts: 'retract', from: 0.1, to: 0.6, note: 'chest and back to humerus: pulls the arm back, the forelimb push' },
+      { id: 'elbow', name: 'biceps brachii, brachialis', bone: 'arm', joint: 'forearm', acts: 'fold', from: 0.3, to: 0.9, note: 'front of the upper arm: folds the elbow' },
+      { id: 'knee', name: 'iliofibularis, flexor tibialis internus', bone: 'thigh', joint: 'shin', acts: 'fold', from: 0.3, to: 0.9, note: 'back of the thigh: folds the knee' },
+      { id: 'wrist', name: 'flexor carpi ulnaris, flexor digitorum longus', bone: 'forearm', joint: 'hand', acts: 'fold', from: 0.1, to: 0.7, note: 'forearm: bends the wrist and presses the palm down' },
+      { id: 'ankle', name: 'gastrocnemius', bone: 'shin', joint: 'foot', acts: 'fold', from: 0.1, to: 0.7, note: 'calf: bends the ankle and lifts the heel at push-off' },
+      { id: 'fingers', name: 'extensores digitorum breves (hand)', bone: 'hand', joint: 'fingers', acts: 'peel', from: 0.2, to: 1, note: 'back of the hand: hyperextend the fingers, the pads peel tip first' },
+      { id: 'toes', name: 'extensores digitorum breves (foot)', bone: 'foot', joint: 'toes', acts: 'peel', from: 0.2, to: 1, note: 'back of the foot: hyperextend the toes, the pads peel tip first (the attach is the flexors and the pad)' },
+      { id: 'jaw', name: 'adductor mandibulae externus', bone: 'head', joint: null, channel: 'jaw', from: 0.4, to: 0.8, note: 'temporal bulge behind the eye as the jaw clamps (a bite): widens the head; no jaw bone in the 25' },
+      { id: 'throat', name: 'intermandibularis, hyoid (gular pump)', bone: 'head', joint: null, channel: 'throat', from: 0.2, to: 0.7, note: 'the throat lowered and raised by the hyoid, the breathing flutter at rest: deepens the head' },
     ],
+    // Per species. gains: each muscle's swell at its joint's whole range (bone lengths over the radius; jaw and throat: fractions of
+    // the head's radius at channel 1), all under the frog's 0.2 cap. tailBase: yaw of the tail base per rad of the femurs' retraction
+    // difference, and its lag (s). throat: the flutter (hz, base, amp: util/lizardmuscles.js throatFlutter). Gecko numbers: guesses
+    // sized to the baked bones (no measurement; the tail gain keeps a walk's wobble near MOTION_gecko.md's 10 deg, rate and lag guessed).
+    species: {
+      gecko: {
+        gains: { trunk: 0.1, tailBase: 0.1, hipSwing: 0.1, hipPush: 0.08, shoulderSwing: 0.1, shoulderPush: 0.1, elbow: 0.1, knee: 0.1,
+          wrist: 0.08, ankle: 0.08, fingers: 0.06, toes: 0.06, jaw: 0.06, throat: 0.08 },
+        tailBase: { gain: 0.15, lag: 0.025 },
+        throat: { hz: 2, base: 0.15, amp: 0.35 },
+      },
+    },
     turn: { pivot: 'hips', stepHz: 4, bend: 0.7, head: 0.6, tail: 0.6 },
   },
   // Fish and tadpoles: the body is the oar. A turn is a C-bend (head and tail swing to the inside), done while moving.

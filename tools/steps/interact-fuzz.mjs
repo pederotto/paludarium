@@ -150,9 +150,21 @@ function lib() {
           const lift = sp.kind === 'swim' || a.swimming ? 0 : 0.5;
           if (!A.occ.solidAt(pv.x, pv.y + lift, pv.z) && !A.occ.solidAt(p.x, p.y + lift, p.z)) {
             const n = Math.ceil(d / 0.4);
-            for (let i = 1; i < n; i++) { const f = i / n; if (A.occ.solidAt(pv.x + (p.x - pv.x) * f, pv.y + (p.y - pv.y) * f + lift, pv.z + (p.z - pv.z) * f)) { fz.hit(S, 'tunnel', a, { d: +d.toFixed(1) }); break; } }
+            for (let i = 1; i < n; i++) { const f = i / n; if (A.occ.solidAt(pv.x + (p.x - pv.x) * f, pv.y + (p.y - pv.y) * f + lift, pv.z + (p.z - pv.z) * f)) {
+              // (B4b: who moved it. A deliberate push-out or relocation (wrapped above, d > 1) is listed apart as tunnelReloc.)
+              const by = (a.__push ?? '').trim(), reloc = /\b(relocate|keepFree|inGlass|clearOfWall|outOfStems|outOfBank|offCliff)\b/.test(by);
+              fz.hit(S, reloc ? 'tunnelReloc' : 'tunnel', a, { d: +d.toFixed(1), by: by || undefined, doing: fz.doing(a, sp), hop: a.hop?.kind, kind: sp.kind }); break;
+            } }
           }
         }
+      }
+      // (B4b) a hop cut short by a piece (leap counts a.hopCut): hanging > 1 cm above its surface for > 1 s after it = hangCut.
+      if ((a.hopCut ?? 0) !== (a.__hc0 ?? 0)) { a.__hc0 = a.hopCut; a.__hcT = 0; a.__hcUp = 0; fz.hit(S, 'hopCut', a, { doing: fz.doing(a, sp) }); }
+      if (a.__hcT != null) {
+        a.__hcT += dtA;
+        const up = p.y - T.heightAt(p.x, p.z), held = a.hop || a.perch || a.onWall || a.wallMode || a.swimming || sp.kind === 'swim' || A.occ?.solidAt(p.x, p.y - 0.6, p.z) || p.y <= A.waterTop(p.x, p.z) + 0.3;
+        if (up > 1 && !held) { a.__hcUp += dtA; if (a.__hcUp > 1 && a.__hcUp - dtA <= 1) fz.hit(S, 'hangCut', a, { up: +up.toFixed(1), doing: fz.doing(a, sp) }); } else a.__hcUp = 0;
+        if (a.__hcT > 5) a.__hcT = null;
       }
       S.prev.set(a, { x: p.x, y: p.y, z: p.z, rl: a.__rl ?? 0 }); a.__push = '';
       if (sp.kind === 'egg') continue;
@@ -362,7 +374,8 @@ async function place(page, preset, seed) {
 // for the same animal time: per-step anomalies and contacts (catches, eaten) per 1000 animal seconds.
 async function lapse(page, preset, seed) {
   const out = { mode: 'lapse', preset, seed, cfg: {} };
-  for (const [name, dtR, speed, lap] of [['1x', 1 / 30, 1, 0], ['60x', 0.05, 60, 0], ['lapse', 0.05, 0, 600]]) {
+  const want = (E.FUZZ_CFGS ?? '1x,60x,lapse').split(',');     // FUZZ_CFGS=1x,60x: only those speeds
+  for (const [name, dtR, speed, lap] of [['1x', 1 / 30, 1, 0], ['60x', 0.05, 60, 0], ['lapse', 0.05, 0, 600]].filter(([n]) => want.includes(n))) {
     out.cfg[name] = await page.evaluate(async ({ preset, seed, CFG, dtR, speed, lap }) => {
       const fz = window.__fz; await fz.mods(); fz.tp = CFG.tp;
       fz.seed(seed);

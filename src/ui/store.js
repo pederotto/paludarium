@@ -25,6 +25,7 @@ export const S = {
   toasts: signal([]),
   selection: signal(null),        // { kind: 'animal' | 'plant' | 'pool' | 'piece', obj }
   following: signal(null),        // an animal the camera is tracking
+  focusHide: signal(false),       // follow mode: the menu is hidden while following or zoomed in (editor/followmode.js, body.focus-hide)
   layer: signal('surface'),       // view layer: 'surface' | 'xray' | 'bottom' (render/layers.js)
   lens: signal('off'),            // 'off' | 'humidity' | 'temperature' | 'light' | 'soil' | 'flow'
   piece: signal(null),            // selected hardscape piece

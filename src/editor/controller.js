@@ -21,6 +21,7 @@ import { nextLayer } from '../render/layers.js';
 import { kitById, kitCounts, kitReach } from '../content/kits.js';
 import { buildKit, kitReady, kitScale, kitSeed, mirrorSpec, placeSpec } from '../sim/kits.js';
 import { SmartPlacer } from './smart.js';
+import { FREE, LONG_MS, step as followStep } from './followmode.js';
 import { EXPLORER_HINTS, freeSpot } from '../app/modes.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -206,7 +207,9 @@ export class ToolController {
   // --- Pointer -------------------------------------------------------------
   bindPointer() {
     const el = this.dom;
-    el.addEventListener('pointermove', (e) => { this.setMouse(e); this.hover(); if (this.down) this.drag(); });
+    el.addEventListener('pointermove', (e) => {
+      if (this._long && (!this._tap || Math.hypot(e.clientX - this._tap.x, e.clientY - this._tap.y) >= 6)) { clearTimeout(this._long); this._long = 0; }
+      this.setMouse(e); this.hover(); if (this.down) this.drag(); });
     el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || !this.W) return;
       if (this.tc.dragging || this.tc.axis) return;
@@ -214,7 +217,10 @@ export class ToolController {
       if (this.smart.on) return;      // smart placement listens for taps itself (tools/smart.js)
       if (this.tool === 'view' || this.tool === 'inspect') {
         // A tap (not a drag) selects whatever is under the pointer; on water it also ripples.
-        this._tap = { x: e.clientX, y: e.clientY, t: performance.now() };
+        this._tap = { x: e.clientX, y: e.clientY, t: e.timeStamp };   // event time, not handler time: a stalled frame must not turn a tap into a long press
+        // Follow mode: a long press (LONG_MS, still within 6 px) on another animal switches the follow to it.
+        clearTimeout(this._long); this._long = 0;
+        if (this.focusMode) { const x = e.clientX, y = e.clientY; this._long = setTimeout(() => this.longPress(x, y), LONG_MS); }
         return;
       }
       this.down = true;
@@ -232,20 +238,23 @@ export class ToolController {
     el.addEventListener('pointerup', (e) => {
       const t = this._tap;
       this._tap = null;
-      if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 6 && performance.now() - t.t < 500 && this.W) {
+      clearTimeout(this._long); this._long = 0;
+      if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 6 && e.timeStamp - t.t < 500 && this.W) {
         this.setMouse(e);
+        this._taps = [...(this._taps ?? []).slice(-1), e.timeStamp];   // before tap(): leaving follow mode clears it (no fly-off on a double tap)
+        this._tapT = e.timeStamp;
         this.tap();
-        this._taps = [...(this._taps ?? []).slice(-1), performance.now()];
       } else this._taps = [];
       up();
     });
-    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointercancel', () => { clearTimeout(this._long); this._long = 0; this._tap = null; up(); });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('dblclick', (e) => {
       // Only two real clicks fly the camera: the browser also reports two quick drags (turning the view twice) or a trackpad
       // double tap ending a drag as a double click, and the camera flew off to the ground by itself.
+      if (this.focusMode) return;   // in follow mode the two taps themselves switch the follow (followmode.js)
       const [t1, t2] = this._taps ?? [];
-      if (!(t1 && t2 && t2 - t1 < 500 && performance.now() - t2 < 300)) return;
+      if (!(t1 && t2 && t2 - t1 < 500 && e.timeStamp - t2 < 300)) return;
       this._taps = [];
       this.setMouse(e);
       const hit = this.pick(['terrain', 'wall', 'water']);
@@ -264,16 +273,76 @@ export class ToolController {
     const hit = this.pick(['terrain', 'wall', 'water']);
     if (hit?.surface === 'water' && !a) W.fx?.addDrop(hit.point.x, hit.point.z, -9, 1.1);
     if (a && S.pairing.value) { this.finishPairing(a); return; }
-    if (a) { this.select({ kind: 'animal', obj: a }); return; }
+    if (a) { this.tapped({ kind: 'animal', obj: a }); return; }
     if (hit) {
-      const plant = bare ? null : W.plants.near(hit.point, 4);
-      if (plant) { this.select({ kind: 'plant', obj: plant }); return; }
+      const plant = bare ? null : (W.plants.near(hit.point, 4) ?? this.plantOnRay(hit));
+      if (plant) { this.tapped({ kind: 'plant', obj: plant }); return; }
       const piece = hit.object && W.decor.pieceAt(hit.object);
-      if (piece) { this.select({ kind: 'piece', obj: piece }); return; }
+      if (piece) { this.tapped({ kind: 'piece', obj: piece }); return; }
       const pool = W.water.pondAt(hit.point.x, hit.point.z);
-      if (pool) { this.select({ kind: 'pool', obj: pool }); return; }
+      if (pool) { this.tapped({ kind: 'pool', obj: pool }); return; }
     }
-    this.select(null);
+    this.tapped(null);
+  }
+
+  // What a tap found: selected at once, or in follow mode handed to the machine (it may wait for a second tap).
+  tapped(sel) {
+    if (this.focusMode) this.fmStep({ type: 'tap', hit: sel, t: this._tapT ?? performance.now() });
+    else this.select(sel);
+  }
+
+  // --- Follow mode (C2, editor/followmode.js): while following or zoomed in the menu is hidden (S.focusHide, body.focus-hide);
+  // Esc or a single tap flies the camera back to the pose saved on entering and shows the menu; a double tap or a long press
+  // on another animal switches the follow (home kept, menu still hidden). Kids mode keeps its own card and reset (KidCard.jsx).
+  get focusMode() { return this.fm?.mode === 'focus'; }
+  pose() { return { pos: this.controls.getPosition(new THREE.Vector3()), target: this.controls.getTarget(new THREE.Vector3()) }; }
+  followMode(a) { this.fmStep({ type: 'follow', target: a ?? null, pose: this.pose() }); }
+  fmStep(ev) {
+    if (S.kids.value && (ev.type === 'follow' || ev.type === 'zoom')) { if (ev.type === 'follow') this.follow(ev.target); return; }
+    const { state, fx } = followStep(this.fm ?? FREE, ev);
+    this.fm = state;
+    for (const f of fx) {
+      if (f.type === 'hideMenu' || f.type === 'showMenu') {
+        const on = f.type === 'hideMenu';
+        S.focusHide.value = on;
+        document.body.classList.toggle('focus-hide', on);
+        if (on) S.hub.value = null;
+      } else if (f.type === 'select') this.select(f.sel);
+      else if (f.type === 'follow') this.follow(f.obj);
+      else if (f.type === 'restoreHome') {
+        const p = f.pose;
+        if (p) { this.controls.setLookAt(p.pos.x, p.pos.y, p.pos.z, p.target.x, p.target.y, p.target.z, true); this.game.rig.moved = true; }
+        this._taps = [];
+      } else if (f.type === 'wait') { clearTimeout(this._fmWait); this._fmWait = setTimeout(() => this.fmStep({ type: 'timeout' }), f.ms); }
+    }
+  }
+  longPress(x, y) {
+    this._long = 0;
+    this._tap = null;   // the release is not a tap
+    if (!this.focusMode || !this.W) return;
+    this.setMouse({ clientX: x, clientY: y });
+    this.ray.setFromCamera(this.mouse, this.camera);
+    const a = S.layer.value === 'bottom' ? null : this.W.animals.pick(this.ray.ray, 2.2);
+    this.fmStep({ type: 'long', hit: a ? { kind: 'animal', obj: a } : null });
+  }
+
+  // Second chance when no plant stands within 4 of the ground the ray ends on: a click on the leaves of a tall plant ends far behind
+  // it. The plant the ray went through: it passes the stem (a segment from the foot up its height) within the crown, in front of
+  // the ground, wall or stone it meets; the first one along the ray wins. (Open: a plant standing behind the clicked one can still
+  // win the 4-unit test first, see tools/steps/select-panel.mjs row plant-stem.)
+  plantOnRay(hit) {
+    const P = this.W.plants, r = this.ray.ray, a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Vector3(), s = new THREE.Vector3();
+    let best = null, bt = Infinity;
+    for (const p of P.list) {
+      const h = P.heightOf?.(p);
+      a.copy(p.pos); b.copy(p.pos).y += Math.max(1, Number.isFinite(h) ? h : 4);
+      const rad = Math.max(1.2, Math.min(4, (p.reach ?? 4) * (0.3 + 0.7 * (p.grown ?? 1)) * 0.35));
+      if (r.distanceSqToSegment(a, b, q, s) > rad * rad) continue;
+      const t = q.distanceTo(r.origin);
+      if (hit?.distance !== undefined && t > hit.distance + rad) continue;
+      if (t < bt) { bt = t; best = p; }
+    }
+    return best;
   }
 
   select(sel) {
@@ -307,6 +376,7 @@ export class ToolController {
   // Fly the camera close to the selection, keeping the direction we look from.
   zoomTo(sel = S.selection.value) {
     if (!sel) return;
+    this.fmStep({ type: 'zoom', sel, pose: this.pose() });   // follow mode: saves the home pose (first time only), hides the menu
     const { p, d } = this.focusOf(sel);
     const dir = this.camera.position.clone().sub(p).normalize();
     if (dir.y < 0.05) dir.y = 0.05;
@@ -464,7 +534,8 @@ export class ToolController {
   frame(dt) {
     const fol = S.following.value;
     if (fol && !fol.dead && fol.pos) this.followFrame(fol);
-    else if (fol) S.following.value = null;
+    else if (fol) { S.following.value = null; if (this.focusMode) this.fmStep({ type: 'lost' }); }
+    if (this.focusMode && !S.selection.value) this.fmStep({ type: 'lost' });
     // The animal being watched does not take the lens for a predator (Animals.camThreat), even as the camera flies in to it.
     if (this.W?.animals) this.W.animals.watched = S.following.value ?? null;
     if (!S.following.value && U.focus.value.w) U.focus.value.w = 0;
@@ -856,7 +927,7 @@ export class ToolController {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const piece = S.piece.value;
       if (e.code === 'Space') { this.game.setSpeed(this.game.speed === 0 ? 1 : 0); e.preventDefault(); }
-      else if (k === 'escape') { if (this.sub.kit) this.setKit(null); else if (piece) this.selectPiece(null); else if (S.selection.value) this.select(null); else this.setTool('view'); }
+      else if (k === 'escape') { if (this.focusMode) this.fmStep({ type: 'esc' }); else if (this.sub.kit) this.setKit(null); else if (piece) this.selectPiece(null); else if (S.selection.value) this.select(null); else this.setTool('view'); }
       else if (k === 'delete' || k === 'backspace') this.deletePiece();
       else if (piece && k === 'g') this.setPieceMode('translate');
       else if (piece && k === 'r') this.setPieceMode('rotate');

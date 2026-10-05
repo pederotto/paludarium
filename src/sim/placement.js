@@ -241,3 +241,26 @@ export function rollLook(type, seed, count, pool = null) {
   return { variant, scale: [sx, sy, sz], flip: f < 0.5, tint: Math.min(tint, TINTS.length - 1), rot: yaw * Math.PI * 2 };
 }
 
+
+// Where a click puts a salamander, newt or axolotl (Animals.placement), from the habitat row (content/habitats.js):
+//   zone 'land'   (fire salamander) dry ground, or a puddle up to h.maxDepth: water deeper than that is refused, as for the
+//                 frog, gecko and skink; it never goes onto a pool floor
+//   zone 'shore'  (newt, marbled newt) in the water, a little off the floor, or on land with water within h.water cm
+//   zone 'water'  (axolotl) open water at least h.minDepth cm deep (measured from the tank's water level), on the floor
+// ctx: { ground, surf (water surface here; at or below ground when dry), wl (tank water level), nearWater(d) }.
+// Returns { y } (the height to stand at) or { error } (the text for the toast).
+export function herpSpot(h, { ground, surf, wl, nearWater }) {
+  switch (h.zone) {
+    case 'land':
+      if (surf - ground > h.maxDepth) return { error: `${h.noun[0].toUpperCase()}${h.noun.slice(1)}s can’t swim well. Put them on land.` };
+      return { y: ground };
+    case 'shore':
+      if (surf > ground) return { y: ground + Math.min(1, (surf - ground) * 0.3) };
+      if (!nearWater(h.water)) return { error: 'Newts need water nearby.' };
+      return { y: ground };
+    case 'water':
+      if (wl - ground < h.minDepth) return { error: `${h.noun[0].toUpperCase()}${h.noun.slice(1)}s need water at least ${h.minDepth} cm deep.` };
+      return { y: ground };
+  }
+  return { error: 'Can’t place here.' };
+}

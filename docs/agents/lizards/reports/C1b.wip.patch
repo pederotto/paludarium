@@ -1,0 +1,174 @@
+diff --git a/src/editor/controller.js b/src/editor/controller.js
+index a87fc23..8638114 100644
+--- a/src/editor/controller.js
++++ b/src/editor/controller.js
+@@ -260,13 +260,17 @@ export class ToolController {
+     const W = this.W;
+     this.ray.setFromCamera(this.mouse, this.camera);
+     const bare = S.layer.value === 'bottom';   // nothing living is drawn in the Bottom layer
+-    const a = bare ? null : W.animals.pick(this.ray.ray, 2.2);
+     const hit = this.pick(['terrain', 'wall', 'water']);
+-    if (hit?.surface === 'water' && !a) W.fx?.addDrop(hit.point.x, hit.point.z, -9, 1.1);
+-    if (a && S.pairing.value) { this.finishPairing(a); return; }
+-    if (a) { this.select({ kind: 'animal', obj: a }); return; }
++    const solid = bare ? null : this.pick(['terrain', 'wall']), maxT = solid ? solid.distance : Infinity;
++    if (!bare && S.pairing.value) {   // choosing a mate: only animals count
++      const m = W.animals.pick(this.ray.ray, 2.2, maxT);
++      if (m) { this.finishPairing(m); return; }
++    }
++    const best = bare ? null : this.livingOnRay(maxT);
++    if (hit?.surface === 'water' && best?.kind !== 'animal') W.fx?.addDrop(hit.point.x, hit.point.z, -9, 1.1);
++    if (best) { this.select(best); return; }
+     if (hit) {
+-      const plant = bare ? null : (W.plants.near(hit.point, 4) ?? this.plantOnRay(hit));
++      const plant = bare ? null : W.plants.near(hit.point, 4);   // a click on the ground beside a plant
+       if (plant) { this.select({ kind: 'plant', obj: plant }); return; }
+       const piece = hit.object && W.decor.pieceAt(hit.object);
+       if (piece) { this.select({ kind: 'piece', obj: piece }); return; }
+@@ -276,23 +280,29 @@ export class ToolController {
+     this.select(null);
+   }
+ 
+-  // Second chance when no plant stands within 4 of the ground the ray ends on: a click on the leaves of a tall plant ends far behind
+-  // it. The plant the ray went through: it passes the stem (a segment from the foot up its height) within the crown, in front of
+-  // the ground, wall or stone it meets; the first one along the ray wins. (Open: a plant standing behind the clicked one can still
+-  // win the 4-unit test first, see tools/steps/select-panel.mjs row plant-stem.)
+-  plantOnRay(hit) {
+-    const P = this.W.plants, r = this.ray.ray, a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Vector3(), s = new THREE.Vector3();
+-    let best = null, bt = Infinity;
+-    for (const p of P.list) {
+-      const h = P.heightOf?.(p);
+-      a.copy(p.pos); b.copy(p.pos).y += Math.max(1, Number.isFinite(h) ? h : 4);
+-      const rad = Math.max(1.2, Math.min(4, (p.reach ?? 4) * (0.3 + 0.7 * (p.grown ?? 1)) * 0.35));
+-      if (r.distanceSqToSegment(a, b, q, s) > rad * rad) continue;
+-      const t = q.distanceTo(r.origin);
+-      if (hit?.distance !== undefined && t > hit.distance + rad) continue;
+-      if (t < bt) { bt = t; best = p; }
++  // What living thing a click is on (C1b). Candidates: the animal Animals.pick finds (up to 2.2 x its size unit off the ray, for
++  // small bodies and touch) and the plants the ray passes (Plants.onRay); none behind the ground, stone or wall the ray meets
++  // (`maxT`). Solid hits: an animal within its size unit (its depth taken half a unit in front of its centre, its body's near side)
++  // and a plant whose leaves or stems the ray meets (a ray cast of its mesh). The nearest solid hit along the ray wins, so leaves in
++  // front beat an animal behind them and an animal in front beats the plant behind it. Without one the animal wins (its generous
++  // tolerance), else the plant whose crown the ray passes closest to its stem.
++  livingOnRay(maxT = Infinity) {
++    const W = this.W, r = this.ray.ray, c = [];
++    for (const h of W.plants.onRay?.(r, maxT) ?? []) c.push({ kind: 'plant', obj: h.obj, t: Number.isFinite(h.mt) ? h.mt : h.t, s: h.d / h.r, solid: Number.isFinite(h.mt) });
++    const a = W.animals.pick(r, 2.2, maxT);
++    if (a) {
++      const u = Math.max(0.6, SPECIES[a.sp].size * 0.7), d = r.distanceToPoint(a.pos);
++      const t = (this._rv ??= new THREE.Vector3()).subVectors(a.pos, r.origin).dot(r.direction);
++      if (t <= maxT + u) c.push({ kind: 'animal', obj: a, t: t - 0.5 * u, u, s: d / (2.2 * u), solid: d <= u });
+     }
+-    return best;
++    if (!c.length) return null;
++    const solid = c.filter((h) => h.solid), an = solid.find((h) => h.kind === 'animal');
++    // Leaves within a body unit of an animal the click is on (a frond over its back, mesh hits on sway or see-through texels) do
++    // not take the click from it: a plant beats a solid animal only when its hit is that far in front.
++    if (an) for (let k = solid.length - 1; k >= 0; k--) if (solid[k].kind === 'plant' && solid[k].t > an.t - an.u) solid.splice(k, 1);
++    const w = solid.length ? solid.reduce((m, h) => (h.t < m.t ? h : m))
++      : c.find((h) => h.kind === 'animal') ?? c.reduce((m, h) => (h.s < m.s ? h : m));
++    return { kind: w.kind, obj: w.obj };
+   }
+ 
+   select(sel) {
+diff --git a/src/sim/animals.js b/src/sim/animals.js
+index 294b2d6..c6d07ef 100644
+--- a/src/sim/animals.js
++++ b/src/sim/animals.js
+@@ -4557,12 +4557,15 @@ export class Animals {
+     for (const kind in FM) { FM[kind].count = cnt[kind]; FM[kind].instanceMatrix.needsUpdate = true; }
+   }
+ 
+-  // Nearest animal to a ray (for the inspect tool).
+-  pick(ray, maxDist = 2.5) {
++  // Nearest animal to a ray (for the inspect tool). `maxT`: where the ray meets the ground, a stone or a wall; an animal more than
++  // its size unit behind that is hidden and not picked (C1b).
++  pick(ray, maxDist = 2.5, maxT = Infinity) {
+     let best = null, bd = maxDist;
++    const o = ray.origin, v = ray.direction;
+     for (const a of this.all) {
+-      const d = ray.distanceToPoint(a.pos) / Math.max(0.6, SPECIES[a.sp].size * 0.7);
+-      if (d < bd) { bd = d; best = a; }
++      const u = Math.max(0.6, SPECIES[a.sp].size * 0.7), d = ray.distanceToPoint(a.pos) / u;
++      if (d >= bd || (a.pos.x - o.x) * v.x + (a.pos.y - o.y) * v.y + (a.pos.z - o.z) * v.z > maxT + u) continue;
++      bd = d; best = a;
+     }
+     return best;
+   }
+diff --git a/src/sim/plants.js b/src/sim/plants.js
+index 90236e8..5927ee8 100644
+--- a/src/sim/plants.js
++++ b/src/sim/plants.js
+@@ -610,6 +610,37 @@ function flowOptions(sp) {
+   return { flowBend: true, bend: m.bend ?? (sp.model ? 0.4 : Math.max(2, (sp.size ?? 6) * 0.4)), stiffness: m.stiffness ?? clamp(2.2 / (m.underwaterAmp ?? 2.2), 0.4, 4) };
+ }
+ 
++// C1b, for Plants.onRay: the alpha of a plant material's leaf texture at a uv, read once from a 256 px copy (null: no texture, or
++// one the browser cannot draw, e.g. compressed or in node). plantMaterial keeps the map only inside its opacityNode (tx.a x keep).
++const ALPHA = new WeakMap();
++function alphaOf(mat) {
++  if (ALPHA.has(mat)) return ALPHA.get(mat);
++  let tex = null;
++  const seen = new Set(), walk = (n, k) => {
++    if (tex || !n || typeof n !== 'object' || k > 8 || seen.has(n)) return;
++    seen.add(n);
++    if (n.isTextureNode && n.value?.image) { tex = n.value; return; }
++    for (const f of ['aNode', 'bNode', 'node']) walk(n[f], k + 1);
++  };
++  walk(mat.opacityNode, 0);
++  let fn = null;
++  try {
++    const img = tex?.image;
++    if (img && typeof OffscreenCanvas !== 'undefined' && (img.width ?? 0) > 0) {
++      const w = Math.min(256, img.width), h = Math.min(256, img.height), cv = new OffscreenCanvas(w, h), cx = cv.getContext('2d');
++      cx.drawImage(img, 0, 0, w, h);
++      const px = cx.getImageData(0, 0, w, h).data, flip = tex.flipY;
++      fn = (uv) => {
++        const u = uv.x - Math.floor(uv.x), v = uv.y - Math.floor(uv.y);
++        const x = Math.min(w - 1, Math.floor(u * w)), y = Math.min(h - 1, Math.floor((flip ? 1 - v : v) * h));
++        return px[(y * w + x) * 4 + 3] / 255;
++      };
++    }
++  } catch { fn = null; }
++  ALPHA.set(mat, fn);
++  return fn;
++}
++
+ export class Plants {
+   constructor(scene) {
+     this.scene = scene;
+@@ -870,6 +901,34 @@ export class Plants {
+     return best;
+   }
+ 
++  // The plants a click ray passes (C1b, controller.js livingOnRay). Broad test: a stem from the foot up the plant's height inside a
++  // cylinder of its grown reach R. For those, the plant's own mesh at its instance is ray-cast (wind sway aside): mt = depth of the
++  // first leaf or stem the ray meets where its texture is not see-through (alphaOf), Infinity if it passes between them. Loose test: a crown 0.6 wide at the foot widening to R at
++  // the top. Each hit: { obj, t } depth of the nearest point on the stem, d the distance from it, r the crown radius there, mt.
++  // `maxT` = where the ray meets the ground or a wall: what lies behind that is hidden.
++  onRay(ray, maxT = Infinity) {
++    const out = [], a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Vector3(), s = new THREE.Vector3();
++    const rc = new THREE.Raycaster(ray.origin, ray.direction), tmp = new THREE.Mesh(), m = new THREE.Matrix4(), hits = [];
++    for (const p of this.list) {
++      const h = Math.max(1, this.heightOf(p)), R = Math.max(0.8, (p.reach ?? 2) * (0.3 + 0.7 * p.grown));
++      a.copy(p.pos); b.copy(p.pos); b.y += h;
++      const d = Math.sqrt(ray.distanceSqToSegment(a, b, q, s));
++      if (d > R) continue;
++      const r = 0.6 + (R - 0.6) * Math.min(1, Math.max(0, (s.y - a.y) / h)), t = q.distanceTo(ray.origin);
++      let mt = Infinity;
++      const im = this.meshes[this.key(p)];
++      if (im && p.index != null) {
++        im.getMatrixAt(p.index, m);
++        tmp.geometry = im.geometry; tmp.material = im.material; tmp.matrixWorld.multiplyMatrices(im.matrixWorld, m);
++        hits.length = 0; tmp.raycast(rc, hits);
++        const al = alphaOf(im.material);   // leaf cards: a hit on a see-through texel (under the material's alphaTest) is not a leaf
++        for (const x of hits) if (x.distance < mt && x.distance <= maxT + 0.3 && (!al || !x.uv || al(x.uv) >= 0.45)) mt = x.distance;
++      }
++      if (mt < Infinity || (d <= r && t <= maxT + r)) out.push({ obj: p, t, d, r, mt });
++    }
++    return out;
++  }
++
+   // Keep floating plants on the water when the level changes, and drop
+   // plants the new water has drowned or left dry.
+   onWaterChanged(world) {

@@ -12,6 +12,7 @@ import { TEX } from './assets.js';
 import { positionView, cross } from 'three/tsl';   // (the floor's moss relief, substrateMaterial)
 import { U, SOIL } from './uniforms.js';
 import { AIR } from './airflow.js';
+import { BEND_MAX, V50, ATANH_HALF } from '../util/plantbend.js';
 import { causticLight } from './waterfx.js';
 import { TANK } from '../sim/tank.js';
 
@@ -261,9 +262,12 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // unit length) | 'parallel' (n lines either side running base to tip, following the margin: the arcuate veins of a sword plant, the
 // parallel ones of a grass), n, slope (how steeply pinnate veins run to the tip), rib (midrib width), k (strength), cross (faint
 // cross-veins between parallel ones) }.
-export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {} } = {}) {
+// `flowBend`: the plant leans in the water's push (B5b; only aquatic and emergent plants set it, sim/plants.js flowOptions); `bend`: the
+// lean of a tip at full push in the plant's own units; `stiffness`: 1 an average leaf.
+export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1 } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: 0.96, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   m.userData.foliage = true;
+  m.userData.flowBend = flowBend;
   if (FOLIAGE.mrt) m.mrtNode = mrt({ normal: vec4(packNormalToRGB(normalView), 0) });
   let base = vec3(1);
   // Leaves right in front of the lens dissolve (a screen-space dither, so no sorting and no blending): zooming into a clump
@@ -297,7 +301,22 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
     0,
     cos(t.mul(0.8).add(phase.mul(1.3)).add(pw.z.mul(0.07))).mul(a.mul(0.7)),
   );
-  m.positionNode = positionLocal.add(off);
+  // The water's push at this plant (sim/plants.js writes `flow` = last sample's xz then the new one's, cm/s in the plant's own axes,
+  // and `flowDepth` = the water over its base; render/airflow.js plantFlow refreshes them every 0.4 s and AIR.blend carries the plant
+  // from one sample to the next). The same formula as util/plantbend.js plantBend: a steady lean along the flow, the tip most, the
+  // part above the water (flowDepth - y < 0) not at all, and a small sag so the blade keeps its length. The wobble above stays on top.
+  let lean = vec3(0, 0, 0);
+  if (flowBend) {
+    const fl = attribute('flow', 'vec4');
+    const v = mix(fl.xy, fl.zw, AIR.blend);
+    const spd = v.length();
+    const dirv = v.div(max(spd, 1e-3));
+    const x = min(spd.mul(ATANH_HALF / (V50 * Math.max(0.05, stiffness))), 8);
+    const k = float(BEND_MAX).mul(float(1).sub(float(2).div(exp(x.mul(2)).add(1))));   // BEND_MAX * tanh(x)
+    const l = k.mul(sw).mul(sw).mul(smoothstep(0.0, 1.5, attribute('flowDepth', 'float').sub(pw.y)));
+    lean = vec3(dirv.x.mul(l).mul(bend), l.mul(l).mul(-0.5 * bend), dirv.y.mul(l).mul(bend));
+  }
+  m.positionNode = positionLocal.add(off).add(lean);
   // The leaf's own colour, as the diffuse term will see it (the material multiplies it in on its own).
   const leaf = base.mul(attribute('color', 'vec3')).mul(instanceColor);
   // A natural leaf: a soft patchy variation along the leaf (a faint vein and mottling), a little less saturated, and darker

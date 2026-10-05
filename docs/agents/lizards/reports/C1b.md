@@ -1,0 +1,18 @@
+# C1b report: plant selection by depth along the click line
+Result: FAIL, code NOT changed. The ray-ranking change is kept as reports/C1b.wip.patch (174 lines, commit 9d9d0d0), reverted in src. Committed: the check rows (cb91583).
+Patch design: controller.js tap() -> livingOnRay(maxT): maxT = pick(['terrain','wall']).distance (water excluded, swimmers stay pickable). Candidates: Animals.pick(ray, 2.2, maxT) (new maxT depth test, hunk at animals.js pick) and Plants.onRay(ray, maxT) (new: stem cylinder of grown reach as broad test, then the instance's own mesh ray-cast, hits on texels under alpha 0.45 dropped). Solid = animal within its size unit, or a plant mesh hit; nearest solid by depth wins; else animal (2.2 tolerance); else plant closest to its stem. near(hit.point, 4) kept as the last fallback; plantOnRay removed.
+Rows now (select-panel.mjs): plant-foot, plant-stem (3 up or 0.6 h, asserted), gecko/skink/dartfrog, plant-crowd (REPORT), plant-front (animal 1.5 behind each plant, asserted 8), animal-front (animal 1.5 in front, asserted 9), gecko-stall. Per row: aOn/pOn = clicks contested by an animal/plant at the release; cov = target behind another plant's mesh and given to it. Rates are raw.
+Numbers (foot / stem / gecko / skink / dartfrog / crowd / plant-front / animal-front / stall), career start:
+- C1 baseline desktop: 10 / 1 / 9 / 10 / 10 / 0 / - / - / PASS.
+- v1 axis core (plant solid = within min(1, 0.35 r) of its stem) desktop: 6 / 3 / 8 / 8 / 8 / 6 / 4 / 8 / PASS; phone: 8 / 7 / 10 / 10 / 10 / 4 / 6 / 10 / PASS.
+- v3 = patch (mesh + alpha + leaves within 1 body unit of an animal ignored) desktop: 4 / 7 / 2 / 4 / 6 / 1 / 5 / 7 / FAIL (cov 5,2,8,6,4); phone: 8 / 8 / 10 / 7 / 8 / 6 / 4 / 7 / PASS; ?webgl ("WebGL 2"): 4 / 5 / 8 / 6 / 7 / 1 / 5 / 7 / FAIL.
+Why: every lost click went to fernph (Lady fern, modelSize 13) or weed (Creeping jenny, modelSize 9). The fixture adds plant ids in mesh-key order, so these two sprawlers stand among the 10 targets and the 30 animals on a grid ~7-10 units apart. The CPU mesh ray-cast puts their leaves on the click line in front of the target in 2-8 of 10 clicks, more than a body unit in front. Whether the player sees a frond there is NOT verified (numbers only; alphaOf finding the texture also not verified).
+Open: (1) one screenshot of a "cov" click by the checker decides it: real cover -> fix the fixture (targets not under sprawlers, or count only visible targets); not real -> the CPU mesh test over-hits (sway, cards) and the GPU is the judge. (2) Exact option: an id-buffer pick (render plant/animal ids at the click pixel), touches render code, not my row.
+Check: C1_START=career node tools/shot.mjs --steps=tools/steps/select-panel.mjs --url=http://127.0.0.1:4630/ --only=desktop ["--query=?webgl"]
+  desktop plant-stem  hits 7/10 (... pOn 10 cov 2) FAIL | desktop gecko hits 2/10 (... cov 8) FAIL | desktop [career] RESULT FAIL   (v3)
+Noticed, not touched: shot.mjs exits 1 even on RESULT PASS (a page error is logged; not read). Two runs died from dev-server reloads (re-run once each). zsh does not split "$F" lists: my first revert was empty (fixed in 9d9d0d0).
+## Hand-off
+- Apply: git apply docs/agents/lizards/reports/C1b.wip.patch (controller.js tap/livingOnRay, plants.js alphaOf + onRay, animals.js pick maxT); take both locks first.
+- v1 axis-core variant = the patch with plant solid "h.d <= Math.min(1, 0.35 * h.r)" instead of Number.isFinite(h.mt): best animal numbers so far.
+- Fixture: select-panel.mjs addPlants (ids from W.plants.meshes keys, fernph and weed first); placeBy(side) puts the plant-front/animal-front animals.
+- A run takes ~4 min per variant; 2 of 7 runs were killed by other agents' reloads.

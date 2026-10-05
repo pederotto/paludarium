@@ -151,3 +151,8 @@
   .banner { bottom: calc(var(--dock-h) + var(--rail-h, 0px) + var(--sb) + 8px); }
 }
 @media (prefers-reduced-motion: reduce) { .pill .seg, .sdrawer, .hubmenu { animation: none; } }
+
+/* Follow mode (C2, editor/followmode.js): while following or zoomed in, the menu parts fade out and take no pointer; they stay
+   mounted (the commission and layer chips keep their state). The info banner and the coach stay. */
+body.focus-hide .topbar, body.focus-hide .rail, body.focus-hide .opts, body.focus-hide .sdrawer, body.focus-hide .hud-stack,
+body.focus-hide .dock, body.focus-hide .smartbar { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; transition: opacity 0.2s, visibility 0s 0.2s; }

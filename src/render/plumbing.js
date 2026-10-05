@@ -22,7 +22,7 @@ import { wet, U } from './shaders.js';
 import { TANK } from '../sim/tank.js';
 import { pumpCurve } from '../sim/hydro.js';
 import { filterEff, filterOf } from '../content/equipment.js';
-import { filterFlow, pumpHose, hoseSpeed, CABINET_DROP, FILTER_TOP, poolCurrent } from '../sim/filterflow.js';
+import { filterFlow, pumpHose, hoseSpeed, CABINET_DROP, FILTER_TOP, SPOUT, poolCurrent } from '../sim/filterflow.js';
 
 // The moving water: bands BAND cm apart that travel at the water's speed. The clock wraps every WRAP s and every speed is
 // rounded to a whole number of bands per wrap (0.1 cm/s), so the wrap is seamless and the phase stays small.
@@ -311,6 +311,11 @@ export class Plumbing {
   //            over the top
   //   false bottom: a slotted PVC access tower standing in a back corner of the land, down to the plenum, open at the top: the
   //            water in it stands at the plenum's line (Env.plenumLevel, sim/plenum.js) or, without that, the pool's
+  //   hob      hang-on-back: a box on the back glass outside the rim, a lip spilling over it into the pool, a rigid uptake tube
+  //            down the glass to a strainer (no return hose, no overflow)
+  //   internal submersible: pump and foam cartridge in one body in a back corner of the pool, a nozzle under the surface
+  //   bed      the false bottom's own filter: a pump on the plenum floor in the same tower, its riser over the land to a spout
+  //            over the pool (Env.drainage >= 1; sim/plenum.js draws its flow from the plenum)
   filterGear(S, px, pz, J) {
     const W = this.world, E = W.env, T = W.terrain, wall = W.wall, level = W.water.hydro.level;
     const hw = TANK.w / 2, back = (x, y) => wall.zAt(x, y);
@@ -492,6 +497,69 @@ export class Plumbing {
           under(f.x, f.z, V(x - 4.5, vy + 1.6, z), hi);
           under(f.rx, f.rz, V(x + 4.5, vy + 1.6, z), ho);
         }
+      } else if (filterOf(E).mount === 'rim') {
+        // Hung on a rim over the pool: the nearest of the back glass and the two side glasses to water the lip can fall into (it reaches
+        // 3 cm in over the rim and the water lands 4-14 cm in from the glass). The box stands outside (open top, the media seen in the order
+        // the water meets them), a plate carries its lip over the rim, the rigid uptake tube goes down the inside of the glass to a strainer
+        // near the floor (a foam sleeve on it with a pre-filter). Local frame: a along the rim, b outward from the glass.
+        const hh = TANK.h, bw = 14, ht = hoseOf.uptake, hd = TANK.d / 2, r = rOf(ht.od);
+        const rims = [[V(0, 0, -1), (a) => V(a, 0, -hd), hw - bw / 2 - 2], [V(1, 0, 0), (a) => V(hw, 0, a), hd - bw / 2 - 2], [V(-1, 0, 0), (a) => V(-hw, 0, a), hd - bw / 2 - 2]];
+        let best = null;
+        for (const [n, at, rng] of rims) for (let a = -rng; a <= rng; a += 3) for (let d = 4; d <= 14; d += 2) {
+          const P = at(a), Q = P.clone().addScaledVector(n, -d);
+          if ((best && best.d <= d) || !pool(Q.x, Q.z)) continue;
+          best = { n, P, Q, d, rim: n.z < 0 };
+        }
+        if (best) {
+          const th = Math.atan2(best.n.x, best.n.z), q = new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), th), xa = V(Math.cos(th), 0, -Math.sin(th));
+          const W3 = (a, y, b) => best.P.clone().addScaledVector(xa, a).addScaledVector(best.n, b).setY(y);
+          const bx = (w, h, d, a, y, b, c) => S.geo(new THREE.BoxGeometry(w, h, d), new THREE.Matrix4().compose(W3(a, y, b), q, V(1, 1, 1)), c);
+          bx(bw, 0.4, 7, 0, hh - 8, 3.9, BODY);
+          bx(bw, 11, 0.4, 0, hh - 2.5, 7.1, BODY);
+          bx(bw, 11, 0.4, 0, hh - 2.5, 0.6, CAPC);
+          for (const sa of [-1, 1]) bx(0.4, 11, 7, sa * (bw / 2 - 0.2), hh - 2.5, 3.9, BODY);
+          const mw = (bw - 1.2) / 3;
+          [['floss', st.mech], ['chem', st.chem], ['bio', st.bio]].forEach(([id, c], k) => bx(mw - 0.2, 9, 5.6, -bw / 2 + 0.6 + mw * (k + 0.5), hh - 3.4, 3.9, media(id, c ?? 0)));
+          bx(bw - 3, 0.5, 4.4, 0, hh + 1.2, -1.5, CAPC);                                                  // the plate over the rim, the lip at its inner edge
+          for (const da of [-3, 0, 3]) {
+            const lip = W3(da, hh + 1.2, -3.6), land = best.Q.clone().addScaledVector(xa, da), fall = [];
+            for (let k = 0; k <= 10; k++) { const t = k / 10; fall.push(V(lip.x + (land.x - lip.x) * t, hh + 1.2 - (hh + 1.2 - level) * t * t, lip.z + (land.z - lip.z) * t)); }
+            J.tube(fall, 0.4, CLEAR, 6, vq(30), 2);
+          }
+          // the tube: from the box down to the strainer along the inside of the glass (the background on the back rim); the water in it goes up
+          const at0 = bw / 2 - 2.2, yt = T.heightAt(W3(at0, 0, -2).x, W3(at0, 0, -2).z) + 2.4, pts = [];
+          for (let k = 0; k <= 12; k++) {
+            const y = hh + 0.6 - (hh + 0.6 - yt) * (k / 12), p0 = W3(at0, y, 0);
+            pts.push(W3(at0, y, -(best.rim ? Math.max(1.4, back(p0.x, y) + hd + r + 0.2) : 1.4 + r)));
+          }
+          S.tube(pts.reverse(), r, PIPE, 10, vq(ht.v), 2);
+          const s0 = pts[0];
+          S.geo(new THREE.CylinderGeometry(2.1, 2.1, 2.6, 14, 1, true), cylM(s0.x, yt - 0.9, s0.z), GRILL);
+          if (E.prefilter) S.geo(new THREE.CylinderGeometry(2.8, 2.8, 5, 14), cylM(s0.x, yt + 0.4, s0.z), FOAM.clone().lerp(DIRT, (st.mech ?? 0) * 0.7));
+          W.water.hydro.ports.intake = { x: s0.x, y: yt, z: s0.z, r: E.prefilter ? 2.8 : 2.2 };
+          W.water.hydro.ports.ret = { x: best.Q.x, y: level, z: best.Q.z, dx: -best.n.x, dz: -best.n.z, D: 1.6 };
+        }
+      } else if (filterOf(E).mount === 'internal') {
+        // The submersible: pump housing and foam cartridge in one body on the pool floor in a back corner, the foam face (the mulm browns it)
+        // turned to the pool, the outlet pipe up its side to a nozzle under the surface that jets along the face.
+        const c = spot(corners);
+        if (c) {
+          const [x, z] = c, g = T.heightAt(x, z), hgt = Math.min(14, level - g - 1), ho = hoseOf.outlet;
+          const face = V(-x * 0.25, 0, TANK.d * 0.3 - z);
+          if (face.lengthSq() < 1) face.set(0, 0, 1);
+          face.normalize();
+          const q = new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), Math.atan2(face.x, face.z));
+          const at = (p, dims, c2) => S.geo(new THREE.BoxGeometry(...dims), new THREE.Matrix4().compose(p, q, V(1, 1, 1)), c2);
+          at(V(x, g + hgt / 2, z), [6.4, hgt, 4.4], BODY);
+          at(V(x, g + 0.8, z), [6.8, 1.6, 4.8], CAPC);                                                   // the pump housing at the foot
+          const fp = V(x, g + hgt * 0.5 + 0.4, z).addScaledVector(face, 2.5);
+          at(fp, [5.6, Math.max(1, hgt - 3), 0.8], FOAM.clone().lerp(DIRT, (st.mech ?? 0) * 0.8));       // the foam face
+          const ny = Math.max(g + 2.2, Math.min(level - 1.6, g + hgt + 0.2)), np = V(x, ny, z).addScaledVector(face, 1.0);
+          S.tube([V(x, g + 1.6, z), V(x, ny, z), np], rOf(ho.od), PIPE, 10, vq(ho.v), 2);
+          jet(np.clone().addScaledVector(face, 0.3), face.clone().setY(-0.03), rOf(ho.od) * 0.6, ho.v / 0.49);
+          W.water.hydro.ports.intake = { x: fp.x + face.x * 0.5, y: fp.y, z: fp.z + face.z * 0.5, r: 2.4 };
+          W.water.hydro.ports.ret = { x: np.x + face.x * 0.3, y: ny, z: np.z + face.z * 0.3, dx: face.x, dz: face.z, D: 0.07 * ho.id };
+        }
       }
     }
     // The false bottom's pump tower: in the back corner of the land, slots down where the plenum is, open at the top.
@@ -507,6 +575,30 @@ export class Plumbing {
         for (let k = 0; k < 12; k++) {
           const a = (k / 12) * Math.PI * 2;
           S.geo(new THREE.BoxGeometry(0.22, Math.max(0.5, ph - 1), 0.14), new THREE.Matrix4().compose(V(x + Math.cos(a) * 2.13, (ph - 1) / 2 + 0.3, z + Math.sin(a) * 2.13), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), V(1, 1, 1)), SLOT);
+        }
+        if (E.filter && filterOf(E).mount === 'bed' && hoseOf.riser) {
+          // The bed filter's pump: a submersible on the plenum floor in the tower (it draws through the slots), its riser up the tower and
+          // over the land to a spout over the nearest water of the pool, jetting into it.
+          const h = hoseOf.riser;
+          S.geo(new THREE.CylinderGeometry(1.5, 1.6, 4.4, 14), cylM(x, 2.4, z), BODY);
+          S.geo(new THREE.CylinderGeometry(1.75, 1.75, 0.8, 14), cylM(x, 0.5, z), CAPC);                // its strainer plate
+          let to = null;
+          for (let r = 4; r <= 70 && !to; r += 3) for (let a = 0; a < 18 && !to; a++) {
+            const ax = x + Math.cos(a * Math.PI / 9) * r, az = z + Math.sin(a * Math.PI / 9) * r;
+            if (Math.abs(ax) < hw - 1.5 && Math.abs(az) < TANK.d / 2 - 1.5 && pool(ax, az)) to = V(ax, 0, az);
+          }
+          if (to) {
+            const dir = to.clone().sub(V(x, 0, z)).setY(0).normalize(), end = to.clone().addScaledVector(dir, 1.5), sy = level + SPOUT;
+            const pts = [V(x, 4.6, z), V(x, g + 1.4, z)];
+            for (let k = 1; k <= 10; k++) {
+              const t = k / 10, px2 = x + (end.x - x) * t, pz2 = z + (end.z - z) * t;
+              pts.push(V(px2, Math.max(g + 1.4 + (sy + 1 - g - 1.4) * t, T.heightAt(px2, pz2) + 1.2) + Math.sin(Math.PI * t) * 1.5, pz2));
+            }
+            pts.push(V(end.x, sy, end.z));
+            S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(64), rOf(h.od), FHOSE, 10, vq(h.v), 2);
+            jet(V(end.x, sy, end.z), dir.clone().setY(-0.6), rOf(h.od) * 0.7, h.v / 0.49);
+            W.water.hydro.ports.ret = { x: end.x, y: sy, z: end.z, dx: dir.x, dz: dir.z, D: 0.07 * h.id };
+          }
         }
         break;
       }

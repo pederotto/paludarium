@@ -125,7 +125,7 @@ export class CreatureMesh {
       // the bones from the state the rig would have drawn (anim.y then carries the instance's row of the bone texture)
       const row = this.row0 + i;
       if (this.skinRig.stroke) poseStroke(this.skinRig, st, boneData, row * ROW_FLOATS, st?.info ?? null);    // (info: the limbs' tips, for whoever asked)
-      else { const u = unpackAnim(a3); poseBones(this.skinRig, { phase: a2, tau: this.inY ? a1 : c4, hop: u.hop, calm: u.calm, pose: u.pose }, boneData, row * ROW_FLOATS); }
+      else { const u = unpackAnim(a3); poseBones(this.skinRig, { phase: a2, tau: this.inY ? a1 : c4, hop: u.hop, calm: u.calm, pose: u.pose, yaw: b0, pitch: b1, bend: b2, tail: b3, tailF: c0, piece: c2, lift: c3, feet: st?.feet, peel: st?.peel }, boneData, row * ROW_FLOATS); }   // (b0 … c3: the rig2 channels, a lizard's axial bones: lizardpose.js)
       a1 = row;
     }
     this.iAnim.setXYZW(i, a0, a1, a2, a3);

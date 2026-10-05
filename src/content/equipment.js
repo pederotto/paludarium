@@ -82,6 +82,51 @@ export const GEAR = {
     blurb: 'Lots of biological media in a sealed box. A big jump in how much life the water can carry.',
     teach: 'Biological capacity is surface area. Ceramic media has a huge internal surface, so a small volume can hold a colony large enough for a full stocked tank. Plumbed through bulkheads or hidden behind the background, it keeps the media out of the water. Its intake sucks: cover it with a sponge pre-filter or it takes baby shrimp and fry.',
   },
+  filterHobS: {
+    id: 'filterHobS', group: 'Water', name: 'Hang-on-back filter Alder', level: 2, price: 35, icon: 'filter',
+    blurb: 'A box that hangs on the back rim: a pump in it lifts the water up a tube, through its media, and lets it fall back over a lip. Made for tanks of 18-76 litres.',
+    teach: 'The falling sheet of water stirs the surface, and that is where oxygen gets in, with no air pump. The tube has to lift the water all the way to the rim, so it moves much more in a deep pool than in a shallow one, and its intake pulls small animals in unless you fit a sponge over it.',
+  },
+  filterHobM: {
+    id: 'filterHobM', group: 'Water', name: 'Hang-on-back filter Birch', level: 3, price: 55, icon: 'filter',
+    blurb: 'A box that hangs on the back rim: a pump in it lifts the water up a tube, through its media, and lets it fall back over a lip. Made for tanks of 76-190 litres.',
+    teach: 'The falling sheet of water stirs the surface, and that is where oxygen gets in, with no air pump. The tube has to lift the water all the way to the rim, so it moves much more in a deep pool than in a shallow one, and its intake pulls small animals in unless you fit a sponge over it.',
+  },
+  filterHobL: {
+    id: 'filterHobL', group: 'Water', name: 'Hang-on-back filter Oak', level: 4, price: 90, icon: 'filter',
+    blurb: 'A box that hangs on the back rim: a pump in it lifts the water up a tube, through its media, and lets it fall back over a lip. Made for tanks of 227-416 litres.',
+    teach: 'The falling sheet of water stirs the surface, and that is where oxygen gets in, with no air pump. The tube has to lift the water all the way to the rim, so it moves much more in a deep pool than in a shallow one, and its intake pulls small animals in unless you fit a sponge over it.',
+  },
+  filterInternalS: {
+    id: 'filterInternalS', group: 'Water', name: 'Internal filter Pebble', level: 2, price: 25, icon: 'filter',
+    blurb: 'A small pump and a foam cartridge in one body that stands in the pool. No hoses, no cabinet. Made for tanks of 30-60 litres.',
+    teach: 'It cleans the water it stands in: the pump pulls it through the foam and a nozzle puts it back near the surface. The foam face is large, so the pull is gentle, but the media is small and clogs sooner than a box outside the tank.',
+  },
+  filterInternalM: {
+    id: 'filterInternalM', group: 'Water', name: 'Internal filter Cobble', level: 3, price: 40, icon: 'filter',
+    blurb: 'A small pump and a foam cartridge in one body that stands in the pool. No hoses, no cabinet. Made for tanks of 80-180 litres.',
+    teach: 'It cleans the water it stands in: the pump pulls it through the foam and a nozzle puts it back near the surface. The foam face is large, so the pull is gentle, but the media is small and clogs sooner than a box outside the tank.',
+  },
+  filterInternalL: {
+    id: 'filterInternalL', group: 'Water', name: 'Internal filter Boulder', level: 4, price: 70, icon: 'filter',
+    blurb: 'A small pump and a foam cartridge in one body that stands in the pool. No hoses, no cabinet. Made for tanks of over 350 litres.',
+    teach: 'It cleans the water it stands in: the pump pulls it through the foam and a nozzle puts it back near the surface. The foam face is large, so the pull is gentle, but the media is small and clogs sooner than a box outside the tank.',
+  },
+  filterBedS: {
+    id: 'filterBedS', group: 'Water', name: 'Tower pump Tern', level: 4, price: 45, icon: 'filter',
+    blurb: 'The false bottom\'s bed of bio-rings, with a pump in the slotted tower that pulls the water down through it.',
+    teach: 'The space under the land is already a bed of bio-rings; a pump in the slotted tower makes the water run through it instead of leaving it to drift. All that surface holds a big colony and nothing in the tank can reach the intake. It needs a build with a false bottom, the water must stay over the pump, and it cannot be rinsed without lifting the land.',
+  },
+  filterBedM: {
+    id: 'filterBedM', group: 'Water', name: 'Tower pump Heron', level: 4, price: 55, icon: 'filter',
+    blurb: 'The false bottom\'s bed of bio-rings, with a pump in the slotted tower that pulls the water down through it.',
+    teach: 'The space under the land is already a bed of bio-rings; a pump in the slotted tower makes the water run through it instead of leaving it to drift. All that surface holds a big colony and nothing in the tank can reach the intake. It needs a build with a false bottom, the water must stay over the pump, and it cannot be rinsed without lifting the land.',
+  },
+  filterBedL: {
+    id: 'filterBedL', group: 'Water', name: 'Tower pump Crane', level: 5, price: 75, icon: 'filter',
+    blurb: 'The false bottom\'s bed of bio-rings, with a pump in the slotted tower that pulls the water down through it.',
+    teach: 'The space under the land is already a bed of bio-rings; a pump in the slotted tower makes the water run through it instead of leaving it to drift. All that surface holds a big colony and nothing in the tank can reach the intake. It needs a build with a false bottom, the water must stay over the pump, and it cannot be rinsed without lifting the land.',
+  },
   autofeeder: {
     id: 'autofeeder', group: 'Feeding', name: 'Auto-feeder', level: 3, price: 70, icon: 'bowl',
     blurb: 'Drops fish food once a day at 10:00.',
@@ -141,26 +186,86 @@ export const ACTUATORS = {
 // suction is how many baby shrimp and fry its intake takes (a pre-filter sponge on the intake cuts it to almost nothing).
 // lph is the water its pump moves (litres an hour, clean), catch the share of the particles in that water the media keeps,
 // hold how much dirt (detritus units) it takes before it is clogged solid (sim.js).
+// mount: where it stands (sim/filterflow.js MOUNTS: cabinet | pool | rim | internal | bed), prefilter: a sponge can be fitted over its intake; watts: the pump's power, tank: [min, max] litres the maker rates it for (max null: no upper limit).
 // The hardware (sim/filterflow.js turns it into the flow it really gives): pump is the filter pump's rating, lph moved against no
-// head and hmax the lift (cm) at which it moves nothing; hose the inner/outer diameter (mm) of the drain from the overflow down
+// head and hmax the lift (cm) at which it moves nothing (fit: 'ladder': the PUMPS size fitted at the starter, the sim fits each
+// installation its own; closed: a sealed canister, a closed loop, so its pump lifts only to the outlet over the water); hose the inner/outer diameter (mm) of the drain from the overflow down
 // to the filter (in) and of the return up to the tank (out), standard aquarium hose sizes; media the head (cm) the clean media
 // cost at the rated flow; stages the media in the order the water meets them: id, name, share of that head.
+// Filter pumps with real figures (docs/agents/lizards/FILTER_SHEETS.md, "B5e pump ladder": one maker family, invented names): lph the
+// flow at no head, hmax the head (cm) at which it moves nothing, watts, bore its hose (mm), adj the range its flow knob sets. A row with
+// fit: 'ladder' gets the smallest of these that does its job, per installation (sim/filterflow.js pumpFit). Pelican's bore is an estimate.
+export const PUMPS = {
+  tern: { id: 'tern', name: 'Tern', lph: 300, hmax: 60, watts: 7, bore: 12, adj: [170, 300] },
+  heron: { id: 'heron', name: 'Heron', lph: 600, hmax: 100, watts: 7, bore: 12, adj: [250, 600] },
+  crane: { id: 'crane', name: 'Crane', lph: 1000, hmax: 140, watts: 15, bore: 16, adj: [400, 1000] },
+  stork: { id: 'stork', name: 'Stork', lph: 2100, hmax: 240, watts: 38, bore: 19, adj: [1400, 2100] },
+  pelican: { id: 'pelican', name: 'Pelican', lph: 3000, hmax: 270, watts: 55, bore: 25, adj: [1800, 3000] },
+};
+export const PUMP_LADDER = ['tern', 'heron', 'crane', 'stork', 'pelican'];
+
 export const FILTERS = {
-  sponge: { gear: 'filterSponge', name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, lph: 120, catch: 0.5, hold: 24, blurb: 'A sponge in an external box, a strainer on its intake: gentle, shrimp-safe, small capacity; needs a rinse every few weeks.',
-    pump: { lph: 190, hmax: 145 }, hose: { in: [16, 22], out: [12, 16] }, media: 17,
+  sponge: { gear: 'filterSponge', mount: 'cabinet', prefilter: false, name: 'Sponge filter', mediaMax: 0.6, flow: 0.12, oxygen: 1.6, suction: 0, lph: 120, catch: 0.5, hold: 24, blurb: 'A sponge in an external box, a strainer on its intake: gentle, shrimp-safe, small capacity; needs a rinse every few weeks.',
+    pump: PUMPS.heron, fit: 'ladder', hose: { in: [16, 22], out: [12, 16] }, media: 17,
     stages: [['mech', 'Coarse sponge', 0.5], ['bio', 'Fine bio sponge', 0.35], ['chem', 'Carbon pad', 0.15]] },
-  matten: { gear: 'filterMatten', name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, lph: 150, catch: 0.45, hold: 60, blurb: 'A wall of coarse foam with a pump behind it: no suction, a huge surface, almost no current; goes months between rinses.',
-    pump: { lph: 150, hmax: 80 }, hose: { out: [12, 16] }, media: 7,
+  matten: { gear: 'filterMatten', mount: 'pool', prefilter: false, name: 'Corner foam filter', mediaMax: 0.85, flow: 0.06, oxygen: 1.4, suction: 0, lph: 150, catch: 0.45, hold: 60, blurb: 'A wall of coarse foam with a pump behind it: no suction, a huge surface, almost no current; goes months between rinses.',
+    pump: PUMPS.tern, fit: 'ladder', hose: { out: [12, 16] }, media: 7,
     stages: [['mech', 'Coarse foam face', 0.6], ['bio', 'Foam core', 0.4]] },
-  canister: { gear: 'filterCanister', name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.',
-    pump: { lph: 560, hmax: 150 }, hose: { in: [19, 27], out: [16, 22] }, media: 22,
+  canister: { gear: 'filterCanister', mount: 'cabinet', prefilter: true, name: 'Canister filter', mediaMax: 1, flow: 0.42, oxygen: 1.8, suction: 0.6, lph: 400, catch: 0.85, hold: 40, blurb: 'Most media, fine floss and the strongest flow; put a sponge over the intake for shrimp and fry.',
+    pump: PUMPS.heron, fit: 'ladder', closed: true, hose: { in: [19, 27], out: [16, 22] }, media: 22,
     stages: [['mech', 'Coarse sponge', 0.3], ['bio', 'Ceramic rings', 0.2], ['chem', 'Fine floss and carbon', 0.5]] },
+  // The three new families in three sizes each, from the maker sheets of one real product line per family (docs/agents/lizards/FILTER_SHEETS.md):
+  // pump.lph is the maximum flow at no head, hmax the maximum head (cm) where the sheet has one (the tower pumps), watts and tank (litres the
+  // maker rates it for) as listed, the bed's 12 / 16 mm hose from the sheet. estimates, no sheet: hmax of the hang-on-back (40 cm: a real one only runs with the water near the rim) and internal (55 cm) pumps;
+  // NOT from a sheet, modelled:
+  // and all their hose bores, hold, catch, suction, flow, oxygen. lph (the rated flow) and media are worked out from the pump and the lift in the
+  // game (sim/filterflow.js): lph the working point of a clean filter at a 12 cm pool, media the head that clogs it down to 30 % when solid.
+  hobS: { gear: 'filterHobS', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Alder', mediaMax: 0.8, flow: 0.3, oxygen: 2, suction: 0.35, lph: 225, catch: 0.7, hold: 35, watts: 7, tank: [18,76],
+    blurb: 'Hangs on the back rim: foam, carbon and ceramic rings, and a falling lip that stirs the surface. Strong in a deep pool; put a sponge over the intake for shrimp and fry. Made for tanks of 18-76 litres.',
+    pump: { lph: 379, hmax: 40 }, hose: { in: [19,27] }, media: 15,
+    stages: [['mech', 'Foam pad', 0.3], ['chem', 'Carbon', 0.3], ['bio', 'Ceramic bio rings', 0.4]] },
+  hobM: { gear: 'filterHobM', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Birch', mediaMax: 0.8, flow: 0.38, oxygen: 2, suction: 0.45, lph: 450, catch: 0.7, hold: 55, watts: 7, tank: [76,190],
+    blurb: 'Hangs on the back rim: foam, carbon and ceramic rings, and a falling lip that stirs the surface. Strong in a deep pool; put a sponge over the intake for shrimp and fry. Made for tanks of 76-190 litres.',
+    pump: { lph: 757, hmax: 40 }, hose: { in: [25,34] }, media: 15,
+    stages: [['mech', 'Foam pad', 0.3], ['chem', 'Carbon', 0.3], ['bio', 'Ceramic bio rings', 0.4]] },
+  hobL: { gear: 'filterHobL', mount: 'rim', prefilter: true, name: 'Hang-on-back filter Oak', mediaMax: 0.8, flow: 0.5, oxygen: 2, suction: 0.6, lph: 1010, catch: 0.7, hold: 90, watts: 14, tank: [227,416],
+    blurb: 'Hangs on the back rim: foam, carbon and ceramic rings, and a falling lip that stirs the surface. Strong in a deep pool; put a sponge over the intake for shrimp and fry. Made for tanks of 227-416 litres.',
+    pump: { lph: 1892, hmax: 40 }, hose: { in: [25,34] }, media: 15,
+    stages: [['mech', 'Foam pad', 0.3], ['chem', 'Carbon', 0.3], ['bio', 'Ceramic bio rings', 0.4]] },
+  internalS: { gear: 'filterInternalS', mount: 'internal', prefilter: false, name: 'Internal filter Pebble', mediaMax: 0.55, flow: 0.28, oxygen: 1.5, suction: 0.2, lph: 375, catch: 0.55, hold: 20, watts: 5, tank: [30,60],
+    blurb: 'A pump and foam in one body that stands in the pool: no hoses, gentle pull, small capacity; rinse it often. Made for tanks of 30-60 litres.',
+    pump: { lph: 480, hmax: 55 }, hose: { out: [12,16] }, media: 12.5,
+    stages: [['mech', 'Mechanical foam', 0.6], ['bio', 'Bio foam', 0.4]] },
+  internalM: { gear: 'filterInternalM', mount: 'internal', prefilter: false, name: 'Internal filter Cobble', mediaMax: 0.55, flow: 0.34, oxygen: 1.5, suction: 0.25, lph: 475, catch: 0.55, hold: 30, watts: 6, tank: [80,180],
+    blurb: 'A pump and foam in one body that stands in the pool: no hoses, gentle pull, small capacity; rinse it often. Made for tanks of 80-180 litres.',
+    pump: { lph: 650, hmax: 55 }, hose: { out: [12,16] }, media: 12.5,
+    stages: [['mech', 'Mechanical foam', 0.6], ['bio', 'Bio foam', 0.4]] },
+  internalL: { gear: 'filterInternalL', mount: 'internal', prefilter: false, name: 'Internal filter Boulder', mediaMax: 0.55, flow: 0.55, oxygen: 1.5, suction: 0.35, lph: 1175, catch: 0.55, hold: 50, watts: 27, tank: [350,null],
+    blurb: 'A pump and foam in one body that stands in the pool: no hoses, gentle pull, small capacity; rinse it often. Made for tanks of over 350 litres.',
+    pump: { lph: 2000, hmax: 55 }, hose: { out: [16,22] }, media: 12.5,
+    stages: [['mech', 'Mechanical foam', 0.6], ['bio', 'Bio foam', 0.4]] },
+  bedS: { gear: 'filterBedS', mount: 'bed', prefilter: false, name: 'Tower pump Tern', mediaMax: 1, flow: 0.15, oxygen: 0.8, suction: 0, lph: 245, catch: 0.35, hold: 80, watts: 7, tank: null,
+    blurb: 'A pump on the floor of the false bottom\'s slotted tower, pulling the water down through the bed of bio-rings: huge surface, nothing to pull in, slow to clog and hard to clean.',
+    pump: PUMPS.tern, hose: { out: [12,16] }, media: 13,
+    stages: [['mech', 'Screen and fines', 0.3], ['bio', 'Bio-ring bed', 0.7]] },
+  bedM: { gear: 'filterBedM', mount: 'bed', prefilter: false, name: 'Tower pump Heron', mediaMax: 1, flow: 0.18, oxygen: 0.8, suction: 0, lph: 470, catch: 0.35, hold: 110, watts: 7, tank: null,
+    blurb: 'A pump on the floor of the false bottom\'s slotted tower, pulling the water down through the bed of bio-rings: huge surface, nothing to pull in, slow to clog and hard to clean.',
+    pump: PUMPS.heron, hose: { out: [12,16] }, media: 22.5,
+    stages: [['mech', 'Screen and fines', 0.3], ['bio', 'Bio-ring bed', 0.7]] },
+  bedL: { gear: 'filterBedL', mount: 'bed', prefilter: false, name: 'Tower pump Crane', mediaMax: 1, flow: 0.24, oxygen: 0.8, suction: 0, lph: 820, catch: 0.35, hold: 150, watts: 15, tank: null,
+    blurb: 'A pump on the floor of the false bottom\'s slotted tower, pulling the water down through the bed of bio-rings: huge surface, nothing to pull in, slow to clog and hard to clean.',
+    pump: PUMPS.crane, hose: { out: [16,22] }, media: 31.5,
+    stages: [['mech', 'Screen and fines', 0.3], ['bio', 'Bio-ring bed', 0.7]] },
 };
 export const filterOf = (E) => FILTERS[E.filterKind] ?? FILTERS.sponge;
 // How clogged the filter is (0 clean … 1 solid) and how much of its rated flow it still passes (0 when it is off): the flow
 // sim/filterflow.js found for its pump, head and media (Env.filterFlow, every sim step), or a plain estimate before the first.
 export const filterClog = (E) => Math.max(0, Math.min(1, (E.filterDirt ?? 0) / filterOf(E).hold));
 export const filterEff = (E) => (!E.filter ? 0 : E.filterFlow?.kind === (E.filterKind ?? 'sponge') ? Math.min(1.25, E.filterFlow.lph / filterOf(E).lph) : 1 - 0.75 * filterClog(E));
+
+// The false bottom's bio-rings as media (0 … 0.3, as far as the plenum is under water), added to the sump's. A bed filter that is running
+// is that media working as the filter: it counts through its FILTERS row (media, flow, clog) and not a second time here.
+export const plenumBio = (E) => (E.filter && FILTERS[E.filterKind]?.mount === 'bed' ? 0 : E.drainage >= 1 ? 0.3 * (E.plenum ? Math.max(0.25, Math.min(1, E.plenum.filled * 1.3)) : 1) : E.drainage > 0 ? 0.1 : 0);
 
 // The water you fill and change with: it sets the hardness (GH, °dH) and pH the tank drifts back to.
 export const WATER_SOURCES = {

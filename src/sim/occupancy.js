@@ -48,6 +48,45 @@ export class Occupancy {
     return this.data[this.idx(i, j, k)] !== 0;
   }
 
+  // Swept move test (B4b): how much of the move from (x0, y0, z0) to (x1, y1, z1) a body can make before it enters a solid cell,
+  // as a fraction; 1 = all of it. An exact voxel walk (every cell the segment crosses, Amanatides-Woo), so no piece is stepped
+  // through however long the step. Cells solid at the start are ignored until the segment has left them (one standing inside a
+  // piece is keepFree's business and is never held here). A move shorter than `min` (default a third of a cell, the fuzz
+  // detector's floor) returns 1: it cannot cross a cell, and every caller tests its end point itself. No allocation.
+  segmentFree(a, from, to) { return this.segmentFreeAt(a, from.x, from.y, from.z, to.x, to.y, to.z); }
+  segmentFreeAt(a, x0, y0, z0, x1, y1, z1, min = CELL / 3) {
+    if (!this.count) return 1;
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, len = Math.hypot(dx, dy, dz);
+    if (!(len >= min) || len === 0) return 1;
+    const ox = TANK.w / 2, oz = TANK.d / 2, gx = (x0 + ox) / CELL, gy = y0 / CELL, gz = (z0 + oz) / CELL;
+    const ux = dx / CELL, uy = dy / CELL, uz = dz / CELL;
+    let i = Math.floor(gx), j = Math.floor(gy), k = Math.floor(gz);
+    let n = Math.abs(Math.floor((x1 + ox) / CELL) - i) + Math.abs(Math.floor(y1 / CELL) - j) + Math.abs(Math.floor((z1 + oz) / CELL) - k);
+    const si = Math.sign(ux), sj = Math.sign(uy), sk = Math.sign(uz);
+    const ddx = si ? 1 / Math.abs(ux) : Infinity, ddy = sj ? 1 / Math.abs(uy) : Infinity, ddz = sk ? 1 / Math.abs(uz) : Infinity;
+    let tx = si > 0 ? (i + 1 - gx) / ux : si < 0 ? (i - gx) / ux : Infinity;
+    let ty = sj > 0 ? (j + 1 - gy) / uy : sj < 0 ? (j - gy) / uy : Infinity;
+    let tz = sk > 0 ? (k + 1 - gz) / uz : sk < 0 ? (k - gz) / uz : Infinity;
+    let inside = this.cellSolid(i, j, k);
+    for (; n > 0; n--) {
+      let t;
+      if (tx <= ty && tx <= tz) { t = tx; i += si; tx += ddx; } else if (ty <= tz) { t = ty; j += sj; ty += ddy; } else { t = tz; k += sk; tz += ddz; }
+      if (!this.cellSolid(i, j, k)) inside = false;
+      else if (!inside) {
+        if (a) { const s = (this.sweepStats ??= {}); s[a.sp] = (s[a.sp] ?? 0) + 1; }
+        return Math.max(0, Math.min(t, 1) - 0.05 / len);
+      }
+    }
+    return 1;
+  }
+  cellSolid(i, j, k) { return i >= 0 && j >= 0 && k >= 0 && i < this.nx && j < this.ny && k < this.nz && this.data[this.idx(i, j, k)] !== 0; }
+  // A walker's step (B4b): swept to where it will end: at its height if a piece is under the far end (it stays on the piece),
+  // otherwise on the ground there (gy), as the walk code settles it. A sweep at the old height missed a step down through a corner.
+  walkFree(a, x0, y0, z0, x1, gy, z1, lift = 0.5) {
+    const y1 = y0 > gy + 0.05 && this.solidAt(x1, y0 - 0.5, z1) ? y0 : gy;
+    return this.segmentFreeAt(a, x0, y0 + lift, z0, x1, y1 + lift, z1);
+  }
+
   // A cheap signature of the piece transforms: catches a piece that was dragged without a version bump.
   static signature(decor) {
     let s = decor.pieces.length;

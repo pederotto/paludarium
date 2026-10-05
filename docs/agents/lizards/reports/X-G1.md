@@ -1,0 +1,20 @@
+# X-G1 cross-check: gecko bake e133ff7 + runtime 484c3e1, skink bake 99b00e3 (claude-opus-5-5, 23 calls)
+1. Tests: VERIFIED. `node --test tests/lizard-rig.test.mjs tests/lizard-rig-skink.test.mjs` -> `ℹ tests 18` / `ℹ pass 18` / `ℹ fail 0` (gecko 4.39 of 7.04 cm, skink 9.00 of 16.79, skin walk >2x 0.13 %).
+   Frog set (skeleton skin swim turn gait): 49 tests, 45 pass, 4 fail = skin.test.mjs :66, :80 (knee), :96 ("gecko tail1 rests at 171.0 outside 0 … 120") + swim.test.mjs:124 ("gecko.swim").
+   Cause CONFIRMED as the only one: scratch copies BB/tools/tmp/xg1/{skin,swim}.test.mjs with the anuran filter (skin :12, swim :122) -> `ℹ tests 19` / `ℹ pass 19` / `ℹ fail 0` (originals 15/19). All 22 frog entries carry plan 'anuran' explicitly, so the filter drops only the gecko.
+2. Bakes: VERIFIED. `node BB/tools/glb-dump.mjs public/assets/creatures/<f>.glb`, every file: attrs POSITION,NORMAL,TEXCOORD_0,_RIG,_SKIN; textures 1, images 1 (EXT_texture_webp).
+   gecko 28,996 tris / 972,160 B; gecko.lo 15,530 / 707,104; skink 29,400 / 966,928; skink.lo 21,002 / 797,884. Bones 25 (gecko: manifest skeleton; skink: its test 1).
+   Sizes: gecko total 7.05 cm checked on its own (snout z 3.524 to tail5 tip -3.524 in the manifest); SVL 4.39, skink 9.00 / 16.79 from the builders' tests only (glb-dump cuts extras at 400 chars, so not re-measured).
+   SHA-256: art-src/raw/gecko_mesh.glb f19935a4e2fe = ~/Downloads/sample_2026-10-04T213641.596.glb; skink_mesh.glb 413cc9026743 = ~/Downloads/sample_2026-10-04T213008.005.glb.
+   Note: the tail root (pelvis head) is 3.57 cm behind the snout, 0.83 cm in front of the 4.4 cm vent: the tail cut stump risk G1b names is real.
+3. Gecko in the game: PARTLY VERIFIED, motion NOT VERIFIED. `node tools/animals-seq.mjs --scenario=walk --species=gecko --force=go --view=side|three --frames=8 --url=http://127.0.0.1:4630/`.
+   `--night=sense` (side, three): both sheets black (mean RGB 0.6/255). Guess: `sense` sets env.bright=0, which also darkens the picture. Side telemetry: walk/flee, moving about 2 cm per frame, but nothing visible.
+   `--night=0` (tools/tmp/xg1/walk-gecko-noon.png): lit, camera behind large leaves; the gecko stays still (same pos in frames 3-8, v=0), so leg, trunk, tail and head motion could NOT be seen.
+   Crop of frame 3 (x-crop.png): it IS the new textured model (scan skin, grey-brown with dark and pale flecks like the reference), dark eye present, one foreleg down to the ground. No spikes or inside-out parts in the visible half. Most of the body is hidden, so facing, scale beside the plant and foot contact cannot be judged.
+   Reference r1-gecko-v2-walk-2.0-2.7s.jpg: the colour and pattern match. Its sprawled low walk with the tail up cannot be compared (game gecko static and occluded). The tool has no wall placement.
+   Console: one "403 Forbidden" on an unknown resource (gecko.glb itself serves 200, 972,160 B). My Chromes closed; only the user's PID 708 remains.
+4. Frog unchanged: VERIFIED by reading. ROW_TEXELS 75 reaches the shader through the skin.js import and ROW_FLOATS (JS); frog bones (<=21x3 = 63 texels) fit, cost +17 % bone-texture memory. The frog path in skeleton.js reads none of st.yaw/pitch/bend/tail/tailF/piece/lift (grep); `rig.pose` is set only by lizardRig. No ReferenceError in the browser run. Stale comment: skin.js:5 still says 64 texels / 21 bones.
+5. Old 9.5 cm sizing (animals.js:61 RADIUS 0.7, :325 size 1.4, :328 stride 0.75 lift 0.3, :3178 reach 1.2*size = 1.68 cm): CANNOT VERIFY visibly (no motion seen).
+   By the numbers: radius about trunk half-width (0.59 cm), so fine; lift 0.3 = 25 % of the 1.19 cm hind leg, plausible; stride 0.75 = 0.17 SVL is short against MOTION's 0.45-1.2 SVL for dashes (a guess that a creep could be shorter).
+Best image for the user: BB/tools/tmp/xg1/x-crop.png (the textured gecko in the tank; static and half hidden, so it is not proof of motion).
+Hand-off: to see the bones move, rerun with `--night=0 --force=walk --dist=6`, or place the gecko on open ground. The bench (tools/bench.mjs) never builds the skinned mesh (src/bench/main.js:80). Scratch files are in BB/tools/tmp/xg1/.

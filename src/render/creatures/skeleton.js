@@ -25,8 +25,9 @@
 
 import { PLANS, bendAngle } from '../../util/bodyplan.js';
 import { strokeAngles, armAngles, HIND, FORE } from '../../util/gait.js';
+import { lizardRig } from './lizardpose.js';
 
-export const ROW_TEXELS = 64;                  // texels in an instance's row of the bone texture (RGBA float each)
+export const ROW_TEXELS = 75;                  // (25 bones: a lizard's) texels in an instance's row of the bone texture (RGBA float each)
 export const BONE_TEXELS = 3;                  // a bone is an affine 3 x 4 matrix: three rows of [m0, m1, m2, t]
 export const MAX_BONES = Math.floor(ROW_TEXELS / BONE_TEXELS);
 export const ROW_FLOATS = ROW_TEXELS * 4;
@@ -84,6 +85,7 @@ const foldReach = (c, p) => len(sub(fold(c, p).T, c.A));
 export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, turn = null, reach = 0.85 } = {}) {
   if (!skel?.bones?.length || skel.bones.length > MAX_BONES) return null;
   const plan = PLANS[skel.plan ?? 'anuran'];
+  if (skel.plan === 'lizard') return lizardRig(skel, { legLift, legStride, limb, turn, reach }, { musclesOf, writeBones, footOffset });
   if (!plan || (skel.plan ?? 'anuran') !== 'anuran') return null;
   const B = skel.bones, n = B.length, byName = Object.fromEntries(B.map((b, i) => [b.name, i]));
   const head = B.map((b) => b.head), tail = B.map((b) => b.tail);
@@ -171,6 +173,7 @@ export function footOffset(rig, limbId, side, phase, tau, calm, hop, pose) {
 // writes 12 floats a bone (rows of [R | t], posed = R · rest + t) into `out` from `o`. Returns `info` (if given) with each limb's
 // reached tip and whether a joint limit held it ({ tips, clamped }), for the tests.
 export function poseBones(rig, st, out, o = 0, info = null) {
+  if (rig.pose) return rig.pose(rig, st, out, o, info);
   const { n, head, dir, chains, muscles, limits, turn } = rig;
   const R = new Array(n), H = new Array(n);
   for (let b = 0; b < n; b++) { R[b] = I3(); H[b] = head[b]; }

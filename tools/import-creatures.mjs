@@ -42,6 +42,25 @@ async function prepare(doc, targetTris, texSize, error = 0.005) {
   return tris(doc);
 }
 
+// --baked=<id>[,<id>]: a model its own bake tool already wrote to the output folder (tools/bake-lizard.mjs: rig, skin and skeleton in
+// the mesh's extras) gets only its manifest key, read from its GLBs; nothing is re-imported or simplified, the other keys are kept.
+const BAKED = arg('baked', '');
+if (BAKED) {
+  const man = JSON.parse(fs.readFileSync(path.join(OUT, 'manifest.json'), 'utf8'));
+  for (const id of BAKED.split(',')) {
+    const hi = await io.read(path.join(OUT, `${id}.glb`)), loF = path.join(OUT, `${id}.lo.glb`), lo = fs.existsSync(loF) ? await io.read(loF) : null;
+    const ex = hi.getRoot().listMeshes()[0].getExtras() ?? {}, b = getBounds(hi.getRoot().listScenes()[0]);
+    man[id] = { file: `${id}.glb`, ...(lo ? { lo: `${id}.lo.glb` } : {}), rig: 'baked', tris: { hi: tris(hi), lo: tris(lo ?? hi) }, sizeCm: b.max.map((v, i) => +((v - b.min[i]) * 100).toFixed(2)),
+      ...(overridesOf(id)), ...(ex.skeleton ? { skeleton: { plan: ex.skeleton.plan, bones: ex.skeleton.bones } } : {}) };
+    console.log(`${id}: baked, ${man[id].tris.hi} tris (lo ${man[id].tris.lo}), ${man[id].skeleton?.bones.length ?? 0} bones`);
+  }
+  // (each skeleton on one line, as the frog bakes write them: tools/bake-frogpose.mjs)
+  const SK = [];
+  fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(man, (k, v) => (k === 'skeleton' && v && typeof v === 'object' ? `@@skeleton${SK.push(v) - 1}@@` : v), 1).replace(/"@@skeleton(\d+)@@"/g, (_, i) => JSON.stringify(SK[+i])));
+  process.exit(0);
+}
+function overridesOf(id) { const f = path.join(SRC, 'overrides.json'); return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8'))[id] ?? {} : {}; }
+
 if (!fs.existsSync(SRC)) { console.error(`No source folder: ${SRC}. Put your .glb files there (see docs/ASSET_BRIEF.md).`); process.exit(1); }
 fs.mkdirSync(OUT, { recursive: true });
 const overrides = fs.existsSync(path.join(SRC, 'overrides.json')) ? JSON.parse(fs.readFileSync(path.join(SRC, 'overrides.json'), 'utf8')) : {};

@@ -33,7 +33,8 @@ button { font: inherit; color: inherit; }
 #view { position: fixed; inset: 0; }
 #view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 #ui { position: fixed; inset: 0; pointer-events: none; }
-#ui > * { pointer-events: auto; }
+/* Zero specificity: a class can still say pointer-events: none. #ui > * (1,0,0) used to beat .hud-stack, whose empty 520x94 box then ate every click over the lower middle of the tank. */
+:where(#ui) > * { pointer-events: auto; }
 .ic { flex: none; display: block; }
 .num { font-variant-numeric: tabular-nums; }
 .serif { font-family: var(--serif); font-variation-settings: 'opsz' 72; }

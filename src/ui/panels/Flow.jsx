@@ -50,8 +50,10 @@ function chainFrom(L, B, startKey) {
 // (sim/filterflow.js, Env.filterFlow).
 const speed = (v) => (v >= 10 ? Math.round(v) : v.toFixed(1)) + ' cm/s';
 function FilterLoop({ E }) {
-  const F = filterOf(E), clog = filterClog(E), ext = (E.filterKind ?? 'sponge') !== 'matten';
-  const where = ext ? 'in the cabinet' : 'in the pool';
+  const F = filterOf(E), clog = filterClog(E), mount = F.mount ?? 'cabinet', ext = mount === 'cabinet';
+  const where = { cabinet: 'in the cabinet', pool: 'in the pool', rim: 'on the back rim', internal: 'in the pool', bed: 'in the false bottom' }[mount];
+  const inLabel = { cabinet: 'overflow drain', rim: 'uptake tube', bed: 'through the bed' }[mount] ?? 'through the foam', inHose = ext ? 'intake' : mount === 'rim' ? 'uptake' : null;
+  const outLabel = { cabinet: 'return', rim: 'spillway', internal: 'outlet' }[mount] ?? 'riser', outHose = mount === 'rim' ? null : mount === 'cabinet' ? 'return' : mount === 'internal' ? 'outlet' : 'riser';
   const ff = E.filterFlow, on = !!E.filter, q = on ? E.filterLph ?? 0 : 0;
   const hose = (role) => { const h = ff?.hoses.find((x) => x.role === role); return h ? <span style={{ display: 'block', color: 'var(--dim)' }}>{h.id}/{h.od} mm, {on ? speed(h.v) : 'still'} {h.dir}</span> : null; };
   return (
@@ -62,9 +64,9 @@ function FilterLoop({ E }) {
       </h4>
       <div class="fl-chain-row">
         <div class="fl-node sump">Main pool</div>
-        <div class="fl-arrow"><b>{lph(q)}</b>{ext ? 'overflow drain' : 'through the foam'}{ext ? hose('intake') : null}</div>
+        <div class="fl-arrow"><b>{lph(q)}</b>{inLabel}{inHose ? hose(inHose) : null}</div>
         <div class={'fl-node' + (clog > 0.6 ? ' bad' : '')}>{F.name}{clog > 0.15 ? ` · ${Math.round(clog * 100)}% clogged` : ''}</div>
-        <div class="fl-arrow"><b>{lph(q)}</b>{ext ? 'return' : 'riser'}{hose(ext ? 'return' : 'riser')}</div>
+        <div class="fl-arrow"><b>{lph(q)}</b>{outLabel}{outHose ? hose(outHose) : null}</div>
         <div class="fl-node sump">Main pool</div>
       </div>
       {ff ? (
@@ -79,7 +81,7 @@ function FilterLoop({ E }) {
       ) : null}
       <small>
         Its own pump pushes the water through the media, which keep the particles and the bacteria.
-        {ff && on ? ` The pump (${F.pump.lph} L/h free, ${F.pump.hmax} cm at most) works against ${Math.round(ff.head)} cm: ${ext ? 'the lift from the cabinet to the water line' : 'the lift over the foam'} (${Math.round(ff.lift)} cm), the media and the hose; clogged media and a higher lift cost it flow.` : ''}
+        {ff && on ? ` The pump (${F.pump.lph} L/h free, ${F.pump.hmax} cm at most) works against ${Math.round(ff.head)} cm: ${{ cabinet: 'the lift from the cabinet to the water line', pool: 'the lift over the foam', rim: 'the lift up to the rim', internal: 'the lift to its outlet', bed: 'the lift from the plenum to the spout' }[mount]} (${Math.round(ff.lift)} cm), the media and the hose; clogged media and a higher lift cost it flow.` : ''}
         {on ? (clog > 0.6 ? ' Rinse it soon (Care > Water).' : '') : ' Switched off: nothing is filtered.'}
       </small>
     </div>

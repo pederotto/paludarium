@@ -59,11 +59,13 @@ export class Env {
     this.plenumH = 0;           // the false bottom's mesh over the glass floor, cm (0: set to just over the water when first fitted)
     this.plenumLevel = undefined; // its water over the glass floor, cm (sim/plenum.js; undefined without a false bottom)
     this.plenumSoak = 0;        // litres of rain and mist on their way down through the soil into it
+    this.groundLevel = undefined; // without a false bottom: the water table in the LECA layer or the substrate, cm over the glass floor (sim/plenum.js stepGround)
+    this.groundSoak = 0;        // litres of rain and mist on their way down to it
     this.substrate = 'soil';    // content/equipment.js SUBSTRATES
     this.backdrop = 'natural';  // the background's finish: 'natural' (painted relief) or 'foam' (black expanding foam with coir)
     this.drainEff = null;       // drainage as it works right now (0 when the false bottom is flooded); set by the sim
     this.mediaBio = 0.4;        // filter biomedia, 0 … 1: more surface, more bacteria
-    this.filterKind = 'sponge'; // sponge | matten | canister (content/equipment.js FILTERS)
+    this.filterKind = 'sponge'; // sponge | matten | canister | hob | internal | bed (content/equipment.js FILTERS)
     this.prefilter = false;     // a sponge over the canister intake (shrimp- and fry-safe)
     this.filterDirt = 0;        // dirt the filter has caught (detritus units): it clogs it until rinsed (sim.js)
     this.filterLph = 0;         // water its pump is moving now (L/h)
@@ -94,7 +96,7 @@ export class Env {
     'setpoint', 'lid', 'filter', 'room', 'roomHumidity', 'autoFeed', 'lastFed', 'culture', 'lastCulture', 'algae', 'diatoms', 'rockMoss', 'tankDays',
     'lampPower', 'lampWarmth', 'moonlight', 'fan', 'fogger', 'basking', 'rainProgram', 'drainage', 'mediaBio', 'soil', 'mold', 'season',
     'lightsOn', 'lightsOff', 'chill', 'coolSet', 'filterKind', 'prefilter', 'filterDirt', 'waterSource', 'ph', 'gh', 'uvb', 'film', 'plenumH', 'substrate', 'backdrop',
-    'plenumLevel', 'plenumSoak'];
+    'plenumLevel', 'plenumSoak', 'groundLevel', 'groundSoak'];
 
   serialize() { return Object.fromEntries(Env.KEYS.map((k) => [k, this[k]])); }
   load(o = {}) {
