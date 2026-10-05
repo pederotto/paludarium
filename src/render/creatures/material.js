@@ -21,10 +21,10 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, attribute, positionLocal, normalLocal, vec2, vec3, float, bool, sin, sqrt, mix, select, abs, max, normalize, dot, transformNormalToView,
-  cross, time, cameraPosition, positionWorld, pow, smoothstep, texture, uv, length, floor, varying,
+  cross, time, cameraPosition, positionWorld, pow, smoothstep, texture, uv, length, floor, varying, fwidth,
 } from 'three/tsl';
 import { noise3 } from '../noise3.js';
-import { wet } from '../shaders.js';
+import { wet, waterAt } from '../shaders.js';
 import { U } from '../uniforms.js';
 import { LIFT_MAX } from '../../util/gait.js';
 
@@ -186,10 +186,16 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   const film = vec3(sin(ndv.mul(9).add(0.0)), sin(ndv.mul(9).add(2.1)), sin(ndv.mul(9).add(4.2))).mul(0.5).add(0.5);
   color = select(iri, mix(base, film.mul(base.add(0.35)), 0.55), color);
   if (A) color = mix(color, A.col, A.k);
-  const [wc, emissive] = wet(color, positionWorld, U.waterLevel, U.creatureWater);
+  // Under water (tinted, the caustics on it) below the line where the drawn surface cuts the body, sharp and rising and falling
+  // with the ripples; just above it the meniscus, the film of water drawn up the wet skin, catches the light as a fine bright line.
+  const surf = waterAt(positionWorld), above = positionWorld.y.sub(surf);
+  const edge = max(fwidth(above).mul(0.75), 0.012);
+  const [wc, emissive] = wet(color, positionWorld, surf, U.creatureWater, 1, edge);
   m.colorNode = wc;
+  const meniscus = smoothstep(edge.negate(), edge, above).mul(float(1).sub(smoothstep(0.02, edge.add(0.02), above)));
   // Membranes glow a little where the lamp shines through them; the film stripe fluoresces.
   let emis = emissive.add(select(fin, base.mul(0.12), select(glass, base.mul(0.1), select(iri, film.mul(0.22), vec3(0)))));
+  emis = emis.add(vec3(0.05, 0.053, 0.056).mul(meniscus).mul(U.daylight.mul(0.85).add(0.15)));
   if (A) emis = emis.add(vec3(1, 1, 0.96).mul(A.glint(nW, toEye)).mul(1.6));
   const skinK = select(is(id, 0), float(1), float(0)).mul(eyeOff);              // plain skin, not the eyes
   if (moist) {

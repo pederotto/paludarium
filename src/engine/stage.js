@@ -15,6 +15,7 @@ import {
 import { TANK } from '../sim/tank.js';
 import { U } from '../render/uniforms.js';
 import { DEW, dewTextures, bakeDew } from '../render/dew.js';
+import { FX } from '../render/waterfx.js';
 
 const COOL = new THREE.Color(0xf4f7ff), WARM = new THREE.Color(0xffd9a8), GLOW = new THREE.Color(1, 0.965, 0.9);
 const DEW_MIN = 0.015;   // below this much dew the beads are smaller than a pixel: the glass is simply clear
@@ -175,6 +176,7 @@ export class Stage {
     if (bar) bar.visible = !on;
     if (glow) glow.visible = !on;
     if (lid) lid.visible = !on && this.lidOn !== false;
+    FX.lamp.value = on ? 0 : 1;          // (nor its mirror image in the water: render/waterfx.js)
   }
 
   // Day and night: `light` is the schedule (0 … 1) times the lamp's power;

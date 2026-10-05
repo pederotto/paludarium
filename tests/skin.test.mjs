@@ -8,8 +8,9 @@ import { PLANS, bendAngle } from '../src/util/bodyplan.js';
 import { bindCapsules, carryJoints } from '../tools/rig/skeleton.mjs';
 
 const manifest = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8'));
-// (the sitting bodies: a swimming body's skeleton, `bind: 'swim'`, is posed by the stroke and has its own tests in swim.test.mjs)
-const skinned = Object.entries(manifest).filter(([, m]) => m.skeleton && m.skeleton.bind !== 'swim');
+// (the frogs' sitting bodies: a swimming body's skeleton, `bind: 'swim'`, is posed by the stroke and has its own tests in
+// swim.test.mjs; a skeleton of another body plan (a lizard's) is not a frog's and is tested with its own rig)
+const skinned = Object.entries(manifest).filter(([, m]) => m.skeleton && m.skeleton.bind !== 'swim' && (m.skeleton.plan ?? 'anuran') === 'anuran');
 const anim = { legLift: 0.25, legStride: 0.35, limb: 1, turn: { pz: -1.4, R: 2.2 } };
 const near = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg}: ${a} vs ${b}`);
 const dirOf = (row, b, rig) => { const h = applyBone(row, 0, b, rig.head[b]), t = applyBone(row, 0, b, rig.tail[b]); return [t[0] - h[0], t[1] - h[1], t[2] - h[2]]; };

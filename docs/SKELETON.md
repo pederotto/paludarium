@@ -197,6 +197,18 @@ to hop onto (`shoreLand`), a steep bank to climb (`exitClimb`), the glass for a 
 potter instead), how urgent and which way to steer; `swimClock()` runs the motion layer and moves the frog by its speed along its
 heading (turns through `turnTo`); `swimDepth()` puts its back awash and its eyes out (from the swimming body's spine); `swimWake()`
 and the kick ring disturb the water. Avoidance (`tooDeep`): a frog is not pushed or slid into water deeper than half its body.
+The way out (2026-10-04) is looked for along 32 lines across the whole pool (it used to be 16 lines, 30 cm out, and a random 5-11 cm
+roam when that found nothing: a bumblebee toad in the middle of a big lagoon zigzagged for up to a minute and a half); a way out once
+found is kept unless a nearer one turns up; with none in sight it swims to the nearest bank and along it (each stretch tried counts
+as no good); a root or rock in the way is slid along, and only blamed when the frog faces its goal and nothing near that way is
+clear (a frog pressed against a sunken root used to blame every way out it thought of, until it had none and paddled on the spot).
+Measured with `tools/steps/frog-water.mjs` (11 tanks; before: 2 runs, 400 drops a species; after: 3 runs, 600): bumblebee toad
+dropped in deep water out in median 3.3 s, p95 15 s, over 30 s 1 % of drops, longest 74 s (was 3.6 / 28 s, 4 %, 99 s); in the water
+at most 1.2 % of the time in a tank (one run 3.6 %; the real animal: about never). Yellow-banded poison frog: median 2.2 s, p95 8.7 s,
+over 30 s 1 %, trapped 1 of 600 (was 2.3 / 21.5 s, 2.5 %, 3 of 400); in the water at most 2.3 % (karst; target 0-2 %). What is left
+is distance (a bumblebee toad paddles about 2.3 cm/s, and the big lagoons are 40 cm across) and the karst tank's pools, boxed in by
+rock pieces, which `exitClimb` will not climb (it refuses any path through a piece in the occupancy grid): a frog with toe pads
+should climb rough rock out of the water.
 
 **Under the water** (a frog at home in it: SWIM `dive`, the fire-bellied toad): `frogDive()` tips its nose down and kicks to the
 bottom (or onto a sunken branch or stone), sits there as it sits on land (`sitting` → the stroke's `sit`: legs folded, hands down),
@@ -204,6 +216,14 @@ then pushes off and kicks up to the surface, where it rests hanging from its nos
 basin sitting on the bottom and pushing off, a frog in a pool swimming well under the surface. A toad stays in the water for minutes
 (`wetStay`), resting most of that time, pottering and now and then diving; on land it makes for water again after a while
 (`frogPlan`: `pond`). The poison frogs, the bumblebee toad and the reed frog only cross water; the red-eyed tree frog never enters it.
+
+**Riding the water** (2026-10-04): a frog or toad at the surface (and a newt or axolotl that has come up) rides the drawn surface:
+`WaterFX.probe` works out, in a one-pixel-a-body pass after the ripple step, the surface's height under it (the ripples and the small
+travelling waves, averaged over its footprint, and the slope across it) and reads it back to the CPU without stalling (one reading
+in flight; 60 readings a second on WebGPU, 30 on WebGL 2 on the M1, no frame cost measured); `Animals.ride` eases the body up and down
+and tips it with the slope. The old made-up swell (`bob`) is gone: on still water a floating frog lies still, as a real one does;
+the kick's own dip stays (`kickHeave`). Riding moves no water: the body's spheres go to the ripple pass where it would be on still
+water, or it would feed its own bobbing. `node tools/steps/ride-probe.mjs` sets the ride against the field under the toad.
 
 **The water it moves** (`render/waterfx.js` hulls, after CAUSTIC//VOLUME's sandbox): a swimming frog is its skeleton to the water: a
 sphere at its trunk's three bones and at the end of every limb bone (`poseStroke` `hull`, 17 of them, a foot counted wider than its
@@ -218,10 +238,21 @@ ankles and feet, the order measured for a frog's take-off (Biomimetics 9(3):168,
 flight; folded before the landing; the forelegs drawn back under the chest, then reaching forward and down to land on). The sitting
 body is drawn on the ground before and after. This replaces the sitting skeleton's hop, whose skin stretched about threefold.
 
-**Open (noted by the owner, 2026-10-04)**: the swimming body has no webbing between its toes. A swimming frog's foot is a paddle:
-the web spreads as the foot drives back and folds as it trails. It needs geometry (a membrane between the toes of the swim scan,
-material id 2 so it draws translucent) and a spread channel in the stroke. Until then the foot's hull sphere stands in for the web
-in the water coupling (`poseStroke` hull: a foot counts 2.2 times its bone's width).
+**Webbing** (2026-10-04): the swimming body's hind feet carry a membrane between each two toes, for the species that have one
+(`WEB` in tools/bake-frogpose.mjs): the fire-bellied toad nearly to the tips (Bombina orientalis), the red-eyed tree frog and the
+reed frog most of the way. The poison frogs have free toes with discs and the bumblebee toad only a trace at the base: none drawn.
+The bake finds the toes on the scan (`hindToes`: walking the foot's surface from the skeleton's ankle joint, the toes are the parts
+that stay apart as the distance falls; each toe's centre line from the foot's end to its disc) and spans a thin sheet between
+neighbours (`webSheet`): its sides run along the two toes from inside the foot, past the fork, to `ext` of their free length, its free
+edge a shallow curve (`dep`). Both faces, material id 2 (a membrane: see-through, drawn in the blended pass, `finOpacity` 0.38), a
+paler wash of the toes' colour; each vertex takes the binding of the nearest scan vertex, so the web moves with the toes' bones.
+The toes have one bone between them, so they cannot fan out and close: the web is faded with the hind legs' extension instead
+(`finish.webFold`, render/creatures/instanced.js; the hop the stroke and the leap hand the rig), open as the legs drive and trail,
+gone as they are drawn up (the toes close then in a real frog). The owner's verdict on a first try (webs reaching half to three
+quarters out, a deep notch between toes, opaque and toe-coloured): "more than webbing it looks like handicaps; webbing is
+translucent, fills all the space between fingers". Check: `node tools/steps/web-look.mjs` (the foot on the bench through a stroke)
+and `tools/steps/ripple-look.mjs --views=feet` (in a tank). Open: per-toe bones would let the toes fan out and close for real (21
+bones fit a row of the bone texture: two more a foot).
 
 **Adding a frog**: a job in tools/bake-frogpose.mjs (size, painter, eyes: `node tools/bake-frogpose.mjs <id>.swim`), a SWIM row in
 bodyplan.js (copy the nearest species, then set kick rate and reach from its biology: a weak swimmer 0.4-0.5 body lengths a kick, a

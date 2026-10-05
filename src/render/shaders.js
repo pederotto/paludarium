@@ -13,7 +13,7 @@ import { positionView, cross } from 'three/tsl';   // (the floor's moss relief, 
 import { U, SOIL } from './uniforms.js';
 import { AIR } from './airflow.js';
 import { BEND_MAX, V50, ATANH_HALF } from '../util/plantbend.js';
-import { causticLight } from './waterfx.js';
+import { causticLight, surfaceHeight, FX, tankUV } from './waterfx.js';
 import { TANK } from '../sim/tank.js';
 
 export { U, noise3 };
@@ -37,10 +37,12 @@ export function setFoliageMRT(m, on) {
 //    thicker when the water is green with algae or cloudy.
 // The caustics play over everything below the surface. Returns
 // [color, emissive] for a base colour at world position pw; `surf` is the
-// height of the water surface above this point.
-export function wet(base, pw = positionWorld, surf = U.waterLevel, k = 1, fogK = 1) {
+// height of the water surface above this point. `edge` (cm, optional): the
+// waterline as a sharp line of that half-width instead of a soft band
+// (animals: the line where the drawn surface cuts the body, see waterAt).
+export function wet(base, pw = positionWorld, surf = U.waterLevel, k = 1, fogK = 1, edge = null) {
   const depth = surf.sub(pw.y);
-  const under = smoothstep(-0.2, 0.4, depth);
+  const under = edge ? smoothstep(edge.negate(), edge, depth) : smoothstep(-0.2, 0.4, depth);
   const d = max(depth, 0);
   // (Stronger than pure water, as in a planted tank with tannins and fine
   // suspended matter; it keeps the sand from glaring under the LED.)
@@ -60,6 +62,14 @@ export function wet(base, pw = positionWorld, surf = U.waterLevel, k = 1, fogK =
   const lines = clamp(c.sub(0.9), vec3(0), vec3(2.5)).mul(0.28);
   const emissive = color.mul(lines).mul(U.daylight).mul(U.caustics).add(fog.mul(float(1).sub(T)).mul(fogK)).mul(under);
   return [color, emissive];
+}
+
+// The water's surface over world point pw as it is drawn: the main pool's level moved by its ripples and small waves
+// (render/waterfx.js surfaceAt), or a still pond's own level where one lies higher (its surface is not moved). Far below
+// everything where there is no water. For things that pierce the surface (an animal floating), so their waterline is where the
+// drawn surface cuts them, rising and falling as a ring passes.
+export function waterAt(pw = positionWorld) {
+  return max(U.waterLevel.add(surfaceHeight(pw.xz)), FX.terrainH.sample(tankUV(pw.xz)).g);
 }
 
 // Per-material texture tint and tiling (1 / centimetres per tile). Same order

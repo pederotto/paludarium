@@ -10,7 +10,7 @@ import { surfaceFrame, pitchFrame, glassPush, feetPlane, steadyNormal, easeAngle
 import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
-import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, bob, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
+import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, kickHeave, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
 import { limbFrame, turnFrame, turnStep, pivotShift, turnSteps, turnPose, steerLimit } from '../util/turn.js';
 import { PLANS, planOf, limitRig, swimProfile } from '../util/bodyplan.js';
 import { swimState, swimStep, swimPose, leapStroke } from '../util/gait.js';
@@ -37,7 +37,7 @@ const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
 const TAU = Math.PI * 2;
-const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion();
+const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion(), _qh = new THREE.Quaternion();
 const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0), _gb = V(0, 0, 0);
 const _fr = new Array(9), _gp = [0, 0, 0], _bb = { X: 0, z0: 0, z1: 0, H: 0 }, _sd = [0, 0, 0];     // (whole-body containment: inGlass, bodyBox, stemDepth)
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
@@ -56,6 +56,7 @@ const GLASS_N = { front: V(0, 0, -1), left: V(1, 0, 0), right: V(-1, 0, 0) };
 // Frogs without toe pads (the bumblebee toad, the fire-bellied toad): out of the water they climb rough faces only up to about 70
 // degrees, and not the glass (Animals.exitClimb, exitGlass).
 const PADLESS = new Set(['bumblebee', 'toad']);
+const EXIT_LOOK = 160;      // how far across the water a frog in it looks for a way out (cm: past the far side of any tank)
 const _gf = new Array(9);
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
 const RADIUS = { skink: 0.6, swim: 0.38, crawlWater: 0.4, crawlLand: 0.3, crab: 0.6, fly: 0.2, frog: 0.85, toad: 0.8, newt: 0.7, axolotl: 0.75, gecko: 0.7 };
@@ -2866,31 +2867,41 @@ export class Animals {
     a.pos.y = Math.max(top, ground);
     if (!a.shore || a.timer <= 0) {
       a.timer = 4 + Math.random() * 4;
-      a.shore = null; a.shoreLand = null; a.roam = false;
+      // (the way out it was making for, if any: kept below when a new look finds none nearer)
+      const prev = a.shore && !a.roam && (a.shoreLand || a.exit) ? { shore: a.shore, land: a.shoreLand, exit: a.exit } : null;
+      a.shore = null; a.shoreLand = null; a.roam = false; a.toBank = null;
       // A frog that has no business in the water makes for the way out at once. One at home in it (a toad) stays: it rests at the
       // surface, potters about, dives, and leaves when it has had its time in the water (or is hungry: it hunts on land).
       const leave = !toad || Math.random() < ((a.wetT ?? 0) > (a.wetStay ?? 120) || a.hunger > 0.6 ? 0.5 : 0.04);
       if (leave) {
         a.floating = false;
-        // The way out: along each of 16 lines the first dry ground (the bank it would swim into: land beyond a bank is not reached by
+        // The way out: along each of 32 lines the first dry ground (the bank it would swim into: land beyond a bank is not reached by
         // swimming, and swimming at it had a frog pushed back off that bank for minutes), and the nearest of those it can climb
-        // (shoreLand). Nowhere to climb out within reach: it swims on along the open water and looks again from there.
+        // (shoreLand), however far across the water it is: a frog sees the far bank of a pool and makes for it. It keeps making for
+        // the way out it has unless it now sees a nearer one (the lines fan out with distance and can miss a far bank from one
+        // place and find it from the next). Nowhere to climb out seen: it swims to the nearest bank and along it (each stretch it
+        // tried counts as no good), where the lines lie close and find a place to get out. (Looking only 30 cm out, and roaming
+        // at random when that found nothing, a bumblebee toad dropped in the middle of a big lagoon zigzagged about for up to a
+        // minute and a half before it got out.)
         // (A frog grips what it meets: where the bank is too steep to hop out onto it climbs the face (exitClimb: rock, soil, a root
         // or a stem at the waterline, as a real one pulls itself out), and a frog with toe pads climbs the glass (exitGlass). The
         // nearest way out wins; a climb counts a little further than a hop.)
-        let best = Infinity;
+        let best = Infinity, near = null;
+        const bad = (x, z) => a.badShore?.some(([bx, bz, br]) => Math.hypot(x - bx, z - bz) < (br ?? 2));
         a.exit = null;
-        for (let k = 0; k < 16; k++) {
-          const ang = (k / 16) * TAU, ux = Math.sin(ang), uz = Math.cos(ang);
-          for (let r = 1; r < 30 && r < best; r++) {
+        for (let k = 0; k < 32; k++) {
+          const ang = (k / 32) * TAU, ux = Math.sin(ang), uz = Math.cos(ang);
+          for (let r = 1; r < EXIT_LOOK && r < best; r++) {
             const x = a.pos.x + ux * r, z = a.pos.z + uz * r;
             if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2) {
               const ex = this.exitGlass(a, sp, x, z, s), e = ex?.path[ex.path.length - 1];
-              if (ex && r + ex.cost < best && !a.badShore?.some(([bx, bz]) => Math.hypot(e.x - bx, e.z - bz) < 2)) { best = r + ex.cost; a.shore = V(ex.path[0].x, 0, ex.path[0].z); a.shoreLand = null; a.exit = ex; }
+              if (ex && r + ex.cost < best && !bad(e.x, e.z)) { best = r + ex.cost; a.shore = V(ex.path[0].x, 0, ex.path[0].z); a.shoreLand = null; a.exit = ex; }
               break;
             }
             if (W.water.surfaceAt(x, z, 0.3) !== -Infinity) { if (this.avoid && this.occ.solidAt(x, a.pos.y, z)) break; continue; }   // (a rock in the way; one out of the water is a bank)
-            if (a.badShore?.some(([bx, bz]) => Math.hypot(x - bx, z - bz) < 2)) break;
+            if (bad(x, z)) break;
+            // (the nearest bank it could swim up to: not the background, whose relief stands in the water like a wall)
+            if ((!near || r < near.r) && z > W.wall.zAt(x, s) + 1.5) near = { r, x: a.pos.x + ux * (r - 1.2), z: a.pos.z + uz * (r - 1.2), bx: x, bz: z };
             const land = this.shoreLand(a, sp, x, z, ang);
             if (land) { best = r; a.shore = V(x, 0, z); a.shoreLand = land; a.exit = null; break; }
             const ex = this.exitClimb(a, sp, x, z, ang, s);
@@ -2898,6 +2909,12 @@ export class Animals {
             break;
           }
         }
+        if (prev && Math.hypot(prev.shore.x - a.pos.x, prev.shore.z - a.pos.z) < best && !bad(prev.shore.x, prev.shore.z)
+          && (!prev.land || W.water.surfaceAt(prev.land.x, prev.land.z, 0.3) === -Infinity)) {
+          a.shore = prev.shore; a.shoreLand = prev.land; a.exit = prev.exit;
+        }
+        // (a stretch of bank tried and found no good counts 5 cm wide: it goes along the bank by that much, not by a toe's width)
+        if (!a.shore && !toad && near) { a.shore = V(near.x, 0, near.z); a.roam = true; a.toBank = [near.bx, near.bz, 5]; a.toBankNear = null; a.toBankT = 0; }
         if (!a.shore && !toad) {
           for (let k = 0; k < 8 && !a.shore; k++) {
             const ang = Math.random() * TAU, r = 5 + Math.random() * 6;
@@ -2929,14 +2946,41 @@ export class Animals {
     const dist = dir.length();
     this.turnTo(a, sp, want, dt, 3, false);
     const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt;
-    // (resting or pottering it stays in water it can swim in: it turns back from the shallows instead of drifting ashore)
-    if ((a.roam || a.floating) && !(W.water.surfaceAt(nx, nz, 0.2) > T.heightAt(nx, nz) + 1.1 * sp.size)) { a.shore = null; a.timer = 0; return; }
+    // (resting or pottering it stays in water it can swim in: it turns back from the shallows instead of drifting ashore; one making
+    // for a bank swims on into them)
+    if ((a.roam || a.floating) && !a.toBank && !(W.water.surfaceAt(nx, nz, 0.2) > T.heightAt(nx, nz) + 1.1 * sp.size)) { a.shore = null; a.timer = 0; return; }
+    const inTank = (x, z) => Math.abs(x) < TANK.w / 2 - 1 && Math.abs(z) < TANK.d / 2 - 1;
     if (this.avoid && this.occ.solidAt(nx, a.pos.y, nz)) {
-      if (!a.roam) { (a.badShore ??= []).push([a.shore.x, a.shore.z]); if (a.badShore.length > 8) a.badShore.shift(); }   // (a rock on the way)
-      a.shore = null; a.timer = 0;
-    } else if (Math.abs(nx) < TANK.w / 2 - 1 && Math.abs(nz) < TANK.d / 2 - 1) { a.pos.x = nx; a.pos.z = nz; }
+      // A rock or a root in the way. It slides along it (a stroke angled off to one side or the other, the nearest that is clear),
+      // keeping its goal. Only when it faces its goal and nothing near that way is clear is the goal no good: still turning toward
+      // it, the rock was in the way it happened to face (a frog pressed against a sunken root blamed every way out it thought of,
+      // the far ones behind it too, until it had none left and paddled on the spot for minutes).
+      let slid = false;
+      for (const d of [0.5, -0.5, 1, -1, 1.5, -1.5]) {
+        const sx = a.pos.x + Math.sin(a.yaw + d) * v * dt, sz = a.pos.z + Math.cos(a.yaw + d) * v * dt;
+        if (inTank(sx, sz) && !this.occ.solidAt(sx, a.pos.y, sz) && W.water.surfaceAt(sx, sz, 0.2) > -Infinity) { a.pos.x = sx; a.pos.z = sz; slid = true; break; }
+      }
+      if (!slid && Math.abs(angDiff(want, a.yaw)) < 0.6) {
+        const bad = a.toBank ?? (!a.roam ? [a.shore.x, a.shore.z] : null);
+        if (bad) { (a.badShore ??= []).push(bad); if (a.badShore.length > 8) a.badShore.shift(); }
+        a.shore = null; a.timer = 0; a.toBank = null;
+      }
+    } else if (inTank(nx, nz)) { a.pos.x = nx; a.pos.z = nz; }
     if (!a.shore) return;
-    if (a.roam) { if (dist < 1) { a.shore = null; a.timer = 0; } return; }
+    if (a.roam) {
+      // (at the bank it swam to for want of a way out, or as near it as the rock lets it come (no closer for two seconds:
+      // a bank under a steep face can keep a body further off than a centimetre, and it swam at the same spot for a minute): that
+      // stretch is no good, the next look goes along the bank from here)
+      if (a.toBank) {
+        if (dist < (a.toBankNear ?? Infinity) - 0.3) { a.toBankNear = dist; a.toBankT = 0; } else a.toBankT = (a.toBankT ?? 0) + dt / this.tf;
+      }
+      if (dist < 1 || (a.toBank && a.toBankT > 1.8)) {
+        if (a.toBank) { (a.badShore ??= []).push(a.toBank); if (a.badShore.length > 8) a.badShore.shift(); a.toBank = null; }
+        a.toBankNear = null; a.toBankT = 0;
+        a.shore = null; a.timer = 0;
+      }
+      return;
+    }
     // At the foot of its climb (its snout at the bank or the glass): it takes hold and climbs out (perchFrog, phase 'up').
     if (a.exit) {
       const f = a.exit.path[0];
@@ -4356,6 +4400,37 @@ export class Animals {
     }
   }
 
+  // A body at the surface rides the water (render/waterfx.js probe: the height of the drawn surface under it, the ripples and the
+  // small travelling waves, averaged over its footprint, read back from the GPU a frame or two late): it rises and falls with the
+  // rings a kick, a drop or a fall sends past it and tips with their slope, eased as its mass would, so on still water it lies still.
+  // Returns a.ride { y, p, r }: cm up, and the pitch (nose down positive) and roll (+x flank up positive) in radians that lay it on
+  // the slope. A frog under the water (a dive) and a newt below the surface ride nothing; on a platform without readings, nothing.
+  ride(a, sp, sc, dt) {
+    const fx = this.world.fx, R = (a.ride ??= { y: 0, p: 0, r: 0 });
+    const rad = Math.max(0.3, (HULL[sp.kind] ?? 0.4) * sp.size * sc);
+    let w = 1;
+    if (sp.kind === 'frog' || sp.kind === 'toad') w = a.dive ? 0 : 1;
+    else {
+      // (a newt or axolotl: as much as its back is up at the surface)
+      const s = a.wetS ?? this.world.water.surfaceAt(a.pos.x, a.pos.z, 0.2);
+      w = s > -1e9 ? clamp((a.pos.y + rad - (s - 1)) / 0.8, 0, 1) : 0;
+    }
+    let y = 0, p = 0, r = 0;
+    if (w > 0 && fx?.probe) {
+      fx.probe(a.id, a.pos.x, a.pos.z, rad);
+      const s = fx.surface(a.id);
+      if (s) {
+        const sy = Math.sin(a.yaw), cy = Math.cos(a.yaw);
+        y = clamp(s.h, -RIDE_MAX, RIDE_MAX) * w;
+        p = -clamp(Math.atan(s.sx * sy + s.sz * cy), -RIDE_TIP, RIDE_TIP) * w;
+        r = clamp(Math.atan(s.sx * cy - s.sz * sy), -RIDE_TIP, RIDE_TIP) * w;
+      }
+    }
+    const k = Math.min(1, dt * 14), kt = Math.min(1, dt * 9);
+    R.y += (y - R.y) * k; R.p += (p - R.p) * kt; R.r += (r - R.r) * kt;
+    return R;
+  }
+
   draw(dt = 0.016) {
     this.hulls();
     const q = this._q;
@@ -4390,6 +4465,8 @@ export class Animals {
         // own skeleton through the stroke: render/creatures/skeleton.js poseStroke); until that has loaded, in the sitting one.
         const swimMesh = frogish && a.swimming && !a.hop ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
         const sw = frogish && a.swimming && !a.hop ? swimPose(a.sw ??= swimState(), swimProfile(id), { t: this.t + a.phase, ...(swimMesh ? { level: 0 } : {}) }) : null;
+        // At the surface it rides the water: up and down with the ripples under it and tipped with their slope (ride).
+        const rd = a.swimming && !a.hop && (frogish || sp.kind === 'newt' || sp.kind === 'axolotl') ? this.ride(a, sp, sc, dt / this.tf) : null;
         if (a.wallMode || (a.perch?.glassN && a.perch.ph !== 'go')) {
           // On the background (or a reed frog on the glass): belly to the wall, heading within its plane.
           q.setFromUnitVectors(UP, a.normal ?? UP);
@@ -4403,7 +4480,7 @@ export class Animals {
           q.multiply(tq.setFromAxisAngle(UP, a.yaw));
           if (ft) { a._fy = ft.dy; }
         } else {
-          e.set(sw ? sw.pitch + (a.diveP ?? 0) : a.pitch ?? 0, a.yaw + (sw?.yaw ?? 0), sw ? sw.roll : 0, 'YXZ');
+          e.set((sw ? sw.pitch + (a.diveP ?? 0) : a.pitch ?? 0) + (rd ? rd.p : 0), a.yaw + (sw?.yaw ?? 0), (sw ? sw.roll : 0) + (rd ? rd.r : 0), 'YXZ');
           q.setFromEuler(e);
         }
         // A gecko or a frog on a climb (a perching frog, one climbing out of the water): its frame turns smoothly while it climbs, gets
@@ -4446,7 +4523,7 @@ export class Animals {
               a.swimFold = Math.min(1, (a.swimFold ?? 0) + dt * 3);
               packed = packAnim(ss.hop * a.swimFold, v.breath, 0, v.eye, ss.pose * a.swimFold, ss.calm);
             } else packed = packAnim(hop, v.breath, 0, v.eye);
-            if (sw) { pos = _p.copy(a.pos); if (!a.dive) pos.y += bob(this.t + a.phase, sp.size, frac(a.kick ?? 0), a.floating ? 0 : 1); }
+            if (sw) { pos = _p.copy(a.pos); if (!a.dive) pos.y += kickHeave(sp.size, frac(a.kick ?? 0), a.floating ? 0 : 1); }
           }
           if (!sw) {
             // (the look-round and nosing yaw is not a spin of the whole body: the head turns it, a.visYaw, or the animal steps round)
@@ -4461,6 +4538,7 @@ export class Animals {
           }
         }
         if (a._fy) { if (pos === a.pos) pos = _p.copy(a.pos); pos.y += a._fy; a._fy = 0; }
+        if (rd?.y) { if (pos === a.pos) pos = _p.copy(a.pos); pos.y += rd.y; }
         if (sp.kind === 'skink' && a.sk) {
           // Playing dead: rolled onto its back; hiding: sunk into the litter with the head out.
           if (a.sk.rollNow > 0.01) { q.multiply(_qo.setFromAxisAngle(_t.set(0, 0, 1), Math.PI * a.sk.rollNow)); pos = _p.copy(pos); pos.y += 0.5 * sc * Math.sin(Math.PI * a.sk.rollNow) + 0.35 * sc * a.sk.rollNow; }
@@ -4483,20 +4561,24 @@ export class Animals {
         if (leapMesh?.strokes) {
           const t = a.hop.t;
           q.setFromEuler(e.set((a.pitch ?? 0) - 0.22 * (1 - t), a.yaw, 0, 'YXZ'));
-          leapMesh.put(_p.copy(a.pos).setY(a.pos.y + 0.27 * sp.size * sc), q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, leapStroke(t, a.leapA ??= { legA: new Float32Array(9), armA: new Float32Array(6) }));
+          // (the hop: the legs' extension through the leap, which spreads a webbed frog's toes and web: render/creatures/instanced.js webFold)
+          leapMesh.put(_p.copy(a.pos).setY(a.pos.y + 0.27 * sp.size * sc), q, sc, 0, 0, 0, packAnim(hopLegs(t) * 0.5, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, leapStroke(t, a.leapA ??= { legA: new Float32Array(9), armA: new Float32Array(6) }));
         } else if (sleepMesh) sleepMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (breathing, eyes shut)
         else if (swimMesh) {
           sw.stroke.info = a.swTips ??= {};
           swimMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, sw.stroke);
           // its body in the water as the stroke posed it (the trunk and every joint of its limbs: skeleton.js poseStroke `hull`), for
           // the ripples: the knees sweeping out, the feet driving back and the hands each move their own water
+          // (where it would be on still water: riding the ripples moves no water, and counted as moving it the frog would feed its
+          // own bobbing)
           const hull = a.swTips.hull, fx = this.world.fx;
           a.swHull = false;
           if (hull?.length && fx?.addHull) {
+            const qh = rd ? _qh.setFromEuler(e.set(sw.pitch + (a.diveP ?? 0), a.yaw + sw.yaw, sw.roll, 'YXZ')) : q, dy = rd ? rd.y : 0;
             for (let k = 0; k < hull.length; k++) {
               const h = hull[k];
-              _t.set(h[0], h[1], h[2]).multiplyScalar(sc).applyQuaternion(q).add(pos);
-              fx.addHull(a.id * 32 + 1 + k, _t.x, _t.y, _t.z, h[3] * sc);
+              _t.set(h[0], h[1], h[2]).multiplyScalar(sc).applyQuaternion(qh).add(pos);
+              fx.addHull(a.id * 32 + 1 + k, _t.x, _t.y - dy, _t.z, h[3] * sc);
             }
             a.swHull = true; a.swHullF = this._hf;
           }
@@ -4622,6 +4704,9 @@ const SPECIES_LOCI = (id) => lociOf(id).length;
 // The radius of an animal's hull in the water, as a share of its species size (Animals.hulls): a frog's body is about as wide as
 // that; a fish, a newt or a lizard is slender.
 const HULL = { frog: 0.55, toad: 0.5, newt: 0.3, axolotl: 0.3, swim: 0.2, crab: 0.5, skink: 0.25, gecko: 0.25 };
+// The most a floating body rides up or down (cm) and tips (radians) on the water (Animals.ride): a splash can throw the surface
+// further than a small body would follow.
+const RIDE_MAX = 0.8, RIDE_TIP = 0.35;
 
 function drawScale(a, sp) {
   const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
