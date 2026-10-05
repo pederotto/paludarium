@@ -132,23 +132,24 @@ export function flowerMaterial() {
   const vp = varying(vec4(F.x, v, F.z.mul(isLeaf), 0), 'vFlowerP');
   const pu = vp.x, pv = vp.y, pk = va.w;
   const hash = (c) => fract(sin(dot(c, vec2(12.9898, 78.233))).mul(43758.5453));
-  // 1 SPOTS: one jittered round dot per cell, sizes varying (Dracula simia/gigas, Masdevallia decumana)
-  const sq = vec2(pu.mul(3.2), pv.mul(7)), sc = floor(sq), sh = hash(sc), sf = fract(sq).sub(0.5).sub(vec2(sh, fract(sh.mul(7.3))).sub(0.5).mul(0.35));
-  const sr = sh.mul(0.16).add(0.2);
-  const spots = smoothstep(sr, sr.sub(0.07), length(sf.mul(vec2(1, 0.75))));
+  // 1 SPOTS: one jittered round dot per cell, sizes varying (cells ~0.45 cm on a 3 cm x 9 cm sepal; leaf v runs the whole length) (Dracula simia/gigas, Masdevallia decumana)
+  const sq = vec2(pu.mul(3.2), pv.mul(16)), sc = floor(sq), sh = hash(sc), sf = fract(sq).sub(0.5).sub(vec2(sh, fract(sh.mul(7.3))).sub(0.5).mul(0.15));
+  const sr = sh.mul(0.14).add(0.28);      // 0.28-0.42 of a cell: about half the main-colour area spotted (photo 3)
+  const spots = smoothstep(sr, sr.sub(0.03), length(sf.mul(vec2(1, 0.75))));
   // 2 NET: fine lengthwise veins, wavy, tied by cross veins (Dracula vampira)
-  const nl = abs(fract(pu.mul(5).add(sin(pv.mul(11)).mul(0.18))).sub(0.5));
-  const nc = abs(fract(pv.mul(10).add(pu.mul(1.7)).add(sin(pu.mul(9)).mul(0.2))).sub(0.5));
-  const net = max(smoothstep(0.1, 0.03, nl), smoothstep(0.07, 0.02, nc).mul(0.85));
+  const nl = abs(fract(pu.mul(5).add(sin(pv.mul(25)).mul(0.18))).sub(0.5));
+  const nc = abs(fract(pv.mul(22).add(pu.mul(1.7)).add(sin(pu.mul(9)).mul(0.2))).sub(0.5));
+  const net = max(smoothstep(0.16, 0.1, nl), smoothstep(0.12, 0.07, nc));
   // 3 VEINS: strong lengthwise stripes
-  const veins = smoothstep(0.14, 0.05, abs(fract(pu.mul(3.5)).sub(0.5)));
+  const veins = smoothstep(0.16, 0.12, abs(fract(pu.mul(3.5)).sub(0.5)));
   // 4 SPARKLE: sparse crystalline points that glint as the flower moves (D. cuthbertsonii)
   const kq = vec2(pu.mul(12), pv.mul(22)), kh = hash(floor(kq));
   const glint = smoothstep(0.86, 0.97, kh).mul(smoothstep(0.32, 0.08, length(fract(kq).sub(0.5))))
     .mul(sin(kh.mul(60).add(positionWorld.x.mul(2.1)).add(positionWorld.y.mul(1.7))).mul(0.5).add(0.5));
   const is = (n) => step(n - 0.5, pk).mul(step(pk, n + 0.5));
-  const pm = spots.mul(is(1)).add(net.mul(is(2))).add(veins.mul(is(3))).mul(vp.z);
-  const sparkle = glint.mul(is(4)).mul(vp.z);
+  const pz = smoothstep(0.3, 0.7, vp.z);     // full accent at a dot/vein centre wherever the petal is mostly main colour
+  const pm = spots.mul(is(1)).add(net.mul(is(2))).add(veins.mul(is(3))).mul(pz);
+  const sparkle = glint.mul(is(4)).mul(pz);
   const pcol = mix(vc.xyz, va.xyz, pm).add(sparkle.mul(0.55));
   // faint parallel veins along each petal and a slightly deeper tone at its base (leaf coordinates; no noise)
   const au = F.x.abs();
