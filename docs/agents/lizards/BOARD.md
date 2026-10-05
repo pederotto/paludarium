@@ -73,3 +73,26 @@ Spare: cory (clearwater sandbank, wide, canister).
 10. (withdrawn by the user the same minute: "ignore the last command") Rule 9 stands: fresh agent per unrelated task, resume where the context is needed.
 11. Pumps: "just follow real pump logics and have the bigger one we need accordingly": existing filters are corrected to real pump figures too, and each installation gets the pump size its lift and flow need (row B5e). Filter figures come from product sheets (BB/FILTER_SHEETS.md); the game shows invented names only.
 12. Models: "always use opus 5.5 ... for agents, never opus 5 or any other". Every agent from now on is spawned with model opus (Opus 5.5) and states its model id in its reply. The four Sonnet agents already mid-step (Z0, C1, water B5c, amphibians B1b+B2) finish that step and are not resumed afterwards.
+
+## PAUSED 2026-10-04 (usage limit reached; the lead stopped five running agents)
+Stopped mid-step, resumable from their transcripts: B4b (call sites + after-run), C2 (follow mode), B5b-fix (pool plants), G3 (gecko brain), B3 (larva body).
+Locks left behind (clear only after checking the file state): animals.js.lock controller.js.lock herp.js.lock 
+Uncommitted files at the pause:
+ M docs/agents/lizards/CONTRACTS.md
+ M src/editor/controller.js
+ M src/render/airflow.js
+ M src/sim/animals.js
+ M src/sim/occupancy.js
+ M src/ui/hud/InfoBanner.jsx
+ M src/ui/hud/TopBar.jsx
+ M src/ui/hud/hud2.css
+ M src/ui/store.js
+ M tests/plantbend.test.mjs
+ M tools/steps/interact-fuzz.mjs
+?? docs/agents/lizards/reports/B5b-fix.md
+?? docs/agents/lizards/reports/G3.proposal.md
+?? docs/agents/lizards/tools/b5b-fix.mjs
+?? src/editor/followmode.js
+?? tests/followmode.test.mjs
+?? tools/steps/follow-mode.mjs
+animals.js queue after B4b: B5a hook (reports/B5a.hunk.patch), G4 second authorization (reports/G4a.md hand-off), G3 and S3 hunks (reports/S3.hunk.patch), B3 hunk, skink species row, C1b retry. Failed cross-checks to redo: B5b (pool plants), B1b (click path) with B1a, B5d look. Not started: S1b, S4, B4a, B4c, D, final QA. Frog test filter (2 lines) still needs the user.
