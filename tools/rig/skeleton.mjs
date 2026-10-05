@@ -124,6 +124,45 @@ export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.02
   return { idx, w };
 }
 
+// Four bones a vertex (SK1, owner 5 Oct): a level's two-bone `_SKIN` (bone 0 / 32, bone 1 / 32, bone 0's weight) diffused over that
+// level's mesh `passes` times (vertices welded by position, so UV seams do not cut the band), then the four strongest bones. The
+// wider band lets the skin at the groin, armpit and knee follow the girdle's turn instead of tearing along one row (skin-stretch:
+// gecko walk at a 2.87 cm stride 0.87 -> 0.47 %, dart frog walk 1.51 -> 0.25 %, hop 7.4 -> 3.3 %). Returns the new `_SKIN`
+// (bone 0 / 32, bone 1 / 32, w0, w1: an old two-bone reader still finds its strongest bone) and `_SKINX` (bone 2 / 32, bone 3 / 32,
+// w2, w3; the four sum to 1), both in 0 … 1 so the 12-bit quantization keeps them. SKIN_PASSES: per body plan.
+// (the skink keeps its two bones: 0 passes leaves the binding as it was; it stretched 0.03 % already and four bones moved its
+// resting body 0.8 mm)
+// The swimming bodies too (bake-frogpose.mjs): their gliding pose is far from the bind pose and moved 1.6-6 mm with four bones.
+export const SKIN_PASSES = { anuran: 120, lizard: 40, skink: 0, swim: 0 };
+export function skinFour(pos, tris, sk, passes) {
+  const n = pos.length / 3, NB = 32;
+  let W = new Float32Array(n * NB), W2 = new Float32Array(n * NB);
+  for (let i = 0; i < n; i++) { const w = sk[i * 4 + 2]; W[i * NB + Math.round(sk[i * 4] * 32)] += w; W[i * NB + Math.round(sk[i * 4 + 1] * 32)] += 1 - w; }
+  const key = new Map(), weld = new Int32Array(n);
+  for (let i = 0; i < n; i++) { const k = `${pos[i * 3].toFixed(6)},${pos[i * 3 + 1].toFixed(6)},${pos[i * 3 + 2].toFixed(6)}`; if (!key.has(k)) key.set(k, i); weld[i] = key.get(k); }
+  const nbr = Array.from({ length: n }, () => new Set());
+  for (let t = 0; t < tris.length; t += 3) for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) { const u = weld[tris[t + a]], v = weld[tris[t + b]]; if (u !== v) { nbr[u].add(v); nbr[v].add(u); } }
+  const N = nbr.map((s) => [...s]);
+  for (let p = 0; p < passes; p++) {
+    for (let i = 0; i < n; i++) {
+      if (weld[i] !== i) continue;
+      const o = i * NB, L = N[i], k = 1 / (1 + L.length);
+      for (let b = 0; b < NB; b++) { let s = W[o + b]; for (const j of L) s += W[j * NB + b]; W2[o + b] = s * k; }
+    }
+    for (let i = 0; i < n; i++) if (weld[i] !== i) W2.set(W2.subarray(weld[i] * NB, weld[i] * NB + NB), i * NB);
+    [W, W2] = [W2, W];
+  }
+  const skin = new Float32Array(n * 4), skinx = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const o = i * NB, top = [...Array(NB).keys()].sort((a, b) => W[o + b] - W[o + a] || a - b).slice(0, 4);
+    const s = top.reduce((a, b) => a + W[o + b], 0) || 1, w = top.map((b) => W[o + b] / s);
+    for (let j = 1; j < 4; j++) if (w[j] <= 0) top[j] = top[0];
+    skin[i * 4] = top[0] / 32; skin[i * 4 + 1] = top[1] / 32; skin[i * 4 + 2] = w[0]; skin[i * 4 + 3] = w[1];
+    skinx[i * 4] = top[2] / 32; skinx[i * 4 + 1] = top[3] / 32; skinx[i * 4 + 2] = w[2]; skinx[i * 4 + 3] = w[3];
+  }
+  return { skin, skinx };
+}
+
 // Joints carried into the baked frame (cm, after the bake's centring, scaling and the species' `warp`): a joint moves as the skin
 // around it moved (the mean displacement of the `k` vertices nearest it), so a warped species' bones still sit inside its limbs.
 // `from` / `to` are the same vertices before (scan units) and after (cm).

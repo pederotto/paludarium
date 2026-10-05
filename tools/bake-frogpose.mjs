@@ -18,7 +18,7 @@ import { Document, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { weld, quantize, meshopt } from '@gltf-transform/functions';
 import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
-import { bindCapsules, frogBones } from './rig/skeleton.mjs';
+import { bindCapsules, frogBones, skinFour, SKIN_PASSES } from './rig/skeleton.mjs';
 
 const OUT = 'public/assets/creatures';
 // cmPerUnit: the scan's trunk (snout to vent, 1.33 units) has to be the 4.5 cm of the sitting leucomelas; strawberry is 0.511 of that.
@@ -123,13 +123,14 @@ function analyse(src) {
 // `rig`: (spine, leg / 8, legT, material id / 8) and `skin`: (bone 0 / 32, bone 1 / 32, bone 0's weight, 0), as tools/bake-creature.mjs
 // writes them (render/creatures/glb.js bakedRig reads them back).
 async function writeGlb(id, level, pos, nor, col, idx, rig, skin) {
-  const doc = new Document(), buf = doc.createBuffer();
+  const doc = new Document(), buf = doc.createBuffer(), f4 = skinFour(pos, idx, skin, SKIN_PASSES.swim);   // (SK1: four bones a vertex)
   const prim = doc.createPrimitive()
     .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setArray(pos).setBuffer(buf))
     .setAttribute('NORMAL', doc.createAccessor().setType('VEC3').setArray(nor).setBuffer(buf))
     .setAttribute('COLOR_0', doc.createAccessor().setType('VEC3').setArray(col).setBuffer(buf))
     .setAttribute('_RIG', doc.createAccessor().setType('VEC4').setArray(rig).setBuffer(buf))
-    .setAttribute('_SKIN', doc.createAccessor().setType('VEC4').setArray(skin).setBuffer(buf))
+    .setAttribute('_SKIN', doc.createAccessor().setType('VEC4').setArray(f4.skin).setBuffer(buf))
+    .setAttribute('_SKINX', doc.createAccessor().setType('VEC4').setArray(f4.skinx).setBuffer(buf))
     .setIndices(doc.createAccessor().setType('SCALAR').setArray(idx).setBuffer(buf))
     .setMaterial(doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.6).setMetallicFactor(0));
   doc.createScene().addChild(doc.createNode(id).setMesh(doc.createMesh(id).addPrimitive(prim)));

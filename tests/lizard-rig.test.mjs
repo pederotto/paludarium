@@ -57,12 +57,12 @@ test('the bone list covers the anatomy, in the contract order, with the toe fans
 
 test('every vertex is bound to bones that exist, the weights summing to 1, and every bone holds skin', () => {
   for (const m of [hi, lo]) {
-    const S = m.prim.getAttribute('_SKIN'), nb = sk.bones.length, e = [0, 0, 0, 0], held = new Array(nb).fill(0);
+    const S = m.prim.getAttribute('_SKIN'), X = m.prim.getAttribute('_SKINX'), nb = sk.bones.length, e = [0, 0, 0, 0], x = [0, 0, 0, 0], held = new Array(nb).fill(0);
     let bad = 0;
     for (let i = 0; i < m.n; i++) {
-      S.getElement(i, e);
-      const b0 = Math.round(e[0] * 32), b1 = Math.round(e[1] * 32);
-      if (!(b0 >= 0 && b0 < nb && b1 >= 0 && b1 < nb && e[2] >= 0 && e[2] <= 1 + 1e-6 && Math.abs(e[2] + e[3] - 1) < 2e-3)) bad++;
+      S.getElement(i, e); if (X) X.getElement(i, x);   // (SK1: four bones a vertex, `_SKINX` = bone 2, bone 3, w2, w3)
+      const b0 = Math.round(e[0] * 32), b1 = Math.round(e[1] * 32), b2 = Math.round(x[0] * 32), b3 = Math.round(x[1] * 32);
+      if (!([b0, b1, b2, b3].every((b) => b >= 0 && b < nb) && e[2] >= 0 && e[2] <= 1 + 1e-6 && Math.abs(e[2] + e[3] + x[2] + x[3] - 1) < 3e-3)) bad++;
       else held[b0]++;
     }
     assert.equal(bad, 0, `${m.file}: ${bad} vertices badly bound`);
