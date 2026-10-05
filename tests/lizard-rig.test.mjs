@@ -127,12 +127,17 @@ test('the rig and skin attributes are in the file (glb-dump), and the original i
 
 // --- G1b: the game poses the baked gecko by its bones (render/creatures/lizardpose.js, through skeleton.js's lizard hook) ---------
 import * as SKL from '../src/render/creatures/skeleton.js';
+import { GAIT, lgNew, lgDraw, toWorld } from '../src/util/lizardgait.js';
+import { surfaceFrame } from '../src/util/contain.js';
+// the gecko row's leg lift and stride as the game builds its mesh with them (src/sim/animals.js SPECIES.gecko.anim; read as text:
+// animals.js pulls in the renderer)
+const GECKO_ROW = (() => { const t = fs.readFileSync(new URL('../src/sim/animals.js', import.meta.url), 'utf8').match(/\n  gecko: \{[\s\S]*?anim: \{[^}]*?lift: ([\d.]+), stride: ([\d.]+)/); return { lift: +t[1], stride: +t[2] }; })();
 const GMAN = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8'));
 
 test('the game poses the gecko by its 25 bones: the rest pose exact, the head and tail channels turn their bones, the feet walk', () => {
   const sk = GMAN.gecko?.skeleton;
   assert.equal(sk?.plan, 'lizard'); assert.equal(sk.bones.length, 25); assert.ok(SKL.MAX_BONES >= 25);
-  const rig = SKL.skeletonRig(sk, { legLift: 0.3, legStride: 0.75, turn: { pz: 0, R: 2 } });
+  const rig = SKL.skeletonRig(sk, { legLift: GECKO_ROW.lift, legStride: GECKO_ROW.stride, turn: { pz: 0, R: 2 } });
   assert.ok(rig?.pose, 'a lizard rig');
   assert.ok(rig.muscles.length >= 2, 'the thigh bellies (the frog mechanism: musclesOf)');
   const row = new Float32Array(SKL.ROW_FLOATS), id = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
@@ -165,4 +170,30 @@ test('skin stretch of the posed gecko: at most 0.2 % of triangles past 2x over 6
   assert.ok(m, out);
   assert.ok(+m[1] <= 0.2, out);
   console.log(out.trim());
+});
+
+// N7: the planted feet as the game draws a near gecko (lgDraw, the reach guard's feetFit / strideCap): on flat ground at the walk
+// (4.5 cm/s), 0.04 s frames, a tip in stance two frames running moves under 0.05 cm (MOTION_gecko: planted, no slip).
+function walkSlip(rig, feet, cap, sec = 4, dt = 0.04, v = 4.5) {
+  const P = GAIT.gecko, s = lgNew(P, feet, cap), f = surfaceFrame(0, 1, 0, 0), row = new Float32Array(SKL.ROW_FLOATS), info = {};
+  const surf = (x, y, z, n, o) => { o[0] = x; o[1] = 0; o[2] = z; o[3] = 0; o[4] = 1; o[5] = 0; return o; };
+  let prev = null, worst = 0, n = 0, d = 0;
+  for (let t = 0; t < sec; t += dt) {
+    d += v * dt;
+    const pose = { p: [f[0] * d, 0, f[2] * d], f }, st = lgDraw(s, P, pose, v, 0, dt, surf, 1, rig.drop, {});
+    SKL.poseBones(rig, { ...st, calm: 0 }, row, 0, info);
+    const tips = [1, 2, 3, 4].map((l) => toWorld(pose, info.tips[l], [0, 0, 0])), on = [...st.stance];
+    if (prev && t > 1) for (let k = 0; k < 4; k++) if (on[k] && prev.on[k]) { n++; worst = Math.max(worst, Math.hypot(tips[k][0] - prev.tips[k][0], tips[k][2] - prev.tips[k][2])); }
+    prev = { tips, on };
+  }
+  return { worst, n, cm: v * (sec - 1) };
+}
+test('N7 reach guard: planted gecko feet slip under 0.05 cm per 0.04 s frame in stance (4.5 cm/s, 3 s, flat ground)', () => {
+  const rig = SKL.skeletonRig(GMAN.gecko.skeleton, { legLift: GECKO_ROW.lift, legStride: GECKO_ROW.stride, turn: { pz: 0, R: 2 } });
+  const raw = walkSlip(rig, rig.feet0, Infinity), fit = walkSlip(rig, rig.feetFit, rig.strideCap);
+  console.log(`N7 stamp strideCap=${rig.strideCap.toFixed(3)} cm spans=${JSON.stringify(rig.spans.map((s) => s.map((v) => +v.toFixed(2))))}`);
+  console.log(`N7 slip without guard: worst ${raw.worst.toFixed(3)} cm/frame over ${raw.n} stance pairs, ${raw.cm.toFixed(1)} cm walked`);
+  console.log(`N7 slip with guard:    worst ${fit.worst.toFixed(3)} cm/frame over ${fit.n} stance pairs, ${fit.cm.toFixed(1)} cm walked`);
+  assert.ok(fit.n > 100, `enough stance pairs: ${fit.n}`);
+  assert.ok(fit.worst < 0.05, `planted feet slip ${fit.worst}`);
 });
