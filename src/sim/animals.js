@@ -2389,7 +2389,27 @@ export class Animals {
     if (a.skT <= 0) {
       a.skT = 2.5 + Math.random() * 2;
       if (!a.home || this.skinkHide(a, sp, a.home.x, a.home.z) < 0.35) a.home = this.skinkFindHome(a, sp) ?? a.home ?? null;
+      // Two males never share a hide (species data: territorial): the later male picks again while its home is within
+      // 2 x rivalCm of an earlier male's home.
+      for (let k = 0; k < 4 && a.male && a.home && this.skinkHomeTaken(a, a.home); k++) a.home = this.skinkFindHome(a, sp);
       a.skShore = this.crabFind(x, z, 35, (px, pz, d) => d >= SKINK.soakDepth[0] && d <= SKINK.soakDepth[1]);
+      // The nearest cover (S3 `refuge`): where it stands if that is cover already, else the closest land point within 20 cm
+      // whose skinkCover is 0.6 or more (0.6 a guess: the 0.5 edge of a patch is reached short by the stop distance).
+      // N4b: 8 angles on each ring, rings 1 … 20 cm every 1.5 cm, nearest ring first; the hit is pushed 2 cm further along its
+      // ray while cover holds, so the stop (SKINK.inCover short of the point) lands inside the patch, not on its edge.
+      let ref = this.skinkCover(x, z) >= 0.6 ? { x, z, r: 0 } : null;
+      for (let r = 1; !ref && r <= 20; r += 1.5) {
+        let best = -1;
+        for (let k = 0; k < 8; k++) {
+          const t = k * 0.785 + a.phase, sx = Math.sin(t), cz = Math.cos(t), px = x + sx * r, pz = z + cz * r;
+          const c = this.okFor('land', px, pz) ? this.skinkCover(px, pz) : 0;
+          if (c < 0.6 || c <= best) continue;
+          best = c; ref = { x: px, z: pz, r };
+          const qx = x + sx * (r + 2), qz = z + cz * (r + 2);
+          if (this.okFor('land', qx, qz) && this.skinkCover(qx, qz) >= c) ref = { x: qx, z: qz, r: r + 2 };
+        }
+      }
+      a.skRefuge = ref;
       // The warm spot: the warmest of a ring of points around it (the basking lamp warms the cells under it, climate.js).
       let warm = null;
       for (let k = 0; k < 12; k++) {
@@ -2408,7 +2428,9 @@ export class Animals {
     const it = (a.si = skinkThink(m, {
       t: this.t, dt, dtMin: dt * (this.warp ?? 1), x, z, depth, light: clamp(E.bright(), 0, 1), rain: E.rain ?? 0,
       rh: C.humidityAt(x, g + 1, z), temp: C.tempAt(x, g + 0.5, z), wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + C.sample(C.soil, x, z) * 0.5),
-      cover: this.skinkCover(x, z), hunger: a.hunger, threat, home: a.home, shore: a.skShore, warm: a.skWarm, hunting: !!a.order,
+      cover: this.skinkCover(x, z), hunger: a.hunger, threat, home: a.home, shore: a.skShore,
+      refuge: a.skRefuge && { x: a.skRefuge.x, z: a.skRefuge.z, d: Math.hypot(a.skRefuge.x - x, a.skRefuge.z - z) },
+      rival: a.male ? this.skinkRival(a, x, z) : null, warm: a.skWarm, hunting: !!a.order,
     }));
     if (it.say && Math.random() < 0.5) W.log(it.say, 'info');
     let goal = it.goal, speed = it.speed;
@@ -2441,6 +2463,19 @@ export class Animals {
     a.grazing = it.mode === 'forage' && a.state === 'rest';
     m.sinkNow = lerp(m.sinkNow ?? 0, it.sink ?? 0, Math.min(1, dt * 1.5));
     m.rollNow = lerp(m.rollNow ?? 0, it.roll ?? 0, Math.min(1, dt * 4));
+  }
+
+  // The nearest other male skink, for a male (territorial: SPECIES row; species data: never two males).
+  skinkRival(a, x, z) {
+    let r = null;
+    for (const b of this.by.skink ?? []) if (b !== a && b.male) { const d = Math.hypot(b.pos.x - x, b.pos.z - z); if (!r || d < r.d) r = { x: b.pos.x, z: b.pos.z, d }; }
+    return r;
+  }
+
+  // Whether an earlier male (by order in by.skink) already keeps a home within 2 x rivalCm of p.
+  skinkHomeTaken(a, p) {
+    for (const b of this.by.skink ?? []) { if (b === a) return false; if (b.male && b.home && Math.hypot(b.home.x - p.x, b.home.z - p.z) < SKINK.rivalCm * 2) return true; }
+    return false;
   }
 
   skinkCover(x, z) { return Math.min(1, this.crabCover(x, z) + this.world.climate.sample(this.world.climate.litter, x, z) * 0.8); }
