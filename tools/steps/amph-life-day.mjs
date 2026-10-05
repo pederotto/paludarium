@@ -22,9 +22,10 @@ export default async (page, shot, name) => {
   const runs = [];
   for (const scene of cfg.scenes) for (const seed of cfg.seeds) {
     const t0 = Date.now();
-    const r = await page.evaluate(runOne, { scene, seed, hours: cfg.hours, speed: cfg.speed, DEBUG: !!process.env.AMPH_DEBUG });
+    const r = await page.evaluate(runOne, { scene, seed, hours: cfg.hours, speed: cfg.speed, DEBUG: !!process.env.AMPH_DEBUG, LARVA: !!process.env.AMPH_LARVA });
     if (r.debug?.length) fs.writeFileSync(path.join(out, `debug-${label}-${scene}-${seed}.json`), JSON.stringify(r.debug, null, 1));
     r.sec = Math.round((Date.now() - t0) / 1000);
+    if (r.larva) console.log(`N1 larva seed ${seed}:`, JSON.stringify(r.larva));
     console.log(`amph-life ${scene} seed ${seed}: ${r.sec}s, frames thrown ${r.thrown ?? '?'}, errors ${r.errors.length}`, r.errors.slice(0, 2).join(' | '));
     runs.push(r);
   }
@@ -33,17 +34,19 @@ export default async (page, shot, name) => {
   console.log('wrote', path.join(out, `day-${label}.md`));
 };
 
-async function runOne({ scene, seed, hours, speed, DEBUG }) {
+async function runOne({ scene, seed, hours, speed, DEBUG, LARVA }) {
   const game = window.game;
   game.frozen = true;
   const gen = await import('/src/sim/generator.js');
   const { TANK } = await import('/src/sim/tank.js');
-  const { SPECIES } = await import('/src/sim/animals.js');
+  const { SPECIES, drawScale } = await import('/src/sim/animals.js');
   const { MAT } = await import('/src/sim/tank.js');
   const errors = [];
   const SC = scene === 'warm'
     ? { preset: 'suriname', tier: 'standard', gseed: 5, temp: null, mix: { dartfrog: 3, strawberry: 3, leucomelas: 3, auratus: 3, bumblebee: 4, reedfrog: 3, redeye: 3, tadpole: 6, eggs: 2 } }
     : { preset: 'cascade', tier: 'standard', gseed: 7, temp: 18, mix: { newt: 3, marbled: 3, firesal: 3, axolotl: 2, toad: 3, tadpole: 4 } };
+  // N1 (AMPH_LARVA=1): the fire salamanders' young are salamander larvae, born in the water (age 0, parent firesal).
+  if (LARVA && scene !== 'warm') { delete SC.mix.tadpole; SC.mix.larva = 4; }
   const food = { springtail: 30, fly: 14, isopod: 10, flylarva: 6 };
   const w = await game.loadTank(SC.tier, { layout: 'empty' });
   gen.generateTerrarium(w, { preset: SC.preset, seed: SC.gseed, tier: SC.tier });
@@ -71,7 +74,7 @@ async function runOne({ scene, seed, hours, speed, DEBUG }) {
         if (r.pos) { const a = A.add(id, r.pos, { hunger: 0.62, age: 99999 * 10, ...extra }); if (a && extra.parent) a.parent = extra.parent; break; }
       }
     };
-    for (const [id, n] of Object.entries(SC.mix)) place(id, n, id === 'tadpole' ? { age: 3 * 1440, ...(scene === 'cool' ? { parent: 'firesal' } : {}) } : id === 'eggs' ? { age: 0 } : {});
+    for (const [id, n] of Object.entries(SC.mix)) place(id, n, id === 'larva' ? { age: 0, parent: 'firesal' } : id === 'tadpole' ? { age: 3 * 1440, ...(scene === 'cool' ? { parent: 'firesal' } : {}) } : id === 'eggs' ? { age: 0 } : {});
     for (const [id, n] of Object.entries(food)) place(id, n, { hunger: 0.2, age: undefined });
     // Sexes: alternate, so every species has males and females.
     let alt = 0;
@@ -79,7 +82,7 @@ async function runOne({ scene, seed, hours, speed, DEBUG }) {
     E.minute = Math.floor(E.minute / 1440) * 1440 + 6 * 60;
     hold();
     const AMPH = Object.keys(SC.mix);
-    const AQ = new Set(['newt', 'marbled', 'firesal', 'axolotl', 'tadpole']);
+    const AQ = new Set(['newt', 'marbled', 'firesal', 'axolotl', 'tadpole', 'larva']);
     const all = () => AMPH.flatMap((id) => A.by[id] ?? []);
     // --- Counters ---------------------------------------------------------------------------------------------------------
     const S = {};
@@ -188,6 +191,7 @@ async function runOne({ scene, seed, hours, speed, DEBUG }) {
             const air = /^air/.test(st);
             const ly = a.pos.y - gg < 0.9 ? 'bottom' : tp - a.pos.y < 0.9 ? 'surface' : 'mid';
             (air ? q.layerAir : q.layer)[ly] += dMin;
+            if (resting && !air && ly === 'bottom') q.floorRest = (q.floorRest ?? 0) + dMin;   // N1: at rest on the floor
             if (air && !/^air/.test(p.st ?? '')) q.airN++;
             if (a.pos.y < gg - 0.25 || (A.occ.count && A.occ.solidAt(a.pos.x, a.pos.y + 0.3, a.pos.z))) q.bankMin += dMin;
             if (mv > 1e-4) q.swimMin += dMin;
@@ -209,6 +213,21 @@ async function runOne({ scene, seed, hours, speed, DEBUG }) {
     const res = { scene, seed, hours, speed, frames, sp: {} };
     for (const [id, q] of Object.entries(S)) res.sp[id] = { ...q, callers: q.callers.size, nEnd: (A.by[id] ?? []).length };
     res.notes = { moss: +w.mossFraction().toFixed(2), prey: Object.fromEntries(Object.keys(food).map((id) => [id, (A.by[id] ?? []).length])), orderCalls: window.__oc, temp: E.temp, lights: [E.lightsOn, E.lightsOff], humidity: E.humidity };
+    if (LARVA) {   // N1: what the fire salamanders' young are and how they are drawn
+      const m = A.meshes?.larva, geo = (m?._lo ?? m)?.geometry, P = geo?.attributes?.position?.array, R = geo?.attributes?.rig;
+      let zmin = Infinity, zmax = -Infinity, gill = 0, legs = 0;
+      if (P) for (let i = 0; i < P.length; i += 3) { zmin = Math.min(zmin, P[i + 2]); zmax = Math.max(zmax, P[i + 2]); if (Math.abs(P[i]) > 0.9 && P[i + 2] > 1.5) gill++; }
+      if (R) for (let i = 0; i < R.count; i++) if (R.getY(i) > 0.01) legs++;
+      const ext = zmax - zmin, fs = SPECIES.firesal, fm = A.meshes?.firesal, fg = (fm?._lo ?? fm)?.geometry;
+      fg?.computeBoundingBox?.();
+      const L = SPECIES.larva, len = (parent, age) => +(ext * drawScale({ parent, age }, L)).toFixed(2);
+      res.larva = { young: (A.by.larva ?? []).filter((a) => a.parent === 'firesal').length, ids: [...new Set(all().filter((a) => a.parent === 'firesal').map((a) => a.sp))],
+        drawn: (m?._lo ?? m)?.count ?? null, gillVerts: gill, legVerts: legs, geoLen: +ext.toFixed(3),
+        firesalAdultCm: fg ? +((fg.boundingBox.max.z - fg.boundingBox.min.z) * drawScale({ age: 1e7 }, fs)).toFixed(2) : null,
+        cm: Object.fromEntries(['firesal', 'newt', 'marbled'].map((p) => [p, [len(p, 0), len(p, L.metamorphDays * 1440)]])),
+        floorRest: S.larva ? +(100 * (S.larva.floorRest ?? 0) / Math.max(1e-9, S.larva.wetMin)).toFixed(1) : null };
+      console.log('N1 larva', JSON.stringify(res.larva));
+    }
     res.errors = errors; res.thrown = thrown; res.debug = debug;
     return res;
   } catch (e) {
