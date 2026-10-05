@@ -20,7 +20,7 @@ export function currentAt(W, x, y, z, out = { x: 0, y: 0, z: 0 }, occ = null) {
   const H = W?.water?.hydro;
   if (H?.vx && H.d) {
     const c = H.cellOf(x, z);
-    if (H.d[c] >= 0.3) {
+    if (H.d[c] >= 0.3 || H.res?.[c]) { // the main pool keeps its water as hydro.level (res), its d is a film
       let vx = H.vx[c], vy = 0, vz = H.vz[c];
       if (H.ports && (W.water.inMainPool?.(x, z) ?? true)) { poolCurrent(H, x, y, z, P); vx += P.x; vy += P.y; vz += P.z; }
       const h = y - W.terrain.heightAt(x, z), l = Math.hypot(vx, vz);

@@ -124,3 +124,20 @@ test('the mind uses no Math.random (its stream is seeded)', () => {
   Math.random = () => { throw new Error('Math.random'); };
   try { swimRun(uniform(3), { sec: 5 }); } finally { Math.random = R; }
 });
+
+test('a fish in the main pool next to a filter return feels the jet (the pool keeps its water as level, its d is a film)', async () => {
+  const { poolCurrent } = await import('../src/sim/filterflow.js');
+  // sim/hydro.js:673-685 and tests/plantbend.test.mjs fakeWorld: main pool cells are `res`, d a 0.05 cm film, water to `level`.
+  const N = 16, ports = { lph: 900, ret: { x: 0.2, y: 2, z: 1.5, dx: 1, dz: 0, D: 1.2 } };
+  const H = { N, d: new Float32Array(N), vx: new Float32Array(N), vz: new Float32Array(N), ports, res: new Uint8Array(N), level: 4,
+    cellOf: (x, z) => Math.max(0, Math.min(3, Math.floor(z))) * 4 + Math.max(0, Math.min(3, Math.floor(x))) };
+  for (const c of [4, 5, 6, 7, 8, 9, 10, 11]) { H.res[c] = 1; H.d[c] = 0.05; }
+  const W = { water: { hydro: H, inMainPool: (x, z) => H.res[H.cellOf(x, z)] === 1 }, terrain: { heightAt: () => 0 } };
+  const jet = poolCurrent(H, 3, 2, 1.5, { x: 0, y: 0, z: 0 }), v = currentAt(W, 3, 2, 1.5, {});
+  console.log(`  pool fish 2.8 cm down the return: jet ${Math.hypot(jet.x, jet.z).toFixed(2)}, currentAt ${Math.hypot(v.x, v.z).toFixed(2)} cm/s`);
+  assert.ok(Math.hypot(jet.x, jet.z) > 1, 'the fixture has a jet there');
+  assert.ok(Math.abs(v.x - jet.x) < 1e-6 && Math.abs(v.z - jet.z) < 1e-6, 'currentAt returns the jet, not 0');
+  ports.lph = 0;
+  const off = currentAt(W, 3, 2, 1.5, {});
+  assert.equal(Math.hypot(off.x, off.z), 0, 'filter off: still water');
+});
