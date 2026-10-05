@@ -28,10 +28,20 @@ export function parseArgs(argv = process.argv.slice(2)) {
 // ---- in page (self-contained: Playwright sends the source) ---------------------------------------------------------------------
 async function init(cfg) {
   const game = window.game;
+  const { SPECIES } = await import('/src/sim/animals.js');
+  // Species data that boot-time loaders fill in later (SPECIES.gecko.anim.rig2.len: the header said 9.5 or 7.05 depending on whether
+  // the model had arrived, and generation then drew 956 or 940 numbers) must settle first: wait until it has not changed for 5 s.
+  const spSnap = () => { try { return JSON.stringify(Object.values(SPECIES).map((s) => [s.size, s.anim ?? null])); } catch { return String(Object.values(SPECIES).map((s) => s.anim?.rig2?.len)); } };
+  let prevSnap = spSnap(), stable0 = performance.now();
+  const wait0 = stable0;
+  while (performance.now() - stable0 < 5000 && performance.now() - wait0 < 90000) {
+    await new Promise((r) => setTimeout(r, 250));
+    const s2 = spSnap(); if (s2 !== prevSnap) { prevSnap = s2; stable0 = performance.now(); }
+  }
+  const settleS = Math.round(performance.now() - wait0) / 1000;
   game.frozen = true;
   const gen = await import('/src/sim/generator.js');
   const { TANK } = await import('/src/sim/tank.js');
-  const { SPECIES } = await import('/src/sim/animals.js');
   const w = await game.loadTank(cfg.tier, { layout: 'empty' });
   // No render loop, and nothing a stray game frame could do to the sim: a frame that is still queued or looping calls sim.step(0),
   // animals.move(0) and draw with the REAL Math.random, which re-rolls animal modes and timers at wall-clock moments (the first
@@ -47,8 +57,24 @@ async function init(cfg) {
   await new Promise((r) => setTimeout(r, 400));                  // (a frame already queued runs out)
   // ---- synchronous from here to the end: nothing else can run between these lines ----
   const realRandom = Math.random, realNow = performance.now.bind(performance);
+  // Same animal ids on every page load. The id counter (src/sim/animals.js:558, module-private) is wherever the title tank left it
+  // (107 or 108), and behaviour is keyed on a.id (animals.js:3531, 3552, 3655, 3670: side and push direction). One throwaway add
+  // sees fake ids 1..K-1, so the game's own skip loop (animals.js:846, for loaded saves) moves the counter to K; then it is removed.
+  const ID_K = 4096, fakes = Array.from({ length: ID_K - 1 }, (_, i) => ({ id: i + 1 }));
+  let idChecks = 0;
+  fakes.some = function (fn) { idChecks++; return Array.prototype.some.call(this, fn); };
+  const allDesc = Object.getOwnPropertyDescriptor(w.animals, 'all');
+  const dummySp = Object.keys(w.animals.by).find((k) => SPECIES[k] && w.animals.by[k].length < SPECIES[k].cap + 20);
+  let dummy;
+  Object.defineProperty(w.animals, 'all', { value: fakes, configurable: true, writable: true });
+  try { dummy = w.animals.add(dummySp, { x: 0, y: 0, z: 0, clone() { return { x: 0, y: 0, z: 0 }; } }); }
+  finally { if (allDesc) Object.defineProperty(w.animals, 'all', allDesc); else delete w.animals.all; }
+  if (!dummy || dummy.id !== ID_K) throw new Error(`state-dump: id reset failed (got ${dummy?.id}, want ${ID_K}: counter already above it?)`);
+  w.animals.remove(dummy);
+  const idRaw = ID_K - idChecks + 1;                            // where the page's counter stood before the reset
   let s = (cfg.seed * 9973 + 17) >>> 0;
-  const rnd = () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const rnd = () => { rnd.n++; s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  rnd.n = 0;
   const S = (window.__sd = { cfg, w, A: w.animals, E: w.env, SPECIES, rnd, vnow: 1e7, f: 0, thrown: 0, errors: [], meta: new WeakMap(), nid: {}, prey: {}, lastHr: null });
   S.enter = () => { G.inChunk = true; Math.random = rnd; performance.now = () => S.vnow; };
   S.leave = () => { G.inChunk = false; Math.random = realRandom; performance.now = realNow; };
@@ -86,6 +112,12 @@ async function init(cfg) {
   S.frames = Math.round(cfg.seconds / cfg.dt);
   S.sampleFrames = Math.max(1, Math.round(cfg.every / cfg.dt));
   const r2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+  // Fingerprint (meta.json and the log, not the dump): the page's raw id counter, ids now, each lizard's state, seeded draws so far.
+  S.fp = () => ({
+    idRaw, settleS, f: S.f, draws: rnd.n, minute: E.minute, n: A.all.length, env: [r2(E.temp), r2(E.humidity)],
+    sum: r2(A.all.reduce((t, a) => t + a.pos.x + 3 * a.pos.y + 7 * a.pos.z + (a.timer ?? 0), 0)),
+    liz: A.all.filter((a) => !S.skip(a.sp)).map((a) => [a.id, a.sp, r2(a.pos.x), r2(a.pos.y), r2(a.pos.z), a.hm?.mode ?? a.sk?.mode ?? a.state ?? null]),
+  });
   S.reg = (a) => {
     let o = S.meta.get(a);
     if (!o) { const k = S.nid[a.sp] ?? 0; S.nid[a.sp] = k + 1; o = { id: `${a.sp}-${k}`, tun: 0, px: a.pos.x, py: a.pos.y, pz: a.pos.z }; S.meta.set(a, o); }
@@ -147,6 +179,7 @@ async function init(cfg) {
   const species = [...new Set(A.all.filter((a) => !S.skip(a.sp)).map((a) => a.sp))];
   const sizes = {};
   for (const id of Object.keys(SPECIES)) sizes[id] = SPECIES[id].anim?.rig2?.len ?? Math.round(SPECIES[id].size * 4 * 100) / 100;   // body length, cm
+  S.fp0 = S.fp();
   return {
     hdr: 1, preset: cfg.preset, tier: cfg.tier, seed: cfg.seed, every: cfg.every, dt: cfg.dt, speed: cfg.speed, warp: cfg.warp, mix: cfg.mix, care: cfg.care,
     startHour: cfg.start, frames: S.frames, seconds: cfg.seconds, lights: [8, 20], species, sizes: Object.fromEntries(species.map((id) => [id, sizes[id]])),
@@ -164,6 +197,7 @@ function chunk(n) {
       try { W.sim.step(cfg.dt * cfg.warp); A.move(cfg.dt); } catch (e) { S.thrown++; if (S.errors.length < 3) S.errors.push(`frame ${S.f}: ` + String(e?.stack ?? e).slice(0, 400)); }
       S.tunnels();
       S.f++;
+      if (S.f === 1) S.fp1 = S.fp();
       if (cfg.care) { const hr = Math.floor(E.minute / 60); if (hr !== S.lastHr) { S.lastHr = hr; S.carePass(); } }
     }
     if (S.f >= S.frames && !S.finalDone) { S.rows(out); S.finalDone = true; }
@@ -183,19 +217,21 @@ export async function runDump(page, cfg, log = console.log) {
   const fd = fs.openSync(file, 'w');
   fs.writeSync(fd, JSON.stringify(hdr) + '\n');
   log(`state-dump: ${hdr.preset}/${hdr.tier} seed ${hdr.seed}: ${hdr.animals.length} animals (${hdr.species.join(', ')}), ${hdr.frames} frames of ${hdr.dt} s, a sample every ${hdr.every} s${Object.keys(hdr.placeMissed).length ? ', could not place ' + JSON.stringify(hdr.placeMissed) : ''}`);
-  let nRows = 0, nextLog = 0;
+  let nRows = 0, nextLog = 0, lastLog = Date.now();
   for (;;) {
     const r = await page.evaluate(chunk, cfg.chunk);
     if (r.rows.length) { fs.writeSync(fd, r.rows.map((x) => JSON.stringify(x)).join('\n') + '\n'); nRows += r.rows.length; }
-    if (r.f >= nextLog) { log(`  ${Math.round((100 * r.f) / hdr.frames)}%  ${nRows} rows  ${((Date.now() - t0) / 1000).toFixed(0)} s  thrown ${r.thrown}`); nextLog = r.f + Math.ceil(hdr.frames / 5); }
+    if (r.f >= nextLog || Date.now() - lastLog > 20000) { lastLog = Date.now(); log(`  ${Math.round((100 * r.f) / hdr.frames)}%  ${nRows} rows  ${((Date.now() - t0) / 1000).toFixed(0)} s  thrown ${r.thrown}`); nextLog = r.f + Math.ceil(hdr.frames / 5); }
     if (r.done) break;
   }
   const end = await page.evaluate(() => window.__sd.footer());
   fs.writeSync(fd, JSON.stringify(end) + '\n');
   fs.closeSync(fd);
   const wallS = (Date.now() - t0) / 1000, gameDays = end.gameMinutes / 1440, blocked = await page.evaluate(() => window.__sdGate?.blocked ?? null);
-  fs.writeFileSync(file.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({ wallS, gameDays, blocked, wallPerGameDay: gameDays ? wallS / gameDays : null, cfg }, null, 1));
-  return { file, hdr, end, rows: nRows, wallS, gameDays };
+  const fp = await page.evaluate(() => ({ fp0: window.__sd.fp0, fp1: window.__sd.fp1 ?? null }));
+  fs.writeFileSync(file.replace(/\.jsonl$/, '.meta.json'), JSON.stringify({ wallS, gameDays, blocked, fp, wallPerGameDay: gameDays ? wallS / gameDays : null, cfg }, null, 1));
+  log(`fingerprint: page id counter was ${fp.fp0.idRaw}, ids now ${fp.fp0.liz.map((l) => l[0]).join(',')}, seeded draws ${fp.fp0.draws} after setup, ${fp.fp1?.draws} after frame 1`);
+  return { file, hdr, end, rows: nRows, wallS, gameDays, fp };
 }
 
 export default async (page, shot, name) => {

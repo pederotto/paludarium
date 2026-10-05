@@ -1,5 +1,17 @@
-# Z0x report: state-dump determinism (DRAFT, in progress)
-Model: claude-opus-5-5.
-Cause (from grep, run proof pending): behaviour is keyed on the animal id: src/sim/animals.js:3552 and 3670 `a.id % 2` pick the side, 3531 and 3655 `cos/sin(a.id*2.4)` set the push direction. The id counter `let nextId = 1` (animals.js:558) is module-private, is only ever incremented (845-846), and the title tank runs on real time first, so it lands on 107 or 108. Parity flips, so the geckos split by t=10 s.
-Fix (harness only, no hook): in init, after loadTank and before seeding, one throwaway `A.add` runs while `A.all` is temporarily an array of fake ids 1..K-1 (K = 4096). The game's own skip loop (animals.js:846, "a loaded save may already use this number") pushes the counter to K, then `A.remove` drops the throwaway. Every page load then numbers animals K+1, K+2, ...
-Runner: watchdog, so 120 s with no output kills the Chrome process group it started and exits 2.
+# Z0x report: state-dump determinism
+Status: FAILS after my two attempts; stopped per instruction (no third try). Not loosened. Model claude-opus-5-5, 17 tool calls.
+1. Id counter, confirmed and fixed (no hook needed): behaviour is keyed on a.id (src/sim/animals.js:3552, 3670 `a.id % 2` side; 3531, 3655 `cos/sin(a.id*2.4)`). nextId (animals.js:558) is module-private and only grows. The harness now runs one throwaway `A.add` while `A.all` is temporarily fake ids 1..4095, so the game's own skip loop (animals.js:846) moves the counter to 4096; the throwaway is then removed. Every load numbers animals 4097, 4098, ... (fingerprint: same ids in all 4 runs; raw page counter was 107 each time, Z0 saw 108 once).
+2. Attempt 1 (id reset only; 0.3 d, gecko,skink): split already in SETUP. Header sizes.gecko 9.5 vs 7.05 (SPECIES.gecko.anim.rig2.len filled by a boot-time model loader or not), seeded draws during generation 956 vs 940.
+3. Attempt 2 (+ settle: network idle, then SPECIES size/anim snapshot unchanged for 5 s before freezing; full 5 d, default rows): setup IDENTICAL (header, every t=0 row, draws 956/956, position checksum -2287/-2287). After frame 1: same draws (2164/2164) but checksum -2087.08 vs -2086.92. First dump diff line 14: isopod-0 at t=10, x 17.43 vs 17.48 (cm-level), so lizards follow.
+Reading: the input still differing is continuous, not random and not id: a world field that changes after generation without the RNG. Guess, not verified: terrain/occupancy/water state built async (worker or deferred job) or a time source other than performance.now/Math.random (src/sim has no Date.now). Also a guess: gecko settled to 7.05 in both attempt-2 runs, so the 5 s settle may still race the loader on a slow load.
+Next step (one pair, 0.05 d): add to S.fp (state-dump.mjs, S.fp) a terrain-height sum, A.occ.count/version, water levels, and per-animal positions for ALL species after frame 1; the first field that differs names the input.
+Files: tools/steps/state-dump.mjs (init: settle wait, id reset, rnd draw counter, S.fp/fp0/fp1 to meta.json + log; runDump logs at least every 20 s), tools/steps/state-dump-run.mjs (launchServer + connect for the PID; stall guard: 120 s without output kills the Chrome process group and exits 2; networkidle wait). tests/state-counters.test.mjs untouched.
+Check output: 0.3 d pair: fp0 DIFF (draws 956/940), cmp differs line 1. 5 d pair: fp0 SAME, fp1 DIFF, cmp differs line 14 (10225 vs 10584 rows).
+Stall guard: written, not verified by a real stall.
+Chrome: 6 launches. 2 died at start (my browser.process() bug, Playwright's Browser has none; 0 s, no page). 4 page runs; my PIDs 57742, 57958, 59421, 60024 all gone; other sessions' Chromes left alone.
+Wall: 5 d, all rows: 93 and 97 s = 19 s per game day; 0.3 d: 25 s cold / 8 s warm (load dominates).
+## Hand-off
+- Run: `node tools/steps/state-dump-run.mjs --preset=karst --tier=standard --seed=1 --days=0.3 --only=gecko,skink --url=http://127.0.0.1:4630/ --out=<dir>/a/`, then the same with `<dir>/b/`, then `cmp <dir>/{a,b}/state-karst-standard-s1.jsonl`. About 19 s per game day plus about 15 s start (5 s settle).
+- Fingerprints: `<out>/state-karst-standard-s1.meta.json` field `fp` {fp0 after setup, fp1 after frame 1}; idRaw and settleS differ by design, compare the rest.
+- Traps: zsh expands `====x` and unquoted `--include=*.js` (quote them); Playwright `Browser` has no process(), use launchServer.
+- Not done: the 0.3-day gecko,skink cmp pass and the identical 5-day pair (both blocked by the frame-1 split above).
