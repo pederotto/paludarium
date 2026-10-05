@@ -1076,8 +1076,8 @@ export class Plants {
       // (a portrait shows the flower open, in the species' first colours)
       const b = p.bloom, look = bloomLook(this.live ? b : OPEN), pi = this.live ? b.palette : 0, j = this.live ? b.j : 0.5;
       const pal = F.palettes?.[pi] ?? [0xf4f0e8, 0xe0a0b0, 0xf0c040];
-      if (p._pal?.k !== pi + j) p._pal = { k: pi + j, v: pal.map((h) => packRGB(h, j)) };
-      const P = [p._pal.v[0], p._pal.v[1], p._pal.v[2], mode * 2 + tr];
+      if (p._pal?.k !== pi + j) p._pal = { k: pi + j, v: pal.slice(0, 3).map((h) => packRGB(h, j)) };
+      const P = [p._pal.v[0], p._pal.v[1], p._pal.v[2], (pal[3] ?? 0) * 8 + mode * 2 + tr];     // pattern code (render/flowers.js)
       const ph = p.index * 1.618;
       for (const h of this.headsOf(p)) {
         hp.copy(h.local).multiplyScalar(p._s).applyQuaternion(p._q).add(p.pos);

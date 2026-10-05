@@ -161,15 +161,17 @@ const masdLayout = once(() => {
 // flowers hang facing out and down (they stay above the ground when it grows on land).
 const dracLayout = once(() => {
   const r = rng(103), leaves = [], stalks = [];
-  for (let k = 0; k < 7; k++) {
-    const a = k * 2.4 + r() * 0.5, o = 0.2 + r() * 0.25, lean = 0.4 + r() * 0.3;
-    leaves.push({ a, base: V(Math.cos(a) * o, 0, Math.sin(a) * o), dir: V(Math.cos(a) * lean, 1, Math.sin(a) * lean), len: 9 + r() * 2.5, width: 1.25 + r() * 0.3 });
+  // (photos 1-3: about a dozen long narrow straps, 13-17 cm, erect then arching out)
+  for (let k = 0; k < 12; k++) {
+    const a = k * 2.4 + r() * 0.5, o = 0.25 + r() * 0.35, lean = 0.3 + r() * 0.45;
+    leaves.push({ a, base: V(Math.cos(a) * o, 0, Math.sin(a) * o), dir: V(Math.cos(a) * lean, 1, Math.sin(a) * lean), len: 13 + r() * 4, width: 1.35 + r() * 0.35 });
   }
+  // pendent stems: out past the leaves, up over an arch, then down, so the flower hangs facing out with its tails below it
   for (let k = 0; k < 3; k++) {
-    const a = k * 2.1 + 1.1 + r() * 0.4, out = V(Math.cos(a), 0, Math.sin(a)), L = 4.5 + r() * 1.5;
+    const a = k * 2.1 + 1.1 + r() * 0.4, out = V(Math.cos(a), 0, Math.sin(a)), L = 7.5 + r() * 1.5;
     const p0 = out.clone().multiplyScalar(0.3).add(V(0, 0.3, 0));
-    const pts = [p0, p0.clone().addScaledVector(out, L * 0.55).add(V(0, 0.5, 0)), p0.clone().addScaledVector(out, L).add(V(0, 0.1, 0))];
-    stalks.push({ pts, tip: pts[2], face: out.clone().add(V(0, -0.35, 0)).normalize() });
+    const pts = [p0, p0.clone().addScaledVector(out, L * 0.5).add(V(0, 5.2, 0)), p0.clone().addScaledVector(out, L).add(V(0, 4.6, 0))];
+    stalks.push({ pts, tip: pts[2], face: out.clone().add(V(0, -0.55, 0)).normalize() });
   }
   return { leaves, stalks };
 });
@@ -377,7 +379,7 @@ export const FLOWERING = {
   },
 
   dracula: {
-    name: 'Dracula orchid', habitat: 'wall|land', humidity: [75, 100], light: 0.2, size: 12, tall: 0.08, wallTilt: 0.6,
+    name: 'Dracula orchid', habitat: 'wall|land', humidity: [75, 100], light: 0.2, size: 16, tall: 0.08, wallTilt: 0.6,
     note: 'The "monkey-face" orchid of misty Andean forests: flowers with long tails hang out of the plant. Cool, wet, shady.',
     build() {
       const b = new Builder(), L = dracLayout();
@@ -394,18 +396,21 @@ export const FLOWERING = {
         // Three broad sepals joined at the base into a shallow hairy cup, each drawn out into a long tail; two tiny petals
         // (the "eyes") beside the column, and the shell-shaped lip (the "mouth") in the middle.
         for (const th of [0, 2.1, -2.1]) {
-          sheet(b, { base: V(Math.sin(th) * 0.15, 0.15, Math.cos(th) * 0.15), dir: V(Math.sin(th), 0.35, Math.cos(th)), face: V(-Math.sin(th) * 0.4, 1, -Math.cos(th) * 0.4), len: 3.5, width: 1.7, outline: tailed(0.42), nu: 2, rows: [0, 0.15, 0.3, 0.42, 0.7, 1], cup: 0.35, curl: 0.1,
-            color: (u, t) => { const tail = sstep(0.36, 0.5, t), spot = 0.4 * (1 - t / 0.42); return M((1 - tail) * (1 - spot), tail + (1 - tail) * spot, 0); } });
+          // blade ~2.4 cm in the main colour (the pattern shows here), pale at its base (centre); a ~6 cm thin tail (accent)
+          // that hangs (droop)
+          sheet(b, { base: V(Math.sin(th) * 0.15, 0.15, Math.cos(th) * 0.15), dir: V(Math.sin(th), 0.3, Math.cos(th)), face: V(-Math.sin(th) * 0.4, 1, -Math.cos(th) * 0.4), len: 8.8, width: 2.6, outline: tailed(0.27, 0.035), nu: 2, rows: [0, 0.08, 0.18, 0.3, 0.45, 0.65, 0.85, 1], cup: 0.4, curl: 0.06, droop: 0.55,
+            color: (u, t) => { const tail = sstep(0.24, 0.32, t), pale = 0.7 * (1 - sstep(0.02, 0.12, t)); return M((1 - tail) * (1 - pale), tail, (1 - tail) * pale); } });
         }
-        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.2, 0.3, 0.15), dir: V(s, 0.6, 0.3), len: 0.45, width: 0.22, nu: 1, nv: 1, color: (u, t) => M(0.5 - 0.4 * t, 0.5 + 0.4 * t, 0) });
-        sheet(b, { base: V(0, 0.25, -0.15), dir: V(0, 1, -0.5), face: V(0, 0.5, 1), len: 1.1, width: 0.75, outline: ROUND, nu: 2, nv: 2, cup: 0.6, curl: 0.2, color: (u, t) => M(0, 0.15 * (1 - t), 0.85 + 0.15 * t) });
+        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.25, 0.35, 0.2), dir: V(s, 0.6, 0.3), len: 0.5, width: 0.28, nu: 1, nv: 1, color: (u, t) => M(0, 0.9, 0.1) });
+        // the white shell-shaped lip (the "mouth"), large and deeply cupped, in the centre colour
+        sheet(b, { base: V(0, 0.3, -0.2), dir: V(0, 1, -0.45), face: V(0, 0.5, 1), len: 1.7, width: 1.35, outline: ROUND, nu: 2, nv: 3, cup: 0.85, curl: 0.25, color: (u, t) => M(0, 0.06 * (1 - t), 0.94 + 0.06 * t) });
         tube(b, [V(0, 0.1, 0.1), V(0, 0.6, 0.25)], [0.08, 0.06], { sides: 3, color: () => M(0.2, 0, 0.8), sway: () => 0 });
       },
       palettes: [
-        [0xf2e2dc, 0x9a1a2a, 0xf0d6dc],   // D. simia: white to pink, red-purple spots, the monkey face
-        [0x3a1228, 0x9fae7a, 0xf0e4e8],   // D. vampira: blackish-purple veins over green, white lip
-        [0xe8d070, 0x8a1a20, 0xf4ece0],   // D. bella: cream-yellow, maroon spotted
-        [0xb04060, 0x5a1030, 0xf0e0d8],   // D. chimaera type: rose-purple, dark tails
+        [0xeadcc8, 0x7a1424, 0xf6f0ec, 1],   // D. simia (photo 3): cream, dense maroon spots, maroon tails, white lip
+        [0xc07a3c, 0x24101a, 0xf0e8ec, 2],   // D. vampira (photo 1): orange-tan under a black-purple net, black tails
+        [0x4a0e1c, 0x2a0810, 0xf4ece8, 0],   // D. hirtzii (photo 2): dark maroon, pale bases, white lip
+        [0xd8b890, 0x6a1420, 0xf6eee8, 1],   // D. gigas / bella type: tan, maroon spotted
       ],
       // At the ends of the stems that grow out and down from the plant: the flowers hang and face out.
       heads(r, grown) {
@@ -841,7 +846,7 @@ export function previewGeometry(def, { palette = null, grown = 1, seed = 5 } = {
       out.col.push(bc.getX(i), bc.getY(i), bc.getZ(i)); out.sway.push(bs.getX(i));
       if (bl) out.leaf.push(bl.getX(i), bl.getY(i)); else out.leaf.push(0, -1);
     }
-    f.palettes[k].forEach((hex, j) => cols[j].setHex(hex));
+    f.palettes[k].slice(0, 3).forEach((hex, j) => cols[j].setHex(hex));
     for (const h of hs) {
       const m = headMatrix(h), nm = new THREE.Matrix3().getNormalMatrix(m);
       for (let i = 0; i < head.pos.length / 3; i++) {
