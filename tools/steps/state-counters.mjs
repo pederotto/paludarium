@@ -43,8 +43,15 @@ export function stuck(rows, { T = 60, r = 1 } = {}) {
 // Pile: 3 or more animals within one body length of each other (connected groups: A near B near C) and the same three staying
 // together longer than T s. Body length per species from `sizes` (the dump header has them); a pair uses the longer of the two.
 // awakeOnly drops rows with awake = 0 first (a tucked-in gecko group is natural: herp.js:523 sleeps in groups).
-export function pile(rows, { T = 300, sizes = {}, fallbackLen = 5, awakeOnly = false } = {}) {
-  const len = (sp) => sizes[sp] ?? fallbackLen;
+// overlap (N11c, the lead's rule: a pile is bodies that interpenetrate, not animals that touch; springtails, isopods and cory
+// aggregate in life): when set, two animals link only while their centres are closer than overlap x their mean body length
+// (0.5: each body reaches past the other's middle by a quarter length), with lengths from `real` (published adult lengths,
+// REAL_LEN_CM) before `sizes` (the dump header: SPECIES.size x 4, state-dump.mjs:181, 3-25x too long for the crews).
+export const REAL_LEN_CM = { springtail: 0.2, springpink: 0.2, springsea: 0.2, isopod: 0.4, purpleiso: 0.5, pandaking: 2.5, cory: 5.5, guppy: 3.5, pygmy: 3, redeye: 6 };
+export const PILE_OVERLAP = 0.5;
+export function pile(rows, { T = 300, sizes = {}, fallbackLen = 5, awakeOnly = false, overlap = null, real = REAL_LEN_CM } = {}) {
+  const len = (sp) => (overlap ? real[sp] : null) ?? sizes[sp] ?? fallbackLen;
+  const reach = overlap ? (a, b) => (overlap * (len(a) + len(b))) / 2 : (a, b) => Math.max(len(a), len(b));
   const at = new Map();
   for (const r of rows) { if (awakeOnly && !r.awake) continue; let l = at.get(r.t); if (!l) at.set(r.t, l = []); l.push(r); }
   const episodes = [];
@@ -53,7 +60,7 @@ export function pile(rows, { T = 300, sizes = {}, fallbackLen = 5, awakeOnly = f
   for (const t of [...at.keys()].sort((a, b) => a - b)) {
     const g = at.get(t), par = g.map((_, i) => i);
     const find = (i) => (par[i] === i ? i : (par[i] = find(par[i])));
-    for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) if (d3(g[i], g[j]) <= Math.max(len(g[i].sp), len(g[j].sp))) par[find(i)] = find(j);
+    for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) if (d3(g[i], g[j]) <= reach(g[i].sp, g[j].sp)) par[find(i)] = find(j);
     const comps = new Map();
     g.forEach((row, i) => { const k = find(i); let l = comps.get(k); if (!l) comps.set(k, l = []); l.push(row); });
     const next = [], used = new Set();
@@ -128,7 +135,7 @@ export function coverage(rows, end = null) {
 // One table: per species, everything above.
 export function summary(rows, hdr = null, end = null, { T = 60, r = 1, pileT = 300 } = {}) {
   const sizes = hdr?.sizes ?? {};
-  const st = stuck(rows, { T, r }), pa = pile(rows, { T: pileT, sizes, awakeOnly: true }), pl = pile(rows, { T: pileT, sizes }), wt = waterTime(rows, { lights: hdr?.lights }), sol = inSolid(rows), tn = tunnel(rows);
+  const st = stuck(rows, { T, r }), pa = pile(rows, { T: pileT, sizes, awakeOnly: true, overlap: PILE_OVERLAP }), pl = pile(rows, { T: pileT, sizes, overlap: PILE_OVERLAP }), wt = waterTime(rows, { lights: hdr?.lights }), sol = inSolid(rows), tn = tunnel(rows);
   const species = {}, sp0 = new Map(rows.map((x) => [x.id, x.sp]));
   for (const x of rows) { const q = (species[x.sp] ??= { ids: new Set(), rows: 0 }); q.ids.add(x.id); q.rows++; }
   const pcount = (p, sp) => p.episodes.filter((e) => e.species[sp]).length;

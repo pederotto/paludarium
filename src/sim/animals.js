@@ -22,7 +22,8 @@ import { hideScore } from './habitat.js';
 import { herpSpot, depthCap, depthOk, deepWithin } from './placement.js';
 import { HABITAT } from '../content/habitats.js';
 import { restStep, isNight, REST_LABEL, LARVA_REST } from './swimrest.js';
-import { SKINK, skinkMind, skinkThink } from './skink.js';
+import { SKINK, skinkMind, skinkThink, skinkRefugeOk } from './skink.js';
+import { freeWalledIn } from './walledin.js';
 import { SHRIMP, shrimpMind, shrimpThink, shrimpDoing } from './shrimp.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
@@ -1322,6 +1323,7 @@ export class Animals {
     }
     if (this.insideSolid(a, sp)) { this.stuckStats.inside = (this.stuckStats.inside ?? 0) + 1; const by = this.stuckStats.by ??= {}; by[a.sp] = (by[a.sp] ?? 0) + 1; this.relocate(a, sp, false, true); return; }
     if (sp.kind === 'egg') return;
+    if (freeWalledIn(this, a, sp, dt)) return;                    // N11c: walled in by solid cells (walledin.js)
     if (!this.wantsMove(a, sp)) { a.stillT = 0; a.anchor = null; return; }
     if (!a.anchor) { a.anchor = a.pos.clone(); a.stillT = 0; return; }
     if (a.pos.distanceTo(a.anchor) > 0.25 + 0.1 * sp.size) { a.anchor.copy(a.pos); a.stillT = 0; return; }
@@ -2402,7 +2404,7 @@ export class Animals {
       // whose skinkCover is 0.6 or more (0.6 a guess: the 0.5 edge of a patch is reached short by the stop distance).
       // N4b: 8 angles on each ring, rings 1 … 20 cm every 1.5 cm, nearest ring first; the hit is pushed 2 cm further along its
       // ray while cover holds, so the stop (SKINK.inCover short of the point) lands inside the patch, not on its edge.
-      let ref = this.skinkCover(x, z) >= 0.6 ? { x, z, r: 0 } : null;
+      let ref = skinkRefugeOk(this.skinkCover(x, z), depth) ? { x, z, r: 0 } : null;   // (N11c: on land only)
       for (let r = 1; !ref && r <= 20; r += 1.5) {
         let best = -1;
         for (let k = 0; k < 8; k++) {
