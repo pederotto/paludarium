@@ -4,15 +4,22 @@
 - Raw assets are dropped in `art-src/drop/`, any name, any kind, unsorted. When the user says
   they dropped something, or asks for art work, look there first.
 - **Paludarium Drop** (https://claude.ai/artifact/3vUJANJZcqCpwkR9gudWs4) is how files get there from
-  another computer. When the user says they dropped files in it: `ArtifactData` list `drops` with
-  `out_dir` in the scratchpad, list each `drops/<id>/parts` the same way for every manifest with
-  `status: "waiting"`, run `node tools/drop-pull.mjs <out_dir>` (joins the parts, checks size and
-  SHA-256, writes into `art-src/drop/`; exits 1 on a bad file), then for each file that passed
-  `update` its manifest to `{ status: "pulled", pulledSha256: <the sha256 the tool printed>, pulledBytes: <bytes>,
-  pulledAt: <ISO time> }` (one write per file, a `batch` for several). Do not delete parts yourself: the Drop page
-  deletes a file's parts by itself once its manifest says pulled with a matching sha-256 (live while the page is
-  open, otherwise the next time it is opened) and sets `partsLeft: 0`. Only if the store is full and the page
-  cannot be opened, delete the parts with a `batch`. Then process as below.
+  another computer or a phone. When the user says they dropped files in it: `ArtifactData` query `drops` where
+  `status == "waiting"` with `out_dir` (never without: parts are base64). Each manifest says how it travelled:
+  - `via: "assets"` (videos and web images, v4): `pieces` [{id, bytes, sha256}]. Fetch each piece with the
+    `Artifact` tool, `action: "read"`, `path: <piece id>`, one call per piece (`paths` does not take asset ids); it
+    lands as `<id>.<ext>` in the scratchpad's `artifact-files/<artifact uuid>/`. Then
+    `node tools/drop-pull.mjs <out_dir> --assets=<that folder> --out=<dest>`; it prints the piece hashes.
+  - db parts (other kinds, and anything sent before v4): `ArtifactData` list `drops/<id>/parts` with `out_dir`
+    too, then `node tools/drop-pull.mjs <out_dir> --out=<dest>`; it prints the file's sha256.
+  The tool checks every byte against the browser's SHA-256 and exits 1 on a bad file. Videos and third-party
+  reference pictures go to `paludarium master/.agents/refs/` (never git); game assets to `art-src/drop/`. For each
+  file that passed, ONE `update` (a `batch` for several) marks it received: `{ status: "pulled", pulledPieces:
+  [<printed hashes>] }` for pieces or `{ status: "pulled", pulledSha256: <printed sha256> }` for parts, plus
+  `pulledBytes` and `pulledAt`. Do not delete pieces or parts yourself: the Drop page deletes them once the receipt
+  matches what was sent (live while it is open, otherwise the next time it is opened) and sets `assetsLeft: 0` or
+  `partsLeft: 0`. Only if the store is full and the page cannot be opened, delete pieces with the `Artifact` tool
+  (`action: "delete"`, `path: <piece id>`) or parts with a `batch`. Then process as below.
   Never mark or delete a file that failed its check. For each file: decide what it
   is, optimise it into `public/assets/` (creatures: `npm run import-creatures`; models and
   textures: gltf-transform and sharp as in `tools/import-polyhaven.mjs` and

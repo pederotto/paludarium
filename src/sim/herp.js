@@ -104,6 +104,10 @@ export const PROFILES = {
     shedDays: [14, 28], tail: true, regrowDays: 25,
   },
 };
+// The marbled newt is a newt with a land life (`land`: the share of its time ashore, the care sheet's half; `bout`: game
+// minutes of one stay, ashore or in the water, before it changes): out of the breeding season Triturus marmoratus lives
+// mostly on land, hiding under wood and moss by day and hunting there at night, and goes back to the water to soak.
+PROFILES.marbled = { ...PROFILES.newt, tIdeal: 17, tHot: 22, land: 0.5, bout: [120, 360] };
 // A species without a row (another animal of the same kind) gets the nearest one.
 export const profileFor = (id, kind) => PROFILES[id] ?? PROFILES[kind === 'axolotl' ? 'axolotl' : kind === 'gecko' ? 'gecko' : id === 'firesal' ? 'firesal' : 'newt'];
 
@@ -356,6 +360,14 @@ function waterThink(m, P, s, d, it, rnd) {
   const warm = d.hot > 0.3;
   const hide = act < P.awakeAt;
 
+  // A land life (P.land): bouts of a few game hours ashore and in the water, P.land of the time ashore on average. Ashore it
+  // wanders and hunts on land, hides on land (animals.js finds it a land home while m.onLand), and goes back in only to soak.
+  if (P.land) {
+    m.boutLeft = (m.boutLeft ?? between(rnd, P.bout) * rnd()) - (d.dtMin ?? 0);
+    if (m.boutLeft <= 0) { m.onLand = !m.onLand; m.boutLeft = between(rnd, P.bout) * 2 * (m.onLand ? P.land : 1 - P.land); }
+  }
+  const landLife = !!(P.land && m.onLand);
+
   const fleeing = m.fear > 0.35;
   if (m.mode !== 'flee' && fleeing) { go(m, 'flee', rnd); m.freeze = 0; }
   if (m.mode === 'flee') {
@@ -371,6 +383,8 @@ function waterThink(m, P, s, d, it, rnd) {
     if (airNow) want = 'air';
     else if (!inWater && m.ashore > 0 && m.wet < P.soakAt + 0.15 && s.bank !== undefined) want = 'return';
     else if (prey && act > 0.2 && !(warm && (s.hunger ?? 0) < 0.6)) want = 'hunt';
+    else if (landLife && !inWater && (hide || warm)) want = 'hide';
+    else if (landLife && (!inWater || m.wet > 0.9)) want = 'shore';
     else if (m.mode === 'shore' && m.wet > P.soakAt + 0.1 && act > 0.5) want = 'shore';
     else if (hide || warm) want = 'hide';
     else if (P.shore && act > 0.75 && (s.rain ?? 0) + (s.rh ?? 0) / 200 > 0.75 && m.wet > 0.8 && m.mode === 'rest' && rnd() < dt * 0.02) want = 'shore';
@@ -449,7 +463,7 @@ function waterThink(m, P, s, d, it, rnd) {
         Object.assign(tg, sniffHead(m, t, 0.2));
         if (m.moveLeft <= 0) { m.goal = null; m.pauseLeft = between(rnd, P.pauseS); m.sniff = between(rnd, P.sniffS); }
       } else { it.calm = 1; m.sniff = Math.max(0, m.sniff - dt); Object.assign(tg, m.sniff > 0 ? sniffHead(m, t, 0.5) : { head: 0.25 * Math.sin(t * 0.8 + m.look), headP: 0.1 }); }
-      if (m.modeT > 90 || m.wet < P.soakAt + 0.15) go(m, 'return', rnd);
+      if ((!landLife && m.modeT > 90) || m.wet < P.soakAt + 0.15) go(m, 'return', rnd);
       break;
     }
     case 'forage': {
