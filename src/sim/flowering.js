@@ -362,9 +362,13 @@ const cuthLayout = once(() => {
     // (F3) Not a wreath (photos 2-3): the outer ten bulbs each carry one flower on a short stalk that leaves the bulb top
     // outward and up; the flower faces out and a little down, its turn and tilt varied (own rng: the body's draws unchanged).
     if (k < 2) continue;
-    const az = a + (r2() - 0.5) * 0.9, e = -0.3 + 1.0 * ((k * 0.618034 + 0.3) % 1), ce = Math.cos(e);
+    // (F4) On a wall the body's up leans ~59 deg off the wall normal (wallTilt 0.6) and spins at random, so a head facing
+    // below ~0.55 rad of elevation, or lower than ~0.6 x its distance from the axis, turns into the mount at some spin
+    // (C2: 2-4 of 10). Elevation 0.65-1.2 rad and a height >= 0.8 x radius + 0.5 keep every head in front, facing out.
+    const az = a + (r2() - 0.5) * 0.9, e = 0.65 + 0.55 * ((k * 0.618034 + 0.3) % 1), ce = Math.cos(e);
     const face = V(Math.cos(az) * ce, Math.sin(e), Math.sin(az) * ce);
-    const sd = V(Math.cos(az) * 0.8, 0.5 + 0.6 * r2(), Math.sin(az) * 0.8).normalize(), tip = top.clone().addScaledVector(sd, 0.5 + 1.1 * r2());
+    const sd = V(Math.cos(az) * 0.6, 0.6 + 0.6 * r2(), Math.sin(az) * 0.6).normalize(), tip = top.clone().addScaledVector(sd, 0.5 + 1.1 * r2());
+    tip.y = Math.max(tip.y, 0.8 * Math.hypot(tip.x, tip.z) + 0.5);
     stalks.push({ pts: [top.clone(), tip], tip, face, age: r2() });
   }
   return { bulbs, stalks };
@@ -524,12 +528,12 @@ export const FLOWERING = {
         sheet(b, { base: V(0, tl - 0.2, -0.1), dir: V(0, 0.8, -0.6), face: V(0, 0.6, 1), len: 0.45, width: 0.22, nu: 1, nv: 1, color: () => M(0, 1, 0) });
       },
       palettes: [
-        [0xc2185b, 0x6a0a30, 0x7a0a3a],      // M. coccinea, magenta, dark magenta tails (the common form)
-        [0xd8261c, 0x8a1010, 0xa01a14],      // scarlet (M. ignea)
-        [0xf06a12, 0x8a2a6a, 0xd85a10],      // orange with purple hairs (M. veitchiana)
-        [0xe89ab0, 0x6a0f2a, 0xf0c030, 1],   // M. decumana: pink, densely spotted maroon, yellow tails (photo 1)
-        [0xf2e2b0, 0xb0182a, 0xf0d070],      // cream-yellow with a magenta-red throat blotch (photo 2)
-        [0xfaf8f2, 0xf0a020, 0xf2c418],      // white with an orange-yellow throat and long yellow tails (photo 3)
+        [0xc2185b, 0x6a0a30, 0x7a0a3a, 0, 1],      // M. coccinea, magenta, dark magenta tails (the common form)
+        [0xd8261c, 0x8a1010, 0xa01a14, 0, 1],      // scarlet (M. ignea)
+        [0xf06a12, 0x8a2a6a, 0xd85a10, 0, 1],      // orange with purple hairs (M. veitchiana)
+        [0xe89ab0, 0x6a0f2a, 0xf0c030, 1, 1],   // M. decumana: pink, densely spotted maroon, yellow tails (photo 1)
+        [0xf2e2b0, 0xb0182a, 0xf0d070, 0, 1],      // cream-yellow with a magenta-red throat blotch (photo 2)
+        [0xfaf8f2, 0xf0a020, 0xf2c418, 0, 1],      // white with an orange-yellow throat and long yellow tails (photo 3)
       ],
       // One flower on each wiry stem of the body; a young plant does not flower.
       heads(r, grown) {
@@ -581,10 +585,10 @@ export const FLOWERING = {
           col: (i, j) => (i === 0 ? M(0.05, 0.45, 0.5) : j % 2 ? M(0, 0.65, 0.35) : M(0, 0.04, 0.96)) });
       },
       palettes: [
-        [0xf0e6d8, 0x6a1020, 0xfaf4f0, 1],   // D. simia (photo 3): cream, dense maroon spots, maroon tails, white lip
-        [0xc07a3c, 0x24101a, 0xf0e8ec, 2],   // D. vampira (photo 1): orange-tan under a black-purple net, black tails
-        [0x4a0e1c, 0x2a0810, 0xf4ece8, 0],   // D. hirtzii (photo 2): dark maroon, pale bases, white lip
-        [0xd8b890, 0x6a1420, 0xf6eee8, 1],   // D. gigas / bella type: tan, maroon spotted
+        [0xf0e6d8, 0x6a1020, 0xfaf4f0, 1, 3],   // D. simia (photo 3): cream, dense maroon spots, maroon tails, white lip
+        [0xc07a3c, 0x24101a, 0xf0e8ec, 2, 3],   // D. vampira (photo 1): orange-tan under a black-purple net, black tails
+        [0x4a0e1c, 0x2a0810, 0xf4ece8, 0, 3],   // D. hirtzii (photo 2): dark maroon, pale bases, white lip
+        [0xd8b890, 0x6a1420, 0xf6eee8, 1, 3],   // D. gigas / bella type: tan, maroon spotted
       ],
       // At the ends of the stems that grow out and down from the plant: the flowers hang and face out.
       heads(r, grown) {
@@ -638,11 +642,11 @@ export const FLOWERING = {
         }
       },
       palettes: [
-        [0x5e0c22, 0x3a0816, 0x962a44],   // P. cardiothallis: dark wine-maroon (photo 4)
-        [0x9a2a5a, 0x5a1030, 0xf0c040],   // purple-red (P. palliolata)
-        [0xe8a020, 0x7a3a12, 0xc05a20],   // yellow-orange with brown (photo 1)
-        [0x7a3a1a, 0x4a1a10, 0xc89040],   // brown-maroon (P. cordata type, photo 3)
-        [0xb8b860, 0x7a3a2a, 0x8a2a3a],   // greenish yellow, brown-striped (P. phyllocardia type)
+        [0x5e0c22, 0x3a0816, 0x962a44, 0, 1],   // P. cardiothallis: dark wine-maroon (photo 4)
+        [0x9a2a5a, 0x5a1030, 0xf0c040, 0, 1],   // purple-red (P. palliolata)
+        [0xe8a020, 0x7a3a12, 0xc05a20, 0, 1],   // yellow-orange with brown (photo 1)
+        [0x7a3a1a, 0x4a1a10, 0xc89040, 0, 1],   // brown-maroon (P. cordata type, photo 3)
+        [0xb8b860, 0x7a3a2a, 0x8a2a3a, 0, 1],   // greenish yellow, brown-striped (P. phyllocardia type)
       ],
       // A fascicle in the notch of most leaves, on the upper face; on one leaf more flowers in a line along the midrib (photo 1).
       heads(r, grown) {
@@ -743,12 +747,12 @@ export const FLOWERING = {
       },
       // [main, accent (tips, lip), centre (lip tip, throat), 4 SPARKLE: the crystalline sheen]
       palettes: [
-        [0xe0221a, 0xf0581c, 0xf5901c, 4],   // scarlet, orange lip (photo 1)
-        [0xe878b8, 0xf6e8d2, 0xf08a2a, 4],   // pink with a lavender sheen, cream lip tipped orange (photo 2)
-        [0xfaf6f4, 0xf088b0, 0xf05a1e, 4],   // white with pink tips, red-orange lip tip (photo 3)
-        [0xf2701a, 0xf8a040, 0xe8401a, 4],   // orange
-        [0xf6d424, 0xf8e890, 0xf07a1a, 4],   // yellow
-        [0x9a2c8c, 0xf2c83a, 0xf07020, 4],   // purple tipped yellow (bicolour)
+        [0xe0221a, 0xf0581c, 0xf5901c, 4, 2],   // scarlet, orange lip (photo 1)
+        [0xe878b8, 0xf6e8d2, 0xf08a2a, 4, 2],   // pink with a lavender sheen, cream lip tipped orange (photo 2)
+        [0xfaf6f4, 0xf088b0, 0xf05a1e, 4, 2],   // white with pink tips, red-orange lip tip (photo 3)
+        [0xf2701a, 0xf8a040, 0xe8401a, 4, 2],   // orange
+        [0xf6d424, 0xf8e890, 0xf07a1a, 4, 2],   // yellow
+        [0x9a2c8c, 0xf2c83a, 0xf07020, 4, 2],   // purple tipped yellow (bicolour)
       ],
       // One per outer bulb (10), at the tip of its short stalk, facing out and a little down all round the clump.
       heads(r, grown) {

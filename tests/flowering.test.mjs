@@ -53,7 +53,8 @@ test('palettes, heads, cycles and needs are valid', () => {
   for (const [id, f] of Object.entries(flowers)) {
     assert.ok(f.palettes.length >= 2 && f.palettes.length <= 6, `${id}: 2-6 colour forms`);
     for (const p of f.palettes) {
-      assert.ok(p.length === 3 || p.length === 4, id);   // [main, accent, centre, pattern code?]
+      assert.ok(p.length >= 3 && p.length <= 5, id);   // [main, accent, centre, pattern code?, surface style?]
+      if (p.length === 5) assert.ok(Number.isInteger(p[4]) && p[4] >= 0 && p[4] <= 3, `${id}: surface style 0-3`);
       for (const c of p.slice(0, 3)) assert.ok(Number.isInteger(c) && c >= 0 && c <= 0xffffff, id);
       if (p.length === 4) assert.ok(Number.isInteger(p[3]) && p[3] >= 0 && p[3] <= 7, `${id}: pattern code 0-7`);
     }

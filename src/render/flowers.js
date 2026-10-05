@@ -17,7 +17,7 @@ import * as THREE from 'three/webgpu';
 import {
   attribute, positionLocal, positionWorld, float, vec3, vec4, sin, cos, max, min, floor, mix, normalize, cross, dot, length, saturate,
   smoothstep, step, time, transformNormalToView, varying, pow, mrt, packNormalToRGB, normalView, normalWorld, faceDirection,
-  screenCoordinate, fract, cameraPosition, uniform, abs, vec2,
+  screenCoordinate, fract, cameraPosition, uniform, abs, vec2, fwidth,
 } from 'three/tsl';
 import { U } from './uniforms.js';
 import { AIR } from './airflow.js';
@@ -79,7 +79,8 @@ export function flowerMaterial() {
   const P = attribute('iPos', 'vec4'), Q = attribute('iRot', 'vec4'), PAL = attribute('iPal', 'vec4'), B = attribute('iBloom', 'vec4');
   const F = attribute('fl', 'vec4');
   const isLeaf = step(0, F.y), v = saturate(F.y);
-  const pat = floor(PAL.w.div(8)), pw = PAL.w.sub(pat.mul(8));
+  const sf = floor(PAL.w.div(64)), pw64 = PAL.w.sub(sf.mul(64));      // (F4) surface style, the palette's 5th value
+  const pat = floor(pw64.div(8)), pw = pw64.sub(pat.mul(8));
   const mode = floor(pw.mul(0.5)), transl = pw.sub(mode.mul(2));
   const fade = max(B.y, 0), green = max(B.y.negate(), 0);
   // sway: unpack the stalk's (packSway) and move as plantMaterial moves that spot
@@ -114,7 +115,8 @@ export function flowerMaterial() {
     sin(t.mul(0.8).add(phz.mul(k)).add(head.z.mul(0.07)).add(Math.PI / 2)).mul(amp.mul(0.7)),
   ).mul(AIR.air);
   m.positionNode = qrot(Q, u2.mul(dd).mul(P.w)).add(head).add(off);
-  m.normalNode = transformNormalToView(normalize(varying(qrot(Q, n1), 'vFlowerN'))).mul(faceDirection);
+  const nWv = varying(qrot(Q, n1), 'vFlowerN');
+  m.normalNode = transformNormalToView(normalize(nWv)).mul(faceDirection);
   // Colour: the plant's three colours mixed by the mask (sRGB to linear), green in a young bud, browning as it fades.
   const unpack = (f) => { const r = floor(f.div(65536)), g = floor(f.sub(r.mul(65536)).div(256)), b = f.sub(r.mul(65536)).sub(g.mul(256)); return pow(vec3(r, g, b).div(255), 2.2); };
   const mb = saturate(float(1).sub(F.z).sub(F.w));
@@ -128,9 +130,10 @@ export function flowerMaterial() {
   const vc = varying(vec4(col, transl), 'vFlowerC');
   // Pattern (iPal.w / 8): drawn in the accent colour on the main-colour part of each petal only (mask F.z), in the petal's
   // own coordinates, so tails (accent) and lip/throat (centre) stay clean. Arithmetic only: no texture, no extra buffer.
-  const va = varying(vec4(tone(unpack(PAL.y)), pat), 'vFlowerA');
-  const vp = varying(vec4(F.x, v, F.z.mul(isLeaf), 0), 'vFlowerP');
-  const pu = vp.x, pv = vp.y, pk = va.w;
+  const va = varying(vec4(tone(unpack(PAL.y)), pat.add(sf.mul(8))), 'vFlowerA');
+  const vp = varying(vec4(F.x, v, F.z.mul(isLeaf), mb), 'vFlowerP');
+  const sfv = floor(va.w.add(0.5).div(8)), pk = va.w.sub(sfv.mul(8));
+  const pu = vp.x, pv = vp.y;
   const hash = (c) => fract(sin(dot(c, vec2(12.9898, 78.233))).mul(43758.5453));
   // 1 SPOTS (v3, decision 11): irregular blotches of varied size that merge, large and dense at the petal's base and centre,
   // fine and sparse toward its tip: two octaves of domain-warped sine waves (no cells, so no grid) cut at a level that rises
@@ -164,10 +167,54 @@ export function flowerMaterial() {
   // faint parallel veins along each petal and a slightly deeper tone at its base (leaf coordinates; no noise)
   const au = F.x.abs();
   const vein = smoothstep(0.75, 1, cos(au.mul(7 * Math.PI))).mul(smoothstep(0.95, 0.6, au)).mul(0.07);
-  m.colorNode = pcol.mul(float(1).sub(vein.add(smoothstep(0.3, 0, F.y).mul(0.12)).mul(isLeaf)));
+  const col0 = pcol.mul(float(1).sub(vein.add(smoothstep(0.3, 0, F.y).mul(0.12)).mul(isLeaf)));
   // Thin petals glow where the lamp shines through them (the side we see faces away from it, or edge-on), as the leaves do.
   const back = saturate(dot(normalWorld, vec3(0, 1, 0)).mul(-0.7).add(0.35));
-  m.emissiveNode = pcol.mul(vc.w).mul(back.mul(0.8).add(0.15)).mul(U.daylight.mul(0.35).add(0.02)).add(sparkle.mul(U.daylight.mul(0.12)));
+  const em0 = pcol.mul(vc.w).mul(back.mul(0.8).add(0.15)).mul(U.daylight.mul(0.35).add(0.02)).add(sparkle.mul(U.daylight.mul(0.12)));
+  // (F4, decision 18) SURFACE (iPal.w / 64): living tissue instead of flat paint, for the orchids; 0 = col0/em0 above, exactly.
+  // Arithmetic in the petal's leaf coords (u across, v base to tip); fine detail fades by fwidth before it can alias.
+  const has = step(0.5, sfv), isS = (n) => step(n - 0.5, sfv).mul(step(sfv, n + 0.5)), lip = vp.w;
+  const tv = saturate(F.y);
+  // fine veins along the petal, slightly wavy, fanning toward the tip; every third one stronger; thin at the margin
+  const wv = au.mul(10).add(sin(tv.mul(9).add(au.mul(6))).mul(0.18)).add(tv.mul(au).mul(2.5)), fw = fwidth(wv);
+  const vl = abs(fract(wv).sub(0.5)).mul(2), mj = step(fract(floor(wv).div(3)), 0.1);
+  const veinF = smoothstep(fw.add(0.16), max(float(0.16).sub(fw), 0), vl).mul(saturate(float(1.3).sub(fw.mul(2.5))))
+    .mul(mj.mul(0.45).add(0.55)).mul(smoothstep(1.0, 0.8, au)).mul(isLeaf);
+  // deeper, more saturated base; lighter margin and tip; slight irregular mottling (two warped sine waves, no grid)
+  const baseW = smoothstep(0.42, 0, tv).mul(0.55).mul(isLeaf);
+  const edgeW = max(smoothstep(0.72, 1, au), smoothstep(0.82, 1, tv)).mul(0.5).mul(isLeaf);
+  const mt = sin(pu.mul(7.3).add(sin(pv.mul(11).add(pu.mul(3.1))).mul(1.4))).mul(sin(pv.mul(13.7).sub(pu.mul(4.3)).add(sin(pu.mul(9.1)).mul(1.2))))
+    .add(sin(pu.mul(19).add(pv.mul(23)).add(sin(pv.mul(29)).mul(0.8))).mul(0.4));
+  const pc = max(pcol, vec3(1e-4));
+  let tc = mix(pcol, pow(pc, vec3(1.35)).mul(0.9), min(baseW.add(veinF.mul(0.7)), 1));
+  tc = mix(tc, pow(pc, vec3(0.8)), edgeW).mul(mt.mul(0.09).mul(isLeaf).add(1));
+  // view terms for the styles
+  const vd = normalize(cameraPosition.sub(positionWorld)), ndv = abs(dot(normalize(nWv), vd)), rim = float(1).sub(ndv);
+  const dl = U.daylight.mul(0.8).add(0.05);
+  // 1 WAXY (Masdevallia, Pleurothallis, the Dracula lip): a smooth sheen and a soft milky fresnel rim
+  const wax = isS(1).add(isS(3).mul(smoothstep(0.4, 0.7, lip)));
+  const waxE = mix(pcol, vec3(1), 0.45).mul(rim.mul(rim).mul(rim).mul(0.3)).mul(wax);
+  // 2 CRYSTALLINE (D. cuthbertsonii): papillae cells of slightly varied tone; some glint as the view moves, with a faint dark
+  // facet round the core so they read on white petals too
+  const kq2 = vec2(pu.mul(30), pv.mul(44)), kh2 = hash(floor(kq2)), d2 = length(fract(kq2).sub(0.5));
+  const cf = saturate(float(1.5).sub(fwidth(kq2.y).mul(2))), cr2 = isS(2).mul(isLeaf);
+  const tw = saturate(sin(kh2.mul(90).add(dot(vd, vec3(23, 31, 17)))).mul(1.6).sub(0.6));
+  const on = smoothstep(0.62, 0.75, kh2), core = smoothstep(0.3, 0.06, d2);
+  const glit = on.mul(core).mul(tw).mul(cr2);
+  const facet = on.mul(smoothstep(0.12, 0.3, d2)).mul(smoothstep(0.5, 0.36, d2)).mul(cf).mul(cr2);
+  tc = tc.mul(float(1).sub(facet.mul(0.22)).sub(kh2.sub(0.5).mul(0.1).mul(cf).mul(cr2)));
+  // 3 VELVET / HAIRY (Dracula sepals): face-on slightly darker, a soft light fuzz at grazing angles, short dark hairs on the blade
+  const vel = isS(3).mul(float(1).sub(smoothstep(0.4, 0.7, lip)));
+  const hq = vec2(pu.mul(24), pv.mul(40)), hc = floor(hq), hh = hash(hc.add(vec2(7.3, 1.9))), hf = fract(hq);
+  const hair = step(0.5, hh).mul(smoothstep(0.2, 0.06, abs(hf.x.sub(hh.mul(0.4)).sub(0.3)))).mul(smoothstep(0, 0.15, hf.y)).mul(smoothstep(0.95, 0.6, hf.y))
+    .mul(saturate(float(1.3).sub(fwidth(hq.y).mul(2)))).mul(smoothstep(0.75, 0.3, tv)).mul(isLeaf).mul(vel);
+  tc = tc.mul(float(1).sub(hair.mul(0.6))).mul(float(1).sub(vel.mul(ndv).mul(0.12)));
+  const velE = mix(pcol, vec3(0.9, 0.85, 0.85), 0.35).mul(rim.mul(rim).mul(0.28)).mul(vel);
+  m.colorNode = mix(col0, tc, has);
+  // translucency: the thin margin glows more, the veins and hairs hold the light back
+  const thin = mix(float(1), edgeW.mul(1.2).sub(veinF.mul(0.5)).sub(hair.mul(0.5)).add(1), has);
+  m.emissiveNode = em0.mul(thin).add(waxE.add(velE).mul(dl)).add(glit.mul(dl).mul(1.4));
+  m.roughnessNode = mix(float(0.55), float(0.3), wax);
   // Right in front of the lens a flower dissolves like a leaf (plantMaterial's screen-space dither).
   const ign = fract(fract(screenCoordinate.x.mul(0.06711056).add(screenCoordinate.y.mul(0.00583715))).mul(52.9829189));
   m.opacityNode = step(ign, smoothstep(1.5, 3.2, positionWorld.distance(cameraPosition)));
