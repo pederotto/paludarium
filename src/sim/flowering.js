@@ -141,6 +141,83 @@ const DICOT_MAT = { amp: 0.2, speed: 0.7, veins: { kind: 'pinnate', n: 6, slope:
 // ---------------------------------------------------------------------------------------------------------------------
 // Orchids
 
+// Orchid flower parts in 3D (run orchids, pass 3, shared by the orchid flowers below). Head space: +Y the facing, +Z the
+// dorsal side (headMatrix). HEAD_DOWN: straight down as seen from a head that faces out and a little down.
+const HEAD_DOWN = V(0, 0.4, -1).normalize();
+
+// Rows x columns of points P[i][j] into 2 triangles a cell, normals across the row and column directions (the same winding as
+// `sheet`). `leaf(i, j)` [u, v] or null, `col(i, j)` a mask or colour, `sway(i, j)`; `wrap` closes each row into a ring.
+function surf(b, P, { leaf = null, col, sway = () => 1, wrap = false }) {
+  const nr = P.length, nc = P[0].length, cols = wrap ? nc : nc - 1;
+  const at = (i, j) => P[Math.min(nr - 1, Math.max(0, i))][wrap ? (j + nc) % nc : Math.min(nc - 1, Math.max(0, j))];
+  const N = P.map((row, i) => row.map((_, j) => {
+    const n = new THREE.Vector3().crossVectors(at(i + 1, j).clone().sub(at(i - 1, j)), at(i, j + 1).clone().sub(at(i, j - 1)));
+    return n.lengthSq() > 1e-12 ? n.normalize() : V(0, 1, 0);
+  }));
+  const vert = (i, j) => { j = wrap ? j % nc : j; put(b, P[i][j], N[i][j], col(i, j), sway(i, j), leaf ? leaf(i, j) : null); };
+  for (let i = 0; i < nr - 1; i++) for (let j = 0; j < cols; j++) {
+    vert(i, j); vert(i + 1, j); vert(i, j + 1);
+    vert(i, j + 1); vert(i + 1, j); vert(i + 1, j + 1);
+  }
+}
+
+// One sepal of a cupped flower, from the bowl's floor (r0 from the centre, toward angle th about +Y: 0 the dorsal, about
+// +-2.1 the laterals) out over the rim. `depth`: how far forward the rim sits (the bowl); `hood` arches the outer blade forward
+// and in; `cup` raises the margins toward the face. The margin is rounded and narrows in a concave curve into a thin tail of
+// `tail` length that bends toward `bend` (`hang` per step). Near the base the half-width is about tan 60 deg x the radius, so
+// three sepals close into a bowl. Leaf v: 0 ... k on the blade, k ... 1 on the tail (k = len / (len + tail)); `col(u, v)`.
+// Returns margin and face points for `bristles`. Triangles: 2 nu (rows - 1) + 2 (tRows - 1).
+function cupSepal(b, { th, r0 = 0.25, len, width, depth = 0.9, hood = 0, cup = 0.35, tail, tw = 0.06, bend = HEAD_DOWN, hang = 0.7, rows = [0, 0.14, 0.3, 0.45, 0.6, 0.74, 0.87, 1], nu = 3, tRows = 6, col }) {
+  const R = V(Math.sin(th), 0, Math.cos(th)), T = V(Math.cos(th), 0, -Math.sin(th)), F = V(0, 1, 0), k = len / (len + tail);
+  const sp = (s) => R.clone().multiplyScalar(r0 + len * s - 0.45 * hood * s * s * s).addScaledVector(F, depth * (1 - (1 - s) * (1 - s)) + hood * s * s * s);
+  const hw = (s) => tw + (width / 2 - tw) * (s < 0.3 ? 0.3 + 0.7 * Math.pow(Math.sin((Math.PI / 2) * s / 0.3), 0.7) : Math.pow(Math.cos((Math.PI / 2) * (s - 0.3) / 0.7), 1.5));
+  const frame = (s) => { const d = sp(Math.min(1, s + 0.01)).sub(sp(Math.max(0, s - 0.01))).normalize(); return { d, n: new THREE.Vector3().crossVectors(d, T).normalize() }; };
+  const P = [], hairs = { margin: [], face: [] };
+  for (const s of rows) {
+    const c = sp(s), { d, n } = frame(s), w = hw(s), q = cup * (0.4 + 0.6 * sstep(0, 0.3, s)), row = [];
+    for (let j = 0; j <= nu; j++) { const u = -1 + (2 * j) / nu; row.push(c.clone().addScaledVector(T, u * w).addScaledVector(n, q * u * u * w)); }
+    P.push(row);
+    if (s > 0.2 && s < 0.9 && P.length % 2) {     // bristles on every other row
+      for (const u of [-1, 1]) hairs.margin.push({ p: row[u < 0 ? 0 : nu].clone().addScaledVector(n, 0.006), dir: T.clone().multiplyScalar(u).addScaledVector(n, 0.6).normalize(), along: d, leaf: [u, k * s] });
+      const uf = P.length % 4 === 1 ? 0.45 : -0.45;
+      hairs.face.push({ p: c.clone().addScaledVector(T, uf * w).addScaledVector(n, q * uf * uf * w + 0.01), dir: n.clone().addScaledVector(d, 0.4).normalize(), along: T, leaf: [uf, k * s] });
+    }
+  }
+  surf(b, P, { leaf: (i, j) => [-1 + (2 * j) / nu, k * rows[i]], col: (i, j) => col(-1 + (2 * j) / nu, k * rows[i]), sway: (i) => k * rows[i] });
+  // the tail: on from the blade's tip along its direction, bending toward `bend`, narrowing to a third
+  const L = P.length - 1, Q = [[P[L][0], P[L][nu]]], tv = (i) => k + ((1 - k) * i) / (tRows - 1);
+  let p = sp(1), d = frame(1).d;
+  for (let i = 1; i < tRows; i++) {
+    d = d.clone().addScaledVector(bend, hang).normalize();
+    p = p.clone().addScaledVector(d, tail / (tRows - 1));
+    const a = T.clone().addScaledVector(d, -T.dot(d)).normalize(), w = tw * (1 - (0.7 * i) / (tRows - 1));
+    Q.push([p.clone().addScaledVector(a, -w), p.clone().addScaledVector(a, w)]);
+  }
+  surf(b, Q, { leaf: (i, j) => [j ? 1 : -1, tv(i)], col: (i, j) => col(j ? 1 : -1, tv(i)), sway: (i) => tv(i) });
+  return hairs;
+}
+
+// A cupped scallop-shell lip: an oval dish (half-axes `w` across, `h` up) about `c`, hollow toward `axis` (`depth` at its rim),
+// with radiating ridges on alternate spokes (`rib`). `col(ring, spoke)`. Triangles: 2 segs (rings - 1).
+function shellLip(b, { c, axis, up = V(0, 0, 1), w, h, depth, segs = 10, rings = [0.03, 0.55, 1], rib = 0.06, col, leafV = 0.1 }) {
+  const A = axis.clone().normalize(), U = up.clone().addScaledVector(A, -up.dot(A)).normalize(), S = new THREE.Vector3().crossVectors(U, A);
+  const P = rings.map((r) => Array.from({ length: segs }, (_, j) => {
+    const a = (j / segs) * Math.PI * 2;
+    return c.clone().addScaledVector(S, Math.cos(a) * r * w).addScaledVector(U, Math.sin(a) * r * h).addScaledVector(A, (depth + (j % 2 ? -rib : rib)) * r * r).addScaledVector(S, Math.cos(a) * r * w * (j % 2 ? -0.05 : 0.04)).addScaledVector(U, Math.sin(a) * r * h * (j % 2 ? -0.05 : 0.04));
+  }));
+  surf(b, P, { wrap: true, leaf: (i, j) => [Math.cos((j / segs) * Math.PI * 2), leafV * rings[i]], col, sway: () => leafV });
+}
+
+// Short stiff hairs: one thin triangle a point ({ p, dir, along, leaf }), standing out along `dir`, `len` long, `w` half-wide.
+function bristles(b, pts, { len, w, col }) {
+  for (const h of pts) {
+    const n = new THREE.Vector3().crossVectors(h.along, h.dir).normalize();
+    put(b, h.p.clone().addScaledVector(h.along, -w), n, col, h.leaf[1], h.leaf);
+    put(b, h.p.clone().addScaledVector(h.along, w), n, col, h.leaf[1], h.leaf);
+    put(b, h.p.clone().addScaledVector(h.dir, len), n, col, h.leaf[1], h.leaf);
+  }
+}
+
 // Masdevallia: a dense tuft of erect, narrow spoon-shaped leaves on channelled petioles (no pseudobulbs), 8.5-12 x 1.7-2.3 cm,
 // and single flowers on wiry stems from the base, held at or above the leaves, one arching out sideways.
 const masdLayout = once(() => {
@@ -416,19 +493,23 @@ export const FLOWERING = {
     material: ORCHID_MAT,
     flower: {
       build(b) {
-        // Three broad sepals joined at the base into a shallow hairy cup, each drawn out into a long tail; two tiny petals
-        // (the "eyes") beside the column, and the shell-shaped lip (the "mouth") in the middle.
-        for (const th of [0, 2.1, -2.1]) {
-          const dy = th === 0 ? 0.45 : 0.15;      // the dorsal sepal leans forward into a hood over the face
-          // blade ~2.4 cm in the main colour (the pattern shows here), pale at its base (centre); a ~6 cm thin tail (accent)
-          // that hangs (droop)
-          sheet(b, { base: V(Math.sin(th) * 0.15, 0.15, Math.cos(th) * 0.15), dir: V(Math.sin(th), dy, Math.cos(th)), face: V(-Math.sin(th) * 0.4, 1, -Math.cos(th) * 0.4), len: 9.2, width: 2.8, outline: tailed(0.28, 0.035), nu: 2, rows: [0, 0.08, 0.18, 0.3, 0.45, 0.65, 0.85, 1], cup: 0.45, curl: 0.06, droop: 0.4,
-            color: (u, t) => { const tail = sstep(0.25, 0.33, t), pale = 0.7 * (1 - sstep(0.02, 0.12, t)); return M((1 - tail) * (1 - pale), tail, (1 - tail) * pale); } });
+        // Pass 3: three broad sepals joined at the base into a shallow bowl (the dorsal arched forward into a hood, the laterals
+        // out and down), each narrowing in a curve into a long tail that hangs; dark bristles on the margins and the hood; a
+        // white scallop-shell lip with radiating pink veins below a short column, the two tiny dark petals (the "eyes") beside it.
+        // Blade in the main colour (the pattern shows here), pale at its base (centre); tails in the accent.
+        const col = (u, t) => { const tail = sstep(0.22, 0.28, t), pale = 0.7 * (1 - sstep(0.01, 0.07, t)); return M((1 - tail) * (1 - pale), tail, (1 - tail) * pale); };
+        const hair = [];
+        const lat = (s) => ({ len: 3, width: 2.7, cup: 0.3, tail: 7, tw: 0.1, bend: HEAD_DOWN.clone().add(V(s * 0.35, 0, 0)).normalize(), hang: 0.38 });
+        for (const [th, o] of [[0, { len: 2.8, width: 2.4, hood: 0.8, cup: 0.45, tail: 6.6, tw: 0.1, bend: V(0, 0.3, 1).normalize(), hang: 0.3 }], [2.15, lat(1)], [-2.15, lat(-1)]]) {
+          const h = cupSepal(b, { th, depth: 0.9, col, ...o });
+          hair.push(...h.margin, ...(th === 0 ? h.face : h.face.slice(0, 1)));
         }
-        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.25, 0.35, 0.2), dir: V(s, 0.6, 0.3), len: 0.5, width: 0.28, nu: 1, nv: 1, color: (u, t) => M(0, 0.9, 0.1) });
-        // the white shell-shaped lip (the "mouth"), large and deeply cupped, in the centre colour
-        sheet(b, { base: V(0, 0.3, -0.2), dir: V(0, 1, -0.45), face: V(0, 0.5, 1), len: 1.7, width: 1.35, outline: ROUND, nu: 2, nv: 3, cup: 0.85, curl: 0.25, color: (u, t) => M(0, 0.06 * (1 - t), 0.94 + 0.06 * t) });
-        tube(b, [V(0, 0.1, 0.1), V(0, 0.6, 0.25)], [0.08, 0.06], { sides: 3, color: () => M(0.2, 0, 0.8), sway: () => 0 });
+        bristles(b, hair, { len: 0.28, w: 0.035, col: M(0.2, 0.75, 0.05) });
+        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.22, 0.6, 0.3), dir: V(s, 0.7, 0.35), face: V(0, 1, 0), len: 0.4, width: 0.26, nu: 1, nv: 1, cup: 0.3, color: () => M(0.08, 0.84, 0.08) });
+        tube(b, [V(0, 0.1, 0.1), V(0, 0.7, 0.3)], [0.1, 0.07], { sides: 3, color: () => M(0.25, 0.05, 0.7), sway: () => 0 });
+        tube(b, [V(0, 0.1, -0.05), V(0, 0.8, -0.3)], [0.07, 0.05], { sides: 3, color: () => M(0, 0.05, 0.95), sway: () => 0 });
+        shellLip(b, { c: V(0, 0.95, -0.4), axis: V(0, 1, -0.8), w: 0.62, h: 0.52, depth: 0.42,
+          col: (i, j) => (i === 0 ? M(0.05, 0.3, 0.65) : j % 2 ? M(0, 0.35, 0.65) : M(0, 0.02, 0.98)) });
       },
       palettes: [
         [0xf0e6d8, 0x6a1020, 0xfaf4f0, 1],   // D. simia (photo 3): cream, dense maroon spots, maroon tails, white lip

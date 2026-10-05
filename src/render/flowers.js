@@ -132,14 +132,22 @@ export function flowerMaterial() {
   const vp = varying(vec4(F.x, v, F.z.mul(isLeaf), 0), 'vFlowerP');
   const pu = vp.x, pv = vp.y, pk = va.w;
   const hash = (c) => fract(sin(dot(c, vec2(12.9898, 78.233))).mul(43758.5453));
-  // 1 SPOTS: one jittered round dot per cell, sizes varying (cells ~0.45 cm on a 3 cm x 9 cm sepal; leaf v runs the whole length) (Dracula simia/gigas, Masdevallia decumana)
-  const sq = vec2(pu.mul(3.2), pv.mul(16)), sc = floor(sq), sh = hash(sc), sf = fract(sq).sub(0.5).sub(vec2(sh, fract(sh.mul(7.3))).sub(0.5).mul(0.15));
-  const sr = sh.mul(0.14).add(0.28);      // 0.28-0.42 of a cell: about half the main-colour area spotted (photo 3)
-  const spots = smoothstep(sr, sr.sub(0.03), length(sf.mul(vec2(1, 0.75))));
-  // 2 NET: fine lengthwise veins, wavy, tied by cross veins (Dracula vampira)
-  const nl = abs(fract(pu.mul(5).add(sin(pv.mul(25)).mul(0.18))).sub(0.5));
-  const nc = abs(fract(pv.mul(22).add(pu.mul(1.7)).add(sin(pu.mul(9)).mul(0.2))).sub(0.5));
-  const net = max(smoothstep(0.16, 0.1, nl), smoothstep(0.12, 0.07, nc));
+  // 1 SPOTS (v3, decision 11): irregular blotches of varied size that merge, large and dense at the petal's base and centre,
+  // fine and sparse toward its tip: two octaves of domain-warped sine waves (no cells, so no grid) cut at a level that rises
+  // with the distance from the base (leaf v 0 ... ~0.3 is the blade of a tailed sepal) (Dracula simia/gigas, Masdevallia decumana)
+  const q1 = vec2(pu.mul(8), pv.mul(62)), w1 = q1.add(sin(q1.yx.mul(vec2(0.43, 0.61)).add(vec2(1.7, 4.3))).mul(1.3));
+  const bn1 = sin(w1.x).mul(sin(w1.y.add(sin(w1.x.mul(0.5)))));
+  const q2 = vec2(pu.mul(13).add(pv.mul(40)), pv.mul(105).sub(pu.mul(7))), w2 = q2.add(sin(q2.yx.mul(0.53).add(2.1)).mul(1.1));
+  const bn2 = sin(w2.x).mul(sin(w2.y));
+  const dens = float(1).sub(smoothstep(0.02, 0.3, pv)).mul(float(1).sub(pu.mul(pu).mul(0.4)));
+  const thr = mix(float(0.62), float(-0.12), dens);
+  const spots = smoothstep(thr, thr.add(0.07), bn1.mul(0.7).add(bn2.mul(0.45)));
+  // 2 NET (v3): dark veins along the petal's length (lines of constant leaf u, so they converge into the tail), wavy, with finer
+  // cross veins offset from strip to strip (a reticulum, no grid), over a darkened blade (Dracula vampira)
+  const wq = pu.mul(4.5).add(sin(pv.mul(31).add(pu.mul(3))).mul(0.12)).add(sin(pv.mul(11).add(1.3)).mul(0.15));
+  const lv = abs(fract(wq.add(0.5)).sub(0.5)), vh = hash(vec2(floor(wq), 3.1));
+  const cr = abs(fract(pv.mul(vh.mul(22).add(40)).add(vh.mul(7.3)).add(sin(pu.mul(17).add(vh.mul(6))).mul(0.45))).sub(0.5));
+  const net = max(max(smoothstep(0.2, 0.1, lv), smoothstep(0.12, 0.05, cr).mul(0.9)), float(0.78));
   // 3 VEINS: strong lengthwise stripes
   const veins = smoothstep(0.16, 0.12, abs(fract(pu.mul(3.5)).sub(0.5)));
   // 4 SPARKLE: sparse crystalline points that glint as the flower moves (D. cuthbertsonii)
