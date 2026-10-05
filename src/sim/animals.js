@@ -1020,9 +1020,12 @@ export class Animals {
     const cam = this.camera?.position;
     if (cam && rt > 0.004 && rt < 0.25) {
       const p = (this._camP ??= cam.clone()), v = (this.camVel ??= cam.clone().set(0, 0, 0)), k = Math.min(1, rt * 8);
-      v.x += ((cam.x - p.x) / rt - v.x) * k; v.y += ((cam.y - p.y) / rt - v.y) * k; v.z += ((cam.z - p.z) / rt - v.z) * k;
+      // A jump of more than 15 cm in one frame is a cut or a view jump, not a lens swooping in: no velocity, and a second's grace.
+      if (p.distanceTo(cam) > 15) { this.camCutT = 1; v.set(0, 0, 0); }
+      else { v.x += ((cam.x - p.x) / rt - v.x) * k; v.y += ((cam.y - p.y) / rt - v.y) * k; v.z += ((cam.z - p.z) / rt - v.z) * k; }
       p.copy(cam);
     } else if (cam) this._camP = cam.clone();
+    if (this.camCutT > 0) this.camCutT -= Math.min(Math.max(rt, 0), 0.25);
     if (!(dt > 0)) return;
     const E = this.world.env;
     this._wDt = (this._wDt ?? 0) + dt;
@@ -3976,6 +3979,9 @@ export class Animals {
       wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + (W.nearWater(V(x, g, z), 3) ? 0.5 : 0)),
       cover: wall ? 0 : this.herpCover(x, z), hunger: a.hunger, health: a.health,
       male: !!a.male, adult: a.age / 1440 >= (sp.adultDays ?? 10), mate: this.herpMate(a, sp, P),
+      // The lens is no danger to the animal being followed, nor in the second after a cut (trackTime: camCutT). Glass, bark and leaf
+      // cannot be told apart yet: a wall is 'wall'.
+      followed: a === this.watched, camCut: (this.camCutT ?? 0) > 0, surface: wall ? 'wall' : 'ground',
       prey, threat, home, reach: this.reachOf(a, sp), moved: a.hmoved ?? 0, toSurface: depth > 0.3 ? top - a.pos.y : 99,
       shore: a.hShore && { x: a.hShore.x, z: a.hShore.z, d: a.hShore.d },
       wetSpot: gecko && a.hWet ? { x: a.hWet.x, z: a.hWet.wall ? -a.hWet.y : a.hWet.z, d: Math.hypot(a.hWet.x - x, (a.hWet.wall ? -a.hWet.y : a.hWet.z) - here.z), wall: a.hWet.wall } : null,
@@ -4301,7 +4307,7 @@ export class Animals {
   herpThreat(a, sp, P, wall) {
     const planar = (v) => ({ x: v.x, z: wall ? -v.y : v.z });
     const ct = this.camThreat(a, 22);
-    let t = ct ? { ...planar(ct), d: ct.d } : null;
+    let t = ct ? { ...planar(ct), d: ct.d, cam: true } : null;   // cam: the keeper's lens (the gecko brain caps its fear, herp.js geckoSeen)
     for (const id of ['leucomelas', 'dartfrog', 'auratus', 'toad', 'crab', 'firesal', 'newt', 'axolotl', 'gecko']) {
       if (id === a.sp) continue;
       const osp = SPECIES[id];
