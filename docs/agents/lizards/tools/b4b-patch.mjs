@@ -21,7 +21,7 @@ const LY = `    a.pos.y = H.y0 + (H.y1 - H.y0) * e + H.h * arc;\n`;
 rep(LY, LY + `    // (B4b) a long tick cuts the arc's corners: a piece across this tick's chord ends the leap short of it
     if (this.occ.count) {
       const lift = sp.kind === 'swim' || a.swimming ? 0 : 0.5, f = this.occ.segmentFreeAt(a, ox, oy + lift, oz, a.pos.x, a.pos.y + lift, a.pos.z);
-      if (f < 1) { a.pos.set(ox + (a.pos.x - ox) * f, oy + (a.pos.y - oy) * f, oz + (a.pos.z - oz) * f); a.hop = null; a.state = 'rest'; a.timer = 0.5 + Math.random(); return false; }
+      if (f < 1) { a.pos.set(ox + (a.pos.x - ox) * f, oy + (a.pos.y - oy) * f, oz + (a.pos.z - oz) * f); a.hop = null; a.hopCut = (a.hopCut ?? 0) + 1; a.state = 'rest'; a.timer = 0.5 + Math.random(); return false; }
     }
 `);
 const FREE = `    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz);\n`;

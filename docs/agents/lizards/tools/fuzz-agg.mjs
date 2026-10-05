@@ -2,7 +2,7 @@
 //   node docs/agents/lizards/tools/fuzz-agg.mjs <log.jsonl>
 import fs from 'node:fs';
 const L = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-const K = ['tunnel', 'tunnelReloc', 'inSolid', 'stuck', 'relocJump'];
+const K = ['tunnel', 'tunnelReloc', 'inSolid', 'stuck', 'relocJump', 'hopCut', 'hangCut', 'floating'];
 const out = {};
 for (const r of L) for (const [name, v] of (r.cfg ? Object.entries(r.cfg) : [[r.mode, r]])) {
   const o = (out[`${r.preset} ${name}`] ??= { seeds: {}, bySp: {}, ex: [] }); const c = v?.cnt ?? {};
