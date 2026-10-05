@@ -274,7 +274,7 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // cross-veins between parallel ones) }.
 // `flowBend`: the plant leans in the water's push (B5b; only aquatic and emergent plants set it, sim/plants.js flowOptions); `bend`: the
 // lean of a tip at full push in the plant's own units; `stiffness`: 1 an average leaf.
-export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null, gloss = null } = {}) {
+export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null, gloss = null, leafRelief = null, relief = 1 } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   m.userData.foliage = true;
   m.userData.flowBend = flowBend;
@@ -375,6 +375,21 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
     c = mix(c, pale.div(vc), tx.g.mul(isLeaf));
     base = mix(c, c.mul(back), tx.b.mul(isLeaf).mul(step(faceDirection, 0)));
     m.opacityNode = keep.mul(mix(float(1), tx.a, isLeaf));
+    if (leafRelief) {
+      // Optional relief (T2, sim/orchid-leaves.js orchidLeafRelief): the painted slopes across (R) and along (G) the blade
+      // tilt the normal in a frame built from the screen-space change of the `leaf` coordinate (Schueler's cotangent
+      // frame: no uv or tangent buffer). The back face reads the same relief inverted (a groove on top is a keel below).
+      // The gloss below and the lights then see the midrib groove, the vein ridges and the warts. `relief` scales it.
+      const rs = uniform(relief * 2 * 2);   // x 2 * SLOPE: the map stores 0.5 + slope / (2 * SLOPE), SLOPE = 2
+      m.normalNode = Fn(() => {
+        const N = normalView, dp1 = positionView.dFdx(), dp2 = positionView.dFdy(), d1 = L.dFdx(), d2 = L.dFdy();
+        const p2 = cross(dp2, N), p1 = cross(N, dp1), sg = sign(dot(dp1, p2));
+        const Tg = p2.mul(d1.x).add(p1.mul(d2.x)).mul(sg), Bg = p2.mul(d1.y).add(p1.mul(d2.y)).mul(sg);
+        const Tu = Tg.div(max(Tg.length(), 1e-20)), Bt = Bg.div(max(Bg.length(), 1e-20));
+        const r = texture(leafRelief, vec2(L.x.mul(0.5).add(0.5), saturate(L.y))).xy.sub(0.5).mul(rs).mul(isLeaf).mul(faceDirection);
+        return normalize(N.sub(Tu.mul(r.x)).sub(Bt.mul(r.y)));
+      })();
+    }
     if (gloss) {
       // Optional waxy highlight (T1b): a small, soft-edged spot where the lamp's half-vector meets the visible face, added as
       // light (never a whitening of the whole blade, which the low roughness did at grazing angles). gloss = [strength,
@@ -386,6 +401,8 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
       const nh = saturate(dot(normalWorld, H));
       spec = smoothstep(G.y.sub(G.z), G.y.add(G.z.mul(0.5)), nh).mul(G.x).mul(U.daylight)
         .mul(isLeaf).mul(float(1).sub(tx.g.mul(0.5))).mul(saturate(dot(normalWorld, Ls).mul(3)));
+      // (T2) the relief map's B: the wax highlight fades toward the margin (no bright rim along a blade's edge)
+      if (leafRelief) spec = spec.mul(texture(leafRelief, vec2(L.x.mul(0.5).add(0.5), saturate(L.y))).z);
     }
   }
   const [color, emissive] = wet(base, positionWorld, U.waterLevel, U.plantWater, U.plantWater.mul(0.5));
