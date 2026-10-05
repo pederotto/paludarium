@@ -20,6 +20,7 @@ import { Document, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTTextureWebP } from '@gltf-transform/extensions';
 import { quantize, meshopt } from '@gltf-transform/functions';
 import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
+import { skinFour, SKIN_PASSES } from './rig/skeleton.mjs';
 import { lizardBones, bindLizard, straightenTail, nearestBones, rigAttributes, smoothNormals } from './rig/lizard.mjs';
 
 const OUT = 'public/assets/creatures';
@@ -58,6 +59,7 @@ async function writeGlb(file, name, a, tex0, extras) {
     .setAttribute('POSITION', acc('VEC3', a.pos)).setAttribute('NORMAL', acc('VEC3', a.nor)).setAttribute('TEXCOORD_0', acc('VEC2', a.uv))
     .setAttribute('_RIG', acc('VEC4', a.rig)).setAttribute('_SKIN', acc('VEC4', a.skin)).setIndices(acc('SCALAR', a.idx))
     .setMaterial(doc.createMaterial(name).setBaseColorFactor([1, 1, 1, 1]).setBaseColorTexture(tex).setMetallicFactor(0).setRoughnessFactor(0.6));
+  if (a.skinx) prim.setAttribute('_SKINX', acc('VEC4', a.skinx));
   doc.createScene().addChild(doc.createNode(name).setMesh(doc.createMesh(name).addPrimitive(prim).setExtras(extras)));
   await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 14, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   await io.write(file, doc);
@@ -115,6 +117,7 @@ for (const id of ids.length ? ids : Object.keys(SPECIES)) {
       for (let q = 0; q < 2; q++) a.uv[i * 2 + q] = raw.uv[o * 2 + q];
       for (let q = 0; q < 4; q++) { a.rig[i * 4 + q] = rig[o * 4 + q]; a.skin[i * 4 + q] = skin[o * 4 + q]; }
     }
+    ({ skin: a.skin, skinx: a.skinx } = skinFour(a.pos, a.idx, a.skin, SKIN_PASSES[id] ?? SKIN_PASSES.lizard));   // (SK1: four bones a vertex)
     const file = path.join(OUT, level === 'hi' ? `${id}.glb` : `${id}.lo.glb`);
     const bytes = await writeGlb(file, id, a, tex0, { skeleton, measures });
     report.levels[level] = { tris: g.idx.length / 3, verts: c, error: +g.err.toFixed(4), bound: g.used, kb: Math.round(bytes / 1024) };

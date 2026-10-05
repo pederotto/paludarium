@@ -26,7 +26,7 @@ for (const id of list) {
   const doc = await io.read(DIR + man[id].file);
   const prim = doc.getRoot().listMeshes()[0].listPrimitives()[0];
   const P = read(prim.getAttribute('POSITION')), S = prim.getAttribute('_SKIN') && read(prim.getAttribute('_SKIN')), idx = prim.getIndices().getArray();
-  const RG = read(prim.getAttribute('_RIG'));
+  const RG = read(prim.getAttribute('_RIG')), SX = prim.getAttribute('_SKINX') && read(prim.getAttribute('_SKINX'));   // (four bones: SK1)
   if (!S) { console.log(id, 'no _SKIN'); continue; }
   // (a quantised file keeps its positions normalised, the node's matrix scales them back: applied, then metres to cm, as the game loads it)
   const M = doc.getRoot().listNodes().find((nd) => nd.getMesh())?.getWorldMatrix() ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -48,11 +48,11 @@ for (const id of list) {
           Q[i * 3 + 2] = P[i * 3 + 2] + (walk ? t * f.gait[2] : 0) - (hind ? st.hop * t * 1.6 : 0);
         }
       } else for (let i = 0; i < n; i++) {
-        const b0 = Math.round(S[i * 4] * 32), b1 = Math.round(S[i * 4 + 1] * 32), w = S[i * 4 + 2];
+        const w0 = S[i * 4 + 2], bs = [S[i * 4], S[i * 4 + 1], ...(SX ? [SX[i * 4], SX[i * 4 + 1]] : [])].map((x) => Math.round(x * 32));
+        const ws = SX ? [w0, Math.max(0, 1 - w0 - SX[i * 4 + 2] - SX[i * 4 + 3]), SX[i * 4 + 2], SX[i * 4 + 3]] : [w0, 1 - w0];
         for (let r = 0; r < 3; r++) {
-          const k0 = b0 * 12 + r * 4, k1 = b1 * 12 + r * 4;
           const m = (k) => row[k] * P[i * 3] + row[k + 1] * P[i * 3 + 1] + row[k + 2] * P[i * 3 + 2] + row[k + 3];
-          Q[i * 3 + r] = w * m(k0) + (1 - w) * m(k1);
+          Q[i * 3 + r] = bs.reduce((a, b, j) => a + ws[j] * m(b * 12 + r * 4), 0);
         }
       }
       for (let t = 0; t < idx.length; t += 3) {
@@ -69,5 +69,5 @@ for (const id of list) {
     G.sort((a, b) => a - b);
     out.push(`${mode} ${name}: >1.5x ${((100 * s15) / T).toFixed(2)} %, >2x ${((100 * s20) / T).toFixed(2)} %, p95 ${G[Math.floor(G.length * 0.95)].toFixed(2)}x, worst ${worst.toFixed(1)}x`);
   }
-  console.log(`${id} (${n} verts)\n  ${out.join('\n  ')}`);
+  console.log(`${id} (${n} verts, ${SX ? 4 : 2} bones a vertex)\n  ${out.join('\n  ')}`);
 }
