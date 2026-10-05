@@ -325,7 +325,7 @@ export const SPECIES = {
     name: 'Mourning gecko', scale: 1, group: 'Reptiles', kind: 'gecko', size: 1.4, speed: 4,
     minH: 40, temp: [21, 29], humidity: 55, hungerHours: 150, lifeDays: 3500, eats: ['fly', 'springtail', 'flylarva', 'cricket', 'waxworm'], cap: 10, breed: 0.04, adultDays: 25,
     eggs: { n: 2, days: 12, into: 'gecko', where: 'wall' },
-    body: sdfBody('gecko'), anim: { amp: 0.7, wave: 1.1, waveHead: 0.45, lift: 0.3, stride: 0.75, rig2: { neck: 0.24, s0: 0.04, s1: 0.28, neckY: 0.43, len: 9.5, tail0: 0.5, tailY: 0.34 } },
+    body: sdfBody('gecko'), anim: { amp: 0.7, wave: 1.1, waveHead: 0.45, lift: 0.3, stride: 0.75, rig2: { neck: 0.2, s0: 0.04, s1: 0.24, neckY: 1.5, len: 7.05, tail0: 0.62, tailY: 0.69 } },   // (the baked model, manifest gecko: 7.05 cm, neck base at spine 0.2 and 1.5 cm up, vent at 0.62)
     note: 'Climbs the background and glass. Sleeps by day in a crevice, often with others, comes out at dusk, drinks droplets after rain or misting, stalks insects with its tail waving, and licks its own eyes clean. Females lay eggs without males.',
   },
   cardinal: {

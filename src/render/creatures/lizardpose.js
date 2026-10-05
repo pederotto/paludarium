@@ -1,0 +1,179 @@
+// Lizard skeletons at run time (geckos, skinks: util/bodyplan.js PLANS.lizard; the bone list in docs/agents/lizards/CONTRACTS.md,
+// "Lizard bone list"): the rig made from a baked skeleton (tools/bake-lizard.mjs, manifest `skeleton` with plan 'lizard') and its
+// pose each frame. render/creatures/skeleton.js hands a lizard skeleton here (skeletonRig) and calls `rig.pose` from poseBones. The
+// frog's own helpers come in as `deps` (musclesOf, writeBones, footOffset): the muscles swell exactly as a frog's do (the plan's
+// bellies with their joint's flexion, applied as the bones are written), and this module imports nothing from skeleton.js.
+//
+// The pose (G1b). Three parts, each its own function, so the lizard gait (G4, util/lizardgait.js) can replace `legs` alone:
+//   axial  the channels the vertex rig drew the gecko with (render/creatures/instanced.js rig2: head yaw and pitch, the body's C-bend,
+//          the tail's swing and lift; util/gait.js rig2Pack) as yaw and pitch of the spine, neck, head and tail joints, each held to
+//          its range (PLANS.lizard.rom). A bend that moved a point d cm from the pivot by k d² in the vertex rig is a curvature 2k
+//          spread over the joints by their bones' lengths, so the skinned body takes the same curve.
+//   legs   each foot's (hand's) tip goes where the vertex rig put it (skeleton.js footOffset: the walk's lift and sweep, the turn's
+//          swing round the pivot), the limb turned as a whole about the shoulder
+//          (hip) and its elbow (knee) opened or closed for the reach. With the legs still (calm 1) every bone is exactly at rest.
+//   cut    a gecko that dropped its tail: the tail bones past the cut collapse onto it (the stump); the dropped piece itself (another
+//          instance, `piece` > 0) shows only the tail bones past its cut.
+import { PLANS } from '../../util/bodyplan.js';
+
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const addv = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const len = (a) => Math.hypot(a[0], a[1], a[2]);
+const norm = (a) => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+// 3 x 3 matrices as 9 numbers, row-major (as skeleton.js)
+const I3 = () => [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const ZERO = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+const mv = (m, v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
+const mm = (a, b) => {
+  const o = new Array(9);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+  return o;
+};
+const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, s, 0, 1, 0, -s, 0, c]; };     // + turns +z toward +x
+const rotX = (a) => { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, c, -s, 0, s, c]; };     // + turns +z toward -y
+const RAD = Math.PI / 180;
+const TAILS = ['tail1', 'tail2', 'tail3', 'tail4', 'tail5'];
+
+// The runtime form of a lizard skeleton, or null when a bone it needs is missing. `anim`: the species' rig numbers and its turning
+// frame, as skeletonRig takes them.
+export function lizardRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, turn = null, reach = 0.85 } = {}, deps = {}) {
+  const plan = PLANS.lizard, B = skel.bones, n = B.length, byName = Object.fromEntries(B.map((b, i) => [b.name, i]));
+  const head = B.map((b) => b.head), tail = B.map((b) => b.tail);
+  const dir = B.map((b) => norm(sub(b.tail, b.head))), L = B.map((b) => len(sub(b.tail, b.head)));
+  const parent = B.map((b) => (b.parent != null ? byName[b.parent] ?? -1 : -1));
+  if (['pelvis', 'spine', 'neck', 'head'].some((k) => byName[k] == null) || parent.some((p, b) => p >= b)) return null;   // (parents first)
+  const chains = [];
+  for (const [s, side, fore, hind] of [['L', -1, 1, 3], ['R', 1, 2, 4]]) {
+    for (const [limbId, names] of [[hind, ['thigh', 'shin', 'foot', 'toes']], [fore, ['arm', 'forearm', 'hand', 'fingers']]]) {
+      const ids = names.map((k) => byName[k + s]);
+      if (ids.slice(0, 3).some((i) => i == null)) return null;
+      const [u, w, ...ends] = ids.filter((i) => i != null);
+      const A = head[u], K = head[w], E = head[ends[0]], T = tail[ends[ends.length - 1]];
+      chains.push({ limb: limbId, side, u, w, ends, A, K, E, T,
+        nk: planeNormal(K, A, E, [side, 0, 0]), reach0: len(sub(T, A)) });
+    }
+  }
+  const tails = TAILS.map((k) => byName[k]).filter((i) => i != null);
+  // the vertex rig's spine fraction of each bone's head: 0 at the snout, 1 at the tail's tip (where a dropped tail is cut)
+  const z0 = tail[byName.head][2], z1 = tails.length ? tail[tails[tails.length - 1]][2] : head[0][2];
+  const sOf = head.map((h) => clamp((z0 - h[2]) / (z0 - z1 || 1), 0, 1));
+  const rig = { n, B, byName, head, tail, dir, L, parent, chains, tails, plan, legLift, legStride, limb, turn, reach,
+    front: ['spine', 'neck', 'head'].map((k) => byName[k]), len: Math.abs(z0 - z1) || 1, sOf, vent: tails.length ? sOf[tails[0]] : 1,
+    limits: B.map((b) => plan.joints[b.name.replace(/[LR]$/, '').replace(/\d+$/, '')] ?? null),
+    pose: poseLizard, write: deps.writeBones, foot: deps.footOffset };
+  rig.muscles = deps.musclesOf ? deps.musclesOf(plan, B, byName, parent, dir, L) : [];
+  return rig;
+}
+
+// the normal of the limb's plane (root, knee, ankle), or `fallback` for a limb laid out straight
+function planeNormal(A, K, E, fallback) {
+  const c = cross(sub(E, A), sub(K, A));
+  return len(c) > 1e-9 ? norm(c) : norm(fallback);
+}
+
+// One instance's bones for `st` = { phase, tau, calm (the gait's), yaw, pitch (head, rad), bend, tail, lift (fractions of the body's
+// length), tailF (0 … 1 of the tail left), piece (the cut of a dropped piece) }: writes 12 floats a bone into `out` from `o`.
+// Returns `info` (if given) with each limb's reached tip ({ tips }).
+export function poseLizard(rig, st, out, o = 0, info = null) {
+  const { n, head, parent } = rig;
+  const Lr = new Array(n).fill(null);           // each bone's turn against its parent, in the rest frame about its head
+  axial(rig, st, Lr);
+  const R = new Array(n), H = new Array(n);    // world (model) rotation of each bone and where its head is
+  for (let b = 0; b < n; b++) {
+    const p = parent[b];
+    if (p < 0) { R[b] = Lr[b] ?? I3(); H[b] = head[b]; continue; }
+    R[b] = Lr[b] ? mm(R[p], Lr[b]) : R[p];
+    H[b] = addv(H[p], mv(R[p], sub(head[b], head[p])));
+  }
+  if (info) info.tips = {};
+  legs(rig, st, R, H, info);
+  cut(rig, st, R, H);
+  rig.write(rig, R, H, out, o);
+  return info;
+}
+
+// The trunk, neck, head and tail: the rig2 channels as joint yaw and pitch, each inside its range.
+function axial(rig, st, Lr) {
+  const { L, parent } = rig, rom = rig.plan.rom ?? {};
+  const lim = (k, axis, v) => { const r = rom[k]?.[axis]; return r ? clamp(v, r[0] * RAD, r[1] * RAD) : v; };
+  const kB = (2 * (st.bend ?? 0)) / rig.len, kT = (8 * (st.tail ?? 0)) / rig.len, kL = (8 * (st.lift ?? 0)) / rig.len;
+  // the head's yaw and pitch shared by the neck and the head: the neck takes half, the head the rest, the neck again what the head cannot
+  const share = (v, axis) => {
+    let a = lim('neck', axis, v * 0.5);
+    const h = lim('head', axis, v - a);
+    a = lim('neck', axis, v - h);
+    return [a, h];
+  };
+  const [yN, yH] = share(st.yaw ?? 0, 'yaw'), [pN, pH] = share(st.pitch ?? 0, 'pitch');
+  const [sp, nk, hd] = rig.front;
+  Lr[sp] = rotY(lim('spine', 'yaw', kB * L[sp]));
+  Lr[nk] = mm(rotY(lim('neck', 'yaw', kB * L[nk] + yN)), rotX(-pN));
+  Lr[hd] = mm(rotY(lim('head', 'yaw', kB * L[hd] + yH)), rotX(-pH));
+  // the tail points back (-z): a swing toward +x is a negative yaw; the swing and the lift grow from mid-body (spine 0.5)
+  for (const t of rig.tails) {
+    const arcB = L[parent[t]], arcT = t === rig.tails[0] ? Math.max(0, rig.vent - 0.5) * rig.len : L[parent[t]];
+    Lr[t] = mm(rotY(lim('tail', 'yaw', -(kB * arcB + kT * arcT))), rotX(lim('tail', 'pitch', kL * arcT)));
+  }
+}
+
+// The legs: today's gait (the vertex rig's foot offsets), G4 replaces this with the lizard gait. A limb moves as a whole, as the
+// vertex rig's leg does: its elbow (knee) opens or closes until the tip is as far from the shoulder (hip) as its target, then the
+// limb turns about the shoulder to point the tip at it. (A two-bone IK with the foot held flat bent the ankle and the shoulder far
+// more for the same step: 0.56 % of triangles past 2x stretch in the walk against 0.2 % allowed.)
+function legs(rig, st, R, H, info) {
+  const calm = clamp(st.calm ?? 0, 0, 1), tau = st.tau ?? 0, pz = rig.turn?.pz ?? 0;
+  for (const c of rig.chains) {
+    const pR = R[rig.parent[c.u]], A = H[c.u];
+    const f = rig.foot(rig, c.limb, c.side, st.phase ?? 0, tau, calm, 0, 0);
+    let Tg = addv(addv(A, mv(pR, sub(c.T, c.A))), f.off);
+    if (f.yaw) { const x = Tg[0], z = Tg[2] - pz, cy = Math.cos(f.yaw), sy = Math.sin(f.yaw); Tg = [x * cy + z * sy, Tg[1], -x * sy + z * cy + pz]; }
+    // the fold p (rad, + opens the elbow / knee) that puts the tip at the target's distance (secant steps, as the frog's hind leg)
+    const D = len(sub(Tg, A)), reach = (p) => len(sub(foldTip(c, p), c.A));
+    let p1 = 0;
+    if (Math.abs(D - c.reach0) > 1e-6) {
+      let p0 = 0, r0 = c.reach0 - D, r1;
+      p1 = 0.15; r1 = reach(p1) - D;
+      for (let it = 0; it < 6 && Math.abs(r1) > 1e-4; it++) {
+        const p2 = clamp(p1 - (r1 * (p1 - p0)) / (r1 - r0 || 1e-9), -0.8, 0.8);
+        p0 = p1; r0 = r1; p1 = p2; r1 = reach(p1) - D;
+      }
+    }
+    const Rk = rotAxis(c.nk, -p1), Tp = foldTip(c, p1);
+    const Rl = mm(arc(norm(mv(pR, sub(Tp, c.A))), norm(sub(Tg, A))), pR), Rlow = mm(Rl, Rk);
+    R[c.u] = Rl;
+    R[c.w] = Rlow; H[c.w] = addv(A, mv(Rl, sub(c.K, c.A)));
+    for (const e of c.ends) { R[e] = Rlow; H[e] = addv(H[c.w], mv(Rlow, sub(rig.head[e], c.K))); }
+    if (info) info.tips[c.limb] = addv(A, mv(Rl, sub(Tp, c.A)));
+  }
+}
+// the limb's tip in the rest frame with the elbow (knee) opened by p about its hinge
+const foldTip = (c, p) => addv(c.K, mv(rotAxis(c.nk, -p), sub(c.T, c.K)));
+// rotation by angle t about unit axis n, and the shortest arc turning unit a onto unit b (Rodrigues; as skeleton.js)
+function rotAxis(n, t) {
+  const c = Math.cos(t), s = Math.sin(t), k = 1 - c, [x, y, z] = n;
+  return [c + x * x * k, x * y * k - z * s, x * z * k + y * s, y * x * k + z * s, c + y * y * k, y * z * k - x * s, z * x * k - y * s, z * y * k + x * s, c + z * z * k];
+}
+function arc(a, b) {
+  const v = cross(a, b), c = dot(a, b), k = 1 / (1 + Math.max(c, -0.999999));
+  return [c + v[0] * v[0] * k, v[0] * v[1] * k - v[2], v[0] * v[2] * k + v[1],
+    v[1] * v[0] * k + v[2], c + v[1] * v[1] * k, v[1] * v[2] * k - v[0],
+    v[2] * v[0] * k - v[1], v[2] * v[1] * k + v[0], c + v[2] * v[2] * k];
+}
+
+// A dropped tail: the bones past the cut collapse onto it (a zero matrix puts every vertex of the bone at its head).
+function cut(rig, st, R, H) {
+  const tailF = st.tailF ?? 1, piece = st.piece ?? 0;
+  if (tailF >= 0.999 && piece < 0.01) return;
+  const hide = (b, at) => { R[b] = ZERO; H[b] = at; };
+  if (piece >= 0.01) {
+    const keep = rig.tails.filter((t) => rig.sOf[t] >= piece - 0.02), at = H[keep[0] ?? rig.tails[rig.tails.length - 1]];
+    for (let b = 0; b < rig.n; b++) if (!keep.includes(b)) hide(b, at);
+    return;
+  }
+  const sCut = rig.vent + (1 - rig.vent) * clamp(tailF, 0, 1), gone = rig.tails.filter((t) => rig.sOf[t] >= sCut);
+  for (const t of gone) hide(t, H[gone[0]]);
+}

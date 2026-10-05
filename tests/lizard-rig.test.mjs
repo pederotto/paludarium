@@ -124,3 +124,45 @@ test('the rig and skin attributes are in the file (glb-dump), and the original i
   assert.ok(fs.existsSync(GECKO.raw));
   if (fs.existsSync(orig)) assert.equal(sha(GECKO.raw), sha(orig));
 });
+
+// --- G1b: the game poses the baked gecko by its bones (render/creatures/lizardpose.js, through skeleton.js's lizard hook) ---------
+import * as SKL from '../src/render/creatures/skeleton.js';
+const GMAN = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8'));
+
+test('the game poses the gecko by its 25 bones: the rest pose exact, the head and tail channels turn their bones, the feet walk', () => {
+  const sk = GMAN.gecko?.skeleton;
+  assert.equal(sk?.plan, 'lizard'); assert.equal(sk.bones.length, 25); assert.ok(SKL.MAX_BONES >= 25);
+  const rig = SKL.skeletonRig(sk, { legLift: 0.3, legStride: 0.75, turn: { pz: 0, R: 2 } });
+  assert.ok(rig?.pose, 'a lizard rig');
+  assert.ok(rig.muscles.length >= 2, 'the thigh bellies (the frog mechanism: musclesOf)');
+  const row = new Float32Array(SKL.ROW_FLOATS), id = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+  SKL.poseBones(rig, { phase: 1, calm: 1 }, row);
+  for (let i = 0; i < 25 * 12; i++) assert.ok(Math.abs(row[i] - id[i % 12]) < 1e-5, `rest: bone ${Math.floor(i / 12)} [${i % 12}] ${row[i]}`);
+  const by = Object.fromEntries(sk.bones.map((b, i) => [b.name, i])), snout = sk.bones[by.head].tail, tip = sk.bones[by.tail5].tail;
+  SKL.poseBones(rig, { phase: 1, calm: 1, yaw: 0.6, pitch: 0.3, tail: 0.3 }, row);
+  const s1 = SKL.applyBone(row, 0, by.head, snout), t1 = SKL.applyBone(row, 0, by.tail5, tip);
+  assert.ok(s1[0] - snout[0] > 0.3 && s1[1] > snout[1], `snout turned to +x and up: ${s1}`);
+  assert.ok(t1[0] - tip[0] > 0.5, `tail swung to +x: ${t1}`);
+  SKL.poseBones(rig, { phase: 1, calm: 1, tailF: 0 }, row);
+  const c5 = SKL.applyBone(row, 0, by.tail5, tip), c2 = SKL.applyBone(row, 0, by.tail2, [0, 0, 0]);
+  assert.ok(Math.hypot(c5[0] - c2[0], c5[1] - c2[1], c5[2] - c2[2]) < 1e-6, 'a dropped tail collapses onto the cut');
+  const info = {};
+  let moved = 0;
+  for (let k = 0; k < 6; k++) {
+    SKL.poseBones(rig, { phase: (k / 6) * Math.PI * 2, calm: 0 }, row, 0, info);
+    for (const c of rig.chains) {
+      const t = info.tips[c.limb];
+      assert.ok(t[1] > c.T[1] - 0.05, `limb ${c.limb} through the ground: ${t}`);
+      moved = Math.max(moved, Math.abs(t[2] - c.T[2]));
+    }
+  }
+  assert.ok(moved > 0.5, `the feet step: ${moved}`);
+});
+
+test('skin stretch of the posed gecko: at most 0.2 % of triangles past 2x over 6 walk poses (tools/rig/skin-stretch.mjs)', () => {
+  const out = execFileSync(process.execPath, ['tools/rig/skin-stretch.mjs', 'gecko'], { encoding: 'utf8', cwd: new URL('..', import.meta.url) });
+  const m = out.match(/skin walk: .*?>2x ([\d.]+) %/);
+  assert.ok(m, out);
+  assert.ok(+m[1] <= 0.2, out);
+  console.log(out.trim());
+});
