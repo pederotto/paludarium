@@ -182,7 +182,8 @@ export function flowerMaterial() {
     .mul(mj.mul(0.45).add(0.55)).mul(smoothstep(1.0, 0.8, au)).mul(isLeaf);
   // deeper, more saturated base; lighter margin and tip; slight irregular mottling (two warped sine waves, no grid)
   const baseW = smoothstep(0.42, 0, tv).mul(0.55).mul(isLeaf);
-  const edgeW = max(smoothstep(0.72, 1, au), smoothstep(0.82, 1, tv)).mul(0.5).mul(isLeaf);
+  // (F5) not on CRYSTALLINE: the lighter margin (and its glow) washed the scarlet cuthbertsonii toward salmon
+  const edgeW = max(smoothstep(0.72, 1, au), smoothstep(0.82, 1, tv)).mul(0.5).mul(isLeaf).mul(float(1).sub(isS(2)));
   const mt = sin(pu.mul(7.3).add(sin(pv.mul(11).add(pu.mul(3.1))).mul(1.4))).mul(sin(pv.mul(13.7).sub(pu.mul(4.3)).add(sin(pu.mul(9.1)).mul(1.2))))
     .add(sin(pu.mul(19).add(pv.mul(23)).add(sin(pv.mul(29)).mul(0.8))).mul(0.4));
   const pc = max(pcol, vec3(1e-4));
@@ -213,7 +214,7 @@ export function flowerMaterial() {
   m.colorNode = mix(col0, tc, has);
   // translucency: the thin margin glows more, the veins and hairs hold the light back
   const thin = mix(float(1), edgeW.mul(1.2).sub(veinF.mul(0.5)).sub(hair.mul(0.5)).add(1), has);
-  m.emissiveNode = em0.mul(thin).add(waxE.add(velE).mul(dl)).add(glit.mul(dl).mul(1.4));
+  m.emissiveNode = em0.mul(thin).add(waxE.add(velE).mul(dl)).add(glit.mul(dl).mul(mix(pcol, vec3(1), 0.5)).mul(0.9));   // (F5) glints tinted, not white haze
   m.roughnessNode = mix(float(0.55), float(0.3), wax);
   // Right in front of the lens a flower dissolves like a leaf (plantMaterial's screen-space dither).
   const ign = fract(fract(screenCoordinate.x.mul(0.06711056).add(screenCoordinate.y.mul(0.00583715))).mul(52.9829189));
