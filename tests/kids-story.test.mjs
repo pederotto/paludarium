@@ -95,6 +95,12 @@ test('each chapter gives a sticker that exists', () => {
   for (const ch of STORY) assert.ok(STICKERS.find((s) => s.id === ch.sticker), `sticker ${ch.sticker}`);
 });
 
+test('counts are what the child added since the chapter began', () => {
+  const x = STORY[0].challenges[0];
+  assert.equal(x.test({ ...base(), plants: { total: 50, water: 0 } }, {}, { land: 47 }), true);
+  assert.equal(x.test({ ...base(), plants: { total: 49, water: 0 } }, {}, { land: 47 }), false, 'a full world does not finish it alone');
+});
+
 test('storyStep walks the chapters in order, holds need their time, counters use the chapter baseline', () => {
   let p = newProgress();
   assert.equal(currentChallenge(p).x.id, 'land-plants');
@@ -118,9 +124,9 @@ test('storyStep walks the chapters in order, holds need their time, counters use
   m.humidity = 80; r = storyStep(p, m, { fed: 0 }, hold); p = r.p;
   assert.equal(p.chapter, 2);
   // Chapter 3: feeding before the chapter does not count; the baseline is taken at its start.
-  m.animals = { byId: { dartfrog: 2 } };
   r = storyStep(p, m, { fed: 5 }, 1); p = r.p;
   assert.equal(p.chapter, 2, 'the feed counter starts at the chapter');
+  m.animals = { byId: { dartfrog: 2 } };
   r = storyStep(p, m, { fed: 6 }, 1); p = r.p;
   assert.equal(p.chapter, 3);
   // A finished story stays finished and serialises as plain data.

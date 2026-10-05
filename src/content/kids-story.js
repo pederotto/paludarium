@@ -12,6 +12,9 @@ export const MAX_WORDS = 8;
 const info = (id, field, i, has) => ({ in: 'info', id, field, i, has });
 const species = (id, has) => ({ in: 'species', id, has });
 const n = (v) => v ?? 0;
+const land = (m) => n(m.plants?.total) - n(m.plants?.water);
+// Kids' worlds start full (Frog Island has 47 land plants and 3 blue frogs), so counts are what the child
+// added since the chapter began (`b`), not what the world already had.
 
 export const STORY = [
   {
@@ -20,12 +23,12 @@ export const STORY = [
     challenges: [
       {
         id: 'land-plants', text: 'Plant 3 plants on the land.', act: 'plants',
-        test: (m) => n(m.plants?.total) - n(m.plants?.water) >= 3,
+        test: (m, c, b) => land(m) - n(b?.land) >= 3,
         facts: [{ text: 'Blue frogs need land to live on.', src: info('dartfrog', 'care', 1, 'give it land') }],
       },
       {
         id: 'wood', text: 'Add a log, roots or a stump.', act: 'build',
-        test: (m) => n(m.hardscape?.wood) >= 1,
+        test: (m, c, b) => n(m.hardscape?.wood) - n(b?.wood) >= 1,
         facts: [{ text: 'Frogs like a drier spot to rest.', src: info('dartfrog', 'care', 0, 'a drier spot to rest') }],
       },
     ],
@@ -47,7 +50,7 @@ export const STORY = [
     challenges: [
       {
         id: 'two-frogs', text: 'Add 2 blue frogs.', act: 'animals',
-        test: (m) => n(m.animals?.byId?.dartfrog) >= 2,
+        test: (m, c, b) => n(m.animals?.byId?.dartfrog) - n(b?.dartfrog) >= 2,
         facts: [{ text: 'Bright blue says: do not eat me!', src: info('dartfrog', 'facts', 0, 'warns predators') }],
       },
       {
@@ -91,13 +94,13 @@ export const STORY = [
     challenges: [
       {
         id: 'six-neons', text: 'Add 6 neon fish.', act: 'animals',
-        test: (m) => n(m.animals?.byId?.neon) >= 6,
+        test: (m, c, b) => n(m.animals?.byId?.neon) - n(b?.neon) >= 6,
         facts: [
           { text: 'Keep six or more neon fish.', src: info('neon', 'care', 0, 'Keep six or more') },
           { text: 'A group keeps each fish safer.', src: info('neon', 'facts', 1, 'a group is safer') },
         ],
       },
-      { id: 'water-plants', text: 'Plant 2 plants in the water.', act: 'plants', test: (m) => n(m.plants?.water) >= 2 },
+      { id: 'water-plants', text: 'Plant 2 plants in the water.', act: 'plants', test: (m, c, b) => n(m.plants?.water) - n(b?.water) >= 2 },
       {
         id: 'clean-water', text: 'Keep the water clean. Tap Clean!', act: 'care', hold: 20,
         test: (m) => n(m.waterQuality) >= 0.8,
@@ -115,7 +118,7 @@ export const STORY = [
     challenges: [
       {
         id: 'ten-shrimp', text: 'Add 10 red shrimp.', act: 'animals',
-        test: (m) => n(m.animals?.byId?.shrimp) >= 10,
+        test: (m, c, b) => n(m.animals?.byId?.shrimp) - n(b?.shrimp) >= 10,
         facts: [{ text: 'Shrimp live in big groups.', src: species('shrimp', 'flock: [10, 80]') }],
       },
       {
@@ -158,7 +161,8 @@ export function storyStep(p0, m, c = {}, sec = 1) {
   const ch = STORY[p0?.chapter ?? 0];
   if (!ch || !m) return { p: p0, events: [] };
   const p = { ...p0, done: { ...p0.done }, held: { ...p0.held } };
-  p.base ??= { fed: n(c.fed), births: n(m.births) };
+  const by = m.animals?.byId ?? {};
+  p.base ??= { fed: n(c.fed), births: n(m.births), land: land(m), water: n(m.plants?.water), wood: n(m.hardscape?.wood), dartfrog: n(by.dartfrog), neon: n(by.neon), shrimp: n(by.shrimp) };
   const events = [];
   for (const x of ch.challenges) {
     if (p.done[x.id]) continue;
