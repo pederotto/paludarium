@@ -78,6 +78,12 @@ export const SKINK = {
   pause: [1, 5], walk: [1.5, 4],   // forage rhythm: seconds still, seconds walking (guess)
 };
 
+// The refuge (the cover it hides under) is on land (N11c): cover 0.6 or more and no water over the ground there (the same
+// test as animals.js okFor('land'): `depth` = water surface minus ground, cm, -Infinity when dry). A covered spot in the stream
+// is not one: taken as the refuge, it kept the skink hiding and foraging in the water all day (streambank, 99 % in water).
+export const REFUGE_COVER = 0.6;   // (0.6 a guess, as before: the 0.5 edge of a patch is reached short by the stop distance)
+export function skinkRefugeOk(cover, depth) { return cover >= REFUGE_COVER && !(depth > -0.2); }
+
 export function skinkMind(rnd = Math.random) {
   return { mode: 'hide', modeT: 0, wet: 0.9, warm: 0.6, fear: 0, goal: null, walkT: 0, pauseT: rnd() * 2, freezeT: 0, burstT: 0, deadT: 0, squeak: false, look: rnd() * 6.28, water: null };
 }
