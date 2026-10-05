@@ -389,7 +389,7 @@ export class Sim {
       if (sp.metamorphDays && a.age >= sp.metamorphDays * 1440 && a.parent && SPECIES[a.parent]) {
         W.animals.remove(a, 'metamorphosed');
         W.stats.metamorphs++;
-        births.push({ meta: true, sp: a.parent, pos: a.pos.clone(), genes: a.genes, gen: a.gen, parents: a.parents, mut: a.mut });
+        births.push({ meta: true, sp: a.parent, from: a.sp, pos: a.pos.clone(), genes: a.genes, gen: a.gen, parents: a.parents, mut: a.mut });
         continue;
       }
       const life = sp.lifeDays * 1440;
@@ -442,13 +442,13 @@ export class Sim {
           const c = W.animals.add(b.sp, p, opt);
           if (c) { c.parent = b.parent; n++; if (gene) { c.mut = gene.surprise || undefined; babies.push(gene); } }
         }
-        if (n) W.log(`${n} ${b.sp === 'tadpole' ? 'tadpoles' : one(b.sp) + 's'} hatched from a ${one(b.parent)} clutch.`, 'good');
+        if (n) W.log(`${n} ${b.sp === 'tadpole' ? 'tadpoles' : b.sp === 'larva' ? 'salamander larvae' : one(b.sp) + 's'} hatched from a ${one(b.parent)} clutch.`, 'good');
         this.logBabies(b.parent, babies, 'hatched');
       } else if (b.meta) {
         // Climb out: the nearest dry ground.
         const p = W.randomSpot((x, y, z, s) => s === -Infinity && Math.hypot(x - b.pos.x, z - b.pos.z) < 25) ?? b.pos;
         const c = W.animals.add(b.sp, p, { age: 0, hunger: 0.4, genes: b.genes, gen: b.gen ?? 0, parents: b.parents ?? null });
-        if (c) { c.mut = b.mut; W.log(`A tadpole turned into a young ${one(b.sp)} and left the water.`, 'good'); }
+        if (c) { c.mut = b.mut; W.log(`A ${b.from === 'larva' ? 'larva' : 'tadpole'} turned into a young ${one(b.sp)} and left the water.`, 'good'); }
       } else {
         const gene = b.pa && b.pb ? this.childGenes(b.sp, b.pa.genes, b.pb.genes) : null;
         const opt = { age: 0, hunger: 0.3 };

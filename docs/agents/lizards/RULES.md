@@ -43,3 +43,11 @@ Read this once at the start. The full brief is `BRIEF.md` in this folder (read s
 - An unrelated follow-up task may go to a fresh agent (small context). Your proposal or report is therefore also a hand-off: end it with a "Hand-off" section, 8 lines at most, giving the file:line pointers, commands and traps the next agent needs so it does not have to rediscover them. If you are that next agent: start from the hand-off, do not re-explore.
 - Reply to your parent in 8 lines at most: status plus the path of what you wrote.
 - Say "not found" or "not verified" plainly. A guess must be labelled as a guess.
+
+## Keeping the master doc current (the owner's rule, 2026-10-04)
+
+The master doc is the Claude Doc "Paludarium: what's left and the rules" (https://claude.ai/code/artifact/84818151-7698-4d92-b67d-4280866913ff); its companion is the Animal rig playbook (https://claude.ai/code/artifact/3081e0e0-084a-470e-ba7e-195756061767). The session doing the work keeps both current.
+- When the owner asks for an update, make it in that same session, before the turn ends: not later, and not in another session.
+- Update them whenever you change what is live, what is left, a rule, a tool, or how animals are built. The doc first, then the report.
+- Edit only the sections your change touches, and read a section before rewriting it: several sessions share both documents.
+- A subagent does not edit the docs: it says in its report what must change, and its lead makes the edit.

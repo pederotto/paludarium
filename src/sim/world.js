@@ -383,9 +383,11 @@ export class World {
       this.plants.add(p.id, new THREE.Vector3(...p.pos), { normal: new THREE.Vector3(...p.n), surface: p.s, rot: p.r, scale: p.sc, grown: p.g, health: p.h, variant: p.v, bloom: p.b });
     }
     for (const a of o.animals) {
-      if (!SPECIES[a.sp]) continue;
-      const n = this.animals.add(a.sp, new THREE.Vector3(...a.p), { hunger: a.h, health: a.hp, age: a.age });
-      if (n && a.x) Object.assign(n, a.x);
+      // (B3) salamander young saved as frog tadpoles before larvae existed load as larvae (SPECIES.larva.from lists the parents)
+      const id = a.sp === 'tadpole' && SPECIES.larva?.from?.includes(a.x?.parent) ? 'larva' : a.sp;
+      if (!SPECIES[id]) continue;
+      const n = this.animals.add(id, new THREE.Vector3(...a.p), { hunger: a.h, health: a.hp, age: a.age });
+      if (n && a.x) Object.assign(n, id === a.sp ? a.x : { ...a.x, id: n.id });
       if (n?.onWall) { n.wallMode = true; n.normal = new THREE.Vector3(0, 0, 1); }
     }
     this.env.load(o.env);

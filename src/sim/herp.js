@@ -96,7 +96,7 @@ export const PROFILES = {
   },
   gecko: {
     style: 'wall', rhIdeal: 70, tIdeal: 25, tHot: 29,
-    creep: 1.6, walk: 4.5, dash: 13,
+    creep: 1.6, walk: 4.5, dash: 25,            // dash = GECKO.burst (flee bursts; an estimate, see GECKO)
     scareCm: 8, thirstMin: [240, 480],
     dartS: [0.35, 1.3], pauseS: [1.2, 6], groomEvery: [25, 70], walkCm: [4, 14],
     awakeAt: 0.3,
@@ -110,6 +110,60 @@ export const PROFILES = {
 PROFILES.marbled = { ...PROFILES.newt, tIdeal: 17, tHot: 22, land: 0.5, bout: [120, 360] };
 // A species without a row (another animal of the same kind) gets the nearest one.
 export const profileFor = (id, kind) => PROFILES[id] ?? PROFILES[kind === 'axolotl' ? 'axolotl' : kind === 'gecko' ? 'gecko' : id === 'firesal' ? 'firesal' : 'newt'];
+
+// The mourning gecko's ethogram numbers (G3, docs/agents/lizards/reports/G3.proposal.md). F = the footage (MOTION_gecko.md,
+// M measured), D = species data, P = published for another gecko, G = a guess.
+export const GECKO = {
+  burst: 25,              // cm/s flee bursts. Estimate: H. garnotii runs up a wall at 5.6-15 SVL/s at 31 C (P, MOTION_gecko.md:57); 25 cm/s = 5.7 SVL/s of ours (4.4 cm)
+  burstS: [0.4, 1.0], stopS: [0.3, 0.8],      // s per burst and per stop between bursts (G)
+  alertAt: 0.15, fleeAt: 0.5, fleeAfter: 0.3, // fear: freeze above alertAt, bolt above fleeAt, or flee when the freeze ends still above fleeAfter (G)
+  freezeS: [1, 5], startleS: 0.3,             // s frozen before it decides; the shortest freeze before a bolt (G; F shows no startle)
+  grabCm: 2.8,            // cm: closer than this it bolts at once (the tail-drop distance)
+  camFear: 0.45, camFleeCm: 3,                // the keeper's lens: fear capped below fleeAt unless closer than 3 cm (G)
+  lickS: [0.7, 1.5],      // s a lick bout (F-M: still 0.73 s or more with the tongue out, MOTION_gecko.md:39; upper G)
+  tongueS: 0.2,           // s tongue out a flick, then as long in (F-M, MOTION_gecko.md:15)
+  lickGapS: [0.3, 0.8],   // s head up between bouts at a drop (G)
+  lickP: 0.25, lickWetP: 0.6,                 // chance a patrol pause starts with licking the surface, dry / wet (G; F: licks a dry surface)
+  stalkS: 25, giveUpS: 8, // s: longest stalk before it gives up; then it leaves prey alone that long (G)
+  crouchS: [0.3, 0.8], strikeS: 0.1, swallowS: [2, 4],   // s (G: the footage has no prey)
+  wallPref: 0.6,          // patrol legs on the wall preferred (D: "vertical space matters more", species-info.js)
+  homeCm: 1.2,            // cm: at home only on its own spot (2.5 let roost-mates share one disc)
+  roostCap: 4, roostGap: 3, roostRadius: 6, roostApart: 10,   // G (CONTRACTS.md: herpHomeScore calls geckoRoost)
+};
+
+// (gecko) A home `h` ({x, y, wall} on the wall, {x, z, wall: false} on the ground) against the other geckos' homes: -1 = not here
+// (closer than roostGap to one, roostCap already within roostRadius, or a full roost nearer than roostApart), 0 = alone, +0.25 = joins
+// a roost with room. A group, never a pile.
+export function geckoRoost(h, homes, cap = GECKO.roostCap, gap = GECKO.roostGap, radius = GECKO.roostRadius, apart = GECKO.roostApart) {
+  const wall = h.wall !== false;
+  const v = (p) => (p.wall === false ? p.z ?? 0 : p.y ?? p.z ?? 0);
+  const dist = (a, b) => Math.hypot(a.x - b.x, v(a) - v(b));
+  const os = (homes ?? []).filter((o) => o && o !== h && (o.wall !== false) === wall);
+  let n = 0;
+  for (const o of os) { const d = dist(o, h); if (d < gap) return -1; if (d < radius) n++; }
+  if (n >= cap) return -1;
+  for (const o of os) if (dist(o, h) < apart && os.filter((q) => q !== o && dist(q, o) < radius).length + 1 >= cap) return -1;
+  return n > 0 ? 0.25 : 0;
+}
+
+// (gecko) The danger it reacts to: the keeper's camera (`cam` on the threat) counts only as a swoop; the lens that follows it
+// (`followed`) or a camera jump (`camCut`) is no danger at all.
+export const geckoSeen = (s) => (s.threat && s.threat.cam && (s.followed || s.camCut) ? null : s.threat ?? null);
+
+// (gecko) Which surface it is on: the world's `surface` sense when it gives one ('glass' | 'bark' | 'leaf' | 'wall' | 'ground'),
+// else what the brain knows today: on the background ('wall') or not ('ground').
+function geckoSurface(s, it) {
+  it.surface = s.surface ?? (s.onWall === false ? 'ground' : 'wall');
+  it.vertical = it.surface !== 'ground' && it.surface !== 'leaf';
+  it.pose ??= 'rest'; it.lick ??= 0; it.licking ??= null; it.stalk ??= 0;
+}
+
+// (gecko) One step of a lick bout: the tongue out for tongueS, in for as long; head 10-15 deg down (F-E, MOTION_gecko.md:25).
+function lickStep(m, it, tg, t, dt, on) {
+  it.licking = on; it.lick = Math.floor(m.lickT / GECKO.tongueS + 1e-6) % 2 === 0 ? 1 : 0;
+  m.lickT += dt; m.lickLeft -= dt;
+  Object.assign(tg, { headP: -0.22 + 0.06 * it.lick, head: 0.08 * Math.sin(t * 3), throat: 0.35 + 0.4 * it.lick, hr: 12 });
+}
 
 export function herpMind(id = 'newt', rnd = Math.random) {
   return {
@@ -178,7 +232,8 @@ function drives(m, P, s, rnd) {
   }
   // Fear: jumps when something large looms close (or the camera comes close), fades over a few seconds.
   const sc = P.scareCm * (m.mode === 'hide' || m.mode === 'rest' ? 0.7 : 1);
-  if (s.threat && s.threat.d < sc) m.fear = Math.max(m.fear, 1 - s.threat.d / sc);
+  const th = P.style === 'wall' ? geckoSeen(s) : s.threat;   // (gecko) the lens that follows it, or a camera jump, is no danger
+  if (th && th.d < sc) m.fear = Math.max(m.fear, P.style === 'wall' && th.cam && th.d >= GECKO.camFleeCm ? Math.min(GECKO.camFear, 1 - th.d / sc) : 1 - th.d / sc);
   m.fear = Math.max(0, m.fear - dt * 0.22);
   return { dt, dtMin, inWater, act: awake(P, s, m), hot: clamp(((s.temp ?? P.tIdeal) - P.tHot) / 3, 0, 1) };
 }
@@ -340,10 +395,11 @@ function pickLeg(m, P, s, home, rnd) {
   let best = null, bs = -1e9;
   for (const p of c) {
     let sc = rnd() * 0.6 + (p.damp ?? 0) * 0.8 + (p.near ?? 0) * 0.5 + (p.cover ?? 0) * 0.3 + (p.food ?? 0) * 0.9;
+    if (P.style === 'wall' && p.wall) sc += GECKO.wallPref;     // (gecko) vertical space first
     if (home) { const dh = Math.hypot(p.x - home.x, p.z - home.z); if (dh > P.range) sc -= (dh - P.range) * 0.08; }
     if (sc > bs) { bs = sc; best = p; }
   }
-  return best ? { x: best.x, z: best.z } : null;
+  return best ? (P.style === 'wall' ? { x: best.x, z: best.z, wall: best.wall === true } : { x: best.x, z: best.z }) : null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -500,85 +556,140 @@ function wallThink(m, P, s, d, it, rnd) {
   const { dt, act } = d;
   const t = s.t ?? 0;
   const home = s.home;
-  const here = { x: s.x, z: s.z };
-  const atHome = home ? Math.hypot(home.x - s.x, home.z - s.z) < 2.5 && !!(s.onWall ?? true) === !!(home.wall ?? true) : false;
+  const th = geckoSeen(s);
+  const atHome = home ? Math.hypot(home.x - s.x, home.z - s.z) < GECKO.homeCm && !!(s.onWall ?? true) === !!(home.wall ?? true) : false;
+  m.huntCool = Math.max(0, (m.huntCool ?? 0) - dt);
 
-  if (m.fear > 0.35 && m.mode !== 'flee') { go(m, 'flee', rnd); m.sideSign = rnd() < 0.5 ? -1 : 1; }
+  // Fear: a freeze first, the head on the danger; flight when it comes on or stays; within grabbing distance it bolts at once.
+  // The keeper's lens may freeze it but sends it running only when it nearly touches (drives(): its fear is capped at GECKO.camFear).
+  if (m.mode !== 'flee') {
+    const grab = th && th.d < GECKO.grabCm && m.fear > GECKO.fleeAt;
+    const bolt = m.mode === 'alert' && m.fear > GECKO.fleeAt && m.modeT >= GECKO.startleS;
+    const stays = m.mode === 'alert' && m.alertLeft <= 0 && m.fear >= GECKO.fleeAfter && !(th && th.cam);
+    if (grab || bolt || stays) { go(m, 'flee', rnd); m.sideSign = rnd() < 0.5 ? -1 : 1; }
+    else if (m.mode !== 'alert' && m.fear > GECKO.alertAt) { go(m, 'alert', rnd); m.alertLeft = between(rnd, GECKO.freezeS); }
+  }
   if (m.mode === 'flee') {
     if (m.fear < 0.15 && m.modeT > 1.2) go(m, home && !atHome ? 'hide' : 'rest', rnd);
+  } else if (m.mode === 'alert') {
+    if (m.alertLeft <= 0 && m.fear < GECKO.alertAt) go(m, 'rest', rnd);
   } else {
-    const prey = s.prey && (s.hunger ?? 0) > 0.3 && s.prey.d < (s.prey.mine ? 60 : P.sight) ? s.prey : null;
+    const prey = s.prey && (s.hunger ?? 0) > 0.3 && s.prey.d < (s.prey.mine ? 60 : P.sight) && m.huntCool <= 0 ? s.prey : null;
     const wet = m.dewHere || (s.rain ?? 0) > 0.1;
     let want;
-    if (m.mode === 'drink' && m.drinkT < 10 && m.thirst > 0.1) want = 'drink';
+    if (m.mode === 'hunt' && m.hph && m.hph !== 'stalk') want = 'hunt';        // a crouch, strike or swallow is finished first
+    else if (m.mode === 'drink' && m.drinkT < 10 && m.thirst > 0.1) want = 'drink';
     else if (m.thirst > 0.75 && s.wetSpot && (wet || s.wetSpot.d < 30) && act > 0.2) want = 'drink';
     else if (prey && act > 0.2) want = 'hunt';
     else if (act < P.awakeAt) want = 'hide';
     else if (act > 0.42) want = 'patrol';
     else want = m.mode === 'patrol' || m.mode === 'hunt' || m.mode === 'drink' ? 'rest' : m.mode;
-    if (want === 'hunt' || want === 'drink' || m.modeT > 3 || m.mode === 'rest' || m.mode === 'flee') go(m, want, rnd);
+    if (want === 'hunt' || want === 'drink' || m.modeT > 3 || m.mode === 'rest') go(m, want, rnd);
   }
   m.modeT += dt;
+  const fresh = m.modeT <= dt * 1.001;
+  if (fresh) { m.lickLeft = 0; m.lickGap = 0; }
   it.mode = m.mode;
   const tg = { throat: 0.2 + 0.15 * Math.sin(t * 5), hr: 6 };
   it.wantWall = m.wantWall;
   m.groomNext -= dt;
+  let pose = 'rest';
 
   switch (m.mode) {
     case 'flee': {
       // Caught: the tail comes off and thrashes (the pursuer's eye follows it), and the gecko is gone.
-      if (P.tail && m.tailF > 0.8 && s.threat && s.threat.d < 2.8 && m.fear > 0.6 && rnd() < dt * 5) { it.dropTail = true; m.tailF = 0.1; }
-      it.goal = home ?? (s.threat ? away(s, s.threat, 14) : null); it.speed = P.dash; it.calm = 0; it.needHome = !home;
+      if (P.tail && m.tailF > 0.8 && th && th.d < 2.8 && m.fear > 0.6 && rnd() < dt * 5) { it.dropTail = true; m.tailF = 0.1; }
+      // Bursts at GECKO.burst with short stops, to the roost (or straight away from the danger without one).
+      if (fresh || m.burstLeft == null || m.stopLeft == null) { m.burstLeft = between(rnd, GECKO.burstS); m.stopLeft = 0; }
+      it.goal = home ?? (th ? away(s, th, 14) : null); it.needHome = !home;
       it.wantWall = home ? home.wall !== false : true;
+      if (m.burstLeft > 1e-6) { m.burstLeft -= dt; it.speed = GECKO.burst; it.calm = 0; if (m.burstLeft <= 1e-6) m.stopLeft = between(rnd, GECKO.stopS); }
+      else { it.speed = 0; it.calm = 1; m.stopLeft -= dt; if (m.stopLeft <= 1e-6) m.burstLeft = between(rnd, GECKO.burstS); }
       Object.assign(tg, { tail: 0.05 * Math.sin(t * 14) });
+      pose = 'flee';
+      break;
+    }
+    case 'alert': {
+      // Frozen flat, the head turned to the danger, the tail still (G: the footage shows no startle).
+      m.alertLeft -= dt;
+      it.calm = 1; it.speed = 0;
+      if (th && th.x != null) m.alertAt = { x: th.x, z: th.z };
+      it.alertAt = m.alertAt ?? null;
+      Object.assign(tg, { head: it.alertAt ? lookAt(s, it.alertAt, 0.8) : 0, headP: 0.12, tail: 0, throat: 0.15, hr: 10 });
+      pose = 'freeze';
       break;
     }
     case 'hide': {
-      // Asleep: pressed flat in a crevice or behind a leaf, eyes shut, tail curled round. Sleeps with others if it can.
+      // Asleep: pressed flat in a crevice or behind a leaf, eyes shut, tail curled round, on its own spot of a group roost.
       if (!home) { it.needHome = true; it.calm = 1; break; }
       it.wantWall = home.wall !== false;
-      if (!atHome) { it.goal = home; it.speed = P.walk; it.calm = 0; Object.assign(tg, { headP: 0.1 }); }
-      else { it.calm = 1; it.tuck = 1; Object.assign(tg, { eye: 1, bend: 0.45 * m.sideSign, tail: 0.1 * m.sideSign, headP: -0.05, throat: 0.15 + 0.1 * Math.sin(t * 1.6) }); }
+      if (!atHome) { it.goal = home; it.speed = P.walk; it.calm = 0; Object.assign(tg, { headP: 0.1 }); pose = 'walk'; }
+      else { it.calm = 1; it.tuck = 1; Object.assign(tg, { eye: 1, bend: 0.45 * m.sideSign, tail: 0.1 * m.sideSign, headP: -0.05, throat: 0.15 + 0.1 * Math.sin(t * 1.6) }); pose = 'roost'; }
       break;
     }
     case 'drink': {
-      // To a wet spot (dew on the glass, drops on a leaf, a splash zone) and lick it: head down, tongue working.
+      // To a wet spot (dew on the glass, drops on a leaf, a splash zone); licks it in bouts, the head lifted between them.
       const w = s.wetSpot;
       if (!w) { go(m, 'rest', rnd); break; }
       it.wantWall = w.wall !== false;
-      if (w.d > 1.2) { it.goal = { x: w.x, z: w.z }; it.speed = P.walk; it.calm = 0; Object.assign(tg, { headP: 0.05 }); }
-      else {
-        it.calm = 1; it.drink = true; m.drinkT += dt;
-        const lick = Math.max(0, Math.sin(t * 7.5));
-        Object.assign(tg, { headP: -0.4 + 0.12 * lick, head: 0.1 * Math.sin(t * 3), throat: 0.35 + 0.4 * lick, hr: 12 });
-        m.thirst = Math.max(0, m.thirst - dt / 14);
-        if (m.thirst <= 0.05 || m.drinkT > 14) { m.thirst = 0; go(m, 'rest', rnd); }
-      }
+      if (w.d > 1.2) { it.goal = { x: w.x, z: w.z }; it.speed = P.walk; it.calm = 0; Object.assign(tg, { headP: 0.05 }); pose = 'walk'; break; }
+      it.calm = 1; it.drink = true; m.drinkT += dt;
+      if (m.lickLeft <= 1e-6 && m.lickGap <= 1e-6) { m.lickLeft = between(rnd, GECKO.lickS); m.lickT = 0; }
+      if (m.lickLeft > 1e-6) {
+        lickStep(m, it, tg, t, dt, 'drop'); pose = 'lick';
+        m.thirst = Math.max(0, m.thirst - dt / 10);
+        if (m.lickLeft <= 1e-6) m.lickGap = between(rnd, GECKO.lickGapS);
+      } else { m.lickGap -= dt; Object.assign(tg, { headP: 0.1, head: 0.1 * Math.sin(t * 3), hr: 8 }); }
+      if (m.thirst <= 0.05 || m.drinkT > 14) { m.thirst = 0; go(m, 'rest', rnd); }
       break;
     }
     case 'hunt': {
+      // Stalk (tail waving, creeping in short moves), crouch, strike, swallow; or give up after GECKO.stalkS.
       const pr = s.prey;
-      if (!pr) { go(m, 'rest', rnd); break; }
-      it.face = { x: pr.x, z: pr.z }; it.wantWall = pr.wall !== false;
+      if (fresh || !m.hph) { m.hph = 'stalk'; m.hphT = 0; }
+      if (!pr && (m.hph === 'stalk' || m.hph === 'crouch')) { m.hph = null; go(m, 'rest', rnd); break; }
+      if (m.hph === 'stalk' && m.modeT >= GECKO.stalkS) { m.hph = null; m.huntCool = GECKO.giveUpS; go(m, 'rest', rnd); break; }
+      if (pr) { it.face = { x: pr.x, z: pr.z }; it.wantWall = pr.wall !== false; }
       const stop = (s.reach ?? 1.6) * 0.8;
-      // Tail waving while it fixes on the prey, a creep in short steps, a crouch, then the pounce (the animal's strike).
-      Object.assign(tg, { head: lookAt(s, pr, 0.5), headP: 0.1, tail: 0.12 * Math.sin(t * 9.5), tr: 12, hr: 9 });
-      if (pr.d <= stop + 0.3) { it.stopAt = stop; it.calm = 1; Object.assign(tg, { tail: 0.03 * Math.sin(t * 20) }); break; }
-      m.pauseLeft -= dt;
-      if (m.moveLeft <= 0 && m.pauseLeft <= 0) m.moveLeft = pr.d > 7 ? 3 + rnd() * 3 : 0.8 + rnd() * 1.2;
-      if (m.moveLeft > 0) { m.moveLeft -= (s.moved ?? P.creep * dt); it.goal = { x: pr.x, z: pr.z }; it.speed = pr.d > 8 ? P.walk * 0.8 : P.creep; it.calm = 0; it.stopAt = stop; if (m.moveLeft <= 0) m.pauseLeft = 0.5 + rnd() * 1.5; }
-      else it.calm = 1;
+      if (m.hph === 'stalk') {
+        it.stalk = 0.4; pose = 'stalk';
+        Object.assign(tg, { head: lookAt(s, pr, 0.5), headP: 0.1, tail: 0.12 * Math.sin(t * 9.5), tr: 12, hr: 9 });
+        if (pr.d <= stop + 0.3) { m.hph = 'crouch'; m.hphT = between(rnd, GECKO.crouchS); it.stopAt = stop; it.calm = 1; break; }
+        m.pauseLeft -= dt;
+        if (m.moveLeft <= 0 && m.pauseLeft <= 0) m.moveLeft = pr.d > 7 ? 3 + rnd() * 3 : 0.8 + rnd() * 1.2;
+        if (m.moveLeft > 0) {
+          m.moveLeft -= (s.moved ?? P.creep * dt); it.goal = { x: pr.x, z: pr.z }; it.speed = pr.d > 8 ? P.walk * 0.8 : P.creep; it.calm = 0; it.stopAt = stop;
+          if (m.moveLeft <= 0) m.pauseLeft = 0.5 + rnd() * 1.5;
+        } else it.calm = 1;
+      } else if (m.hph === 'crouch') {
+        it.calm = 1; it.stopAt = stop; it.stalk = 1; pose = 'crouch';
+        Object.assign(tg, { head: lookAt(s, pr, 0.5), headP: 0.02, tail: 0.03 * Math.sin(t * 20), tr: 12, hr: 12 });
+        if (pr.d > stop + 1.5) m.hph = 'stalk';
+        else if ((m.hphT -= dt) <= 1e-6) { m.hph = 'strike'; m.hphT = GECKO.strikeS; }
+      } else if (m.hph === 'strike') {
+        it.calm = 1; it.strike = true; it.stalk = 1; pose = 'strike'; if (pr) it.stopAt = stop;
+        Object.assign(tg, { head: pr ? lookAt(s, pr, 0.5) : m.head, headP: 0.25, tail: 0.1, tr: 20, hr: 30 });
+        if ((m.hphT -= dt) <= 1e-6) { m.hph = 'swallow'; m.hphT = between(rnd, GECKO.swallowS); }
+      } else {
+        it.calm = 1; it.swallow = true; pose = 'swallow';
+        Object.assign(tg, { headP: 0.2, throat: 0.5 + 0.4 * Math.abs(Math.sin(t * 6)), hr: 8 });
+        if ((m.hphT -= dt) <= 1e-6) { m.hph = null; go(m, 'rest', rnd); }
+      }
       break;
     }
     case 'patrol': {
-      // Darts and pauses along the wall. In a pause: a look round, a flick of the tail, now and then a lick of the eye.
+      // Darts and pauses along the wall. In a pause: a look round, a flick of the tail, a lick of the eye or of the surface.
       const dart = m.moveLeft > 0 || (m.pauseLeft -= dt) <= 0;
-      if (dart && m.moveLeft <= 0) { m.moveLeft = between(rnd, P.dartS); m.goal = pickLeg(m, P, s, home, rnd); it.wantWall = m.goal?.wall ?? m.wantWall; }
+      if (dart && m.moveLeft <= 0) { m.moveLeft = between(rnd, P.dartS); m.goal = pickLeg(m, P, s, home, rnd); if (m.goal?.wall != null) m.wantWall = m.goal.wall; it.wantWall = m.wantWall; }
       if (m.moveLeft > 0) {
         m.moveLeft -= dt;
-        it.goal = m.goal; it.speed = P.walk; it.calm = 0; it.wantWall = m.goal?.wall ?? m.wantWall;
+        it.goal = m.goal; it.speed = P.walk; it.calm = 0; it.wantWall = m.wantWall; pose = 'walk';
         Object.assign(tg, { headP: 0.08, tail: 0.05 * Math.sin(t * 11) });
-        if (m.moveLeft <= 0) { m.goal = null; m.pauseLeft = between(rnd, P.pauseS); m.look = rnd() * 6.28; if (m.groomNext <= 0) { m.groomLeft = 1.6; m.groomNext = between(rnd, P.groomEvery) * 0.6; } }
+        if (m.moveLeft <= 0) {
+          m.goal = null; m.pauseLeft = between(rnd, P.pauseS); m.look = rnd() * 6.28;
+          if (m.groomNext <= 0) { m.groomLeft = 1.6; m.groomNext = between(rnd, P.groomEvery) * 0.6; }
+          else if (rnd() < (m.dewHere ? GECKO.lickWetP : GECKO.lickP)) { m.lickLeft = between(rnd, GECKO.lickS); m.lickT = 0; m.lickOn = m.dewHere ? 'wet' : 'surface'; m.pauseLeft = Math.max(m.pauseLeft, m.lickLeft + 0.3); }
+        }
       } else {
         it.calm = 1;
         if (m.groomLeft > 0) {
@@ -586,7 +697,9 @@ function wallThink(m, P, s, d, it, rnd) {
           m.groomLeft -= dt;
           const ph = m.groomLeft > 0.8 ? 1 : -1, k = Math.abs(Math.sin(m.groomLeft * 7));
           Object.assign(tg, { head: 0.8 * ph * m.sideSign, headP: 0.25, eye: 0.8 * k, throat: 0.5 * k, hr: 14 });
-        } else Object.assign(tg, { head: 0.55 * Math.sin(t * 1.3 + m.look) * (Math.sin(t * 0.35 + m.look) > 0 ? 1 : 0.2), headP: 0.16 + 0.1 * Math.sin(t * 0.9 + m.look), tail: 0.04 * Math.sin(t * 2.1 + m.look), hr: 7 });
+          it.licking = 'eye'; pose = 'lick';
+        } else if (m.lickLeft > 1e-6) { lickStep(m, it, tg, t, dt, m.lickOn ?? 'surface'); pose = 'lick'; if (m.lickOn === 'wet') m.thirst = Math.max(0, m.thirst - dt / 20); }
+        else Object.assign(tg, { head: 0.55 * Math.sin(t * 1.3 + m.look) * (Math.sin(t * 0.35 + m.look) > 0 ? 1 : 0.2), headP: 0.16 + 0.1 * Math.sin(t * 0.9 + m.look), tail: 0.04 * Math.sin(t * 2.1 + m.look), hr: 7 });
       }
       break;
     }
@@ -596,6 +709,7 @@ function wallThink(m, P, s, d, it, rnd) {
       if (m.modeT > 2 + rnd() * 6 && act > 0.42) go(m, 'patrol', rnd);
     }
   }
+  it.pose = pose;
   posture(m, it, tg, dt);
 }
 
@@ -747,6 +861,7 @@ export function herpThink(m, s, rnd = Math.random) {
   }
   it.wet = m.wet; it.air = m.air; it.fear = m.fear; it.act = d.act;
   it.dull = m.dull; it.tailF = m.tailF;
+  if (P.style === 'wall') geckoSurface(s, it);
   if (P.tail && m.tailF < 0.5) it.tail *= m.tailF * 2;       // a stump hardly waves
   return it;
 }
@@ -758,6 +873,7 @@ export function doing(mode, kind, { prey = null, asleep = false, hot = false, we
     case 'warn': return 'Frozen, showing its warning colours';
     case 'retreat': return 'Withdrawing to its hide';
     case 'flee': return 'Bolting for cover';
+    case 'alert': return 'Frozen, watching';
     case 'air': return 'Surfacing for a breath';
     case 'soak': return wet < 0.9 ? 'Soaking to wet its skin' : 'Resting in the shallows';
     case 'drink': return 'Licking up water drops';

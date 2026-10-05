@@ -272,9 +272,11 @@ export const AXOLOTL_MORPHS = {
   white_albino: { name: 'white_albino', skin: 0xf6efe2, back: 0xf1e8d8, belly: 0xfdf8ee, fin: 0xf8f1e6, finEdge: 0xf4e0da, gill: 0xf4a2b2, gillBase: 0xf9cfd2, lip: 0xeac6bf, eye: 0x93303e, iris: 0xdc7284, ring: 0xf6b0ba, spots: null, blotch: null },
 };
 
-// The axolotl's shape. Built once per definition; `st.hi` selects the fine detail level.
-function axolotlShape(st) {
-  const loft = new Loft([
+// The axolotl's proportions (B3: moved out of axolotlShape unchanged, so the salamander larva reuses the builder).
+// rows: loft stations [z, centre y, half-width, top, bottom]; dorsal/ventral: fin stations; fore/hind: shoulder-elbow-wrist and
+// hip-knee-ankle (right side) with radii; toe/toeR scale the digits, gillR/filLen the gill stalks and filaments; eye: [x, z, r].
+const AXO = {
+  rows: [
     [-7.7, 0.60, 0.05, 0.12, 0.12],
     [-7.0, 0.64, 0.10, 0.24, 0.22],
     [-6.0, 0.72, 0.19, 0.34, 0.30],
@@ -289,44 +291,56 @@ function axolotlShape(st) {
     [3.0, 0.73, 1.00, 0.45, 0.38],
     [3.6, 0.71, 0.93, 0.42, 0.36],
     [4.3, 0.70, 0.80, 0.40, 0.34],
-  ], { front: 0.95, back: 0.7 });
-
-  // Tail fin: dorsal from the back of the head to the tail tip, ventral from the vent.
-  const dorsal = new Fin([
+  ], loftOpts: { front: 0.95, back: 0.7 },
+  dorsal: [
     [-7.5, 0.60, 0.72, 0.05], [-7.0, 0.66, 0.98, 0.05], [-6.0, 0.72, 1.15, 0.05], [-4.8, 0.80, 1.36, 0.05], [-3.6, 0.90, 1.5, 0.05],
     [-2.8, 0.92, 1.50, 0.05], [-1.8, 0.95, 1.47, 0.05], [-0.4, 0.98, 1.42, 0.05], [0.8, 1.0, 1.36, 0.045], [1.8, 0.95, 1.27, 0.04],
-  ]);
-  const ventral = new Fin([
+  ],
+  ventral: [
     [-7.4, 0.42, 0.62, 0.05], [-6.6, 0.28, 0.66, 0.05], [-5.6, 0.14, 0.72, 0.05], [-4.6, 0.10, 0.74, 0.05], [-3.7, 0.16, 0.66, 0.05], [-3.0, 0.3, 0.5, 0.045],
-  ]);
+  ],
+  fore: { pts: [[0.66, 0.72, 1.55], [1.45, 0.44, 1.12], [1.88, 0.09, 1.66]], rads: [0.27, 0.18, 0.13] },
+  hind: { pts: [[0.62, 0.72, -2.4], [1.5, 0.46, -1.95], [1.95, 0.10, -2.55]], rads: [0.30, 0.2, 0.14] },
+  toe: 1, toeR: 1,
+  gills: [
+    { base: [0.80, 0.34, 2.2], dir: [0.55, 0.52, -0.66], len: 1.75, curl: [0.12, -0.12, -0.28] },
+    { base: [0.90, 0.06, 2.15], dir: [0.86, 0.18, -0.5], len: 1.95, curl: [0.14, -0.14, -0.3] },
+    { base: [0.90, -0.24, 2.05], dir: [0.84, -0.12, -0.55], len: 1.5, curl: [0.12, -0.12, -0.3] },
+  ], gillR: 1, filLen: 1,
+  eye: [0.52, 3.32, 0.15], mouth: [[2.2, 1.06], [2.5, 0.98], [2.8, 0.86], [3.2, 0.7], [3.8, 0.66], [4.3, 0.66]], finY: 0.6,
+  lo: [-3.4, -0.25, -8.1], hi: [3.4, 2.5, 4.7],
+};
+
+// The axolotl's shape. Built once per definition; `st.hi` selects the fine detail level.
+export function axolotlShape(st = { hi: false }, P = AXO) {
+  const loft = new Loft(P.rows, P.loftOpts);
+
+  // Tail fin: dorsal from the back of the head to the tail tip, ventral from the vent.
+  const dorsal = new Fin(P.dorsal);
+  const ventral = new Fin(P.ventral);
 
   // Legs: right side, then mirrored. Shoulder, elbow, wrist / hip, knee, ankle.
-  const legs = [];
+  const legs = [], feet = [], roots = [];
   for (const side of [-1, 1]) {
     for (const back of [false, true]) {
-      const pts = back
-        ? [[0.62, 0.72, -2.4], [1.5, 0.46, -1.95], [1.95, 0.10, -2.55]]
-        : [[0.66, 0.72, 1.55], [1.45, 0.44, 1.12], [1.88, 0.09, 1.66]];
-      const rads = back ? [0.30, 0.2, 0.14] : [0.27, 0.18, 0.13];
+      const pts = back ? P.hind.pts : P.fore.pts;
+      const rads = back ? P.hind.rads : P.fore.rads;
       const rods = new Rods();
       rods.chain(flipX(pts, side), rads, 0, 0.55);
       const w = pts[2];
       const fine = st.hi;
-      const fr = fine ? [0.075, 0.042] : [0.085, 0.06];
-      if (back) digits({ base: [w[0] + 0.02, 0.085, w[2] + 0.12], angles: [-42, -22, -2, 20, 42], lens: [0.5, 0.7, 0.82, 0.74, 0.55], r0: fr[0], r1: fr[1] }, side, rods, 0.55, 1);
-      else digits({ base: [w[0] + 0.02, 0.085, w[2] + 0.1], angles: [-30, -10, 10, 30], lens: [0.66, 0.86, 0.84, 0.6], r0: fr[0], r1: fr[1] }, side, rods, 0.55, 1);
+      const fr = (fine ? [0.075, 0.042] : [0.085, 0.06]).map((v) => v * P.toeR);
+      if (back) digits({ base: [w[0] + 0.02, 0.085, w[2] + 0.12], angles: [-42, -22, -2, 20, 42], lens: [0.5, 0.7, 0.82, 0.74, 0.55].map((v) => v * P.toe), r0: fr[0], r1: fr[1] }, side, rods, 0.55, 1);
+      else digits({ base: [w[0] + 0.02, 0.085, w[2] + 0.1], angles: [-30, -10, 10, 30], lens: [0.66, 0.86, 0.84, 0.6].map((v) => v * P.toe), r0: fr[0], r1: fr[1] }, side, rods, 0.55, 1);
       // palm / sole
-      const pad = [w[0] * side + 0.02 * side, 0.075, w[2] + 0.06, 0, 1, back ? 0.2 : 0.17, 0.075, back ? 0.2 : 0.16, 0.6];
+      const pad = [w[0] * side + 0.02 * side, 0.075, w[2] + 0.06, 0, 1, (back ? 0.2 : 0.17) * P.toe, 0.075, (back ? 0.2 : 0.16) * P.toe, 0.6];
+      feet.push([w[0] * side, w[1], w[2]]); roots.push([pts[0][0] * side, pts[0][1], pts[0][2]]);
       legs.push(new Limb(back ? (side < 0 ? 3 : 4) : side < 0 ? 1 : 2, rods, [pad]));
     }
   }
 
   // Gills: three stalks per side, each a bottle-brush of filaments.
-  const GILLS = [
-    { base: [0.80, 0.34, 2.2], dir: [0.55, 0.52, -0.66], len: 1.75, curl: [0.12, -0.12, -0.28] },
-    { base: [0.90, 0.06, 2.15], dir: [0.86, 0.18, -0.5], len: 1.95, curl: [0.14, -0.14, -0.3] },
-    { base: [0.90, -0.24, 2.05], dir: [0.84, -0.12, -0.55], len: 1.5, curl: [0.12, -0.12, -0.3] },
-  ];
+  const GILLS = P.gills;
   const gills = [];
   for (const side of [-1, 1]) {
     GILLS.forEach((g, gi) => {
@@ -337,12 +351,12 @@ function axolotlShape(st) {
       const cv = [g.curl[0] * side, g.curl[1], g.curl[2]];
       const Mid = add3(add3(B, D, g.len * 0.5), cv, 0.4), T = add3(add3(B, D, g.len), cv, 1);
       const fine = st.hi;
-      const rr = fine ? [0.115, 0.08, 0.05] : [0.14, 0.1, 0.07];
+      const rr = (fine ? [0.115, 0.08, 0.05] : [0.14, 0.1, 0.07]).map((v) => v * P.gillR);
       rods.chain([B, Mid, T], rr);
       // frame for the filament fan
       const P0 = norm3(cross3(D, [0, 1, 0.01])), Q0 = cross3(D, P0);
       const n = fine ? 26 : 10;
-      const fr0 = fine ? 0.04 : 0.075, fr1 = fine ? 0.02 : 0.045;
+      const fr0 = (fine ? 0.04 : 0.075) * P.gillR, fr1 = (fine ? 0.02 : 0.045) * P.gillR;
       for (let i = 0; i < n; i++) {
         const s = 0.12 + (0.86 * i) / (n - 1);
         // point on the (quadratic) rachis
@@ -350,7 +364,7 @@ function axolotlShape(st) {
         const phi = i * 2.4 + gi * 1.3 + (side < 0 ? 0.7 : 0);
         const th = 0.9 + 0.25 * (hash1(i + gi * 7) - 0.5);
         const dir = norm3(add3(add3(D, [0, 0, 0], 0), add3(P0.map((v) => v * Math.cos(phi)), Q0, Math.sin(phi)), Math.tan(th) * 0.95));
-        const len = (fine ? 0.78 : 0.66) * (1 - 0.45 * s) * (0.8 + 0.4 * hash1(i * 3 + gi));
+        const len = (fine ? 0.78 : 0.66) * P.filLen * (1 - 0.45 * s) * (0.8 + 0.4 * hash1(i * 3 + gi));
         const swept = [dir[0], dir[1] - 0.22, dir[2] - 0.3];
         const dd = norm3(swept);
         rods.add(q, add3(q, dd, len), fr0, fr1);
@@ -361,9 +375,9 @@ function axolotlShape(st) {
   }
 
   // Eyes: tiny, lidless, set on the top of the head, well apart.
-  const eyes = [-1, 1].map((s) => makeEye(loft, 0.52 * s, 0, 3.32, 0.15, 0.4));
+  const eyes = [-1, 1].map((s) => makeEye(loft, P.eye[0] * s, 0, P.eye[1], P.eye[2], 0.4));
   // Mouth line: a wide smile whose corners rise toward the eyes.
-  const mouth = new Table([[2.2, 1.06], [2.5, 0.98], [2.8, 0.86], [3.2, 0.7], [3.8, 0.66], [4.3, 0.66]], 0.02);
+  const mouth = new Table(P.mouth, 0.02);
   const mouthY = (z) => mouth.v(0, z);
 
   const parts = [
@@ -374,7 +388,7 @@ function axolotlShape(st) {
   for (const g of gills) parts.push({ near: (x, y, z) => g.rods.near(x, y, z), d: (x, y, z) => g.rods.d(x, y, z), k: 0.1 });
   for (const e of eyes) parts.push({ near: sphereNear(e.c, e.r), d: (x, y, z) => Math.hypot(x - e.c[0], y - e.c[1], z - e.c[2]) - e.r, k: 0.05 });
   const dorsalNear = (x, y, z) => (z < dorsal.z0 - 0.3 || z > dorsal.z1 + 0.3 || y < 0.7 ? 1 : 0) * 1 - 0.0;
-  parts.push({ near: (x, y, z) => (Math.abs(x) > 0.3 ? Math.abs(x) - 0.3 : 0) + (y < 0.6 ? 0.6 - y : 0), d: (x, y, z) => dorsal.d(x, y, z), k: 0.12 });
+  parts.push({ near: (x, y, z) => (Math.abs(x) > 0.3 ? Math.abs(x) - 0.3 : 0) + (y < P.finY ? P.finY - y : 0), d: (x, y, z) => dorsal.d(x, y, z), k: 0.12 });
   parts.push({ near: (x, y, z) => (Math.abs(x) > 0.3 ? Math.abs(x) - 0.3 : 0) + (z > -2.4 ? z + 2.4 : 0) + (y > 1.0 ? y - 1.0 : 0), d: (x, y, z) => ventral.d(x, y, z), k: 0.12 });
 
   const core = (x, y, z) => {
@@ -387,17 +401,18 @@ function axolotlShape(st) {
     return d;
   };
   const sdf = (x, y, z) => unite(core(x, y, z), x, y, z, parts);
-  return { loft, dorsal, ventral, legs, gills, eyes, mouthY, sdf, core };
+  return { loft, dorsal, ventral, legs, gills, eyes, mouthY, sdf, core, feet, roots, rows: P.rows };
 }
 
-export function axolotlBody(morph = 'leucistic') {
+export function axolotlBody(morph = 'leucistic', P = AXO) {
   const m = typeof morph === 'string' ? AXOLOTL_MORPHS[morph] ?? AXOLOTL_MORPHS.leucistic : morph;
   const st = { hi: false };
-  const S = axolotlShape(st);
+  const S = axolotlShape(st, P);
   const { loft, dorsal, ventral, legs, gills, eyes, mouthY, sdf } = S;
   const cs = {
     skin: C(m.skin), back: C(m.back), belly: C(m.belly), fin: C(m.fin), finEdge: C(m.finEdge), gill: C(m.gill), gillBase: C(m.gillBase),
     lip: C(m.lip), eye: C(m.eye), iris: C(m.iris), ring: C(m.ring), spot: m.spots && C(m.spots.col), blotch: m.blotch && C(m.blotch.col),
+    legSpot: m.legSpot && C(m.legSpot),
   };
   const zS = 4.3, zT = -7.7;
   const sc = [0, 0, 0, 0];
@@ -494,6 +509,8 @@ export function axolotlBody(morph = 'leucistic') {
       const dsp = cells(x, y, z, m.spots.scale);
       col = lerp3(col, cs.spot, sm(0.24, 0.16, dsp) * m.spots.amt * 2 * sm(-0.5, 0.2, v));
     }
+    // pale patches where the legs join the body (the fire salamander larva; no axolotl palette has legSpot)
+    if (cs.legSpot) for (const r of S.roots) col = lerp3(col, cs.legSpot, sm(0.34, 0.14, Math.hypot(x - r[0], y - r[1], z - r[2])) * 0.85);
     return col;
   };
 
@@ -508,7 +525,7 @@ export function axolotlBody(morph = 'leucistic') {
     return [clamp01((zS - z) / (zS - zT)), a.leg, a.legT];
   };
 
-  const def = { sdf, lo: [-3.4, -0.25, -8.1], hi: [3.4, 2.5, 4.7], color, mat, rig, finish: {
+  const def = { sdf, lo: P.lo, hi: P.hi, color, mat, rig, finish: {
     rough: 0.36, coat: 0.55, coatRough: 0.2, coatBump: 0.004, grain: 14, bump: 0.0005, tone: 0.02, flutter: 0.045, finOpacity: 0.55,
     eyes: [eyeSpec(eyes[1], { pupil: [0.5, 0.5], inner: C(m.ring), outer: C(m.iris), rim: C(m.eye), seed: 5 })],
   } };
@@ -519,10 +536,44 @@ export function axolotlBody(morph = 'leucistic') {
 // exports
 // ==================================================================================================
 
+// ==================================================================================================
+// SALAMANDER LARVA  (fire salamander, newts: the aquatic young, before metamorphosis)
+// ==================================================================================================
+// The axolotl builder with larva proportions. General knowledge, not checked against a picture (the repo has none): a slim,
+// long body with a head no wider than the trunk, three pairs of bushy external gills behind the head, four thin legs, a tail fin
+// that starts at mid-back, dark olive-brown with darker mottling and pale patches where the legs join (fire salamander).
+// Newt larvae grow the front legs before the hind legs; this body has all four. Same 12-unit frame as the axolotl.
+const LARVA = {
+  rows: [
+    [-7.7, 0.50, 0.04, 0.08, 0.08], [-7.0, 0.52, 0.08, 0.16, 0.15], [-6.0, 0.56, 0.14, 0.24, 0.22], [-4.8, 0.62, 0.22, 0.32, 0.30],
+    [-3.6, 0.66, 0.32, 0.38, 0.35], [-2.8, 0.68, 0.44, 0.42, 0.38], [-1.8, 0.68, 0.52, 0.44, 0.40], [-0.2, 0.68, 0.56, 0.45, 0.40],
+    [1.0, 0.68, 0.56, 0.44, 0.39], [1.8, 0.66, 0.58, 0.42, 0.36], [2.4, 0.62, 0.64, 0.38, 0.32], [3.0, 0.58, 0.62, 0.34, 0.29],
+    [3.6, 0.56, 0.52, 0.30, 0.26], [4.3, 0.55, 0.36, 0.26, 0.22],
+  ], loftOpts: { front: 0.8, back: 0.7 },
+  // dorsal fin from mid-back (z 0) to the tail tip, 0.1-0.2 above the back; ventral fin from the vent
+  dorsal: [[-7.6, 0.50, 0.66, 0.04], [-7.0, 0.52, 0.86, 0.04], [-6.0, 0.56, 1.0, 0.04], [-4.8, 0.62, 1.14, 0.04], [-3.6, 0.66, 1.22, 0.04],
+    [-2.6, 0.68, 1.24, 0.04], [-1.6, 0.68, 1.22, 0.04], [-0.6, 0.68, 1.16, 0.035], [0.0, 0.68, 1.08, 0.03]],
+  ventral: [[-7.4, 0.38, 0.54, 0.04], [-6.6, 0.26, 0.58, 0.04], [-5.6, 0.18, 0.62, 0.04], [-4.6, 0.18, 0.64, 0.04], [-3.7, 0.24, 0.6, 0.04], [-3.0, 0.32, 0.5, 0.035]],
+  fore: { pts: [[0.46, 0.6, 1.4], [0.95, 0.4, 1.0], [1.25, 0.1, 1.45]], rads: [0.15, 0.1, 0.075] },
+  hind: { pts: [[0.44, 0.6, -2.3], [1.0, 0.42, -1.9], [1.3, 0.1, -2.45]], rads: [0.17, 0.11, 0.08] },
+  toe: 0.6, toeR: 0.75,
+  gills: [
+    { base: [0.54, 0.22, 2.0], dir: [0.5, 0.45, -0.74], len: 1.0, curl: [0.08, -0.08, -0.18] },
+    { base: [0.60, 0.04, 1.95], dir: [0.8, 0.15, -0.58], len: 1.15, curl: [0.09, -0.09, -0.2] },
+    { base: [0.60, -0.14, 1.88], dir: [0.8, -0.1, -0.6], len: 0.9, curl: [0.08, -0.08, -0.2] },
+  ], gillR: 0.75, filLen: 0.55,
+  eye: [0.38, 3.45, 0.12], mouth: [[2.6, 0.72], [2.9, 0.64], [3.3, 0.52], [3.8, 0.46], [4.3, 0.46]], finY: 0.45,
+  lo: [-2.6, -0.25, -8.1], hi: [2.6, 1.9, 4.7],
+};
+export const LARVA_MORPH = { name: 'larva', skin: 0x5d5238, back: 0x3a3122, belly: 0x9c9078, fin: 0x6a5e46, finEdge: 0x3e3528, gill: 0x8a4440, gillBase: 0x6e4c3e, lip: 0x4a4030, eye: 0x070605, iris: 0x2a2010, ring: 0x8a7030, spots: { col: 0xc8b070, amt: 0.2, scale: 5.5 }, blotch: { col: 0x1a1812, scale: 1.6, thr: 0.5 }, legSpot: 0xd8c27a };
+export const larvaShape = () => axolotlShape({ hi: false }, LARVA);
+export const larvaBody = () => axolotlBody(LARVA_MORPH, LARVA);
+
 export const SALAMANDERS = {
   newt: () => newtBody(),
   marbled: () => marbledBody(),
   axolotl: () => axolotlBody('leucistic'),
+  larva: () => larvaBody(),
   gecko: () => geckoBody(),
 };
 // One body per axolotl morph: BODIES['axolotl:golden'] etc. (same geometry, different palette).
