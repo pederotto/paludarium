@@ -1,7 +1,7 @@
 // Kids' story "Pip finds a home": chapters with building challenges, the way career's
 // commissions teach (content/commissions.js). Each challenge is checked against the same
 // metrics snapshot career goals read (game/metrics.js computeMetrics), read by field name.
-// `c` are the kids' own counters ({ fed }), `b` the counters at the chapter's start.
+// `c` are the kids' own counters ({ fed, cups }), `b` the counters at the chapter's start.
 // Every fact names its source in the game data (`src`): `info` = ANIMAL_INFO in
 // content/species-info.js, `species` = the SPECIES entry in sim/animals.js. A fact
 // without a source is left out. Lines are for early readers (about 5-8 years, a guess):
@@ -70,7 +70,8 @@ export const STORY = [
     challenges: [
       {
         id: 'pond', text: 'Dig a little pond.', act: 'build',
-        test: (m) => !!m.features?.shallowpool,
+        // N18b: a pool the child dug since the chapter began (m.pools), not one the world already had.
+        test: (m, c, b) => n(m.pools) > n(b?.pools),
         facts: [
           { text: 'Blue frogs cannot swim well.', src: info('dartfrog', 'care', 1, 'Cannot swim well') },
           { text: 'So their pool must be shallow.', src: info('dartfrog', 'care', 1, 'shallow pool') },
@@ -78,7 +79,8 @@ export const STORY = [
       },
       {
         id: 'cups', text: 'Plant 2 spiky or star flowers.', act: 'plants',
-        test: (m) => !!m.features?.bromeliad2,
+        // N18b: 2 cup plants added since the chapter began (c.cups: bromeliad or PLANTS[id].phytotelma, counted in app/kids.js).
+        test: (m, c, b) => n(c?.cups) - n(b?.cups) >= 2,
         facts: [{ text: 'These flowers hold a tiny pool.', src: info('dartfrog', 'facts', 1, 'often held in a bromeliad') }],
       },
       {
@@ -162,7 +164,7 @@ export function storyStep(p0, m, c = {}, sec = 1) {
   if (!ch || !m) return { p: p0, events: [] };
   const p = { ...p0, done: { ...p0.done }, held: { ...p0.held } };
   const by = m.animals?.byId ?? {};
-  p.base ??= { fed: n(c.fed), births: n(m.births), land: land(m), water: n(m.plants?.water), wood: n(m.hardscape?.wood), dartfrog: n(by.dartfrog), neon: n(by.neon), shrimp: n(by.shrimp) };
+  p.base ??= { fed: n(c.fed), births: n(m.births), land: land(m), pools: n(m.pools), cups: n(c.cups), water: n(m.plants?.water), wood: n(m.hardscape?.wood), dartfrog: n(by.dartfrog), neon: n(by.neon), shrimp: n(by.shrimp) };
   const events = [];
   for (const x of ch.challenges) {
     if (p.done[x.id]) continue;

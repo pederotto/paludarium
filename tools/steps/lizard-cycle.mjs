@@ -138,6 +138,8 @@ const setup = await page.evaluate(async ({ sp, surface, seed }) => {
     // (G4) each limb's tip in the world and which legs the gait has in stance (lizardpose.js keeps the last closed-form feet in rig._open)
     o.tips = (rig.chains ?? []).map((c) => [c.limb, wd(xf(c.ends[c.ends.length - 1], c.T))]);
     o.stance = rig._open?.stance ? [...rig._open.stance] : null;
+    o.miss = rig._miss ? [...rig._miss].map((v) => v * s) : null;   // (N7) |tip - target| per leg, world cm, after the fold's limit
+    o.cap = rig.strideCap ?? null; o.feetFit = !!rig.feetFit;   // (N7 stamp: only the reach-guard code has these)
     const trunk = [...Array(rig.n).keys()].filter((b) => /spine|pelvis|chest|trunk|torso|belly/i.test(rig.B[b].name));
     o.trunk = trunk.map((b) => rig.B[b].name).join(',');
     o.belly = trunk.length ? Math.min(...trunk.map((b) => low(b) - (rig.B[b].r ?? 0) * s)) : NaN;
@@ -174,6 +176,8 @@ if (m.quat) { B = await basis(m.quat); await cam(m.pos, m.len ?? 7); m = await m
 say(`${sp} ${surface} ${view}: frames ${N} dt ${dt} s warm ${warm} s seed ${seed}${setup.note ? ' (' + setup.note + ')' : ''}`);
 say(`skinned=${m.drawn ? (m.skinned ? 'yes' : 'no') : 'not drawn near the animal'} bones=${m.bones ?? 0} body=${m.body ?? '-'} scale=${m.scale?.toFixed?.(3)} length=${m.len?.toFixed?.(2)} cm mind=${setup.hm ? 'herp' : 'none'} wall=${m.wall}`);
 say(`hook: ${JSON.stringify(hook)}`);
+{ const { execSync } = await import('node:child_process'), git = (c) => { try { return execSync(`git ${c}`, { encoding: 'utf8' }).trim(); } catch { return '?'; } };
+  say(`stamp: tree ${git('rev-parse --short HEAD')} ${git('status --porcelain src').split('\n').filter(Boolean).length} dirty; rig strideCap=${m.cap == null ? 'none (no N7 reach guard)' : m.cap.toFixed(3) + ' cm'} feetFit=${m.feetFit ? 'yes' : 'no'}`); }
 if (m.skinned && !m.feet) say('bone numbers: no bone data found');
 if (!m.drawn) say(`not drawn: ${m.puts} meshes put something this frame; animal at ${m.pos.map((v) => v.toFixed(2))}; nearest puts [dist, pos, skinned, scale]: ${JSON.stringify(m.near)}`);
 if (m.trunk) say(`trunk bones: ${m.trunk}; feet: ${Object.keys(m.feet).join(',')}`);
@@ -196,7 +200,7 @@ for (let i = 0; i < N; i++) {
   rows.push(r);
   shots.push(await page.screenshot());
   const feet = Object.entries(r.feet ?? {}).map(([k, v]) => `${k}=${f2(v)}`).join(' ');
-  say(`f${i} stance(LF RF LH RH)=${r.stance ? r.stance.join('') : '-'} slip[cm/frame] ${Object.entries(r.slip).map(([k, v]) => `leg${k}=${f2(v)}`).join(' ') || '-'}`);
+  say(`f${i} stance(LF RF LH RH)=${r.stance ? r.stance.join('') : '-'} slip[cm/frame] ${Object.entries(r.slip).map(([k, v]) => `leg${k}=${f2(v)}`).join(' ') || '-'} tipMiss[cm] ${r.miss ? r.miss.map(f2).join(' ') : '-'}`);
   say(`f${i} t=${((i + 1) * dt).toFixed(2)}s ph=${f2(r.ph)} feet[cm] ${feet} belly=${f2(r.belly)} bend=${f2(r.bend)}° headYaw=${f2(r.headYaw)}° tailX=${f2(r.tailX)}cm v=${f2(r.v)}cm/s mode=${r.mode} wall=${r.wall} skinned=${r.skinned ? 'yes' : 'no'}`);
 }
 // Per-channel ranges and plain faults.
@@ -205,6 +209,7 @@ for (const r of rows) {
   for (const [k, v] of Object.entries(r.feet ?? {})) (ch[k] ??= []).push(v);
   for (const k of ['belly', 'bend', 'headYaw', 'tailX', 'v']) (ch[k] ??= []).push(r[k]);
   for (const v of Object.values(r.slip ?? {})) (ch.slipStance ??= []).push(v);
+  for (const v of r.miss ?? []) (ch.tipMiss ??= []).push(v);
 }
 say('ranges (min..max, span):');
 for (const [k, vs] of Object.entries(ch)) {

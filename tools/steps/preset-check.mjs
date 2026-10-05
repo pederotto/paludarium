@@ -57,13 +57,13 @@ async function screen() {
   const fs = await import('node:fs');
   const { PRESETS, PRESET_ORDER } = await import('../../src/content/presets.js');
   const { HABITAT } = await import('../../src/content/habitats.js');
-  const { parseDump, summary } = await import('./state-counters.mjs');
+  const { parseDump, summary, PILE_OVERLAP } = await import('./state-counters.mjs');
   const arg = (k, d) => { const a = process.argv.find((x) => x.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : d; };
   const sets = arg('sets', '') ? arg('sets', '').split(',') : PRESET_ORDER.filter((id) => !PRESETS[id].hidden);
   const seed = arg('seed', '1'), days = arg('days', '1'), url = arg('url', 'http://127.0.0.1:4672/');
   let head = '?';
   try { head = execSync('git rev-parse --short HEAD').toString().trim() + (execSync('git status --porcelain src').toString().trim() ? ' dirty' : ''); } catch { /* no git */ }
-  console.log(`preset-check screen, HEAD ${head}, seed ${seed}, game days ${days}, sets ${sets.length}`);
+  console.log(`preset-check screen, HEAD ${head}, seed ${seed}, game days ${days}, sets ${sets.length}, pile = overlap ${PILE_OVERLAP} x mean real length`);
   const pct = (v) => `${Math.round(v * 100)} %`;
   let failing = 0;
   for (const id of sets) {

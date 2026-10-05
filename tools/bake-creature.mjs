@@ -13,6 +13,7 @@
 // A job with `texture: <size>` is unwrapped (xatlas, tools/rig/texture.mjs) and painted per texel by the paint module's
 // `texel` function into a WebP colour texture: the detail is as fine as the texture instead of the mesh. The coarse level
 // keeps the same UVs and carries no image of its own (the game draws both levels with the detailed file's material).
+import { skinFour, SKIN_PASSES } from './rig/skeleton.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Document, NodeIO } from '@gltf-transform/core';
@@ -212,7 +213,9 @@ async function buildTextured(id, job, level, g, rig, image, spineZ = null, skin 
   if (skin) {
     const sk = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) { const j = from[i]; sk[i*4] = skin.idx[j*2] / 32; sk[i*4+1] = skin.idx[j*2+1] / 32; sk[i*4+2] = skin.w[j]; }
-    prim.setAttribute('_SKIN', doc.createAccessor().setType('VEC4').setArray(sk).setBuffer(buf));
+    const f4 = skinFour(pos, idx, sk, SKIN_PASSES[job.skeleton?.plan ?? 'anuran'] ?? SKIN_PASSES.anuran);   // (SK1: four bones a vertex)
+    prim.setAttribute('_SKIN', doc.createAccessor().setType('VEC4').setArray(f4.skin).setBuffer(buf));
+    prim.setAttribute('_SKINX', doc.createAccessor().setType('VEC4').setArray(f4.skinx).setBuffer(buf));
   }
   doc.createScene().addChild(doc.createNode(id).setMesh(doc.createMesh(id).addPrimitive(prim)));
   await doc.transform(quantize({ quantizePosition: 14, quantizeNormal: 10, quantizeTexcoord: 16, quantizeGeneric: 12 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
