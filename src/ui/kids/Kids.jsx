@@ -263,7 +263,7 @@ export function KidsHud() {
         </div>
         {guide?.text ? (
           <div class="k-guide glass strong">
-            <span class="avatar">M</span>
+            <span class="avatar" title="Pip">P</span>
             <p>{guide.text}</p>
             {guide.act ? <button class="go" onClick={() => KK.act(guide.act.run)}>{guide.act.label}</button> : null}
           </div>

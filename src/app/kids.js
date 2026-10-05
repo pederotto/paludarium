@@ -16,6 +16,7 @@ import { Career } from '../game/career.js';
 import { startTimelapse } from './timelapse.js';
 import { STICKERS, SAY, animalName, animalPlural, kidAnimal } from '../content/kids.js';
 import { computeMetrics } from '../game/metrics.js';
+import { PLANTS } from '../sim/plants.js';
 import { newProgress, storyStep, currentChallenge } from '../content/kids-story.js';
 
 const STORE = 'paludarium.kids.v1', META = 'paludarium.kids.meta', SLOT = 'kids1';
@@ -380,7 +381,9 @@ function story(W, sec) {
   if (!currentChallenge(K.story.value)) return;
   let m;
   try { m = computeMetrics(W); } catch { return; }
-  const r = storyStep(K.story.value, m, { fed: K.fed.value }, sec);
+  // Cup plants (same rule as game/metrics.js features.bromeliad2), so the story counts the ones the child adds.
+  const cups = Object.entries(m.plants?.byId ?? {}).reduce((s, [id, c]) => s + (id === 'bromeliad' || PLANTS[id]?.phytotelma ? c : 0), 0);
+  const r = storyStep(K.story.value, m, { fed: K.fed.value, cups }, sec);
   if (r.p === K.story.value) return;
   K.story.value = r.p;
   for (const e of r.events) {
