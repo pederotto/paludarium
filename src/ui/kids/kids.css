@@ -214,3 +214,28 @@
   .k-sheet { width: min(760px, 100%); }
   .k-card { width: 116px; }
 }
+
+/* N18: the story sheet ("Pip finds a home") */
+.k-story { display: flex; flex-direction: column; gap: 10px; max-height: min(52vh, 420px); overflow-y: auto; padding: 2px 4px 6px; color: #fff; }
+.k-st-dots { display: flex; gap: 6px; justify-content: center; }
+.k-st-dots i { width: 12px; height: 12px; border-radius: 50%; background: rgba(255, 255, 255, 0.25); }
+.k-st-dots i.on { background: #ffd166; box-shadow: 0 0 0 3px rgba(255, 209, 102, 0.35); }
+.k-st-dots i.done { background: #7fe08a; }
+.k-st-head { display: flex; align-items: center; gap: 12px; }
+.k-st-head small { font-size: 15px; opacity: 0.75; font-weight: 700; }
+.k-st-head h4 { margin: 0; font-size: 24px; letter-spacing: -0.01em; }
+.k-st-lines p { margin: 2px 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
+.k-st-goals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.k-st-goals li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 18px; background: rgba(255, 255, 255, 0.08); font-size: 19px; font-weight: 700; }
+.k-st-goals li.now { background: rgba(255, 209, 102, 0.22); }
+.k-st-goals li.done { opacity: 0.7; }
+.k-st-goals .tick { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 3px solid rgba(255, 255, 255, 0.6); }
+.k-st-goals li.done .tick { background: #57c27a; border-color: #57c27a; }
+.k-st-goals .txt { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+.k-st-goals .bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+.k-st-goals .bar i { display: block; height: 100%; background: #7fb6f0; }
+.k-st-facts { padding: 10px 12px; border-radius: 18px; background: rgba(127, 224, 138, 0.16); }
+.k-st-facts b { font-size: 17px; }
+.k-st-facts p { margin: 4px 0 0; font-size: 18px; font-weight: 600; }
+.k-story > .go { align-self: center; }
+.k-story .go { flex: none; min-height: 48px; padding: 0 18px; border-radius: 16px; border: 0; cursor: pointer; font-size: 17px; font-weight: 750; color: #2a1c05; background: var(--kid); }

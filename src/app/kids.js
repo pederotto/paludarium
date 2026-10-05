@@ -15,6 +15,8 @@ import { Saves } from './saves.js';
 import { Career } from '../game/career.js';
 import { startTimelapse } from './timelapse.js';
 import { STICKERS, SAY, animalName, animalPlural, kidAnimal } from '../content/kids.js';
+import { computeMetrics } from '../game/metrics.js';
+import { newProgress, storyStep, currentChallenge } from '../content/kids-story.js';
 
 const STORE = 'paludarium.kids.v1', META = 'paludarium.kids.meta', SLOT = 'kids1';
 const NOT_PETS = new Set(['fly', 'flylarva', 'flypupa', 'springtail', 'isopod', 'eggs']);
@@ -42,6 +44,8 @@ export const K = {
   light: signal('auto'),
   meta: signal(read(META, null)),
   tick: signal(0),              // bumps when something on a card changed (a name)
+  story: signal(stored.story ?? newProgress()), // N18: "Pip finds a home" progress (content/kids-story.js)
+  fed: signal(stored.fed ?? 0), // feeds so far: the story's "Feed your frogs" counter
 };
 
 let session = { cared: 0 };
@@ -58,12 +62,14 @@ export function kToast(text, kind = 'info', ms = 2400) {
   setTimeout(() => { K.toasts.value = K.toasts.value.filter((x) => x.id !== t.id); }, ms);
 }
 
+const persist = () => write(STORE, { stickers: K.stickers.value, story: K.story.value, fed: K.fed.value });
+
 export function earn(id) {
   if (K.stickers.value[id]) return;
   const st = STICKERS.find((s) => s.id === id);
   if (!st) return;
   K.stickers.value = { ...K.stickers.value, [id]: Date.now() };
-  write(STORE, { stickers: K.stickers.value });
+  persist();
   const pop = { id, name: st.name, n: toastN++ };
   K.pop.value = pop;
   K.confetti.value++;
@@ -126,7 +132,7 @@ export function feed() {
   }
   if (aqua) Care.feed(g);
   if (land && (W.animals.by.fly?.length ?? 0) < 30) Care.flies(g);
-  cared(); earn('feed');
+  cared(); earn('feed'); K.fed.value++;
   kToast('Yum! Dinner time!', 'good');
 }
 
@@ -191,7 +197,7 @@ export function feedOne(a) {
   a.hunger = Math.max(0, a.hunger - 0.5);
   if (sp.eats?.includes('flake')) Care.feed(g);
   else if ((W.animals.by.fly?.length ?? 0) < 30) Care.flies(g);
-  cared(); earn('feed');
+  cared(); earn('feed'); K.fed.value++;
   kToast('Yum!', 'good');
 }
 
@@ -335,6 +341,7 @@ function tick(g, dt) {
 
   watchBabies(W);
   stickers(W);
+  story(W, sec);
   guide(W, A, now);
 
   if (!lapse && now - saveT > 30000) { saveT = now; save(); }
@@ -367,6 +374,23 @@ function stickers(W) {
 }
 const list = (W) => pets(W);
 
+const ACT_LABEL = { animals: 'Animals', plants: 'Plants', build: 'Build', care: 'Care', more: 'More' };
+// The story: the current chapter's challenges are checked against the same metrics career reads.
+function story(W, sec) {
+  if (!currentChallenge(K.story.value)) return;
+  let m;
+  try { m = computeMetrics(W); } catch { return; }
+  const r = storyStep(K.story.value, m, { fed: K.fed.value }, sec);
+  if (r.p === K.story.value) return;
+  K.story.value = r.p;
+  for (const e of r.events) {
+    if (e.type === 'challenge') kToast(`Done: ${e.x.text}`, 'good', 2600);
+    else { earn(e.ch.sticker); const b = (K.banner.value = { text: `${e.ch.title}: done!`, n: toastN++ }); K.confetti.value++; setTimeout(() => { if (K.banner.value === b) K.banner.value = null; }, 4200); }
+  }
+  if (r.events.length) persist();
+}
+export function restartStory() { K.story.value = newProgress(); persist(); }
+
 // The guide: one friendly suggestion at a time. It keeps a line for a few seconds so it never flickers.
 function guide(W, A, now) {
   const have = (id) => !!K.stickers.value[id];
@@ -381,6 +405,7 @@ function guide(W, A, now) {
   else if (A.dirty) { key = 'dirty'; text = SAY.dirty; act = { label: 'Clean', run: 'clean' }; }
   else if (A.dry) { key = 'dry'; text = SAY.dry; act = { label: 'Rain', run: 'rain' }; }
   else if (K.happy.value < 0.5 && !K.helper.value) { key = 'helper'; text = SAY.helper; act = { label: 'Care', run: 'care' }; }
+  else if (currentChallenge(K.story.value)) { const { x } = currentChallenge(K.story.value); key = 'story:' + x.id; text = x.text; act = { label: ACT_LABEL[x.act] ?? 'Story', run: x.act ?? 'story' }; }
   else if (W.plants.list.length < 3) { key = 'plants'; text = SAY.plants; act = { label: 'Plants', run: 'plants' }; }
   else if (!have('build')) { key = 'build'; text = SAY.build; act = { label: 'Build', run: 'build' }; }
   else if (!have('rain')) { key = 'rain'; text = SAY.rain; act = { label: 'Rain', run: 'rain' }; }
@@ -397,7 +422,7 @@ function guide(W, A, now) {
 }
 
 export function act(name) {
-  if (['animals', 'plants', 'build', 'care', 'more'].includes(name)) { stopPlace(); K.sheet.value = name; }
+  if (['animals', 'plants', 'build', 'care', 'more', 'story'].includes(name)) { stopPlace(); K.sheet.value = name; }
   else if (name === 'feed') feed();
   else if (name === 'rain') { rain(); }
   else if (name === 'clean') clean();
