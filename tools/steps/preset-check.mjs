@@ -45,3 +45,55 @@ export default async (page, shot, name) => {
   }
   console.log(`builds ${res.length}, failing ${bad}; errors: ${errors.length ? [...new Set(errors)].slice(0, 5).join(' | ') : 'none'}`);
 };
+
+// ---- Part 2: behaviour screen (node CLI, one state-dump run per set through the probe gate) ------------------------------
+//   BB="$BB" node tools/steps/preset-check.mjs --screen [--sets=a,b] [--seed=1] [--days=1] [--url=http://127.0.0.1:4672/]
+// Per set: tools/steps/state-dump-run.mjs on the set's reference tank, then tools/steps/state-counters.mjs summary. Fails on:
+// a water species out of water (< 99 % of rows in water), a land/wall species in water (> 5 % of rows, > 25 % if its
+// habitats.js maxDepth is 1 cm or more: shallow-pool walkers), any inSolid row, an awake pile, a stuck episode, or a featured
+// species alive at the start and dead at the end. Temperature/RH are not in the dump yet: not checked here.
+async function screen() {
+  const { spawnSync, execSync } = await import('node:child_process');
+  const fs = await import('node:fs');
+  const { PRESETS, PRESET_ORDER } = await import('../../src/content/presets.js');
+  const { HABITAT } = await import('../../src/content/habitats.js');
+  const { parseDump, summary } = await import('./state-counters.mjs');
+  const arg = (k, d) => { const a = process.argv.find((x) => x.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : d; };
+  const sets = arg('sets', '') ? arg('sets', '').split(',') : PRESET_ORDER.filter((id) => !PRESETS[id].hidden);
+  const seed = arg('seed', '1'), days = arg('days', '1'), url = arg('url', 'http://127.0.0.1:4672/');
+  let head = '?';
+  try { head = execSync('git rev-parse --short HEAD').toString().trim() + (execSync('git status --porcelain src').toString().trim() ? ' dirty' : ''); } catch { /* no git */ }
+  console.log(`preset-check screen, HEAD ${head}, seed ${seed}, game days ${days}, sets ${sets.length}`);
+  const pct = (v) => `${Math.round(v * 100)} %`;
+  let failing = 0;
+  for (const id of sets) {
+    const P = PRESETS[id];
+    const cmd = ['tools/steps/state-dump-run.mjs', `--preset=${id}`, `--tier=${P.ref}`, `--seed=${seed}`, `--days=${days}`, '--out=test-output/state/n15/', `--url=${url}`];
+    const t0 = Date.now();
+    const r = process.env.BB ? spawnSync('sh', [`${process.env.BB}/tools/probe.sh`, 'N15', 'node', ...cmd], { encoding: 'utf8', maxBuffer: 1e8 })
+      : spawnSync('node', cmd, { encoding: 'utf8', maxBuffer: 1e8 });
+    const m = /wrote (\S+\.jsonl)/.exec(r.stdout ?? '');
+    if (!m) { failing++; console.log(`${id} ${P.ref} FAIL no dump (exit ${r.status}) ${String(r.stderr ?? '').trim().slice(-160)}`); continue; }
+    const d = parseDump(fs.readFileSync(m[1], 'utf8'));
+    const s = summary(d.rows, d.hdr, d.end);
+    const fails = [];
+    for (const [sp, q] of Object.entries(s.species)) {
+      const H = HABITAT[sp] ?? {};
+      if (H.zone === 'water' && q.water < 0.99) fails.push(`${sp} out of water ${pct(1 - q.water)}`);
+      if ((H.zone === 'land' || H.zone === 'wall') && q.water > ((H.maxDepth ?? 0) >= 1 ? 0.25 : 0.05)) fails.push(`${sp} in water ${pct(q.water)}`);
+    }
+    const at0 = new Set(d.rows.filter((x) => x.t === 0).map((x) => x.sp));
+    const alive = new Set((d.end?.alive ?? []).map((x) => String(x).replace(/-\d+$/, '')));
+    for (const f of P.featured) if (at0.has(f) && !alive.has(f)) fails.push(`featured ${f} died`);
+    const noRows = P.featured.filter((f) => !s.species[f]);
+    if (s.inSolid.rows) fails.push(`inSolid ${s.inSolid.rows} rows (${s.inSolid.animals} animals)`);
+    if (s.pileAwake.count) fails.push(`pile ${s.pileAwake.count}`);
+    if (s.stuck.count) fails.push(`stuck ${s.stuck.count} (longest ${s.stuck.maxDur} s)`);
+    if (d.end?.thrown) fails.push(`thrown ${d.end.thrown}`);
+    if (fails.length) failing++;
+    const sp = Object.entries(s.species).map(([k, q]) => `${k}:${q.count}/w${pct(q.water)}`).join(' ');
+    console.log(`${id} ${P.ref} ${fails.length ? 'FAIL' : 'pass'} rows=${d.rows.length} wall=${Math.round((Date.now() - t0) / 1000)}s ${fails.join('; ')}${noRows.length ? ` [no rows: ${noRows.join(',')}]` : ''}${P.blockedBy ? ` [blockedBy ${P.blockedBy.join(',')}]` : ''} | ${sp}`);
+  }
+  console.log(`screen: ${sets.length} sets, failing ${failing}`);
+}
+if (process.argv.includes('--screen')) await screen();
