@@ -96,3 +96,4 @@ Uncommitted files at the pause:
 ?? tests/followmode.test.mjs
 ?? tools/steps/follow-mode.mjs
 animals.js queue after B4b: B5a hook (reports/B5a.hunk.patch), G4 second authorization (reports/G4a.md hand-off), G3 and S3 hunks (reports/S3.hunk.patch), B3 hunk, skink species row, C1b retry. Failed cross-checks to redo: B5b (pool plants), B1b (click path) with B1a, B5d look. Not started: S1b, S4, B4a, B4c, D, final QA. Frog test filter (2 lines) still needs the user.
+RESUMED 2026-10-04 evening: the five stopped steps (B4b, C2, B5b-fix, G3, B3) were resumed. Joint push requested by the user: plan in AG/SHARED.md and the Claude Doc https://claude.ai/code/artifact/84818151-7698-4d92-b67d-4280866913ff; the water and Safari sessions were asked to commit on feat/water2 and feat/finish and not to push; the lizard lead integrates (water, then finish, then lizards) and pushes after the user says when.
