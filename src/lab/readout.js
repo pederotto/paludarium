@@ -7,6 +7,7 @@ const f1 = (v) => (Number.isFinite(v) ? v.toFixed(1) : '—');
 
 // The name of the mind's current mode, whichever mind the species has (they keep it in different places).
 export function modeOf(a) {
+  if (a.lab?.drive) return a.lab.goal ? 'lab drive: going' : a.lab.drive.done ? 'lab drive: arrived' : 'lab drive: waiting';   // (its own mind is muted: what it thinks is not what it does)
   return a.hm?.mode ?? a.sk?.mode ?? a.cb?.mode ?? a.fs ?? a.state ?? '—';
 }
 
@@ -16,7 +17,8 @@ function driveRows(a) {
   if (!D) return [];
   const S = L.stats, g = L.goal;
   const rows = [['drive', D.type === 'path' ? (D.shape === 'random' ? `random ${D.style} · seed ${D.seed} · ${D.mode}` : `${D.shape} · ${D.mode}`) : D.type === 'follow' ? `follow ${D.dot} (keep ${D.keep} cm)` : D.type]];
-  if (g) rows.push(['goal', `${f1(g.x)}, ${f1(g.z)}  (${f1(Math.hypot(g.x - a.pos.x, g.z - a.pos.z))} cm away)`]);
+  if (g?.wall) rows.push(['goal', `on the wall: ${f1(g.x)} across, ${f1(g.y)} up  (${f1(Math.hypot(g.x - a.pos.x, g.y - a.pos.y))} cm away)`]);
+  else if (g) rows.push(['goal', `${f1(g.x)}, ${f1(g.z)}  (${f1(Math.hypot(g.x - a.pos.x, g.z - a.pos.z))} cm away)`]);
   else rows.push(['goal', D.done ? 'arrived' : 'none']);
   if (D.type === 'path') { rows.push(['laps', `${D.laps}  ·  waypoint ${D.i}/${D.pts.length}`]); if (S?.xteN) rows.push(['off the line', `mean ${f1(S.xteSum / S.xteN)}  max ${f1(S.xteMax)} cm`]); }
   if (S?.t > 1) rows.push(['walked', `${f1(S.dist)} cm in ${f1(S.t)} s  =  ${f1(S.dist / S.t)} cm/s`]);
@@ -31,7 +33,7 @@ export function readout(a) {
     rows: [
       ['kind', sp.kind],
       ['mode', String(modeOf(a))],
-      ['doing', a.doing ? String(a.doing) : '—'],
+      ['doing', a.lab?.drive ? '—' : a.doing ? String(a.doing) : '—'],
       ['where', where],
       ['speed', `${f1(a.speedNow)} cm/s`],
       ['table speed', `${f1(sp.speed)} cm/s`],

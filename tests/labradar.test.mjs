@@ -90,3 +90,11 @@ test('two bodies whose centres are inside 45 % of their radii together overlap',
   assert.equal(overlapping(A, C), null);
   assert.ok(T.teleportMin > 0);
 });
+
+test('a wall goal is judged across and up: a gecko climbing is not stuck, one that does not climb is', () => {
+  const lab = { drive: { type: 'goto', wall: true }, goal: { x: 0, y: 40, z: -22, wall: true } };
+  const climbing = run((i) => mk({ pos: { x: 0, y: 3 + i * 0.1, z: -20 }, lab }), 400, 0.05);
+  assert.ok(!kinds(climbing).includes('stuck'), 'climbing 2 cm/s is headway even with no change in z');
+  const stuck = run(() => mk({ pos: { x: 0, y: 12, z: -20 }, onWall: true, lab }), 160, 0.05);
+  assert.ok(kinds(stuck).includes('stuck'));
+});

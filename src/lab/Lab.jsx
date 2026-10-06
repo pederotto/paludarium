@@ -4,7 +4,7 @@ import { useEffect } from 'preact/hooks';
 import { L, RATES } from './state.js';
 import { tankChoices, GROUNDS, maxDepth } from './arena.js';
 import { speciesList } from './spawn.js';
-import { SHAPES, DRIVABLE } from './driver.js';
+import { SHAPES, DRIVABLE, CLIMBERS } from './driver.js';
 import { SHAPE_KINDS, PIECE_KINDS, isPiece, DEFAULTS } from './obstacles.js';
 import { STYLES } from '../sim/labrandom.js';
 
@@ -89,6 +89,7 @@ function World({ lab, tab }) {
       </label>
       <Obstacles lab={lab} />
       <button class="wide" onClick={() => lab.reset()}>Start fresh (empty arena)</button>
+      <label class="check"><input type="checkbox" checked={L.background.value} onChange={(e) => { L.background.value = e.currentTarget.checked; if (!e.currentTarget.checked) lab.background.stop(); else if (document.hidden) lab.background.start(); }} /> Keep running while this tab is hidden</label>
       <h3>Animals <button class="mini" onClick={() => lab.clear()}>Clear all</button></h3>
       {census.length === 0 ? <p class="dim">Nobody yet.</p> : (
         <ul class="census">{census.map((c) => <li key={c.id}><span>{c.name}</span><b>{c.n}</b></li>)}</ul>
@@ -145,7 +146,8 @@ function Drive({ lab, info }) {
       {tab === 'free' ? <p class="dim">It lives by its own mind.</p> : null}
       {tab === 'goto' ? (
         <>
-          <button class={pick === 'goto' ? 'on' : ''} onClick={() => { L.pick.value = pick === 'goto' ? null : 'goto'; }}>{pick === 'goto' ? 'Tap the floor…' : 'Pick a point on the floor'}</button>
+          <button class={pick === 'goto' ? 'on' : ''} onClick={() => { L.pick.value = pick === 'goto' ? null : 'goto'; }}>{pick === 'goto' ? (CLIMBERS.has(info.kind) ? 'Tap the floor or the wall…' : 'Tap the floor…') : (CLIMBERS.has(info.kind) ? 'Pick a point on the floor or the wall' : 'Pick a point on the floor')}</button>
+          {CLIMBERS.has(info.kind) ? <p class="dim">A point on the wall: it walks to the foot of the wall, climbs, and goes to that spot. Turn the camera to Back to see the wall.</p> : null}
         </>
       ) : null}
       {tab === 'path' ? (

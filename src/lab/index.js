@@ -11,9 +11,10 @@ import { buildArena, shapeGround, setDepth, setView, setPaused, setRate, stepFra
 import { animalAt, groundAt, onTap } from './pick.js';
 import { spawn } from './spawn.js';
 import { readout, census } from './readout.js';
-import { createDriver } from './driver.js';
+import { createDriver, CLIMBERS } from './driver.js';
 import { createRadar } from './radar.js';
 import { createFuzz, speciesPool } from './fuzz.js';
+import { createBackground } from './background.js';
 import { applyScenario, createSession, linkFor, specFromHash, snapshot } from './scenario.js';
 import { createObstacles } from './obstacles.js';
 import { buildReport, copyText } from './report.js';
@@ -82,10 +83,14 @@ export async function start(game, params) {
     if (!game.world) return;
     // A tap that is an answer: where to go, or the next waypoint of a drawn path.
     if (L.pick.value) {
-      const hit = groundAt(game, e, { water: true });
+      // (a climber may be sent to a point on the wall: the ray then also tests the background)
+      const climber = !!L.sel.value && CLIMBERS.has(SPECIES[L.sel.value.sp].kind);
+      const hit = groundAt(game, e, { water: true, wall: L.pick.value === 'goto' && climber });
       if (!hit) return;
       const p = hit.ground ?? hit.point;
-      if (L.pick.value === 'goto' && L.sel.value) { driver.goto(p.x, p.z); L.pick.value = null; }
+      if (L.pick.value === 'goto' && L.sel.value) {
+        if (hit.surface === 'wall') { if (driver.gotoWall(p.x, p.y, p.z)) L.pick.value = null; } else { driver.goto(p.x, p.z); L.pick.value = null; }
+      }
       else if (L.pick.value === 'draw') L.draft.value = [...L.draft.value, { x: p.x, z: p.z }];
       else if (L.pick.value === 'place') obstacles.place(p.x, p.z);
       refresh();
@@ -139,6 +144,11 @@ export async function start(game, params) {
       const water = s > g + 0.2;
       return add({ point: new THREE.Vector3(x, water ? s : g, z), surface: water ? 'water' : 'terrain' }, id, n);
     },
+    // Release n climbers on the background wall at (x, y), x across and y up.
+    addOnWall(id, n = 1, x = 0, y = 25) {
+      const W = game.world;
+      return add({ point: new THREE.Vector3(x, y, W.wall.zAt(x, y)), surface: 'wall' }, id, n);
+    },
     select,
     remove(a = L.sel.value) { if (a) { game.world.animals.remove(a, 'removed'); if (L.sel.value === a) L.sel.value = null; refresh(); } },
     clear() { game.world.animals.clear(); L.sel.value = null; driver.clear(); refresh(); },
@@ -149,6 +159,7 @@ export async function start(game, params) {
   const session = createSession(api);
   api.session = session;
   api.fuzz = createFuzz(api);
+  api.background = createBackground(game);
 
   // The start-up screen says what it is waiting for (a slow phone or laptop takes a while to build shaders: it must not look stuck).
   const say = (t) => { const el = document.getElementById('loading'); if (el && !el.classList.contains('gone')) el.textContent = t; };

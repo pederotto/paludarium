@@ -64,11 +64,13 @@ export function check(s, a, c) {
   // A drive that is not getting anywhere.
   const L = a.lab, g = L?.goal;
   if (L?.drive && g) {
-    const far = Math.hypot(g.x - x, g.z - z) > (c.tol ?? 1.5) + 1;
-    if (!s.win || !far) s.win = { t: c.t, x, z };
+    // (a goal on the wall is across and up, the way an animal on the wall moves; on the floor it is across and back)
+    const q = g.wall ? y : z, gq = g.wall ? g.y : g.z;
+    const far = Math.hypot(g.x - x, gq - q) > (c.tol ?? 1.5) + 1;
+    if (!s.win || !far) s.win = { t: c.t, x, z: q };
     else if (c.t - s.win.t >= T.stuckWindow) {
-      if (Math.hypot(x - s.win.x, z - s.win.z) < T.stuckMove + 0.1 * (c.size ?? 1)) out.push({ kind: 'stuck', msg: `no headway toward its goal for ${T.stuckWindow} s`, sev: 'warn' });
-      s.win = { t: c.t, x, z };
+      if (Math.hypot(x - s.win.x, q - s.win.z) < T.stuckMove + 0.1 * (c.size ?? 1)) out.push({ kind: 'stuck', msg: `no headway toward its goal for ${T.stuckWindow} s`, sev: 'warn' });
+      s.win = { t: c.t, x, z: q };
     }
   } else s.win = null;
   const D = L?.drive;
