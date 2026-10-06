@@ -254,6 +254,45 @@ tank) and `tools/steps/frog-water.mjs` (time in the water, exits). A frog with a
 needs its own swimming scan and `SWIM_SKELETON` for a body true to its proportions; the red-eyed tree frog, which does not swim, has
 the shared body painted as itself (`redeye.swim`) to leap in.
 
+## Skulls and mandibles: the mouth rule (owner, 6 Oct 2026)
+
+The owner, with a labelled plate of an amphibian skull (dorsal, ventral, side, back and front views of the cranium, and the lower jaw's dentary, prearticular and
+articular): "skull and mandible should schematically and conceptually follow this to have some realism ... generalise the rule and approach for future mouths."
+It is the skeleton-first rule (the rule at the top of this file) applied to the head: **a mouth is built on a skull and a mandible, not cut into a smooth head.**
+
+The rule, for every animal with a mouth:
+- The animal gets a SKULL and a MANDIBLE first: schematic, but the real bones in their real places and relations, fitted inside its own head surface.
+- The **lip line is the tooth line**: premaxilla and maxilla above, dentary below, their tooth rows meeting on one surface (the lip surface).
+- The **jaw hinge is the quadrate-articular joint**, one each side, on one transverse axis: the jaw bone's pivot is that axis, nothing else.
+- The **lower jaw is one rigid piece of bones** (dentary, angular/prearticular, articular with its retroarticular process, the symphysis); it turns about the hinge.
+- The **roof of the mouth is the palate bones** (vomer, pterygoid, parasphenoid) and the **cavity is the space between that roof and the mandible's rami**.
+- The **eyes sit in the orbits** (open between prefrontal, frontal, squamosal and maxilla), the braincase (otic-occipital) is the back wall; no bone in an eyeball.
+- Every bone lies **inside the skin with a margin**, and so does the mouth's cavity (a red patch once came through the neck; it turned out to be a texture flip, but the check stays).
+- Muscles come next and attach to these bones (the depressor mandibulae to the retroarticular process, the adductors from the squamosal and parietal to the dentary), then skin.
+
+How (tools): `tools/rig/skull.mjs` holds the class plans as FRACTIONS (along the skull, across it, up it) so one plan fits every species of the class: `caudate`
+(salamanders and newts: fused premaxilla, nasals, prefrontals, paired frontals and parietals, a short maxilla ending under the orbit, squamosal-quadrate suspension, pterygoid,
+vomer with the tooth rows, no palatine, a stout hyobranchial skeleton) and `anuran` (the plate's own frog skull, listed, not fitted yet). `node tools/rig/skull.mjs <id> <head.glb>`
+measures the head (lip-level outline, roof and underside along the middle, despiked), fits the plan and writes `art-src/skull/<id>.skull.json` (cm, baked frame: bones as rods and
+ellipsoids, the hinge pair, tooth rows, the checks). `Blender -b -P tools/blender/skull.py -- <json> <head-without-mouth.glb> <prefix> --mouth <head-with-mouth.glb>` builds the
+meshes with the lower jaw on a pivot at the hinge, checks every bone against the skin (closest-point sign test), the eyeballs and the mouth cavity, writes the result back as
+`verified`, and renders x-rays (`python3 tools/skull-label.py` lays them out with the plate's codes: `docs/firesal-skull.jpg`). `tests/skull.test.mjs` keeps the plan complete
+(the plate's codes), the tooth rows on the lip surface, the hinge on one axis and equal to the mouth script's and the jaw bone's, and the Blender check green.
+For a NEW animal the order is: measure the head, fit the skull, check it in Blender, THEN cut the mouth from it (lip surface and hinge read from the skull JSON), then the
+muscles. (For the fire salamander the mouth was cut first from the scan's head, so the skull was fitted to its lip surface and hinge, and the test makes them agree.)
+
+Fire salamander (16 cm animal), 6 Oct: 30 bones in 15 kinds, skull 2.25 cm long and 1.68 cm wide at the quadrates (ratio 0.75; a broad salamander skull), the hinge on the
+lip surface 5.8 cm behind the middle of the length, 7 tooth rows (premaxilla and maxillae above, dentaries below, a row on each vomer), the hyobranchial rods under the
+floor. Blender check: all bones inside the skin (smallest margin 0.045 cm), none in the eyes, the 1,415 cavity vertices inside. The mouth was cut first, so the cavity was then FITTED to the
+skull (`skull.py --fit-cavity`, positions only): before, 16 roof and 52 floor vertices lay inside palate bones, rami or the hyoid (up to 0.36 cm); after, the roof follows the palate
+bones' underside where it runs under one (0.04 cm of mucosa), the hyoid sits lower, and 1 and 14 vertices graze a bone by at most 0.03 cm. The skin got a fine lip line (a groove
+along the lip surface in the normal map, tools/skin/firesal-skin.py). The proportions are SCHEMATIC (a guess to the plate and the literature, tagged in the JSON), not measured on a
+specimen; a CT of the species would replace them. Open: the floor is still a flat sheet (the tongue pad is not modelled), the teeth are not in the game mesh, the muscles are not
+attached to the bones, the hyoid does not drive the throat pump yet. Next animals: frogs (plate's anuran plan, maxillary teeth, no dentary teeth, a long
+maxilla to the quadratojugal), lizards (kinetic skulls: a mesokinetic hinge in the roof), fishes (the opercular series and the premaxillary protrusion).
+
+![the fire salamander's skull and mandible, schematic](firesal-skull.jpg)
+
 ## Phased plan
 
 1. **Done (this pass)**: body plans with joint limits and muscles; limits enforced at bake (`poseMatrices`) and at runtime

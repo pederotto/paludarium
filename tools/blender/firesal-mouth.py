@@ -84,7 +84,7 @@ inner = {v for v in ringv if v.is_valid}
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 lay = bm.loops.layers.color.get('Color')
 for f in set(filled) | set(f for v in inner for f in v.link_faces):
-    for l in f.loops: l[lay] = (0.42, 0.07, 0.09, 1.0)
+    for l in f.loops: l[lay] = (0.0, 1.0, 0.0, 1.0)          # the inside of the mouth: pure green, a marker the skin bake turns into dark red (the old painter has red warts)
 for _ in range(8): bmesh.ops.smooth_vert(bm, verts=list(inner), factor=0.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
 bm.verts.index_update(); closing_idx = {v.index for v in closing}
 # 4. the jaw's weights (by the side of the lip plane a vertex's faces lie on, since the lip copies sit on the plane)
@@ -138,11 +138,32 @@ if PREVIEW:
         sc.render.filepath = f'{PREVIEW}jaw{deg}.png'; bpy.ops.render.render(write_still=True)
     body.modifiers.remove(body.modifiers['jaw']); body.vertex_groups.remove(vg)
 
+# 5b. UVs, with Blender's own Smart UV Project (--uv): the scan has none. The colour and normal maps are baked from a 3D procedural skin (tools/skin/firesal-skin.py), so
+# the pattern does not depend on where the islands are cut: many islands of low stretch beat a few big ones (a conformal unwrap of the whole body crushed the head, the tail tip
+# and the fingers: 4 texels a cm at the 10th percentile). Equal texel density across islands, packed. One layout covers every level of detail.
+if '--uv' in argv:
+    bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=math.radians(72), island_margin=0.004, area_weight=0.8, correct_aspect=True, scale_to_bounds=False)
+    bpy.ops.uv.average_islands_scale(); bpy.ops.uv.pack_islands(margin=0.004, rotate=True)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    uvl = me.uv_layers.active; us = [d.uv for d in uvl.data]
+    dens = []
+    for p in list(me.polygons)[::5]:
+        a = p.area; ls = [uvl.data[p.loop_start + k].uv for k in range(p.loop_total)]
+        ua = abs(sum(ls[k].x * ls[(k + 1) % len(ls)].y - ls[(k + 1) % len(ls)].x * ls[k].y for k in range(len(ls)))) / 2
+        if ua > 1e-9 and a > 1e-9: dens.append(math.sqrt(ua / a))
+    dens.sort()
+    cover = sum(1 for _ in set((int(u.x * 256), int(u.y * 256)) for u in us)) / 65536
+    print('uv: range', (round(min(u.x for u in us), 3), round(max(u.x for u in us), 3)), (round(min(u.y for u in us), 3), round(max(u.y for u in us), 3)),
+          'texels per cm at 1024 (p10 / p50 / p90):', [round(dens[int(len(dens) * q)] * 1024) for q in (0.1, 0.5, 0.9)], 'cells touched', round(cover, 2))
+    import json
+    json.dump({'uv': [[round(d.uv.x, 5), round(d.uv.y, 5)] for d in uvl.data], 'polys': [[p.loop_start, p.loop_total] for p in me.polygons]}, open(OUT + '.uv.json', 'w'))
+
 # 6. out, in metres
 me.transform(Matrix.Scale(0.01, 4)); me.update()
 for o in bpy.context.selected_objects: o.select_set(False)
 body.select_set(True); bpy.context.view_layer.objects.active = body
 bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True, export_apply=False, export_attributes=True, export_skins=False, export_animations=False,
-    export_morph=False, export_yup=True, export_normals=True, export_texcoords=False, export_all_vertex_colors=False, export_vertex_color='ACTIVE', export_extras=False,
+    export_morph=False, export_yup=True, export_normals=True, export_texcoords=('--uv' in argv), export_all_vertex_colors=False, export_vertex_color='ACTIVE', export_extras=False,
     export_cameras=False, export_lights=False)
 print('exported', OUT)
