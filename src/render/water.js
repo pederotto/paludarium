@@ -10,13 +10,13 @@
 import * as THREE from 'three/webgpu';
 import {
   float, vec3, vec2, uv, time, mix, smoothstep, positionWorld, cameraPosition, pow, dot, normalize, clamp, abs, sin,
-  attribute, fract, length, max, min, Fn, reflect, screenUV,
+  attribute, fract, length, max, min, Fn, reflect, screenUV, positionLocal, normalLocal,
 } from 'three/tsl';
 import { noise3 } from './noise3.js';
 import { TANK, MINUTES_PER_SECOND } from '../sim/tank.js';
 import { U } from './uniforms.js';
 import { waterSurfaceMaterial, SIM, FX, rippleAt, sceneBehind } from './waterfx.js';
-import { Hydro, WET } from '../sim/hydro.js';
+import { Hydro, WET, drawnWater } from '../sim/hydro.js';
 import { Erosion, ERO } from '../sim/erosion.js';
 import { Jobs } from '../sim/jobs.js';
 import { Support } from '../sim/support.js';
@@ -37,6 +37,11 @@ const rootedPlant = (p) => p.surface === 'terrain' && !String(PLANTS[p.id]?.habi
 const COMMIT = { gap: 4, drift: 0.05, max: 20 };
 
 let ribbonId = 1;
+
+// The ground's stored height on a rock piece is ROCK_TOP under the rock's drawn face (sim/decor.js stamps the hit point less
+// 0.15 cm). Water on rock is drawn this much over the stored height, so a thin film runs over the face instead of inside it.
+const ROCK_LIFT = 0.19;
+const onRock = (f, n) => !!f.stamped?.[n] && f.h[n] > f.base[n] + 0.05;
 
 export class Water {
   constructor(scene, world) {
@@ -219,14 +224,19 @@ export class Water {
     const H = this.hydro, f = this.terrain.field;
     const pa = this.flowGeo.attributes.position, wd = this.wdata;
     const h = f.h, d = H.d, res = H.res, L = H.level, sed = this.erosion.s, wt = this.wtur.array, nb = H.nb;
-    const wet = (m) => m >= 0 && (res[m] || d[m] > WET);
+    // One rule for what is drawn (sim/hydro.js drawnWater): deep enough to see, or enough running through to feed a fall.
+    const drawn = this._drawn ??= new Uint8Array(H.N);
+    for (let n = 0; n < H.N; n++) drawn[n] = drawnWater(H, n) ? 1 : 0;
+    const wet = (m) => m >= 0 && (res[m] || drawn[m]);
+    // The water's surface over a drawn cell: on rock, over the rock's face.
+    const surf = (m) => h[m] + Math.max(d[m], 0.03) + (onRock(f, m) ? ROCK_LIFT : 0);
     const [vx, vz] = this.smoothVelocities();
     const cols = f.cols, nx = f.nx, ny = f.ny;
     for (let n = 0; n < H.N; n++) {
       const [x, z] = H.cellXZ(n);
       let y, show;
-      if (res[n]) { y = L - 0.05; show = 0; } else if (d[n] > WET) {
-        y = h[n] + d[n];
+      if (res[n]) { y = L - 0.05; show = 0; } else if (drawn[n]) {
+        y = surf(n);
         // Fainter where the bank is (dry neighbours), so a stream a cell or two wide fades out at its sides instead of
         // ending in the hard zigzag of the grid's triangles.
         const o = n * 4;
@@ -239,12 +249,12 @@ export class Water {
         const i = n % cols, j = (n - i) / cols;
         for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
           const a = i + di, b = j + dj;
-          if ((di || dj) && a >= 0 && b >= 0 && a <= nx && b <= ny) { const m = b * cols + a; if (!res[m] && d[m] > WET && h[m] + d[m] > s) s = h[m] + d[m]; }
+          if ((di || dj) && a >= 0 && b >= 0 && a <= nx && b <= ny) { const m = b * cols + a; if (!res[m] && drawn[m] && surf(m) > s) s = surf(m); }
         }
         y = Math.max(h[n] - 0.25, s - 0.3); show = 0;
       }
       pa.setXYZ(n, x, y, z);
-      wd.setXYZW(n, d[n], vx[n], vz[n], show);
+      wd.setXYZW(n, drawn[n] && !res[n] ? Math.max(d[n], 0.02) : d[n], vx[n], vz[n], show);
       wt[n] = show && sed[n] > 1e-6 ? 1 - Math.exp(-ERO.turbK * sed[n] / Math.max(0.3, d[n])) : 0;
     }
     pa.needsUpdate = true;
@@ -305,6 +315,9 @@ export class Water {
     const T = this.terrain;
     const dir = new THREE.Vector3(fall.dir[0], 0, fall.dir[1]);
     const p = fall.from.clone();
+    // (a lip on rock: the water runs over the rock's face, as the stream above it is drawn)
+    const fc = this.hydro.cellOf(p.x, p.z);
+    if (onRock(T.field, fc)) p.y += ROCK_LIFT;
     p.addScaledVector(dir, T.field.da * 0.5);
     const v0 = Math.min(45, Math.max(8, fall.q / (fall.width * 0.5)));
     const vel = dir.clone().multiplyScalar(v0);
@@ -446,6 +459,17 @@ export class Water {
       r.wet = s > -Infinity && Math.abs(r.end.y - s) < 1.2;
     }
     this.fx?.setStill((n) => (!res[n] && d[n] > 0.25 && vx[n] * vx[n] + vz[n] * vz[n] < 64 ? h[n] + d[n] : -Infinity));
+    // Rock that water runs over looks wet: the cells on rock whose water is drawn (a film too thin to see as water reads as a
+    // dark, glossy streak, as a real one on stone does), wetter the more runs over it; it dries over a minute and a half once the
+    // water stops (this runs every 0.4 s).
+    const f = this.terrain.field, F = H.flux, drawn = this._drawn;
+    if (!drawn) return;
+    const wr = this._wetRock?.length === H.N ? this._wetRock : (this._wetRock = new Float32Array(H.N));
+    for (let n = 0; n < H.N; n++) {
+      const t = drawn[n] && !res[n] && onRock(f, n) ? Math.min(1, 0.55 + d[n] * 1.5 + (F[n * 4] + F[n * 4 + 1] + F[n * 4 + 2] + F[n * 4 + 3]) / 12) : 0;
+      wr[n] = t >= wr[n] ? t : Math.max(t, wr[n] - 0.4 / 90);
+    }
+    this.fx?.setWet((n) => wr[n]);
   }
 
   dropRibbon(r) {
@@ -748,16 +772,24 @@ function makeFlowMaterial() {
   // alone used to push every fragment past the threshold, and a stream on a slope was a flat white band). A film a
   // millimetre or two deep holds little foam: it shows the wet ground through it.
   const body = smoothstep(0.1, 1.5, depth).mul(0.5).add(0.5);
-  const foam = smoothstep(0.2, 0.9, n.add(clamp(speed.div(100), 0, 0.3))).mul(clamp(speed.div(30).sub(0.1), 0, 1)).mul(body);
+  const flowK = clamp(speed.div(40), 0, 1);
+  // Foam along the banks, as in Arnklit's Waterways (the idea, not the code): foam gathers where moving water meets the edge
+  // and slows. `show` counts a cell's wet neighbours (updateFlowMesh), so it falls toward a bank; there, in a thin film, a
+  // line of foam broken up by the same pattern, more of it where faster water runs into the bank, a faint scum on a pond.
+  const edge = clamp(float(1).sub(show).div(0.6), 0, 1);
+  const shoal = smoothstep(0.9, 0.05, depth);
+  const bank = edge.mul(edge).mul(shoal.mul(0.6).add(0.4)).mul(smoothstep(0.0, 0.5, n.add(0.15))).mul(clamp(speed.div(14), 0.15, 1));
+  const foam = max(smoothstep(0.2, 0.9, n.add(clamp(speed.div(100), 0, 0.3))).mul(clamp(speed.div(30).sub(0.1), 0, 1)).mul(body), bank.mul(0.75));
   // Running water between the streaks: a lighter sheen that moves with the pattern, so a shallow stream still reads as
   // water over the wet ground. Still water (pools) has none.
-  const flowK = clamp(speed.div(40), 0, 1);
   const sheen = smoothstep(-0.15, 0.5, n).mul(flowK);
   const view = normalize(cameraPosition.sub(pw));
   const fres = pow(float(1).sub(clamp(abs(dot(view, nrm)), 0, 1)), 5).mul(0.9).add(0.03);
   const deep = clamp(depth.div(6), 0, 1);
   const lit = U.daylight.mul(0.85).add(0.08);
-  const tur = attribute('wtur', 'float');
+  // Silt: what erosion has put in the water (wtur), and the fine soil a fast, shallow run lifts off its bed as it goes, so a
+  // stream's channel reads as a muddier line than the still pool it runs into (full at 40 cm/s, 0.3 at most).
+  const tur = clamp(attribute('wtur', 'float').add(flowK.mul(float(1).sub(clamp(depth.div(6), 0, 1))).mul(0.3)), 0, 1);
   const water = mix(mix(U.tint.mul(0.18), U.tint.mul(0.06), deep).mul(lit), vec3(0.34, 0.24, 0.13).mul(lit), tur.mul(0.85));
   const rl = max(dot(reflect(view.negate(), nrm), FX.lightDir.negate()), 0);
   const glint = pow(rl, 500).mul(4).add(pow(rl, 40).mul(0.2)).mul(U.daylight);
@@ -801,6 +833,11 @@ function makeFallMaterial() {
   // Ropes: a pattern across the sheet, long along the fall (it rides the water too), whose gaps open as it breaks up.
   const rope = noise3(vec3(u.x.mul(8.0).add(wob.mul(0.5)), ride.mul(0.6), 6.1));
   const solid = mix(float(1), smoothstep(-0.22, -0.02, rope), brk);
+  // The sheet is no flat ribbon: it bulges and ripples as it falls, more once air is in it and most where it tears into
+  // ropes (two reads of the baked noise per vertex, riding the water like the pattern; nothing added per fragment). The
+  // pattern's coordinate is the time of flight (makeRibbon), so it already speeds up down the fall as v² = v0² + 2gh.
+  const dn = noise3(vec3(u.x.mul(4.0), ride.mul(1.6), 9.3)).add(noise3(vec3(u.x.mul(9.0), ride.mul(3.4), 12.7)).mul(0.5));
+  m.positionNode = positionLocal.add(normalLocal.mul(dn.mul(aer.mul(0.22).add(brk.mul(0.3)).add(0.03))));
   const froth = smoothstep(-0.05, 0.6, streak.add(fine.mul(0.3)));
   const white = aer.mul(mix(float(0.3), float(1), froth)).mul(solid.mul(0.4).add(0.6));
   const glass = float(1).sub(aer).mul(float(1).sub(white));

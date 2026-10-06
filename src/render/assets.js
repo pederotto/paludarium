@@ -16,6 +16,17 @@ function load(path, { srgb = true, repeat = true } = {}) {
   return t;
 }
 
+// A texture whose alpha channel is DATA, not transparency (the orchid petal relief): decoded unpremultiplied and flipped at decode, filled in
+// when the file arrives like the others.
+const bitmapLoader = new THREE.ImageBitmapLoader().setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+function loadData(path) {
+  const t = new THREE.Texture();
+  t.colorSpace = THREE.NoColorSpace; t.flipY = false; t.generateMipmaps = true; t.anisotropy = 4;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
+  bitmapLoader.load(new URL(path, base).href, (bmp) => { t.image = bmp; t.needsUpdate = true; }, undefined, (e) => console.warn('texture', path, e));
+  return t;
+}
+
 export const TEX = {
   // Same order as MATERIALS in config.js.
   ground: [
@@ -36,6 +47,10 @@ export const TEX = {
   // Furrowed bark for every wood piece, baked by tools/bake-bark.mjs (the height is in the alpha channel; sim/decor.js barkMaterial).
   bark: load('ground/bark_furrowed.webp'),
   barkNormal: load('ground/bark_furrowed_normal.webp', { srgb: false }),
+  // The orchid petal atlas (Blender bake, art-src/orchids/petal_bake.py): R ink, G tone, B glint per tile; render/flowers.js reads it.
+  petals: load('orchids/petals.webp', { srgb: false, repeat: false }),
+  // and its relief: R,G slopes, B roughness x2, A thickness (petal_relief_bake.py)
+  petalsN: loadData('orchids/petals_n.webp'),
   cards: {
     fern: load('cards/fern.png', { repeat: false }),
     cattail: load('cards/cattail.png', { repeat: false }),

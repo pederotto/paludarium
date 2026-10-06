@@ -8,6 +8,10 @@ Built with [three.js](https://threejs.org) on **WebGPU** (TSL shaders, WebGL 2 f
 
 ![The starter paludarium](docs/screenshot.png)
 
+![The four miniature orchids on the background wall: heart-leaf Pleurothallis, Masdevallia, Dracula and Dendrobium cuthbertsonii](docs/orchids.png)
+
+*The four miniature orchids: flowers and leaf textures modelled and baked in Blender (`art-src/orchids/`).*
+
 ## Ways to play
 
 - **Career.** Start with a jar and a little money. Take commissions ("hold a dart frog terrarium at 80% humidity for ten days"), earn funds and reputation, climb twelve ranks, unlock species, plants and equipment, and work up to grand tanks, automation rules, heatwave and vacation tests and exhibitions. A Curator scores your tanks; a tutorial guide (Mira) teaches the basics as you go. Sell animals to the market, keep a portfolio of tanks, save to slots.

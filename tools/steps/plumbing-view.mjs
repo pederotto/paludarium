@@ -1,8 +1,12 @@
-// N17: what render/plumbing.js draws in each view layer (render/layers.js), from the meshes the camera would draw. Two set-ups:
-// the starter tank's pump hose to its stream outlet with a canister filter in the cabinet, and a false bottom with the bed
-// filter's tower pump. Per layer: meshes drawn, triangles of hoses and pipes (tube vertices carry along.z = circuit 1 or 2, and
-// the moving water band is drawn on exactly those), triangles of devices (everything else in the merged mesh), jets.
-// Target: Surface draws 0 tube triangles; devices the same in every layer; X-ray and Bottom as before. PASS/FAIL.
+// N17, fixed by feat/hydro: what render/plumbing.js draws in each view layer (render/layers.js), from the meshes the camera
+// would draw. Two set-ups: the starter tank's pump hose to its stream outlet with a canister filter in the cabinet, and a false
+// bottom with the bed filter's tower pump. Per layer: meshes drawn; triangles of the hose run (from the merged geometry's
+// userData.runRanges: the hoses behind the background and in the cabinet, their clips; an older build without runRanges counts
+// every tube there); triangles of pipes that sit in the tank (other tube vertices, along.z = circuit 1 or 2: the
+// overflow standpipe, the return pipe, risers, uptakes); triangles of devices (everything else); jets.
+// Target (the owner, 4 Oct: hoses feeding outlets only outside the normal view; the repos doc: in-tank pipes in every view):
+// Surface draws 0 hose-run triangles; in-tank pipes and devices the same in every layer, pipes > 0 with a canister; X-ray and
+// Bottom draw the hose run. PASS/FAIL.
 export default async (page, shot, name) => {
   if (name !== 'desktop') return;
   await page.getByRole('button', { name: /starter paludarium/i }).click({ force: true, timeout: 90000 });
@@ -22,7 +26,7 @@ export default async (page, shot, name) => {
   const count = () => page.evaluate(() => {
     const W = window.game.world, P = W.plumbing, cam = window.game.camera;
     const shown = (o) => { for (let q = o; q; q = q.parent) if (!q.visible) return false; return true; };
-    const r = { meshes: 0, tubeTris: 0, deviceTris: 0, jetTris: 0 };
+    const r = { meshes: 0, runTris: 0, pipeTris: 0, deviceTris: 0, jetTris: 0 };
     P.group.traverse((m) => {
       if (!m.isMesh || !shown(m) || !m.layers.test(cam.layers)) return;
       const g = m.geometry, idx = g.index, al = g.attributes.along;
@@ -30,9 +34,14 @@ export default async (page, shot, name) => {
       r.meshes++;
       const s0 = Math.max(0, g.drawRange.start), s1 = Math.min(idx.count, s0 + g.drawRange.count);
       if (m === P.jets) { r.jetTris += (s1 - s0) / 3; return; }
-      const gh = m.name === 'plumbing-xray', tk = gh ? 'ghostTubeTris' : 'tubeTris', dk = gh ? 'ghostDeviceTris' : 'deviceTris';
-      r[tk] ??= 0; r[dk] ??= 0;
-      for (let k = s0; k < s1; k += 3) { if (al.getZ(idx.getX(k)) > 0.1) r[tk]++; else r[dk]++; }
+      const gh = m.name === 'plumbing-xray', pre = gh ? 'ghost' : '';
+      const rk = pre ? 'ghostRunTris' : 'runTris', pk = pre ? 'ghostPipeTris' : 'pipeTris', dk = pre ? 'ghostDeviceTris' : 'deviceTris';
+      r[rk] ??= 0; r[pk] ??= 0; r[dk] ??= 0;
+      const rr = g.userData.runRanges;
+      for (let k = s0; k < s1; k += 3) {
+        const tube = al.getZ(idx.getX(k)) > 0.1;
+        if (rr ? rr.some(([a, b]) => k >= a && k < b) : tube) r[rk]++; else if (tube) r[pk]++; else r[dk]++;
+      }
       r[m.name] = (r[m.name] ?? 0) + 1; r.clips = P.clips;
     });
     return r;
@@ -54,8 +63,9 @@ export default async (page, shot, name) => {
   }
   for (const s of ['canister', 'bed']) {
     const R = res[s];
-    ok(R.surface.tubeTris === 0, `${s}: Surface draws no hose or pipe (or the water in it): ${R.surface.tubeTris} tube triangles`);
+    ok(R.surface.runTris === 0, `${s}: Surface draws none of the hose run (or the water in it): ${R.surface.runTris} triangles`);
     ok(R.surface.deviceTris > 0 && R.surface.deviceTris === R.xray.deviceTris, `${s}: devices drawn in Surface as in X-ray (${R.surface.deviceTris} / ${R.xray.deviceTris})`);
-    ok(R.xray.tubeTris > 0 && R.bottom.tubeTris > 0, `${s}: X-ray and Bottom draw the hoses and pipes (${R.xray.tubeTris} / ${R.bottom.tubeTris})`);
+    ok(R.surface.pipeTris === R.xray.pipeTris && (s !== 'canister' || R.surface.pipeTris > 0), `${s}: pipes in the tank drawn in Surface as in X-ray (${R.surface.pipeTris} / ${R.xray.pipeTris})`);
+    ok(R.xray.runTris > 0 && R.bottom.runTris > 0, `${s}: X-ray and Bottom draw the hose run (${R.xray.runTris} / ${R.bottom.runTris})`);
   }
 };

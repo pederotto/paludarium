@@ -114,6 +114,8 @@ export class Builder {
     g.setAttribute('sway', new THREE.Float32BufferAttribute(this.sway, 1));
     // (only plants with leaves carry the attribute: their material reads it, see plantMaterial({ leaf }))
     if (this.leaf.length === this.sway.length * 2 && this.leaf.some((v, i) => i % 2 === 1 && v >= 0)) g.setAttribute('leaf', new THREE.Float32BufferAttribute(this.leaf, 2));
+    // (flower heads modelled in Blender: coordinates in the petal atlas, see render/flowers.js; only bakedHead fills it)
+    if (this.atlas?.length === this.sway.length * 2) g.setAttribute('atlas', new THREE.Float32BufferAttribute(this.atlas, 2));
     g.computeBoundingSphere();
     return g;
   }

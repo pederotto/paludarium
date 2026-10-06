@@ -19,6 +19,7 @@ import { hopPlan, hopAt, hopPitch, hopFrame, svlOf } from '../util/hop.js';
 import { buccalState, buccalStep, pumpThroat, pumpBreath, swallowDrive, eyeStep } from '../content/anuranheadmuscles.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
+import { driveStep, crossTrack } from './labdrive.js';
 import { Occupancy } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
@@ -934,14 +935,15 @@ export class Animals {
       for (const a of arr) {
         const px = a.pos.x, py = a.pos.y, pz = a.pos.z;
         if (a.st) { a.speedNow = 0; continue; }          // mid-strike: the strike moves it
+        if (a.lab && dt > 0) this.labDrive(a, dt);       // the test lab (src/lab) names a goal; the mind below is muted for it
         switch (sp.kind) {
-          case 'swim': this.swim(a, sp, arr, dt); break;
+          case 'swim': this.swim(a, sp, arr, dt, a.lab?.drive ? this.labCtl(a, sp) : null); break;
           case 'crawlWater': if (sp.shrimp) this.shrimp(a, sp, dt); else this.crawl(a, sp, dt, 'water'); break;
           case 'crawlLand': if (!sp.sessile) this.crawl(a, sp, dt, sp.surface ? 'surface' : 'land', sp.crawlOpt ?? null); break;
           case 'crab': this.crab(a, sp, dt); break;
           case 'fly': this.fly(a, sp, dt); break;
           case 'frog':
-          case 'toad': if (!((sp.perch || a.perch) && this.perchFrog(a, sp, dt))) this.frog(a, sp, dt); break;   // (a.perch: any frog climbing out of the water)
+          case 'toad': if (!((sp.perch || a.perch) && !a.lab?.drive && this.perchFrog(a, sp, dt))) this.frog(a, sp, dt); break;   // (a.perch: any frog climbing out of the water)
           case 'newt': case 'axolotl': case 'gecko': this.herp(a, sp, arr, dt); break;
           case 'skink': this.skink(a, sp, dt); break;
           case 'egg': break;
@@ -2445,6 +2447,7 @@ export class Animals {
     if (it.say && Math.random() < 0.5) W.log(it.say, 'info');
     let goal = it.goal, speed = it.speed;
     if (it.mode === 'hunt' && a.target) { goal = { x: a.target.x, z: a.target.z }; speed = SKINK.speed * 0.7; }
+    if (a.lab?.drive) { goal = a.lab.goal; speed = goal ? SKINK.speed * a.lab.k : 0; }          // (the test lab)
     a.state = goal && speed > 0 ? 'walk' : 'rest';
     a.speedNow = 0;
     if (goal && speed > 0) {
@@ -2551,6 +2554,7 @@ export class Animals {
       burrow: a.cbDig && { ...a.cbDig, depth: pitDepth(T.field, a.home.x, a.home.z) },
     };
     const it = (a.ci = crabThink(m, sense, Math.random, P));
+    if (a.lab?.drive) this.labCrab(a, P, it);
     if (it.say) W.log(it.say, 'warn');
     if (it.eat && food) {
       if (isItem(food.pid)) { food.p.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE[food.pid]); }
@@ -2776,8 +2780,9 @@ export class Animals {
     if (!a.fs) { a.fs = 'sit'; a.fsT = this.pickSit(a, sp) * Math.random(); a.chain = 0; a.crouch = 0; }
     switch (a.fs) {
       case 'sit': {
-        a.fsT -= dt * (a.order ? 1 : this.warp);
+        a.fsT -= dt * (a.order || a.lab?.goal ? 1 : this.warp);
         a.crouch = Math.max(0, (a.crouch ?? 0) - dtS * 4);
+        if (a.lab?.goal && !a.lab.kicked) { a.lab.kicked = true; a.fsT = Math.min(a.fsT, 0.3); }      // (a driven frog does not sit out its long rest)
         if (a.order && !a.order.kicked) { a.order.kicked = true; a.fsT = Math.min(a.fsT, 0.4 + Math.random() * 1.2); }
         if (a.fsT <= 0) this.frogPlan(a, sp);
         break;
@@ -2793,7 +2798,7 @@ export class Animals {
           a.fs = a.afterTurn ?? 'sit';
           a.walkT = 0;
           if (a.fs === 'crouch') a.fsT = 0.22 + Math.random() * 0.25;
-          else if (a.fs === 'sit') a.fsT = a.order ? 0.2 : this.pickSit(a, sp, true);
+          else if (a.fs === 'sit') a.fsT = a.order || a.lab?.goal ? 0.2 : this.pickSit(a, sp, true);
         }
         break;
       }
@@ -2816,8 +2821,9 @@ export class Animals {
   frogEnd(a, sp, hopped) {
     a.hopFail = 0;
     a.fs = 'sit';
+    if (a.lab?.goal) { a.chain = 0; a.chainNext = false; a.fsT = hopped ? 0.35 + Math.random() * 0.35 : 0.1; return; }   // (the test lab: a driven frog goes on after the pause between two hops)
     if (a.chain > 0) { a.chain--; a.chainNext = true; a.fsT = hopped ? 0.35 + Math.random() * 0.5 : 0.8 + Math.random() * 2; }
-    else { a.chainNext = false; a.fsT = a.order ? 0.5 + Math.random() : this.pickSit(a, sp); }
+    else { a.chainNext = false; a.fsT = a.order || a.lab?.goal ? 0.5 + Math.random() * 0.5 : this.pickSit(a, sp); }
   }
 
   // How long to sit (animal seconds at 1x; counted down faster at high speed so the pace per game hour stays).
@@ -2845,9 +2851,12 @@ export class Animals {
   // Choose the next burst: toward prey when hunting, else a wander with a persistent heading.
   frogPlan(a, sp) {
     const W = this.world, T = W.terrain, toad = sp.kind === 'toad';
-    const o = a.order;
+    const o = a.order, lg = a.lab?.goal;
     let plan = null, chain = 0;
-    if (o && this.validPrey(o.target, a)) {
+    if (lg) {
+      plan = this.labFrogPlan(a, sp, lg);
+      if (plan === 'wait') { a.fsT = 0.25; return; }
+    } else if (o && this.validPrey(o.target, a)) {
       const p = o.target.pos, dx = p.x - a.pos.x, dz = p.z - a.pos.z, d = Math.hypot(dx, dz);
       const reach = this.reachOf(a, sp), gap = d - reach * 0.6, ang = Math.atan2(dx, dz);
       if (gap < 0.4) { a.fsT = 0.25; return; }                 // close enough: hunter() will aim and strike
@@ -2886,7 +2895,7 @@ export class Animals {
       for (const c of cands) { plan = this.checkPlan(a, sp, c.walk ? 'walk' : 'hop', c.to, c.ang, wantWater && !c.walk); if (plan) break; }
       if (plan) chain = plan.type === 'hop' ? (Math.random() * 2.6 | 0) + (uneasy ? 1 : 0) : Math.random() < 0.4 ? 1 : 0;
     }
-    if (!plan) { a.hopFail = (a.hopFail ?? 0) + 1; a.fsT = 1.5 + Math.random() * 3; a.chain = 0; a.chainNext = false; return; }
+    if (!plan) { a.hopFail = (a.hopFail ?? 0) + 1; a.fsT = lg ? 0.6 : 1.5 + Math.random() * 3; a.chain = 0; a.chainNext = false; return; }
     a.plan = plan; a.hd = plan.ang; a.chain = chain; plan.x0 = a.pos.x; plan.z0 = a.pos.z;
     a.faceTo = plan.ang; a.afterTurn = plan.type === 'hop' ? 'crouch' : 'walk';
     a.fs = 'turn'; a.crouch = 0; a.walkT = 0;
@@ -3380,6 +3389,63 @@ export class Animals {
       if (d < bd) { bd = d; best = p; }
     }
     return best;
+  }
+
+  // --- The test lab (src/lab) -----------------------------------------------------------------------------------------------------
+  // A driven animal has `a.lab = { drive, pace }` (sim/labdrive.js). While it has a drive its own mind is muted (no hunger, flight,
+  // courtship or hunt) and the drive names a goal, a.lab.goal; the species' own movement gets it there: its hop or step cycle, its
+  // turning, its bumping and the glass. Nothing here writes a position, a heading or a pose. a.lab.stats says how well it went.
+  labDrive(a, dt) {
+    const L = a.lab;
+    if (!L.drive) { L.goal = null; return; }
+    const r = driveStep(L.drive, a.pos, this.labDots ?? {}, dt);
+    if (!r.goal && L.goal) L.kicked = false;
+    L.goal = r.goal;
+    L.k = L.pace * (r.pace ?? 1);                    // (the drive's pace times what the waypoint asks)
+    const S = L.stats ??= { t: 0, dist: 0, xteSum: 0, xteN: 0, xteMax: 0, last: a.pos.clone() };
+    S.t += dt;
+    S.dist += Math.hypot(a.pos.x - S.last.x, a.pos.z - S.last.z);
+    S.last.copy(a.pos);
+    const D = L.drive;
+    if (D.type === 'path' && D.reached > 0) { const e = crossTrack(D.pts, a.pos, D.closed); S.xteSum += e; S.xteN++; if (e > S.xteMax) S.xteMax = e; }
+  }
+
+  // A fish told where to go: swim's own control input (the same one the herps use in the water).
+  labCtl(a, sp) {
+    const L = a.lab, g = L.goal;
+    return g ? { x: g.x, y: g.y ?? a.pos.y, z: g.z, speed: sp.speed * 0.6 * L.k } : { x: a.pos.x, y: a.pos.y, z: a.pos.z, speed: 0 };
+  }
+
+  // The next burst of a frog or toad on land, toward a goal: a hop (as far as one hop goes) or a few steps. L.gait: 'auto', 'walk' or
+  // 'hop'. 'wait': there already. null: nothing it can do from here (a rock, water: the caller waits and tries again).
+  labFrogPlan(a, sp, g) {
+    const toad = sp.kind === 'toad', L = a.lab;
+    const dx = g.x - a.pos.x, dz = g.z - a.pos.z, d = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
+    if (d < 0.4) return 'wait';
+    const walk = L.gait === 'walk' || (L.gait !== 'hop' && (toad ? d < 3 : d < 9));
+    for (const f of [1, 0.7, 0.45]) {
+      const len = (walk ? Math.min(d, 3) : Math.min(d, 5.5 * sp.size * (toad ? 1.2 : 1))) * f;
+      const plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len), ang, false);
+      if (plan) { if (walk) plan.v = L.k; return plan; }
+    }
+    return null;
+  }
+
+  // A newt, axolotl or gecko told where to go: what its mind thought is replaced by the goal, at its walking (or swimming) pace.
+  labHerp(a, P, it, depth) {
+    const g = a.lab.goal;
+    it.goal = g ? { x: g.x, z: g.z } : null;
+    it.swim = !!g && depth > 1.3;
+    it.speed = g ? (it.swim ? P.swim ?? P.walk : P.walk) * a.lab.k : 0;
+    it.wantWall = false; it.face = null; it.needHome = false; it.tuck = 0;
+    it.mated = false; it.birth = null; it.dropTail = false; it.shed = false; it.say = null;
+  }
+
+  labCrab(a, P, it) {
+    const g = a.lab.goal;
+    it.goal = g ? { x: g.x, z: g.z } : null;
+    it.speed = g ? P.speed * 0.5 * a.lab.k : 0;
+    it.face = null; it.eat = false; it.drown = false; it.dig = false; it.badHome = false; it.say = null; it.nose = false;
   }
 
   newOrder(pid, p) { return { pid, target: p, t: 0, deadline: Math.max(4, (55 + Math.random() * 35) / this.warp), miss: 0 }; }
@@ -4097,6 +4163,7 @@ export class Animals {
     if (axo && depth < 1.0 && !a.swimming) { a.stranded = true; a.pos.y = g + 0.3; a.pitch = Math.PI / 2 * Math.sin(this.t * 12 + a.phase) * 0.3; return; }
     a.stranded = false;
     const it = herpThink(m, sense);
+    if (a.lab?.drive) this.labHerp(a, P, it, depth);
     // An escape the mind aimed at blindly (straight away from the danger) may be out of the water or behind a rock: swap it for one
     // it can reach, or none (it freezes where it is). Checked once per flight.
     if (m.mode === 'flee' && m.goal && !m.goalOk && !gecko) {
@@ -4144,7 +4211,7 @@ export class Animals {
       a.swimming = true;
     } else {
       if (a.swimming) { a.swimming = false; a.vel.multiplyScalar(0.2); }
-      const amph = m.mode === 'shore' || m.mode === 'return' || m.mode === 'flee';        // a newt in the water stays in it unless it is going ashore
+      const amph = m.mode === 'shore' || m.mode === 'return' || m.mode === 'flee' || !!a.lab?.drive;        // a newt in the water stays in it unless it is going ashore
       const medium = axo ? 'water' : a.sp === 'firesal' ? (m.mode === 'soak' ? 'any' : 'land') : amph || depth <= 0.3 ? 'any' : 'water';
       const maxD = a.sp === 'firesal' ? (m.mode === 'soak' ? 1.8 : 0.6) : 99;
       if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, medium, maxD);

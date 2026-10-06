@@ -95,13 +95,22 @@ export class Mist {
     // the rocks and plants (the user's photos, 2026-10-04).
     this.acc += dt * (3 + hum * 6);
     const fog = E.fogger > 0 ? W.equipment?.pos?.fogger : null;
+    // The plunge: a fall breaks into spray where it lands, and the finest of it hangs over the foot as a low mist, as much as
+    // the fall has energy (its flow times its height): small puffs low over the foam, rising slowly; more in humid air,
+    // where the droplets do not dry off. A trickle off a low lip makes none.
+    for (const fall of W.water.falls) {
+      if (!fall.wet) continue;
+      const e = fall.end ?? fall.pts[fall.pts.length - 1], hgt = Math.max(0, (fall.pts[0]?.y ?? e.y) - e.y);
+      fall.mistAcc = (fall.mistAcc ?? 0) + dt * Math.min(4, (fall.q * hgt) / 160) * (0.6 + hum * 0.6);
+      while (fall.mistAcc > 1) {
+        fall.mistAcc -= 1;
+        const r = (fall.R ?? 2) * (0.4 + Math.random() * 0.8), a = Math.random() * 6.283;
+        this.spawn(new THREE.Vector3(e.x + Math.cos(a) * r, e.y + 0.4 + Math.random() * 0.6, e.z + Math.sin(a) * r), 2.5 + Math.min(4, fall.q / 10) + Math.random() * 2, 0.35, 0.45);
+      }
+    }
     while (this.acc > 1) {
       this.acc -= 1;
-      const fall = W.water.falls[Math.floor(Math.random() * Math.max(1, W.water.falls.length))];
-      if (fall && Math.random() < 0.6) {
-        const e = fall.pts[fall.pts.length - 1];
-        this.spawn(new THREE.Vector3(e.x + (Math.random() - 0.5) * 6, e.y + 0.8, e.z + (Math.random() - 0.5) * 6), 5 + Math.random() * 5, 0.8, 0.5);
-      } else if (fog && Math.random() < E.fogger) {
+      if (fog && Math.random() < E.fogger) {
         // (over the fogger's reach, as sim/climate.js spreads its humidity; lifted by a third of its size, so the quad does
         // not cut into the ground under it in a hard line)
         const x = fog.x + (Math.random() - 0.5) * 24, z = fog.z + (Math.random() - 0.5) * 24, size = 10 + Math.random() * 8;

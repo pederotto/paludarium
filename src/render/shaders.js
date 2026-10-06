@@ -252,6 +252,14 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
   const film = smoothstep(0.2, -0.5, pw.y.sub(U.waterLevel)).mul(U.algaeFilm).mul(noise3(pw.mul(0.5)).mul(0.4).add(0.6));
   base = mix(base, U.algaeColor, clamp(film, 0, 0.7));
   base = mouldMix(base, pw);
+  // Rock under running water: dark and glossy where a stream or a thin film runs over it (render/water.js syncStill puts the
+  // wetness of the cells on rock in the blue channel of the tank's height texture). Only near the rock's top, which the ground
+  // stores 0.15 cm under its face: the sides and the overhangs under it stay dry. One read of a texture the water already uploads.
+  const ht = FX.terrainH.sample(tankUV(pw.xz)), above = pw.y.sub(ht.r);
+  const wetRock = ht.b.mul(smoothstep(-0.5, -0.1, above)).mul(smoothstep(1.0, 0.5, above)).mul(smoothstep(0.3, 0.6, normalWorld.y.add(0.4)));
+  base = base.mul(float(1).sub(wetRock.mul(0.45)));
+  const rough0 = src.roughnessMap ? texture(src.roughnessMap, uv()).g.mul(0.9) : float(0.9);
+  m.roughnessNode = mix(rough0, float(0.22), wetRock.mul(0.9));
   const [color, emissive] = wet(base, pw);
   m.colorNode = color;
   m.emissiveNode = emissive;
@@ -275,7 +283,7 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // cross-veins between parallel ones) }.
 // `flowBend`: the plant leans in the water's push (B5b; only aquatic and emergent plants set it, sim/plants.js flowOptions); `bend`: the
 // lean of a tip at full push in the plant's own units; `stiffness`: 1 an average leaf.
-export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null, gloss = null, leafRelief = null, relief = 1, wax = null, leafNoise = null, mottle = null } = {}) {
+export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafHue = null, leafPale = null, leafBack = null, gloss = null, leafRelief = null, relief = 1, wax = null, leafNoise = null, mottle = null } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   m.userData.foliage = true;
   m.userData.flowBend = flowBend;
@@ -375,6 +383,8 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
     let c = base.mul(mix(float(1), tx.r.mul(2), isLeaf));
     c = mix(c, pale.div(vc), tx.g.mul(isLeaf));
     base = mix(c, c.mul(back), tx.b.mul(isLeaf).mul(step(faceDirection, 0)));
+    // (orchids2) the hue map (Blender bake, sim/orchid-leaves.js orchidLeafTint): the colour across the blade, x2 so 0.5 leaves the vertex colour as it is
+    if (leafHue) base = base.mul(mix(vec3(1), texture(leafHue, vec2(L.x.mul(0.5).add(0.5), saturate(L.y))).rgb.mul(2), isLeaf));
     m.opacityNode = keep.mul(mix(float(1), tx.a, isLeaf));
     const Lc = vec2(L.x.mul(0.5).add(0.5), saturate(L.y));
     if (leafNoise && mottle) {

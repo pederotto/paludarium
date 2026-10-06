@@ -35,12 +35,23 @@ const FRICTION = 9.81 * MANNING_N * MANNING_N * Math.cbrt(100);
 const SUB_DT = 1 / 240;       // s
 const JUMP = 1.6;             // cm of drop between neighbouring cells that makes water leave the surface
 export const WET = 0.05;      // cm: thinner films count as dry
+export const FALL_Q = 1.5;    // cm³/s pouring over a lip that makes a waterfall (findFalls)
 const NB8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const HMAX = 80;              // cm of lift at which the pump delivers nothing
 const NN = NODE.MAX;          // ledger nodes: 0 ground, 1 sump, 2 outside, 3.. outlets, 15.. ponds and streams
 // Share of the rated flow the pump really delivers when it lifts water `head` cm (a simple pump curve); a filter's pump
 // passes its own lift at zero flow, hmax (content/equipment.js FILTERS, sim/filterflow.js).
 export const pumpCurve = (head, hmax = HMAX) => Math.max(0, 1 - (head / hmax) * (head / hmax));
+
+// Whether the water in cell n (outside the main pool) is drawn: deep enough to see (WET), or carrying enough out of the cell
+// that a fall can pour from it (half of FALL_Q). One rule for streams and their falls: a film on rock thinner than WET used to
+// pour a fall while the stream feeding it stayed hidden (render/water.js draws by this).
+export function drawnWater(H, n) {
+  if (H.res[n]) return false;
+  if (H.d[n] > WET) return true;
+  const F = H.flux, o = n * 4;
+  return F[o] + F[o + 1] + F[o + 2] + F[o + 3] > FALL_Q * 0.5;
+}
 
 export class Hydro {
   constructor(world) {
@@ -719,7 +730,7 @@ export class Hydro {
       if (this.res[n]) continue;
       for (let k = 0; k < 4; k++) {
         const o = n * 4 + k;
-        if (jump[o] >= 0 && F[o] > 1.5 && this.dropH[o] > 2.2) lip.set(o, F[o]);
+        if (jump[o] >= 0 && F[o] > FALL_Q && this.dropH[o] > 2.2) lip.set(o, F[o]);
       }
     }
     const falls = [];

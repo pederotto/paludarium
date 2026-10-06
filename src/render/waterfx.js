@@ -381,6 +381,18 @@ export class WaterFX {
   // The still ponds outside the main pool, so the ripples run in them too: the green channel holds the pond's surface
   // over each cell (far below the ground elsewhere). `surf(n)` gives it for grid cell n, or -Infinity: no still water.
   // Only uploaded when a cell changed.
+  // Rock under running water (render/water.js): its wetness 0 … 1 over each cell in the blue channel, which the rocks' material
+  // reads (render/shaders.js hardscapeMaterial: darker and glossier). Quantised to 1/32 and uploaded only when a cell changed.
+  setWet(wet) {
+    const f = this.world.terrain.field, toHalf = THREE.DataUtils.toHalfFloat;
+    let changed = false;
+    for (let n = 0; n < f.cols * f.rows; n++) {
+      const v = toHalf(Math.round(Math.min(1, Math.max(0, wet(n))) * 32) / 32);
+      if (this.hData[n * 4 + 2] !== v) { this.hData[n * 4 + 2] = v; changed = true; }
+    }
+    if (changed) this.hTex.needsUpdate = true;
+  }
+
   setStill(surf) {
     const f = this.world.terrain.field, toHalf = THREE.DataUtils.toHalfFloat, dry = toHalf(-100);
     let changed = false;

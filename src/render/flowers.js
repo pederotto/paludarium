@@ -2,7 +2,7 @@
 //
 // A species' flower geometry (its `flower.build`, see sim/plants.js and the FLOWER CONTRACT) is one flower at the origin opening
 // along +Y, with leaf coordinates on the petals (v 0 base … 1 tip) and a palette MASK as vertex colour. Per head the mesh gets
-// four vectors (WebGPU allows 8 vertex buffers a pipeline: position, normal, `fl` and these four make 7):
+// four vectors (WebGPU allows 8 vertex buffers a pipeline: position, normal, `fl`, `fa` (petal atlas coordinates) and these four make 8):
 //   iPos   xyz where the head sits (world), w its scale
 //   iRot   its orientation (quaternion)
 //   iPal   the plant's three colours (8-bit sRGB packed into one float each, exact up to 2^24),
@@ -17,11 +17,12 @@ import * as THREE from 'three/webgpu';
 import {
   attribute, positionLocal, positionWorld, float, vec3, vec4, sin, cos, max, min, floor, mix, normalize, cross, dot, length, saturate,
   smoothstep, step, time, transformNormalToView, varying, pow, mrt, packNormalToRGB, normalView, normalWorld, faceDirection,
-  screenCoordinate, fract, cameraPosition, uniform, abs, vec2, fwidth,
+  screenCoordinate, fract, cameraPosition, uniform, abs, vec2, fwidth, texture, Fn, positionView, sign,
 } from 'three/tsl';
 import { U } from './uniforms.js';
 import { AIR } from './airflow.js';
 import { FOLIAGE } from './shaders.js';
+import { TEX } from './assets.js';
 
 // day: 0 night … 1 day, as a 'day' flower sees it (sim/bloom.js dayOpen); Plants.step sets it from the game clock.
 export const FLOWER = { day: uniform(1) };
@@ -64,6 +65,10 @@ export function flowerGeometry(src) {
   g.setAttribute('position', src.attributes.position.clone());    // (copies: a mesh that is replaced disposes its own)
   g.setAttribute('normal', src.attributes.normal.clone());
   g.setAttribute('fl', new THREE.BufferAttribute(fl, 4));
+  // coordinates in the petal atlas (Blender-modelled heads, sim/flowering.js bakedHead); -1 = none: the arithmetic patterns below
+  const fa = new Float32Array(n * 2).fill(-1);
+  if (src.attributes.atlas) fa.set(src.attributes.atlas.array);
+  g.setAttribute('fa', new THREE.BufferAttribute(fa, 2));
   if (src.index) g.setIndex(src.index);
   g.instanceCount = 0;
   return g;
@@ -116,7 +121,8 @@ export function flowerMaterial() {
   ).mul(AIR.air);
   m.positionNode = qrot(Q, u2.mul(dd).mul(P.w)).add(head).add(off);
   const nWv = varying(qrot(Q, n1), 'vFlowerN');
-  m.normalNode = transformNormalToView(normalize(nWv)).mul(faceDirection);
+  const N0 = transformNormalToView(normalize(nWv)).mul(faceDirection);
+  m.normalNode = N0;      // (orchids2: tilted by the petal relief below, once the atlas coordinates exist)
   // Colour: the plant's three colours mixed by the mask (sRGB to linear), green in a young bud, browning as it fades.
   const unpack = (f) => { const r = floor(f.div(65536)), g = floor(f.sub(r.mul(65536)).div(256)), b = f.sub(r.mul(65536)).sub(g.mul(256)); return pow(vec3(r, g, b).div(255), 2.2); };
   const mb = saturate(float(1).sub(F.z).sub(F.w));
@@ -132,8 +138,26 @@ export function flowerMaterial() {
   // own coordinates, so tails (accent) and lip/throat (centre) stay clean. Arithmetic only: no texture, no extra buffer.
   const va = varying(vec4(tone(unpack(PAL.y)), pat.add(sf.mul(8))), 'vFlowerA');
   const vp = varying(vec4(F.x, v, F.z.mul(isLeaf), mb), 'vFlowerP');
+  const FA = attribute('fa', 'vec2');
+  const vfa = varying(vec3(FA, step(0, FA.x)), 'vFlowerFA');
   const sfv = floor(va.w.add(0.5).div(8)), pk = va.w.sub(sfv.mul(8));
   const pu = vp.x, pv = vp.y;
+  // (orchids2) The petal atlas (Blender bake, TEX.petals): the tile of this part of the flower, in the band of the palette's pattern code (0..7): R ink
+  // (the accent colour over the main colour), G tone (x2), B glint. hasAt = 0 for every other flower: the arithmetic patterns below, exactly as before.
+  const hasAt = vfa.z;
+  const atl = texture(TEX.petals, vec2(vfa.x, vfa.y.add(pk.mul(0.125))));
+  // The petal RELIEF (TEX.petalsN, same tile): R,G slopes across and along the tile, tilting the normal in a frame built from the screen-space change
+  // of the atlas coordinate (as plantMaterial does for the leaves: no tangent buffer); B a roughness multiplier x2; A thickness (veins and cell walls
+  // hold the light back). Veins, papillae and pustules break the lamp's highlight up, so the petal reads as tissue, not paint.
+  const rlt = texture(TEX.petalsN, vec2(vfa.x, vfa.y.add(pk.mul(0.125)))), rstr = uniform(4 * 0.9);
+  m.normalNode = Fn(() => {
+    const dp1 = positionView.dFdx(), dp2 = positionView.dFdy(), d1 = vfa.xy.dFdx(), d2 = vfa.xy.dFdy();
+    const p2 = cross(dp2, N0), p1 = cross(N0, dp1), sg = sign(dot(dp1, p2));
+    const Tg = p2.mul(d1.x).add(p1.mul(d2.x)).mul(sg), Bg = p2.mul(d1.y).add(p1.mul(d2.y)).mul(sg);
+    const Tu = Tg.div(max(Tg.length(), 1e-20)), Bt = Bg.div(max(Bg.length(), 1e-20));
+    const r = rlt.xy.sub(0.5).mul(rstr).mul(hasAt).mul(faceDirection);
+    return normalize(N0.sub(Tu.mul(r.x)).sub(Bt.mul(r.y)));
+  })();
   const hash = (c) => fract(sin(dot(c, vec2(12.9898, 78.233))).mul(43758.5453));
   // 1 SPOTS (v3, decision 11): irregular blotches of varied size that merge, large and dense at the petal's base and centre,
   // fine and sparse toward its tip: two octaves of domain-warped sine waves (no cells, so no grid) cut at a level that rises
@@ -161,16 +185,16 @@ export function flowerMaterial() {
     .mul(sin(kh.mul(60).add(positionWorld.x.mul(2.1)).add(positionWorld.y.mul(1.7))).mul(0.5).add(0.5));
   const is = (n) => step(n - 0.5, pk).mul(step(pk, n + 0.5));
   const pz = smoothstep(0.3, 0.7, vp.z);     // full accent at a dot/vein centre wherever the petal is mostly main colour
-  const pm = spots.mul(is(1)).add(veins.mul(is(3))).mul(pz).add(net.mul(is(2)).mul(smoothstep(0.05, 0.35, vp.z)));   // the net darkens the whole blade
-  const sparkle = glint.mul(is(4)).mul(pz);
+  const pm = mix(spots.mul(is(1)).add(veins.mul(is(3))).mul(pz).add(net.mul(is(2)).mul(smoothstep(0.05, 0.35, vp.z))), atl.r, hasAt);   // the net darkens the whole blade
+  const sparkle = mix(glint.mul(is(4)).mul(pz), atl.b, hasAt);
   const pcol = mix(vc.xyz, va.xyz, pm).add(sparkle.mul(0.55));
   // faint parallel veins along each petal and a slightly deeper tone at its base (leaf coordinates; no noise)
   const au = F.x.abs();
-  const vein = smoothstep(0.75, 1, cos(au.mul(7 * Math.PI))).mul(smoothstep(0.95, 0.6, au)).mul(0.07);
-  const col0 = pcol.mul(float(1).sub(vein.add(smoothstep(0.3, 0, F.y).mul(0.12)).mul(isLeaf)));
+  const vein = smoothstep(0.75, 1, cos(au.mul(7 * Math.PI))).mul(smoothstep(0.95, 0.6, au)).mul(0.07).mul(float(1).sub(hasAt));
+  const col0 = pcol.mul(float(1).sub(vein.add(smoothstep(0.3, 0, F.y).mul(0.12)).mul(isLeaf))).mul(mix(float(1), atl.g.mul(2), hasAt));
   // Thin petals glow where the lamp shines through them (the side we see faces away from it, or edge-on), as the leaves do.
   const back = saturate(dot(normalWorld, vec3(0, 1, 0)).mul(-0.7).add(0.35));
-  const em0 = pcol.mul(vc.w).mul(back.mul(0.8).add(0.15)).mul(U.daylight.mul(0.35).add(0.02)).add(sparkle.mul(U.daylight.mul(0.12)));
+  const em0 = pcol.mul(vc.w).mul(mix(float(1), rlt.w, hasAt)).mul(back.mul(0.8).add(0.15)).mul(U.daylight.mul(0.35).add(0.02)).add(sparkle.mul(U.daylight.mul(0.12)));
   // (F4, decision 18) SURFACE (iPal.w / 64): living tissue instead of flat paint, for the orchids; 0 = col0/em0 above, exactly.
   // Arithmetic in the petal's leaf coords (u across, v base to tip); fine detail fades by fwidth before it can alias.
   const has = step(0.5, sfv), isS = (n) => step(n - 0.5, sfv).mul(step(sfv, n + 0.5)), lip = vp.w;
@@ -179,7 +203,7 @@ export function flowerMaterial() {
   const wv = au.mul(10).add(sin(tv.mul(9).add(au.mul(6))).mul(0.18)).add(tv.mul(au).mul(2.5)), fw = fwidth(wv);
   const vl = abs(fract(wv).sub(0.5)).mul(2), mj = step(fract(floor(wv).div(3)), 0.1);
   const veinF = smoothstep(fw.add(0.16), max(float(0.16).sub(fw), 0), vl).mul(saturate(float(1.3).sub(fw.mul(2.5))))
-    .mul(mj.mul(0.45).add(0.55)).mul(smoothstep(1.0, 0.8, au)).mul(isLeaf);
+    .mul(mj.mul(0.45).add(0.55)).mul(smoothstep(1.0, 0.8, au)).mul(isLeaf).mul(float(1).sub(hasAt));
   // deeper, more saturated base; lighter margin and tip; slight irregular mottling (two warped sine waves, no grid)
   const baseW = smoothstep(0.42, 0, tv).mul(0.55).mul(isLeaf);
   // (F5) not on CRYSTALLINE: the lighter margin (and its glow) washed the scarlet cuthbertsonii toward salmon
@@ -188,7 +212,7 @@ export function flowerMaterial() {
     .add(sin(pu.mul(19).add(pv.mul(23)).add(sin(pv.mul(29)).mul(0.8))).mul(0.4));
   const pc = max(pcol, vec3(1e-4));
   let tc = mix(pcol, pow(pc, vec3(1.35)).mul(0.9), min(baseW.add(veinF.mul(0.7)), 1));
-  tc = mix(tc, pow(pc, vec3(0.8)), edgeW).mul(mt.mul(0.09).mul(isLeaf).add(1));
+  tc = mix(tc, pow(pc, vec3(0.8)), edgeW).mul(mt.mul(0.09).mul(isLeaf).mul(float(1).sub(hasAt)).add(1)).mul(mix(float(1), atl.g.mul(2), hasAt));
   // view terms for the styles
   const vd = normalize(cameraPosition.sub(positionWorld)), ndv = abs(dot(normalize(nWv), vd)), rim = float(1).sub(ndv);
   const dl = U.daylight.mul(0.8).add(0.05);
@@ -215,7 +239,7 @@ export function flowerMaterial() {
   // translucency: the thin margin glows more, the veins and hairs hold the light back
   const thin = mix(float(1), edgeW.mul(1.2).sub(veinF.mul(0.5)).sub(hair.mul(0.5)).add(1), has);
   m.emissiveNode = em0.mul(thin).add(waxE.add(velE).mul(dl)).add(glit.mul(dl).mul(mix(pcol, vec3(1), 0.5)).mul(0.9));   // (F5) glints tinted, not white haze
-  m.roughnessNode = mix(float(0.55), float(0.3), wax);
+  m.roughnessNode = max(mix(float(0.55), float(0.3), wax).mul(mix(float(1), rlt.z.mul(2), hasAt)), 0.12);
   // Right in front of the lens a flower dissolves like a leaf (plantMaterial's screen-space dither).
   const ign = fract(fract(screenCoordinate.x.mul(0.06711056).add(screenCoordinate.y.mul(0.00583715))).mul(52.9829189));
   m.opacityNode = step(ign, smoothstep(1.5, 3.2, positionWorld.distance(cameraPosition)));

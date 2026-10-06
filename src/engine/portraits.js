@@ -116,6 +116,8 @@ export class Portraits {
     if (!sp) return null;
     const p = this.plants.add(id, new THREE.Vector3(0, 300, 0), { grown: 1, scale: 1, rot: 0.6 });
     if (!p) return null;
+    // (orchids2) a flowering plant is drawn in full bloom: the random stage it was born with left about 40 % of the baked portraits without flowers
+    if (sp.flower) p.bloom = { stage: 'open', t: 0.5, palette: 0, j: 0.5, k: 1, why: null };
     const box = new THREE.Box3(new THREE.Vector3(-8, 300, -8), new THREE.Vector3(8, 316, 8));
     const m = this.plants.meshes[this.plants.key(p)];
     // This renderer has no MRT, so foliage materials (which may have been built while the main view had one) must not write to it.

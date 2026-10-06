@@ -11,7 +11,8 @@
 // one read of the soil photo, and each fragment works out only its own zone and the chosen substrate (branches on uniforms).
 
 import * as THREE from 'three/webgpu';
-import { Fn, If, uniform, attribute, positionWorld, positionLocal, texture, vec2, vec3, float, fract, floor, sin, dot, mix, smoothstep, step, length, abs, max, min, clamp, time, sign } from 'three/tsl';
+import { Fn, If, uniform, attribute, positionWorld, positionLocal, texture, vec2, vec3, float, fract, floor, sin, dot, mix, smoothstep, step, length, abs, max, min, clamp, time, sign, exp, pow, normalize, refract, cameraPosition } from 'three/tsl';
+import { noise3 } from './noise3.js';
 import { TANK } from '../sim/tank.js';
 import { U } from './uniforms.js';
 import { TEX } from './assets.js';
@@ -63,6 +64,14 @@ export class SoilSide {
       return [smoothstep(r, r.sub(0.06), d).mul(step(fill, hash(c.add(seed + 5.3)))), h, d.div(r)];
     };
 
+    // A caustic net at p (vec2, cm), moving: the bright lines where two slowly changing baked-noise fields cross zero (two reads
+    // of render/noise3.js, no noise computed per fragment). Light that comes in through the front glass and is focused by the
+    // rippled water under the substrate draws it on what lies under that water.
+    const caus = (p) => {
+      const n1 = noise3(vec3(p.x.mul(0.95), p.y.mul(0.95), time.mul(0.55))), n2 = noise3(vec3(p.x.mul(1.9).add(3.1), p.y.mul(1.9), time.mul(0.8).add(5)));
+      return pow(clamp(float(1).sub(abs(n1).mul(3.2)), 0, 1), 3).add(pow(clamp(float(1).sub(abs(n2).mul(3.2)), 0, 1), 3).mul(0.6));
+    };
+
     const col = Fn(() => {
       y = pw.y.toVar(); a = pw.x.add(pw.z).toVar(); top = top0.toVar();
       L = drawnL(top).toVar(); water = drawnWater(L).toVar(); under = step(y, water).toVar();
@@ -80,17 +89,21 @@ export class SoilSide {
           const c1 = mix(vec3(0.05, 0.03, 0.018).mul(grit), shade(d2, h2).mul(0.7), b2);   // the smaller ones further back
           out.assign(mix(c1, shade(d1, h1), b1));
           out.assign(mix(out, out.mul(vec3(0.5, 0.42, 0.3)).add(vec3(0.02, 0.016, 0.008)), under));
+          // Under the water table, a faint caustic net on the pebbles' faces at the glass, fading a few cm down.
+          const lit = caus(vec2(a, y.mul(1.6))).mul(under).mul(step(0.05, water)).mul(exp(water.sub(y).mul(-0.35))).mul(max(b1, b2.mul(0.6)));
+          out.addAssign(vec3(0.3, 0.27, 0.19).mul(lit).mul(U.daylight.mul(0.8).add(0.2)));
         }).Else(() => {
-          // --- False bottom, seen edge-on: the plenum's water at its level (tea-coloured by the soil's tannins), white
-          // PVC legs every 12 cm, a single layer of bio-rings on the glass, then the egg-crate grid under the mesh ------
+          // --- False bottom, seen through the glass: the plenum behind it as a room, by interior mapping (as three's TSL
+          // SkyscraperGenerator.interior(): the view ray is followed into a box behind the flat strip, no geometry added).
+          // Under the plenum's water line the ray bends into the water at the glass (index 1.333); over it, it crosses the
+          // air between the water and the crate. It meets the first of: the tank's floor (mulm on the glass bottom, with the
+          // caustic net that light coming in through the front glass makes after the rippled surface focuses it), the
+          // water's surface (from above: the crate's underside mirrored by Fresnel and the floor seen through it; from below:
+          // a silver mirror, total internal reflection), the white egg-crate's underside overhead, two rows of PVC legs and
+          // the dark back of the plenum. Light comes in through the glass, so it fades with depth; the water takes it on
+          // the way, tea-coloured by the soil's tannins (exp of the path in the water). Then on the glass itself: a single
+          // layer of bio-rings at the bottom, specks carried along by the pump's draw, the meniscus.
           const ct = min(float(1), L.mul(0.3)), crateY = L.sub(ct);
-          const legX = fract(a.div(12)).sub(0.5).mul(12), legR = 1.05;
-          const leg = smoothstep(legR, legR - 0.06, abs(legX));
-          const legC = vec3(0.62, 0.63, 0.6).mul(float(1).sub(legX.div(legR).pow(2).mul(0.55))).add(smoothstep(0.35, 0.05, abs(legX.add(0.4))).mul(0.12));
-          const [ring, rh, rd] = blob(0.7, 1, 1.25, 0.34, 0.46, 81, 0, 0.45);
-          const ringC = vec3(0.5, 0.46, 0.4).mul(rh.mul(0.25).add(0.8)).mul(mix(float(1), float(0.35), smoothstep(0.32, 0.25, rd)));
-          const voidC = mix(vec3(0.03, 0.032, 0.034), vec3(0.06, 0.06, 0.06), smoothstep(crateY, 0, y));
-          const plen = mix(mix(voidC, ringC, ring.mul(step(y, 1.4))), legC, leg).toVar();
           // The water is live: it runs along the glass toward the pump tower (sim/plenum.js pump flow over the plenum's cross
           // section, `flow` cm/s), carrying specks of tannin and soil; its surface ripples, more where rain drips in (`stir`)
           // and around the tower, where the pump draws it down. Two sines and one hash per fragment, false-bottom zone only.
@@ -100,11 +113,61 @@ export class SoilSide {
           const amp = stir.mul(0.12).add(0.05).add(near.mul(flow.mul(4).min(1)).mul(0.2));
           const wl = water.add(sin(a.mul(2.3).add(dir.mul(time).mul(2.2))).mul(amp).add(sin(a.mul(0.85).sub(time.mul(1.3))).mul(amp.mul(0.6)))).toVar();
           const wet2 = step(y, wl);
+          const hasW = step(0.05, water);
+          // The ray: N out of the glass, T along it (the direction `a` grows in), into the box behind.
+          const Tg = vec3(abs(nrm.z), 0, abs(nrm.x)), V = normalize(pw.sub(cameraPosition));
+          const R = mix(V, refract(V, nrm, 1 / 1.333), wet2.mul(hasW));
+          const rin = max(dot(R, nrm.negate()), 0.06), ra = dot(R, Tg), ry = R.y;
+          const BIG = 1e4, BACK = 11;
+          const tBack = float(BACK).div(rin);
+          const tFloor = ry.lessThan(-0.002).select(y.div(ry.negate()), BIG);
+          const tCeil = ry.greaterThan(0.002).select(crateY.sub(y).div(ry), BIG);
+          const tWat = hasW.greaterThan(0.5).select(wet2.greaterThan(0.5).select(ry.greaterThan(0.002).select(wl.sub(y).div(ry), BIG), ry.lessThan(-0.002).select(y.sub(wl).div(ry.negate()), BIG)), BIG);
+          // PVC legs, 2.1 cm across, every 12 cm along the glass: a row 3.2 cm in and one 9.5 cm in, offset by half a step.
+          const legAt = (s, off) => {
+            const t = float(s).div(rin), ya = y.add(ry.mul(t)), lx = fract(a.add(ra.mul(t)).add(off).div(12)).sub(0.5).mul(12);
+            return [step(abs(lx), 1.05).mul(step(0, ya)).mul(step(ya, crateY)), t, lx];
+          };
+          const [l1, t1, x1] = legAt(3.2, 0), [l2, t2, x2] = legAt(9.5, 6);
+          const tLeg = l1.greaterThan(0.5).select(t1, l2.greaterThan(0.5).select(t2, BIG)), lxh = l1.greaterThan(0.5).select(x1, x2);
+          const tHit = min(min(min(tBack, tFloor), min(tCeil, tWat)), tLeg).toVar();
+          const P = vec3(a.add(ra.mul(tHit)), y.add(ry.mul(tHit)), rin.mul(tHit)).toVar();    // along, height, depth behind the glass
+          const light = (s) => exp(s.mul(-0.2)).mul(0.85).add(0.15).mul(U.daylight.mul(0.8).add(0.2));
+          // what each surface looks like where the ray meets it
+          const floorAt = (p) => {
+            const mulm = texture(TEX.ground[0], vec2(p.x, p.z).mul(1 / 9)).rgb.mul(vec3(0.5, 0.42, 0.32)).add(vec3(0.03, 0.025, 0.018));
+            const c = caus(vec2(p.x, p.z)).mul(hasW).mul(step(wl, crateY.sub(0.2)).mul(0.6).add(0.4)).mul(exp(wl.mul(-0.12))).mul(0.55);
+            return mulm.add(vec3(0.75, 0.72, 0.55).mul(c)).mul(light(p.z));
+          };
+          const crateUnder = (p) => {
+            const gx = fract(p.x.div(1.27)), gz = fract(p.z.div(1.27));
+            const web = max(smoothstep(0.16, 0.1, gx), smoothstep(0.16, 0.1, gz));
+            return mix(vec3(0.022, 0.02, 0.018), vec3(0.62, 0.63, 0.6), web).mul(light(p.z));
+          };
+          const backC = vec3(0.02, 0.017, 0.012).mul(light(float(BACK)));
+          const legC = vec3(0.68, 0.69, 0.66).mul(float(1).sub(lxh.div(1.05).pow(2).mul(0.6))).mul(light(P.z));
+          // the water's surface: from above, the crate mirrored (Fresnel) over the floor seen through it; from below, a mirror
+          const ryw = ry.abs();
+          const fresW = pow(float(1).sub(ryw), 5).mul(0.95).add(0.02);
+          const dIn = wl.div(max(refract(R, vec3(0, 1, 0), 1 / 1.333).y.abs(), 0.08));   // the path down to the floor through it
+          // The floor and the crate are shaded once and picked from (no branches: each copy of them in a branch made the
+          // material's shader longer, and a longer shader is a longer freeze when a tank loads).
+          const fl = floorAt(P).toVar(), cu = crateUnder(P).toVar();
+          const waterC = wet2.greaterThan(0.5).select(mix(fl.mul(0.7), vec3(0.42, 0.4, 0.34).mul(light(P.z)), float(0.45)), mix(fl.mul(exp(dIn.mul(-0.16))), cu.mul(0.8), fresW));
+          const hitC = tHit.equal(tLeg).select(legC, tHit.equal(tWat).select(waterC, tHit.equal(tFloor).select(fl, tHit.equal(tCeil).select(cu, backC))));
+          // How much of the path ran through the water: all of it from under the line; from over it, what lies under the line.
+          const inW = hasW.mul(wet2.greaterThan(0.5).select(tHit, max(float(0), tHit.sub(tWat)).mul(step(tWat, tHit.sub(0.001)))));
+          const absorb = exp(vec3(0.1, 0.15, 0.3).mul(inW.negate()));
+          const scatter = vec3(0.075, 0.05, 0.022).mul(U.daylight.mul(0.8).add(0.2));
+          const plen = hitC.mul(absorb).add(scatter.mul(float(1).sub(absorb.g))).toVar();
+          // on the glass: a single layer of bio-rings at the bottom, in the water
+          const [ring, rh, rd] = blob(0.7, 1, 1.25, 0.34, 0.46, 81, 0, 0.45);
+          const ringC = vec3(0.5, 0.46, 0.4).mul(rh.mul(0.25).add(0.8)).mul(mix(float(1), float(0.35), smoothstep(0.32, 0.25, rd)));
+          plen.assign(mix(plen, ringC.mul(mix(vec3(1), vec3(0.62, 0.5, 0.32), wet2)), ring.mul(step(y, 1.4))));
           const sq = vec2(a.sub(dir.mul(time).mul(flow)).mul(2.4), y.mul(2.4)), sc = floor(sq), sh = hash(sc.add(91));
           const speck = smoothstep(0.1, 0.05, length(fract(sq).sub(0.5).add(vec2(hash(sc.add(92.7)), hash(sc.add(94.1))).sub(0.5).mul(0.7)))).mul(step(0.82, sh));
-          plen.assign(mix(plen, plen.mul(vec3(0.62, 0.5, 0.32)).add(vec3(0.034, 0.024, 0.01)), wet2));
           plen.addAssign(vec3(0.11, 0.08, 0.045).mul(speck).mul(wet2).mul(step(y, crateY)));
-          const meniscus = smoothstep(0.1, 0.0, abs(y.sub(wl))).mul(step(0.05, water)).mul(step(wl, crateY));
+          const meniscus = smoothstep(0.1, 0.0, abs(y.sub(wl))).mul(hasW).mul(step(wl, crateY));
           plen.addAssign(vec3(0.16, 0.15, 0.12).mul(meniscus));
           // The egg-crate: 1.27 cm cells, 2 mm walls; through its cells the dark under the soil.
           const gx = fract(a.div(1.27)), cy = y.sub(crateY).div(max(ct, 0.01));
