@@ -283,7 +283,7 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
 // cross-veins between parallel ones) }.
 // `flowBend`: the plant leans in the water's push (B5b; only aquatic and emergent plants set it, sim/plants.js flowOptions); `bend`: the
 // lean of a tip at full push in the plant's own units; `stiffness`: 1 an average leaf.
-export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafPale = null, leafBack = null, gloss = null, leafRelief = null, relief = 1, wax = null, leafNoise = null, mottle = null } = {}) {
+export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map = null, normalMap = null, leafVeins = false, veins = {}, flowBend = false, bend = 2, stiffness = 1, rough = 0.96, leafMap = null, leafHue = null, leafPale = null, leafBack = null, gloss = null, leafRelief = null, relief = 1, wax = null, leafNoise = null, mottle = null } = {}) {
   const m = new THREE.MeshStandardNodeMaterial({ roughness: rough, metalness: 0, side: THREE.DoubleSide, vertexColors: true });
   m.userData.foliage = true;
   m.userData.flowBend = flowBend;
@@ -383,6 +383,8 @@ export function plantMaterial({ amp = 0.6, speed = 1.0, underwaterAmp = 2.2, map
     let c = base.mul(mix(float(1), tx.r.mul(2), isLeaf));
     c = mix(c, pale.div(vc), tx.g.mul(isLeaf));
     base = mix(c, c.mul(back), tx.b.mul(isLeaf).mul(step(faceDirection, 0)));
+    // (orchids2) the hue map (Blender bake, sim/orchid-leaves.js orchidLeafTint): the colour across the blade, x2 so 0.5 leaves the vertex colour as it is
+    if (leafHue) base = base.mul(mix(vec3(1), texture(leafHue, vec2(L.x.mul(0.5).add(0.5), saturate(L.y))).rgb.mul(2), isLeaf));
     m.opacityNode = keep.mul(mix(float(1), tx.a, isLeaf));
     const Lc = vec2(L.x.mul(0.5).add(0.5), saturate(L.y));
     if (leafNoise && mottle) {

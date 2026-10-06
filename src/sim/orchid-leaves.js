@@ -166,10 +166,34 @@ function eachTexel(S, fn) {
   }
 }
 
+// Baked maps (run orchids2): the leaf, relief and tint maps made in Blender (art-src/orchids/leaf_bake.py, packed by pack_leaf.py into
+// public/assets/orchids/<species>-<map>.webp) with the same channel contract as the painters below, plus the tint map (colour across the
+// blade). Loaded in browsers when this module is first imported, so they are in by the time the first plant is built (the texture fills in
+// when its file arrives, like assets.js TEX); node (the unit tests) and any browser without ImageBitmap keep the painters. Unpremultiplied
+// (the outline is the alpha channel) and flipped at decode (image row 0 = the leaf's tip).
+const BAKED = typeof document !== 'undefined' && typeof createImageBitmap === 'function' ? {} : null, PENDING = [];
+function baked(kind, part) {
+  if (!BAKED) return null;
+  const key = kind + '-' + part;
+  if (BAKED[key]) return BAKED[key];
+  const tx = new THREE.Texture();
+  tx.colorSpace = THREE.NoColorSpace;   // data, not colour
+  tx.flipY = false; tx.generateMipmaps = true; tx.anisotropy = 4;
+  tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping; tx.magFilter = THREE.LinearFilter; tx.minFilter = THREE.LinearMipmapLinearFilter;
+  const base = new URL(`${import.meta.env?.BASE_URL ?? './'}assets/orchids/`, location.href);
+  const done = new Promise((res) => {
+    new THREE.ImageBitmapLoader().setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' })
+      .load(new URL(`${key}.webp`, base).href, (bmp) => { tx.image = bmp; tx.needsUpdate = true; res(); }, undefined, (e) => { console.warn('orchid map', key, e); res(); });
+  });
+  PENDING.push(done);
+  return (BAKED[key] = tx);
+}
+
 const cache = {}, rcache = {};
 // The species' leaf texture (256 x 256 RGBA, linear data, mipmapped), made once.
 export function orchidLeafMap(kind) {
   if (cache[kind]) return cache[kind];
+  const bk = baked(kind, 'leaf'); if (bk) return (cache[kind] = bk);
   const S = ORCHID_LEAF[kind], paint = PAINT[kind], data = new Uint8Array(N * N * 4);
   eachTexel(S, (p, t, u, lat, rel, y, hw, env) => {
     const aa = (1.6 * 2 * env) / N;
@@ -193,6 +217,7 @@ export function orchidLeafMap(kind) {
 export const SLOPE = 2;
 export function orchidLeafRelief(kind) {
   if (rcache[kind]) return rcache[kind];
+  const bk = baked(kind, 'relief'); if (bk) return (rcache[kind] = bk);
   const S = ORCHID_LEAF[kind], relief = RELIEF[kind], H = new Float32Array(N * N), E = new Float32Array(N), Wx = new Uint8Array(N * N);
   eachTexel(S, (p, t, u, lat, rel, y, hw, env) => { H[p] = relief(t, lat, rel, y, S.notch, u * env, hw); E[p >> 8] = env; Wx[p] = Math.round(255 * sst(0.95, 0.55, rel) * sst(0, 0.06, t)); });
   const data = new Uint8Array(N * N * 4), enc = (s) => Math.round(255 * Math.min(1, Math.max(0, 0.5 + s / (2 * SLOPE))));
@@ -236,3 +261,11 @@ export function orchidLeafNoise() {
   tx.needsUpdate = true;
   return (ncache = tx);
 }
+
+// (orchids2) The tint map: the colour the blade takes across its width (RGB x 2, 0.5 = the vertex colour as it is), from the Blender bake.
+// null where there is none (node, tests): plantMaterial then leaves the colour alone.
+export const orchidLeafTint = (kind) => baked(kind, 'tint');
+
+// Resolves once every baked orchid map has its image (at once in node or without ImageBitmap): until then a leaf reads as transparent, so the portrait
+// baker waits for it (tools/bake-portraits.mjs). In the game the maps load during the loading screen.
+export const orchidMapsReady = () => Promise.all(['pleurothallis', 'masdevallia', 'dracula', 'cuthbertsonii'].flatMap((k) => ['leaf', 'relief', 'tint'].map((m) => baked(k, m)))).then(() => Promise.all(PENDING)).then(() => undefined);
