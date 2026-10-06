@@ -180,6 +180,7 @@ export class Sim {
     }
 
     // --- Fruit flies and their maggots, then the animals ------------------
+    if (W.labFreeze) return;        // the test lab (src/lab): animals have no needs, no hunts, no breeding and no deaths while it tests how they move
     this.flies.step(d);
     this.animals(d, light);
   }

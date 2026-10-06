@@ -24,6 +24,7 @@ const MAY = {
   diag: [],   // the metrics recorder knows nothing of the game: it is handed window.game at run time (src/diag/adapter.js)
   ui: ['util', 'content', 'sim', 'render', 'engine', 'game', 'editor', 'app'],
   app: ['util', 'content', 'sim', 'render', 'engine', 'game', 'editor', 'ui'],
+  lab: ['util', 'content', 'sim', 'render', 'engine', 'game', 'editor', 'ui', 'app'],   // the test lab (lab.html): a second page, on top of everything
   main: ['util', 'content', 'sim', 'render', 'engine', 'game', 'editor', 'ui', 'app', 'diag'],
 };
 

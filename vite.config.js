@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
 import preact from '@preact/preset-vite';
 import { metricsCollector } from './tools/metrics-collector.mjs';
 
@@ -19,5 +20,7 @@ export default defineConfig({
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 2500,
+    // Two pages: the game, and the test lab (lab.html, src/lab; index.html sends ?lab there). The lab is not linked from the game.
+    rollupOptions: { input: { main: fileURLToPath(new URL('./index.html', import.meta.url)), lab: fileURLToPath(new URL('./lab.html', import.meta.url)) } },
   },
 });

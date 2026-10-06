@@ -32,6 +32,7 @@ export class Game {
     this.speed = 1;                // index into SPEEDS
     this.lapse = 0;                // time-lapse: game minutes per real second, overrides the speed buttons
     this.frozen = false;           // paused by a menu, independent of the speed buttons
+    this.rateOverride = null;      // the test lab (src/lab) runs animals at any rate, e.g. 0.25x; null in the game
     this.world = null;
     this.stage = null;
     this.tankId = null;
@@ -214,7 +215,7 @@ export class Game {
   }
 
   // The simulated speed multiplier right now (0 while paused).
-  get rate() { return this.frozen ? 0 : this.lapse || SPEEDS[this.speed]; }
+  get rate() { return this.frozen ? 0 : this.rateOverride ?? (this.lapse || SPEEDS[this.speed]); }
   setSpeed(i) { this.speed = Math.max(0, Math.min(SPEEDS.length - 1, i)); this.events.emit('speed', this.speed); }
 
   // The frame loop, at most gfx.maxFps frames a second however fast the display refreshes (a 120 Hz screen would otherwise
