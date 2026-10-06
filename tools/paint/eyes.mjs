@@ -32,7 +32,8 @@ export const EYES = {
   auratus: frogAs(4.0 / 4.5, DARK_EYE, { rough: 0.48, coat: 0.36 }),
   bumblebee: frogAs(2.8 / 4.5, { inner: lin([0.16, 0.11, 0.06]), outer: lin([0.05, 0.035, 0.02]), pupil: [0.46, 0.42] }, { rough: 0.62, coat: 0.12, coatRough: 0.5, grain: 9, bump: 0.035, grainAmt: 0.5 }),
   reedfrog: frogAs(3.0 / 4.5, { inner: lin([0.42, 0.3, 0.14]), outer: lin([0.14, 0.09, 0.04]), pupil: [0.5, 0.34] }, { rough: 0.38, coat: 0.45, coatRough: 0.28 }),
-  toad: frogAs(1, { inner: lin([0.95, 0.72, 0.22]), outer: lin([0.62, 0.4, 0.12]), pupil: [0.5, 0.42], shape: 'tri' }, { rough: 0.55, coat: 0.2, coatRough: 0.45, grain: 9, bump: 0.05, grainAmt: 0.7 }),
+  toad: frogAs(1, { inner: lin([0.62, 0.40, 0.14]), outer: lin([0.24, 0.14, 0.07]), pupil: [0.5, 0.42], shape: 'tri' },   // owner's photos (6 Oct): a coppery ring round the pupil, the rest of the globe chocolate brown (was gold/amber, much too orange)
+    { rough: 0.55, coat: 0.2, coatRough: 0.45, grain: 9, bump: 0.05, grainAmt: 0 }),   // grainAmt 0: the relief is the baked normal map now (the noise grain would double it and costs 4 noise3 a fragment)
   // Red-eyed tree frog: big bulging eyes (a sphere fitted to the scan's eye, 0.4 cm), an orange-red iris going darker at the rim and a
   // narrow vertical slit pupil (shape 'slit'); moist, satiny, finely granular skin (a lacquered coat read as plastic).
   redeye: { finish: { eyes: [eye([0.7, 2.21, 1.8], 0.4, [0.74, 0.36, 0.57], { shape: 'slit', pupil: [0.15, 0.6], inner: lin([1.0, 0.34, 0.08]), outer: lin([0.88, 0.14, 0.03]), limb: lin([0.32, 0.03, 0.01]), rim: lin([0.01, 0.006, 0.004]), cap: 0.9, seed: 9 })], rough: 0.52, coat: 0.3, coatRough: 0.34, grain: 9, grainAmt: 0.22 } },

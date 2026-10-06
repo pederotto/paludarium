@@ -39,11 +39,11 @@ test('a push is released only inside a kick, and wakes a floating frog', () => {
   assert.ok(moved > 0 && ticks > 1);
 });
 
-test('spin pivots in place at the spin rate, in any phase; a floating body drifts at most DRIFT_MAX without a stroke', async () => {
-  const { swimMotion, queuePush, SPIN_MAX, DRIFT_MAX } = await import('../src/util/swimturn.js');
+test('spin turns only with a stroke playing (st.act, st.sp); a floating body drifts at most DRIFT_MAX without a stroke', async () => {
+  const { swimMotion, queuePush, DRIFT_MAX } = await import('../src/util/swimturn.js');
   const st = { act: 0, v: 0 };
   const m = swimMotion(st, {}, { intent: 'spin', dir: -1 }, 0.1);
-  assert.ok(Math.abs(m.dyaw + SPIN_MAX * 0.1) < 1e-9 && m.fwd === 0);
+  assert.ok(m.dyaw === 0 && m.fwd === 0);
   const f = { act: 0, fl: 1, v: 0 }; queuePush(f, 3, 0);
   const d = swimMotion(f, {}, {}, 0.5);
   assert.ok(Math.abs(d.px - DRIFT_MAX * 0.5) < 1e-9 && d.dyaw === 0);

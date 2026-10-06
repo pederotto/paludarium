@@ -12,7 +12,7 @@ import { fibreState, bellyChange, movePoint } from '../../util/musculo.js';
 export const MUSCLES = { on: typeof location === 'undefined' || !/[?&]nomuscle\b/.test(location.search), writes: 0 };
 if (typeof window !== 'undefined') window.__muscles = MUSCLES;
 
-export const MUSCLE_TEXEL0 = 51;               // a frog's 17 bones fill texels 0 … 50 of its row; the bellies follow (24 free)
+export const MUSCLE_TEXEL0 = 54;               // a frog's bones fill texels 0 … 53 of its row (17 bones use 0 … 50; an 18-bone swim body with spineB 0 … 53); the bellies follow (21 free)
 
 // The bellies of a baked frog skeleton, or null when the template does not fit it.
 export function bellyRig(skel) {
@@ -33,6 +33,9 @@ export function bellyRig(skel) {
 // The motion a pose belongs to, for one side: the swimming body's stroke (each leg its own phase) or leap, the sitting body's hop,
 // walk or rest.
 export function motionOf(st, stroke, side) {
+  // (an activation mode a poser asks for, with each leg's own phase and strength; absent = the motions below)
+  const mv = st?.move;
+  if (mv) { const L = side === 'L'; return { mode: mv.mode, t: (L ? mv.pL : mv.pR) ?? 0, amp: (L ? mv.ampL : mv.ampR) ?? 1 }; }
   if (stroke) {
     if (st?.legA) return { mode: 'leap', t: st.t ?? 0.5 };
     const p = side === 'L' ? st?.pL : st?.pR;

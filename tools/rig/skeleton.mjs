@@ -291,8 +291,9 @@ export function skin(pos, nor, bind, mats) {
 export function frogBones(j) {
   const B = [
     { name: 'pelvis', parent: null, head: j.vent, tail: j.mid, limb: 0 },
-    { name: 'spine', parent: 'pelvis', head: j.mid, tail: j.chest, limb: 0 },
-    { name: 'head', parent: 'spine', head: j.neck, tail: j.snout, limb: 0 },
+    { name: 'spine', parent: 'pelvis', head: j.mid, tail: j.mid2 ?? j.chest, limb: 0 },
+    ...(j.mid2 ? [{ name: 'spineB', parent: 'spine', head: j.mid2, tail: j.chest, limb: 0 }] : []),   // (T4: the trunk split in two, the swim toad's 18th bone; head and arms hang from it)
+    { name: 'head', parent: j.mid2 ? 'spineB' : 'spine', head: j.neck, tail: j.snout, limb: 0 },
   ];
   for (const [s, hind, front] of [['L', 3, 1], ['R', 4, 2]]) {
     const J = (k) => j[k + s];
@@ -301,13 +302,19 @@ export function frogBones(j) {
       { name: 'shin' + s, parent: 'thigh' + s, head: J('knee'), tail: J('heel'), limb: hind },
       { name: 'foot' + s, parent: 'shin' + s, head: J('heel'), tail: J('ankle'), limb: hind },
       { name: 'toes' + s, parent: 'foot' + s, head: J('ankle'), tail: J('toe'), limb: hind },
-      { name: 'arm' + s, parent: 'spine', head: J('shoulder'), tail: J('elbow'), limb: front },
+      { name: 'arm' + s, parent: j.mid2 ? 'spineB' : 'spine', head: J('shoulder'), tail: J('elbow'), limb: front },
       { name: 'forearm' + s, parent: 'arm' + s, head: J('elbow'), tail: J('wrist'), limb: front },
       { name: 'hand' + s, parent: 'forearm' + s, head: J('wrist'), tail: J('finger'), limb: front },
     );
   }
   return B;
 }
+
+// T4: the share of the old spine's weight that goes to spineB at a vertex, by its place t along the old spine (0 at its head 'mid', 1 at
+// its tail 'chest'): a linear ramp, 1 in front, 0 behind, over +-0.198 of t about t = 0.5 (the owner's Blender test: the toad's spine is
+// 1.26 cm, split at 0.51 cm, ramp +-0.25 cm: 0.25 / 1.26 = 0.198).
+export const SPLIT_T = 0.5, SPLIT_HALF = 0.198;
+export const spineRamp = (t) => Math.min(1, Math.max(0, (t - SPLIT_T) / (2 * SPLIT_HALF) + 0.5));
 
 // A point moved by a bone's matrix, a direction turned by its rotation (arrays in, arrays out).
 export const moveBy = (m, p) => V(p).applyMatrix4(m).toArray();

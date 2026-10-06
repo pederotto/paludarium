@@ -229,7 +229,7 @@ function buildUncached(finish, wave, legLift, legStride, textures = null, transl
 // breathing, throat, eyes and membranes still move the rest pose first, and the shading normal is the skinned one.
 function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = 'z', limb = 1, skin = false) {
   const vSkinN = skin ? varyingProperty('vec3', 'vSkinN') : null;
-  const { material: m, n, nCoat } = creatureMaterial(finish, { ...(textures ?? {}), pass, ...(skin ? { nrm: vSkinN } : {}) });
+  const { material: m, n, nCoat, nmap } = creatureMaterial(finish, { ...(textures ?? {}), pass, ...(skin ? { nrm: vSkinN } : {}) });
   const rig = attribute('rig', 'vec4');
   const anim = attribute('iAnim', 'vec4');
   const q = attribute('iRot', 'vec4');
@@ -446,11 +446,13 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
   })();
   // A curled body turns its normals with it (about x, by the angle at the vertex), or a rolled isopod is lit as if still flat.
   const curl = (v) => (vCurl ? vec3(v.x, v.y.mul(cos(vCurl)).sub(v.z.mul(sin(vCurl))), v.z.mul(cos(vCurl)).add(v.y.mul(sin(vCurl)))) : v);
-  m.normalNode = transformNormalToView(qrot(q, curl(n)));
+  const nView = transformNormalToView(qrot(q, curl(n)));
+  m.normalNode = nmap ? nmap(nView) : nView;                  // a body with a baked normal map (skin relief) perturbs it; none: unchanged
   // The clear coat gets the turned normal too: left alone, three.js lights it with the mesh's own normal in the model's unturned
   // frame, so on any animal not facing the default way the coat's highlights, reflections and Fresnel rim sat in the wrong places
   // (lit where the skin faced away: the chrome streaks and grazing glow on frogs).
-  m.clearcoatNormalNode = transformNormalToView(qrot(q, curl(nCoat)));
+  const nCoatView = transformNormalToView(qrot(q, curl(nCoat)));
+  m.clearcoatNormalNode = nmap ? nmap(nCoatView) : nCoatView;
   return m;
 }
 

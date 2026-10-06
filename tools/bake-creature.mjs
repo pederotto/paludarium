@@ -22,7 +22,7 @@ import sharp from 'sharp';
 import { weld, quantize, meshopt } from '@gltf-transform/functions';
 import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 
-const OUT = 'public/assets/creatures';
+const OUT = process.env.T4_OUT || 'public/assets/creatures';
 // rotY: degrees about y that turn the mesh's head towards +z. lengthCm: nose-to-tail length of the real animal.
 // The frog scan's skeleton (tools/rig/skeleton.mjs frogBones), measured on the scan in the rig's frame (scan units after rotY, head +z,
 // about 2 long) with tools/rig/joints-view.mjs: a sitting Dendrobates, the hind leg folded in a Z (thigh forward and out to the knee
@@ -41,6 +41,18 @@ const FROG_SKELETON = {
   },
   radius: { pelvis: 0.22, spine: 0.38, head: 0.33, thigh: 0.14, shin: 0.12, foot: 0.06, toes: 0.04, arm: 0.08, forearm: 0.07, hand: 0.05 },
 };
+// The fire-bellied toad's own scan (art-src/raw/toad_mesh.glb, the owner's, 6 Oct 2026): a squat warty toad sitting, forelegs straight with the
+// hands forward, each hind leg folded in a lobe at the rear (thigh forward and out to the knee at the lobe's front, shin back to the heel at its
+// rear tip, the long foot out and forward along the ground, toe tips by the hands). Joints measured on it (tools/rig/joints-view.mjs with SKEL,
+// tools/rig/limb-centre.mjs; the right side measured, the left mirrors it), scan units after rotY (head +z, about 2 long).
+const mirrorJ = (R, base) => { const j = { ...base }; for (const [k, v] of Object.entries(R)) { j[k + 'R'] = v; j[k + 'L'] = [-v[0], v[1], v[2]]; } return j; };
+const TOAD_SKELETON = {
+  bones: 'frog', poses: {},
+  joints: mirrorJ({ hip: [0.30, -0.18, -0.62], knee: [0.55, -0.25, -0.38], heel: [0.40, -0.42, -0.93], ankle: [0.72, -0.51, -0.50], toe: [0.94, -0.53, -0.25],
+    shoulder: [0.40, -0.08, 0.30], elbow: [0.56, -0.33, 0.22], wrist: [0.50, -0.48, 0.46], finger: [0.45, -0.52, 0.70] },
+  { vent: [0, -0.30, -0.78], mid: [0, -0.12, -0.25], chest: [0, -0.05, 0.30], neck: [0, 0.05, 0.52], snout: [0, 0.26, 0.97] }),
+  radius: { pelvis: 0.30, spine: 0.40, head: 0.33, thigh: 0.19, shin: 0.14, foot: 0.07, toes: 0.04, arm: 0.10, forearm: 0.09, hand: 0.06 },
+};
 const FROG = { src: 'frog_mesh', rotY: -90, pre: 22000, rig: 'frog', legs: true, matId: 0, texture: 1024, aoReach: 0.35, skeleton: FROG_SKELETON };
 const SHRIMP = { src: 'shrimp_mesh', rotY: 90, lengthCm: 1.6, tris: [11000, 3200], rig: 'shrimp', rigLeg: 16, legs: true, matId: 7, texture: 512, aoReach: 0.1 };
 const JOBS = {
@@ -57,7 +69,8 @@ const JOBS = {
   auratus: { ...FROG, lengthCm: 4.0, tris: [22000, 8000], paint: 'auratus', warp: 'auratus' },
   bumblebee: { ...FROG, lengthCm: 2.8, tris: [22000, 6000], paint: 'melano', warp: 'melano' },
   reedfrog: { ...FROG, lengthCm: 3.0, tris: [22000, 7000], paint: 'heterixalus', warp: 'heterixalus' },
-  toad: { ...FROG, lengthCm: 4.5, tris: [22000, 8000], paint: 'bombina', warp: 'bombina' },
+  // (nose to the rear of the lobes 4.9 cm = snout to vent 4.5, the swim body's trunk, tools/bake-frogpose.mjs; `eye`: the bump on the scan, scan units)
+  toad: { ...FROG, src: 'toad_mesh', rotY: 90, pre: 0, lengthCm: 4.9, tris: [10000, 5000], paint: 'bombina', skeleton: TOAD_SKELETON, eye: { c: [0.135, 0.48, 0.63], r: 0.07 }, eyeCm: { c: [0.404, 2.473, 1.525], r: 0.27 } },
   firesal: { src: 'salamander_mesh', rotY: 90, lengthCm: 18, headZ: 6.2, tris: [32000, 8000], paint: 'firesal', legs: true },
   // Vampire crab: carapace 2.1 cm wide (the procedural body's size, so the sim's spacing is unchanged), legs about 6 cm across.
   // matId 0 (skin) not 4 (chitin): the chitin id has a fixed clear coat that ignores finish and looked like plastic on the scan.
@@ -403,6 +416,8 @@ for (const [id, job] of Object.entries(JOBS)) {
   }
   const extra = { ...(EYES[id] ?? {}) };
   if (extra.finish) extra.finish = { ...extra.finish, eyes: Array.isArray(extra.finish.eyes) ? extra.finish.eyes.map((e) => ({ ...e })) : extra.finish.eyes };
+  if (job.eye && Array.isArray(extra.finish?.eyes)) { const e0 = extra.finish.eyes[0]; e0.c = [(job.eye.c[0] - cx) * k * 100, (job.eye.c[1] - y0) * k * 100, (job.eye.c[2] - cz) * k * 100].map((v) => +v.toFixed(3)); e0.r = +(job.eye.r * k * 100).toFixed(3); }
+  if (job.eyeCm && Array.isArray(extra.finish?.eyes)) { const e0 = extra.finish.eyes[0]; e0.c = job.eyeCm.c.map((v) => +v.toFixed(3)); e0.r = job.eyeCm.r; }      // (the skin session's fit on the mesh and the owner's photos, cm of the baked frame: overrides `eye`)
   if (eyesOut && typeof extra.finish?.eyes === 'function') extra.finish = { ...extra.finish, eyes: extra.finish.eyes(eyesOut) };
   if (warpEye && Array.isArray(extra.finish?.eyes)) for (const e of extra.finish.eyes) e.c = warpEye(e.c).map((v) => +v.toFixed(3));
   const fullN = normals(pos, idx0);

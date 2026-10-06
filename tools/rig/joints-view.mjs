@@ -21,6 +21,15 @@ if (PRE && idx.length / 3 > PRE) {
 }
 const a = ROT * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
 for (let i = 0; i < pos.length; i += 3) { const x = pos[i], z = pos[i + 2]; pos[i] = x * ca + z * sa; pos[i + 2] = -x * sa + z * ca; }
+
+// LEVEL=1: the bake's own levelling (tools/bake-frogpose.mjs analyse step 1): a least-squares line through the trunk, rotated about x until flat
+if (process.env.LEVEL) {
+  let sz = 0, sy = 0, szz = 0, szy = 0, m = 0;
+  for (let i = 0; i < pos.length; i += 3) { const x = pos[i], y = pos[i + 1], z = pos[i + 2]; if (Math.abs(x) < 0.2 && z > -0.2 && z < 0.6) { sz += z; sy += y; szz += z * z; szy += z * y; m++; } }
+  const b = (m * szy - sz * sy) / (m * szz - sz * sz), th = Math.atan(b), c = Math.cos(th), s = Math.sin(th);
+  for (let i = 0; i < pos.length; i += 3) { const y = pos[i + 1], z = pos[i + 2]; pos[i + 1] = y * c - z * s; pos[i + 2] = y * s + z * c; }
+  console.log('levelled by', (th * 180 / Math.PI).toFixed(1), 'deg');
+}
 const n = pos.length / 3;
 let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
 for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], pos[i * 3 + k]); mx[k] = Math.max(mx[k], pos[i * 3 + k]); }

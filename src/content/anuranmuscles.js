@@ -170,7 +170,7 @@ export const ANURAN_WRAPS = {
 
 // The visible bellies' slots in the bone texture (render/creatures/skin.js: one texel each after the bones), left then right, in the
 // template's order, as `${id}${side}`; the bake writes each skin vertex's two slots (_MUSC), so this order is part of the schema.
-export const MAX_SLOTS = 24;                 // texels 51 ... 74 of a 75-texel row are free on a 17-bone frog
+export const MAX_SLOTS = 21;                 // texels 54 ... 74 of a 75-texel row are free on an 18-bone frog (spineB); 20 bellies are visible
 export function visibleSlots(defs = ANURAN_MUSCLES) {
   const ids = defs.filter((d) => d.visible).map((d) => d.id), out = [...ids.map((i) => i + 'L'), ...ids.map((i) => i + 'R')];
   if (out.length > MAX_SLOTS) throw new Error(`${out.length} visible muscles, the row has room for ${MAX_SLOTS}`);
@@ -365,6 +365,18 @@ export function muscleUnit(mu, skel, massG = 0, sigma = ANURAN_WHOLE.sigma.value
 // t: 0 ... 1 through it }. The take-off and the kick's thrust fire the 'push' muscles; the flight and the recovery fold the legs with
 // the 'recover' ones; the landing braces with the push muscles; at rest a low tone. A guess in the shape of the jump EMG (extensors
 // active through the push, flexors after take-off) until R2's timings land.
+// The activation modes of one hind leg, from its own phase t (0 = cock, the diamond fold; ctx.amp 0 ... 1 scales the phasic part above
+// tone). Windows = frame (W2 clip 3: swing 0.25 of the cycle, stretch at 0.45-0.60; W1 clip 2); every height = guess.
+export function moveExcitation(def, ctx) {
+  const t = (ctx.t ?? 0) - Math.floor(ctx.t ?? 0), amp = ctx.amp ?? 1, tone = MOTOR.tone;
+  let push, rec;
+  if (t < 0.25) { push = tone; rec = 0.5; }                                             // swing: the diamond fold (guess)
+  else if (t < (ctx.mode === 'climb' ? 0.45 : 0.40)) { push = 0.2; rec = 0.2; }         // placing the pad (guess)
+  else if (ctx.mode === 'climb' && t < 0.60) { push = 1; rec = tone; }                  // the stretch (guess)
+  else { push = 0.35; rec = tone; }                                                      // stance, holding the load (guess)
+  const a = def.id === 'IFB' ? 0.5 * (push + rec) : def.drive === 'push' ? push : rec;
+  return tone + amp * (a - tone);
+}
 export const MOTOR = { tone: 0.05, src: 'none yet', tag: 'guess' };
 export function excitation(def, ctx) {
   const push = def.drive === 'push', t = ctx.t ?? 0, tone = MOTOR.tone;
@@ -378,6 +390,7 @@ export function excitation(def, ctx) {
       if (t < 0.6) return tone;                          // the glide
       return push ? tone : 0.5;                          // drawing the legs up
     case 'walk': return 0.2;
+    case 'step': case 'climb': case 'turn': return moveExcitation(def, ctx);
     default: return tone;
   }
 }
