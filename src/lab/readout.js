@@ -15,7 +15,7 @@ function driveRows(a) {
   const L = a.lab, D = L?.drive;
   if (!D) return [];
   const S = L.stats, g = L.goal;
-  const rows = [['drive', D.type === 'path' ? `${D.shape} · ${D.mode}` : D.type === 'follow' ? `follow ${D.dot} (keep ${D.keep} cm)` : D.type]];
+  const rows = [['drive', D.type === 'path' ? (D.shape === 'random' ? `random ${D.style} · seed ${D.seed} · ${D.mode}` : `${D.shape} · ${D.mode}`) : D.type === 'follow' ? `follow ${D.dot} (keep ${D.keep} cm)` : D.type]];
   if (g) rows.push(['goal', `${f1(g.x)}, ${f1(g.z)}  (${f1(Math.hypot(g.x - a.pos.x, g.z - a.pos.z))} cm away)`]);
   else rows.push(['goal', D.done ? 'arrived' : 'none']);
   if (D.type === 'path') { rows.push(['laps', `${D.laps}  ·  waypoint ${D.i}/${D.pts.length}`]); if (S?.xteN) rows.push(['off the line', `mean ${f1(S.xteSum / S.xteN)}  max ${f1(S.xteMax)} cm`]); }

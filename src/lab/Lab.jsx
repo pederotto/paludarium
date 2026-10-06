@@ -5,6 +5,8 @@ import { L, RATES } from './state.js';
 import { tankChoices, GROUNDS, maxDepth } from './arena.js';
 import { speciesList } from './spawn.js';
 import { SHAPES, DRIVABLE } from './driver.js';
+import { SHAPE_KINDS, PIECE_KINDS, isPiece, DEFAULTS } from './obstacles.js';
+import { STYLES } from '../sim/labrandom.js';
 
 const SPECIES = speciesList();
 const GROUPS = [['frog', 'Frogs'], ['toad', 'Toads'], ['newt', 'Newts'], ['axolotl', 'Axolotl'], ['gecko', 'Gecko'], ['skink', 'Skink'], ['crab', 'Crabs'], ['crawlLand', 'Land crawlers'], ['crawlWater', 'Water crawlers'], ['swim', 'Fish and larvae'], ['fly', 'Flies']];
@@ -25,10 +27,47 @@ function Top({ lab }) {
         {[['top', 'Top'], ['front', 'Front'], ['low', 'Low'], ['back', 'Back']].map(([id, n]) => <button key={id} onClick={() => lab.view(id)}>{n}</button>)}
       </span>
       <span class="grow" />
+      <button title="Copy a link that opens this same lab" onClick={() => lab.copyLink()}>Link</button>
       <span class="lab-fps">{L.backend.value} · {Math.round(L.fps.value)} fps</span>
     </div>
   );
 }
+
+// Obstacles: exact-size shapes cut into the ground, and the game's own hardscape. Put one in an animal's way, or tap the floor.
+function Obstacles({ lab }) {
+  const ob = lab.obstacles, kind = L.obKind.value, piece = isPiece(kind), pick = L.pick.value;
+  const choose = (k) => {
+    L.obKind.value = k;
+    if (DEFAULTS[k]) { L.obW.value = DEFAULTS[k].w; L.obD.value = DEFAULTS[k].d; L.obH.value = DEFAULTS[k].h; }
+  };
+  const slider = (label, sig, min, max, step, unit = ' cm') => <label>{label} <b>{sig.value}{unit}</b><input type="range" min={min} max={max} step={step} value={sig.value} onInput={(e) => { sig.value = +e.currentTarget.value; }} /></label>;
+  return (
+    <>
+      <h3>Obstacles <button class="mini" onClick={() => ob.clear()}>Clear</button></h3>
+      <div class="gname">Exact size</div>
+      <div class="chipgrid">{Object.entries(SHAPE_KINDS).map(([k, n]) => <button key={k} class={kind === k ? 'on' : ''} onClick={() => choose(k)}>{n}</button>)}</div>
+      <div class="gname">The game's hardscape</div>
+      <div class="chipgrid">{Object.entries(PIECE_KINDS).map(([k, n]) => <button key={k} class={kind === k ? 'on' : ''} onClick={() => choose(k)}>{n}</button>)}</div>
+      {piece ? slider('Size', L.obSize, 4, 50, 1) : (
+        <>
+          {slider('Width', L.obW, 1, 60, 0.5)}
+          {slider('Depth', L.obD, 1, 40, 0.5)}
+          {slider(kind === 'trench' ? 'Deep' : 'Height', L.obH, 0.5, 20, 0.5)}
+        </>
+      )}
+      {slider('Turn', L.obRot, 0, 180, 5, '°')}
+      <div class="addrow2">
+        <button class="go" onClick={() => ob.inWay()}>Put it in its way</button>
+        <button onClick={() => ob.place(L.ground.value === 'shore' ? -TANK_W() / 4 : 0, 0)}>At the middle</button>
+      </div>
+      <button class={`wide${pick === 'place' ? ' on' : ''}`} onClick={() => { L.pick.value = pick === 'place' ? null : 'place'; }}>{pick === 'place' ? 'Tapping the floor places them…' : 'Tap the floor to place'}</button>
+      {L.obstacles.value.length ? (
+        <ul class="census">{L.obstacles.value.map((o) => <li key={o.id}><span>{(SHAPE_KINDS[o.kind] ?? PIECE_KINDS[o.kind])} {o.size ? `${o.size} cm` : `${o.w}×${o.d}×${o.h}`}</span><button class="mini" onClick={() => ob.remove(o.id)}>✕</button></li>)}</ul>
+      ) : null}
+    </>
+  );
+}
+const TANK_W = () => window.lab.TANK.w;
 
 function World({ lab, tab }) {
   const census = L.census.value;
@@ -48,7 +87,9 @@ function World({ lab, tab }) {
       <label>Water {L.ground.value === 'shore' ? 'in the pool' : 'over the floor'} <b>{L.depth.value ? `${L.depth.value} cm` : 'dry'}</b>
         <input type="range" min="0" max={maxDepth(L.ground.value)} step="1" value={L.depth.value} onInput={(e) => lab.depth(+e.currentTarget.value)} />
       </label>
-      <h3>In the arena <button class="mini" onClick={() => lab.clear()}>Clear all</button></h3>
+      <Obstacles lab={lab} />
+      <button class="wide" onClick={() => lab.reset()}>Start fresh (empty arena)</button>
+      <h3>Animals <button class="mini" onClick={() => lab.clear()}>Clear all</button></h3>
       {census.length === 0 ? <p class="dim">Nobody yet.</p> : (
         <ul class="census">{census.map((c) => <li key={c.id}><span>{c.name}</span><b>{c.n}</b></li>)}</ul>
       )}
@@ -112,6 +153,16 @@ function Drive({ lab, info }) {
           <div class="shapes">{Object.entries(SHAPES).map(([id, n2]) => <button key={id} onClick={() => lab.driver.path(id)}>{n2}</button>)}</div>
           <label>Width <b>{L.size.value} cm</b><input type="range" min="10" max="80" step="2" value={L.size.value} onInput={(e) => { L.size.value = +e.currentTarget.value; }} /></label>
           <label>Goes <select value={L.pathMode.value} onChange={(e) => { L.pathMode.value = e.currentTarget.value; }}><option value="loop">round and round</option><option value="once">once</option><option value="pingpong">back and forth</option></select></label>
+          <div class="gname">A random path</div>
+          <div class="rndrow">
+            <select value={L.rndStyle.value} onChange={(e) => { L.rndStyle.value = e.currentTarget.value; }}>{Object.entries(STYLES).map(([id, n2]) => <option key={id} value={id}>{n2}</option>)}</select>
+            <input type="number" min="1" max="999999" value={L.rndSeed.value} title="Seed: the same seed gives the same path" onInput={(e) => { L.rndSeed.value = Math.max(1, Math.min(999999, +e.currentTarget.value | 0)); }} />
+          </div>
+          <label>Length <b>{L.rndLength.value} cm</b><input type="range" min="60" max="600" step="20" value={L.rndLength.value} onInput={(e) => { L.rndLength.value = +e.currentTarget.value; }} /></label>
+          <div class="addrow2">
+            <button class="go" onClick={() => { L.rndSeed.value = 1 + ((Math.random() * 999998) | 0); lab.driver.random(); }}>Roll a new one</button>
+            <button onClick={() => lab.driver.random()}>Again, this seed</button>
+          </div>
           <div class="addrow2">
             <button class={pick === 'draw' ? 'on' : ''} onClick={() => { L.pick.value = pick === 'draw' ? null : 'draw'; }}>{pick === 'draw' ? `Tapping… ${L.draft.value.length} points` : 'Draw my own'}</button>
             {L.draft.value.length > 1 ? <button class="go" onClick={() => lab.driver.drawn()}>Go</button> : null}
@@ -151,6 +202,38 @@ function Selected({ lab, tab }) {
           <Drive lab={lab} info={info} />
         </>
       )}
+    </section>
+  );
+}
+
+// Random scenarios: each seed a whole situation, run for a few seconds, the radar's findings kept against it.
+function Fuzz({ lab, tab }) {
+  const f = L.fuzz.value;
+  const num = (sig, min, max) => (e) => { sig.value = Math.max(min, Math.min(max, +e.currentTarget.value | 0 || min)); };
+  return (
+    <section class={`card lab-fuzz${tab === 'fuzz' ? ' open' : ''}`}>
+      <h3>Random scenarios</h3>
+      <p class="dim">Each seed builds a random situation: the ground and water, obstacles, a mix of animals, each on a random path. What the radar finds is kept against the seed, and a seed can be watched again.</p>
+      <div class="fuzzin">
+        <label>How many<input type="number" value={L.fuzzN.value} onInput={num(L.fuzzN, 1, 40)} /></label>
+        <label>Seconds each<input type="number" value={L.fuzzSeconds.value} onInput={num(L.fuzzSeconds, 4, 90)} /></label>
+        <label>From seed<input type="number" value={L.rndSeed.value} onInput={num(L.rndSeed, 1, 999999)} /></label>
+      </div>
+      <div class="addrow2">
+        {f?.running ? <button onClick={() => lab.fuzz.stop()}>Stop</button> : <button class="go" onClick={() => lab.fuzz.run()}>Run {L.fuzzN.value}</button>}
+        <button onClick={() => lab.fuzz.watch(L.rndSeed.value)}>Watch this seed</button>
+      </div>
+      {f ? <p class="dim">{f.running ? `Running ${f.done + 1} of ${f.n}… (seed ${f.seed0 + f.done})` : `Done: ${f.rows.length} of ${f.n}.`} <button class="mini" onClick={async () => { const t = lab.fuzz.text(); if (!(await navigator.clipboard?.writeText(t).then(() => true, () => false))) L.report.value = t; else L.note.value = 'Copied the list.'; }}>Copy list</button></p> : null}
+      {f?.rows.length ? (
+        <ul class="log fuzzlist">
+          {f.rows.map((r) => (
+            <li key={r.seed} class={r.bad ? 'bad' : r.warn ? 'warn' : ''} onClick={() => lab.fuzz.watch(r.seed)} title={(r.first ?? []).join('\n') || 'Nothing found'}>
+              <span class="t">#{r.seed}</span>
+              <span><b>{r.bad ? `${r.bad} bad` : r.warn ? `${r.warn} to look at` : 'clean'}</b> · {r.animals} animals, {r.obstacles} obstacles{r.depth ? `, ${r.depth} cm water` : ''}<br /><i>{r.species.slice(0, 4).join(', ')}{Object.keys(r.kinds).length ? ' — ' + Object.entries(r.kinds).map(([k, n]) => `${k} ${n}`).join(', ') : ''}</i></span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }
@@ -202,7 +285,7 @@ function Tabs() {
   const tab = L.tab.value;
   return (
     <nav class="lab-tabs">
-      {[['animals', 'Add'], ['world', 'Arena'], ['sel', 'Selected'], ['radar', `Radar${L.bugs.value ? ' ' + L.bugs.value : ''}`]].map(([id, n]) => (
+      {[['animals', 'Add'], ['world', 'Arena'], ['sel', 'Selected'], ['radar', `Radar${L.bugs.value ? ' ' + L.bugs.value : ''}`], ['fuzz', 'Random']].map(([id, n]) => (
         <button key={id} class={tab === id ? 'on' : ''} onClick={() => { L.tab.value = tab === id ? null : id; }}>{n}</button>
       ))}
     </nav>
@@ -231,7 +314,7 @@ export function Lab({ game }) {
   return (
     <div class="lab">
       <Top lab={lab} />
-      <div class="lab-left"><World lab={lab} tab={tab} /><Add lab={lab} tab={tab} /></div>
+      <div class="lab-left"><World lab={lab} tab={tab} /><Add lab={lab} tab={tab} /><Fuzz lab={lab} tab={tab} /></div>
       <div class="lab-right"><Selected lab={lab} tab={tab} /></div>
       <Radar lab={lab} tab={tab} />
       <Note />

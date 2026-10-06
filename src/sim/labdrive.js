@@ -51,7 +51,8 @@ export function resample(pts, spacing, closed = false) {
   const n = pts.length, last = closed ? n : n - 1;
   for (let i = 0; i < last; i++) {
     const a = pts[i], b = pts[(i + 1) % n], len = dist2(a, b), k = Math.max(1, Math.ceil(len / spacing));
-    for (let j = 0; j < k; j++) out.push({ x: a.x + ((b.x - a.x) * j) / k, z: a.z + ((b.z - a.z) * j) / k });
+    // (the waypoint itself keeps what it carries: a pause, a pace; the points between only keep the pace)
+    for (let j = 0; j < k; j++) out.push(j === 0 ? { ...a } : { x: a.x + ((b.x - a.x) * j) / k, z: a.z + ((b.z - a.z) * j) / k, ...(a.pace != null ? { pace: a.pace } : {}) });
   }
   if (!closed) out.push({ ...pts[n - 1] });
   return out;
@@ -83,7 +84,8 @@ export function crossTrack(pts, p, closed = false) {
 export function makeDot(spec) {
   const d = { id: spec.id, kind: spec.kind ?? 'fixed', x: spec.x ?? 0, z: spec.z ?? 0, speed: spec.speed ?? 3, pause: spec.pause ?? 0.6,
     cx: spec.cx ?? spec.x ?? 0, cz: spec.cz ?? spec.z ?? 0, r: spec.r ?? 15, ang: spec.ang ?? 0, tx: null, tz: null, wait: 0 };
-  d.rnd = rng(spec.seed ?? 1);
+  d.seed0 = spec.seed ?? 1;
+  d.rnd = rng(d.seed0);
   return d;
 }
 
@@ -112,8 +114,10 @@ export function makeDrive(spec) {
   return d;
 }
 
-// One step of a drive from position p: returns { goal: { x, z } | null, done }. `dots`: { [id]: { x, z } }.
-export function driveStep(d, p, dots = {}) {
+// One step of a drive from position p: returns { goal: { x, z } | null, done, pace }. `dots`: { [id]: { x, z } }. `dt`: seconds since
+// the last step, for a waypoint that makes the animal wait (a stop in a random path). `pace`: what the goal waypoint asks of the walking
+// pace (1 = the drive's own).
+export function driveStep(d, p, dots = {}, dt = 0) {
   if (d.done) return { goal: null, done: true };
   switch (d.type) {
     case 'goto': {
@@ -128,12 +132,14 @@ export function driveStep(d, p, dots = {}) {
     case 'path': {
       const pts = d.pts, n = pts.length;
       if (!n) return { goal: null, done: true };
+      if (d.hold > 0) { d.hold -= dt; if (d.hold > 0) return { goal: null, done: false }; }
       // Reached the waypoint it is heading for (or one of the next two: a corner cut, a body slid along a rock): on to the one after.
       for (let look = 0; look < 3 && look < n; look++) {
         const j = d.i + look * d.dir;
         const idx = d.closed ? ((j % n) + n) % n : j;
         if (idx < 0 || idx >= n || dist2(p, pts[idx]) > d.tol) continue;
         d.reached++;
+        if (pts[idx].wait > 0) d.hold = pts[idx].wait;
         let nx = idx + d.dir;
         if (d.closed) { if (nx >= n) { nx = 0; d.laps++; } else if (nx < 0) { nx = n - 1; d.laps++; } }
         else if (nx >= n || nx < 0) {
@@ -143,8 +149,9 @@ export function driveStep(d, p, dots = {}) {
         d.i = nx;
         break;
       }
+      if (d.hold > 0) return { goal: null, done: false };
       const t = pts[d.closed ? ((d.i % n) + n) % n : clamp(d.i, 0, n - 1)];
-      return { goal: { x: t.x, z: t.z }, done: false };
+      return { goal: { x: t.x, z: t.z }, done: false, pace: t.pace ?? 1 };
     }
   }
   return { goal: null, done: true };

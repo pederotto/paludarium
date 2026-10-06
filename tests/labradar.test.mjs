@@ -52,6 +52,10 @@ test('a spin of more than 9 rad/s is flagged on the ground, excused in a hop and
   assert.ok(!kinds(run((i) => mk({ yaw: i % 2 ? 0 : 1 }), 200, 0.05, { swim: true })).includes('spin'));
 });
 
+test('a crab turning its heading by half a turn as it swaps sides is not a spin or a shiver', () => {
+  assert.ok(!kinds(run((i) => mk({ yaw: i % 2 ? 0 : 3 }), 200, 0.05, { sideways: true })).some((k) => k === 'spin' || k === 'jitter'));
+});
+
 test('a heading that reverses six times in two seconds is a shiver', () => {
   const got = run((i) => mk({ yaw: (i % 2 ? 0.2 : -0.2) }), 120, 0.1);
   assert.ok(kinds(got).includes('jitter'));

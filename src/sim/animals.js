@@ -2446,7 +2446,7 @@ export class Animals {
     if (it.say && Math.random() < 0.5) W.log(it.say, 'info');
     let goal = it.goal, speed = it.speed;
     if (it.mode === 'hunt' && a.target) { goal = { x: a.target.x, z: a.target.z }; speed = SKINK.speed * 0.7; }
-    if (a.lab?.drive) { goal = a.lab.goal; speed = goal ? SKINK.speed * a.lab.pace : 0; }          // (the test lab)
+    if (a.lab?.drive) { goal = a.lab.goal; speed = goal ? SKINK.speed * a.lab.k : 0; }          // (the test lab)
     a.state = goal && speed > 0 ? 'walk' : 'rest';
     a.speedNow = 0;
     if (goal && speed > 0) {
@@ -3385,9 +3385,10 @@ export class Animals {
   labDrive(a, dt) {
     const L = a.lab;
     if (!L.drive) { L.goal = null; return; }
-    const r = driveStep(L.drive, a.pos, this.labDots ?? {});
+    const r = driveStep(L.drive, a.pos, this.labDots ?? {}, dt);
     if (!r.goal && L.goal) L.kicked = false;
     L.goal = r.goal;
+    L.k = L.pace * (r.pace ?? 1);                    // (the drive's pace times what the waypoint asks)
     const S = L.stats ??= { t: 0, dist: 0, xteSum: 0, xteN: 0, xteMax: 0, last: a.pos.clone() };
     S.t += dt;
     S.dist += Math.hypot(a.pos.x - S.last.x, a.pos.z - S.last.z);
@@ -3399,7 +3400,7 @@ export class Animals {
   // A fish told where to go: swim's own control input (the same one the herps use in the water).
   labCtl(a, sp) {
     const L = a.lab, g = L.goal;
-    return g ? { x: g.x, y: g.y ?? a.pos.y, z: g.z, speed: sp.speed * 0.6 * L.pace } : { x: a.pos.x, y: a.pos.y, z: a.pos.z, speed: 0 };
+    return g ? { x: g.x, y: g.y ?? a.pos.y, z: g.z, speed: sp.speed * 0.6 * L.k } : { x: a.pos.x, y: a.pos.y, z: a.pos.z, speed: 0 };
   }
 
   // The next burst of a frog or toad on land, toward a goal: a hop (as far as one hop goes) or a few steps. L.gait: 'auto', 'walk' or
@@ -3412,7 +3413,7 @@ export class Animals {
     for (const f of [1, 0.7, 0.45]) {
       const len = (walk ? Math.min(d, 3) : Math.min(d, 5.5 * sp.size * (toad ? 1.2 : 1))) * f;
       const plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len), ang, false);
-      if (plan) { if (walk) plan.v = L.pace; return plan; }
+      if (plan) { if (walk) plan.v = L.k; return plan; }
     }
     return null;
   }
@@ -3422,7 +3423,7 @@ export class Animals {
     const g = a.lab.goal;
     it.goal = g ? { x: g.x, z: g.z } : null;
     it.swim = !!g && depth > 1.3;
-    it.speed = g ? (it.swim ? P.swim ?? P.walk : P.walk) * a.lab.pace : 0;
+    it.speed = g ? (it.swim ? P.swim ?? P.walk : P.walk) * a.lab.k : 0;
     it.wantWall = false; it.face = null; it.needHome = false; it.tuck = 0;
     it.mated = false; it.birth = null; it.dropTail = false; it.shed = false; it.say = null;
   }
@@ -3430,7 +3431,7 @@ export class Animals {
   labCrab(a, P, it) {
     const g = a.lab.goal;
     it.goal = g ? { x: g.x, z: g.z } : null;
-    it.speed = g ? P.speed * 0.5 * a.lab.pace : 0;
+    it.speed = g ? P.speed * 0.5 * a.lab.k : 0;
     it.face = null; it.eat = false; it.drown = false; it.dig = false; it.badHome = false; it.say = null; it.nose = false;
   }
 

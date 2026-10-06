@@ -25,7 +25,7 @@ export function newState() {
 }
 
 // a: { pos: {x,y,z}, yaw, pitch, hop, swimming, onWall, wallMode, stranded, lab: { drive, goal, stats } }
-// c: { dt, t, size, swim (a fish or a swimming animal), air, ground: height under it, bounds: { hw, hd, h }, tol }
+// c: { dt, t, size, swim (a fish or a swimming animal), sideways (a crab), air, ground: height under it, bounds: { hw, hd, h }, tol }
 export function check(s, a, c) {
   const out = [];
   const { x, y, z } = a.pos;
@@ -46,7 +46,8 @@ export function check(s, a, c) {
     const step = Math.hypot(x - s.x, y - s.y, z - s.z);
     if (step >= T.teleportMin && step / c.dt > T.teleportSpeed) out.push({ kind: 'teleport', msg: `jumped ${step.toFixed(1)} cm in one step (${(step / c.dt).toFixed(0)} cm/s)`, sev: 'bad' });
     const dy = angDiff(a.yaw ?? 0, s.yaw);
-    if (!c.swim && !a.hop && !a.onWall && !a.wallMode) {
+    // (a fish turns with its velocity and a crab walks sideways and swaps its leading side: their heading flips are not a spin or a shiver)
+    if (!c.swim && !c.sideways && !a.hop && !a.onWall && !a.wallMode) {
       if (Math.abs(dy) / c.dt > T.spin) out.push({ kind: 'spin', msg: `turned ${((Math.abs(dy) * 180) / Math.PI).toFixed(0)}° in one step`, sev: 'warn' });
       // The heading reversing again and again: a shiver, not a turn.
       if (Math.abs(dy) > 0.08) {

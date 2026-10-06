@@ -23,7 +23,7 @@ export const L = {
   backend: signal(''),
   // driving (driver.js)
   dtab: signal('free'),           // the open Drive tab: 'free' | 'goto' | 'path' | 'follow'
-  pick: signal(null),             // what the next tap on the floor does: null | 'goto' | 'draw'
+  pick: signal(null),             // what the next tap on the floor does: null | 'goto' | 'draw' | 'place'
   draft: signal([]),              // waypoints tapped so far in draw mode
   dots: signal([]),               // [{ id, kind, x, z }]
   pace: signal(1),                // the drive's speed as a share of the species' walking pace
@@ -34,10 +34,23 @@ export const L = {
   dotSpeed: signal(3),            // cm/s
   keep: signal(4),                // how close a follower comes to its dot, cm
   all: signal(false),             // a drive goes to every animal of the selected species
+  // random paths and scenarios (driver.js, fuzz.js)
+  rndStyle: signal('mixed'),      // a style of sim/labrandom.js STYLES
+  rndSeed: signal(1),
+  rndLength: signal(240),         // cm
+  fuzzN: signal(8), fuzzSeconds: signal(12),
+  fuzz: signal(null),             // the running or last batch of random scenarios: { n, done, seconds, rows: [...] }
+  // obstacles (obstacles.js)
+  obKind: signal('step'),         // a shape (sim/labshapes.js) or a hardscape piece (sim/decor.js PIECES)
+  obW: signal(14), obD: signal(14), obH: signal(3),   // cm
+  obSize: signal(12),             // a piece's largest extent, cm
+  obRot: signal(0),               // degrees
+  obstacles: signal([]),          // what is in the arena: [{ id, kind, x, z, w, d, h, rot } | { id, kind, x, z, size, rot }]
   // the bug radar (radar.js)
   log: signal([]),                // findings, newest first
   bugs: signal(0),
   pauseOnBug: signal(false),      // freeze the clock on a finding that is a bug on its face
   report: signal(null),           // the report text when it could not be copied: shown to select by hand
+  restored: signal(false),        // this page came back from a saved session
   tab: signal('animals'),         // phone: the open sheet ('world' | 'animals' | 'sel' | null)
 };
