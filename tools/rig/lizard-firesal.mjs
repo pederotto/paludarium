@@ -22,15 +22,31 @@ import { lizardBones, bindLizard, dist } from './lizard.mjs';
 import { levelTail, measureSkink } from './lizard-skink.mjs';
 
 export const FIRESAL = {
-  id: 'firesal', raw: 'art-src/raw/salamander_mesh.glb', source: null,
-  svlCm: 10.4, tris: [32000, 8000], paint: 'firesal', legs: true, nape: 0.11, vent: 0.577, srcLen: 1,
+  id: 'firesal', species: 'firesal', raw: 'art-src/raw/salamander_mesh.glb', source: null,
+  // Size (owner, 6 Oct: "waay over real"; common field lengths 14-17 cm, adults 14-25, 16-26 g on average, 56 g at most): total 16.0 cm (the scan's 18.77 scaled
+  // by 0.852, snout-vent 8.87 cm), and the trunk, tail and head slimmed about their middle line (girth: 1 = the scan) from 83 cm3 to about 38 cm3.
+  svlCm: 8.864, jointsSvlCm: 10.4,
+  girth: [[0, 1], [0.15, 0.92], [0.45, 0.88], [0.55, 0.84], [0.80, 0.84], [0.90, 0.93], [1, 0.97]],
+  tris: [32000, 8000], paint: 'firesal', legs: true, nape: 0.11, vent: 0.577, srcLen: 1,
   // fractions of the length from the snout (R2 slices of the scan, +-0.02)
   trunk: [0.29, 0.385], fore: [0.10, 0.29], hind: [0.37, 0.58],
+  // 6 Oct, read off the Blender grid views (.agents/firesal/renders/rig_fore*_grid.png, baked frame cm, soles y 0) because the skink's limb finder
+  // scrambled the hand chains (right: palm and fingertip outside the hand; left: a fingertip 2.2 cm in the air). Shoulders and elbows stay as measured.
+  jointsCm: {
+    wristR: [2.85, 0.45, 6.1], palmR: [2.7, 0.2, 6.8], fingerR: [2.4, 0.1, 7.2],
+    wristL: [-3.15, 0.6, 5.3], palmL: [-2.85, 0.35, 6.1], fingerL: [-2.45, 0.1, 6.75],
+    // the tail on the middle of its own cross-sections (tools/rig/firesal-tail.mjs on the baked mesh; the owner: "tail attachment way too high, a steep
+    // tail angle"): the measured chain ran 0.85 cm above the middle at tail1 and 0.6 cm below it at tail2. A gentle droop 1.95 -> 0.0 cm over 10 cm.
+    sacrum: [0, 1.95, 0.55],
+    tail: [[0, 1.95, 0.55], [-0.06, 1.42, -1.83], [0.24, 0.83, -3.99], [0.07, 0.43, -6.01], [0.02, 0.15, -7.8], [-0.07, 0.01, -9.39]],
+  },
+  noFans: true,             // no digit fans (they peel gecko toe pads): 21 bones + the jaw (tools/rig/firesal-mouth.mjs)
+  mouth: { hingeBackCm: 2.2 },
   hindReach: 0.65,          // the bake pose: heel to hip as a share of thigh + shin (the lead's 0.6-0.7)
   duty: 0.75,               // stance share of a slow walk (general knowledge, 0.7-0.8), for the stride cap
   kneeMax: 120,             // the knee's flexion limit (bodyplan.js PLANS.caudate.rom.shin)
   radius: { head: 0.08, neck: 0.08, spine: 0.075, pelvis: 0.07, tail1: 0.05, tail2: 0.04, tail3: 0.032, tail4: 0.025, tail5: 0.018,
-    arm: 0.022, forearm: 0.02, hand: 0.012, fingers: 0.007, thigh: 0.026, shin: 0.02, foot: 0.013, toes: 0.008 },
+    arm: 0.022, forearm: 0.02, hand: 0.012, fingers: 0.007, thigh: 0.026, shin: 0.02, foot: 0.013, toes: 0.008, jaw: 0.03 },
 };
 
 export async function readRaw(file = FIRESAL.raw, { level = false } = {}) {

@@ -51,7 +51,7 @@ if (BAKED) {
     const hi = await io.read(path.join(OUT, `${id}.glb`)), loF = path.join(OUT, `${id}.lo.glb`), lo = fs.existsSync(loF) ? await io.read(loF) : null;
     const ex = hi.getRoot().listMeshes()[0].getExtras() ?? {}, b = getBounds(hi.getRoot().listScenes()[0]);
     man[id] = { file: `${id}.glb`, ...(lo ? { lo: `${id}.lo.glb` } : {}), rig: 'baked', tris: { hi: tris(hi), lo: tris(lo ?? hi) }, sizeCm: b.max.map((v, i) => +((v - b.min[i]) * 100).toFixed(2)),
-      ...(overridesOf(id)), ...(ex.skeleton ? { skeleton: { plan: ex.skeleton.plan, bones: ex.skeleton.bones } } : {}) };
+      ...(overridesOf(id)), ...(ex.skeleton ? { skeleton: { plan: ex.skeleton.plan, ...(ex.skeleton.species ? { species: ex.skeleton.species } : {}), bones: ex.skeleton.bones } } : {}) };
     console.log(`${id}: baked, ${man[id].tris.hi} tris (lo ${man[id].tris.lo}), ${man[id].skeleton?.bones.length ?? 0} bones`);
   }
   // (each skeleton on one line, as the frog bakes write them: tools/bake-frogpose.mjs)

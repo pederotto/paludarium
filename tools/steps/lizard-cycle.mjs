@@ -21,6 +21,7 @@ import sharp from 'sharp';
 
 const arg = (k, d) => (process.argv.find((a) => a.startsWith(`--${k}=`)) ?? `=${d}`).split('=').slice(1).join('=');
 const url = arg('url', 'http://127.0.0.1:4630/'), sp = arg('species', 'gecko'), surface = arg('surface', 'ground'), view = arg('view', 'side');
+const awake = arg('awake', '0') === '1';     // --awake=1: the species' mind never sleeps or finds the tank too warm (a fire salamander hides by day and above 20 C), so it walks at noon in the starter tank
 const N = +arg('frames', 8), dt = +arg('dt', 0.04), warm = +arg('warm', 1), S = +arg('size', 360), seed = +arg('seed', 7);
 const out = arg('out', 'test-output/lizard/').replace(/\/$/, '');
 fs.mkdirSync(out, { recursive: true });
@@ -40,10 +41,11 @@ await page.waitForFunction(() => window.game?.world?.animals && !document.queryS
 await page.waitForTimeout(2000);
 await page.addStyleTag({ content: '#ui{display:none!important}' });
 
-const setup = await page.evaluate(async ({ sp, surface, seed }) => {
+const setup = await page.evaluate(async ({ sp, surface, seed, awake }) => {
   const I = await import('/src/render/creatures/instanced.js'), SK = await import('/src/render/creatures/skin.js'), K = await import('/src/render/creatures/skeleton.js');
   const g = window.game, W = g.world, A = W.animals, T = W.terrain, Wl = W.wall;
   g.setSpeed(0);
+  if (awake) { const H = await import('/src/sim/herp.js'); if (H.PROFILES[sp]) Object.assign(H.PROFILES[sp], { awakeAt: 0, tHot: 99 }); }
   W.empty();
   for (const arr of Object.values(A.by)) for (const a of [...arr]) A.remove(a, 'removed');
   A.food = [];
@@ -106,7 +108,7 @@ const setup = await page.evaluate(async ({ sp, surface, seed }) => {
   window.__a = a;
   window.__force = () => {
     const m = a.hm;
-    if (m) Object.assign(m, { mode: 'patrol', modeT: 0, moveLeft: 5, pauseLeft: 0, goal, wantWall: surface === 'wall', thirst: 0, fear: 0 });
+    if (m) Object.assign(m, { mode: sp === 'firesal' ? 'forage' : 'patrol', modeT: 0, moveLeft: 5, pauseLeft: 0, goal, wantWall: surface === 'wall', thirst: 0, fear: 0 });
     else if (!a.plan) { a.plan = { type: 'walk', to: new V3(goal.x, 0, goal.z), ang: a.yaw, water: false, v: 1 }; a.fs = 'walk'; a.walkT = 0; }
   };
   window.__step = (sec) => { const n = Math.max(1, Math.round(sec / Math.min(0.04, sec))), h = sec / n; for (let k = 0; k < n; k++) { window.__force(); A.move(h); } };
@@ -154,7 +156,7 @@ const setup = await page.evaluate(async ({ sp, surface, seed }) => {
     return o;
   };
   return { ok: true, note, kind: a.herp ? 'herp' : a.fs ? 'frog-like' : 'other', hm: !!a.hm };
-}, { sp, surface, seed });
+}, { sp, surface, seed, awake });
 if (setup.err) { console.log(setup.err); await browser.close(); process.exit(2); }
 
 const frame = () => page.evaluate(() => { window.__puts.clear(); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))); });

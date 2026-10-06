@@ -127,6 +127,16 @@ export const PLANS = {
         tailBase: { gain: 0.15, lag: 0.025 },
         throat: { hz: 2, base: 0.15, amp: 0.35 },
       },
+      // The fire salamander (6 Oct; no measurement: G = a guess, none from a sheet). It walks at about a third of a hertz (a 3 s cycle, the owner's Bulgaria clip), so what the
+      // gecko's numbers tie to a 10 Hz gait is rescaled: the tail base follows the hind legs about 0.3 s behind (a quarter of a step cycle is 0.7 s: a slow, heavy tail trails
+      // less), the throat pumps (gular) at about 1.2 Hz at rest (G; amphibians pump faster warm). The caudofemoralis is the big muscle of a salamander's tail base and the trunk's
+      // myomeres do much of its walk (a wide S-bend), so those two a little stronger; no digit fans, so no fingers/toes. All under the frog's 0.2 cap.
+      firesal: {
+        gains: { trunk: 0.12, tailBase: 0.12, hipSwing: 0.1, hipPush: 0.09, shoulderSwing: 0.1, shoulderPush: 0.1, elbow: 0.1, knee: 0.1,
+          wrist: 0.08, ankle: 0.08, fingers: 0, toes: 0, jaw: 0.05, throat: 0.08 },
+        tailBase: { gain: 0.1, lag: 0.3 },
+        throat: { hz: 1.2, base: 0.12, amp: 0.3 },
+      },
     },
     turn: { pivot: 'hips', stepHz: 4, bend: 0.7, head: 0.6, tail: 0.6 },
   },

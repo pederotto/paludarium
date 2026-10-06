@@ -101,7 +101,8 @@ export function lizardRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, tu
   // then the stance centred on it and the stride capped to it (util/lizardgait.js reachFit; the planted feet, lgNew, use both).
   rig.spans = chains.map((c) => {
     let lo = Infinity, hi = 0;
-    for (let p = -FOLD; p <= FOLD + 1e-9; p += FOLD / 40) { const r = len(sub(foldTip(c, p), c.A)); lo = Math.min(lo, r); hi = Math.max(hi, r); }
+    const fold = rig.gait.fold ?? FOLD;      // (a species' own range: the fire salamander folds its elbows and knees further than the gecko)
+    for (let p = -fold; p <= fold + 1e-9; p += fold / 40) { const r = len(sub(foldTip(c, p), c.A)); lo = Math.min(lo, r); hi = Math.max(hi, r); }
     const f = rig.feet0[c.limb - 1], y = c.T[1] - c.plant + f[1], ok = [];
     for (let dz = -3; dz <= 3 + 1e-9; dz += 0.025) { const D = len(sub([f[0], y, f[2] + dz], c.A)); if (D >= lo && D <= hi) ok.push(dz); }
     // the trunk's S-bend turns the girdle (+- wave.spine), moving the foot fore-aft against its shoulder (hip) by its lateral reach
@@ -144,6 +145,7 @@ export function poseLizard(rig, st, out, o = 0, info = null) {
   legs(rig, st, R, H, info);
   peel(rig, st, R);
   swellHead(rig, st, R);
+  openJaw(rig, st, R);
   cut(rig, st, R, H);
   rig.muscles = active(rig, R);
   rig.write(rig, R, H, out, o);
@@ -169,6 +171,16 @@ function swellHead(rig, st, R) {
   const { jaw, throat } = headSwell(st.jaw ?? 0, st.throat ?? 0, rig.species), { up: u, side: s } = rig.headAxes, hd = rig.front[2];
   const S = [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => (r === c ? 1 : 0) + jaw * s[r] * s[c] + throat * u[r] * u[c]));
   R[hd] = mm(R[hd], S);
+}
+
+// The mouth (6 Oct, the fire salamander: the first animal with a jaw bone): st.gape (0 shut … 1 the widest, rig.gait.gape rad) turns the jaw bone about its
+// hinge, the head's side axis, chin down. A rig without a jaw bone (every other lizard) ignores it. The bone follows the head, so it stays shut with
+// the head's own swing and swell.
+function openJaw(rig, st, R) {
+  const j = rig.byName.jaw;
+  if (j == null) return;
+  const hd = rig.front[2], g = clamp(st.gape ?? 0, 0, 1) * (rig.gait.gape ?? 0);
+  R[j] = g ? mm(R[hd], rotAxis(rig.headAxes.side, g)) : R[hd];
 }
 
 // The bellies this pose swells. The frog's writeBones swells a bone by one belly (the last it meets), so of a bone's bellies (the
@@ -237,7 +249,7 @@ function legs(rig, st, R, H, info) {
       let p0 = 0, r0 = c.reach0 - D, r1;
       p1 = 0.15; r1 = reach(p1) - D;
       for (let it = 0; it < 6 && Math.abs(r1) > 1e-4; it++) {
-        const p2 = clamp(p1 - (r1 * (p1 - p0)) / (r1 - r0 || 1e-9), -FOLD, FOLD);
+        const p2 = clamp(p1 - (r1 * (p1 - p0)) / (r1 - r0 || 1e-9), -(rig.gait.fold ?? FOLD), rig.gait.fold ?? FOLD);
         p0 = p1; r0 = r1; p1 = p2; r1 = reach(p1) - D;
       }
     }
