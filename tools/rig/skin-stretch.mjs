@@ -16,7 +16,7 @@ import { hopPlan, hopFrame, svlOf } from '../../src/util/hop.js';
 
 await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
-const DIR = 'public/assets/creatures/';
+const DIR = process.env.CREATURES ?? 'public/assets/creatures/';          // (CREATURES=<folder with manifest.json and the glb>/ measures a bake made elsewhere)
 const man = JSON.parse(fs.readFileSync(DIR + 'manifest.json', 'utf8'));
 const ids = process.argv.slice(2).filter((a) => !a.startsWith('--')), MUSC = process.argv.includes('--muscles');
 const list = (ids.length ? ids : Object.keys(man).filter((k) => man[k].skeleton && !k.includes(':'))).filter((k) => man[k]?.skeleton);
