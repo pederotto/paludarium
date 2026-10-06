@@ -18,6 +18,8 @@ import { U } from '../render/uniforms.js';
 import { Lens } from '../render/lens.js';
 import { updateAirflow } from '../render/airflow.js';
 import { Plumbing } from '../render/plumbing.js';
+import { Jets } from '../render/jet.js';
+import { GlassMirror } from '../render/glassmirror.js';
 import { SoilSide } from '../render/soilside.js';
 import { ViewLayers } from '../render/layers.js';
 import { S } from '../ui/store.js';
@@ -134,8 +136,13 @@ export class Game {
     // The pump circuit made visible (render/plumbing.js); hidden in photo mode and Kids mode.
     world.plumbing = new Plumbing(this.worldRoot, world);
     world.plumbing.hidden = () => this.gfx.photo || S.kids.value;
+    // Spray and bubbles where water leaves a nozzle or lands in a pool (render/jet.js).
+    world.jets = new Jets(this.worldRoot, world);
     // The build below the ground, seen through the glass (render/soilside.js).
     world.soilSide = new SoilSide(this.worldRoot, world);
+    // The side glass mirroring the inside of a full tank (render/glassmirror.js): one more screen copy, so High and Ultra only.
+    world.glassMirror = new GlassMirror(this.worldRoot, world);
+    world.glassMirror.allowed = () => this.gfx.quality === 'high' || this.gfx.quality === 'ultra';
     world.stage = this.stage;
     world.animals.camera = this.camera;
     this.lens = new Lens(this.worldRoot, world);
@@ -244,7 +251,9 @@ export class Game {
       this.mist.update(dt);
       updateAirflow(W, speed, dt);   // plant sway follows the real air and water movement
       W.plumbing?.update(dt);
+      W.jets?.update(dt);
       W.soilSide?.update(dt);
+      W.glassMirror?.update(dt);
       for (const f of this.frameHooks) f(dt);
       this.fx.step();
       this.lens?.update(dt);

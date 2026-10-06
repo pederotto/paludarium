@@ -56,7 +56,7 @@ export class ViewLayers {
     if (W) {
       const Wt = W.water;
       const mine = [W.terrain.mesh, W.wall.mesh, Wt.surface, Wt.volume, Wt.flowMesh, Wt.drops, Wt.pumpMesh, Wt.preview, ...Wt.outletMeshes, ...Wt.pitMarks,
-        W.plumbing?.group, W.soilSide?.mesh, W.soilSide?.body, W.lens?.group];
+        W.plumbing?.group, W.soilSide?.mesh, W.soilSide?.body, W.lens?.group, W.jets?.under, W.jets?.over];
       for (const r of Wt.ribbons.values()) mine.push(r.mesh, r.splash);
       for (const o of mine) if (o) o.userData.bottom = true;
     }

@@ -252,6 +252,14 @@ export function hardscapeMaterial(src, { moss = 0.6, mossScale = 1 / 9, tint = n
   const film = smoothstep(0.2, -0.5, pw.y.sub(U.waterLevel)).mul(U.algaeFilm).mul(noise3(pw.mul(0.5)).mul(0.4).add(0.6));
   base = mix(base, U.algaeColor, clamp(film, 0, 0.7));
   base = mouldMix(base, pw);
+  // Rock under running water: dark and glossy where a stream or a thin film runs over it (render/water.js syncStill puts the
+  // wetness of the cells on rock in the blue channel of the tank's height texture). Only near the rock's top, which the ground
+  // stores 0.15 cm under its face: the sides and the overhangs under it stay dry. One read of a texture the water already uploads.
+  const ht = FX.terrainH.sample(tankUV(pw.xz)), above = pw.y.sub(ht.r);
+  const wetRock = ht.b.mul(smoothstep(-0.5, -0.1, above)).mul(smoothstep(1.0, 0.5, above)).mul(smoothstep(0.3, 0.6, normalWorld.y.add(0.4)));
+  base = base.mul(float(1).sub(wetRock.mul(0.45)));
+  const rough0 = src.roughnessMap ? texture(src.roughnessMap, uv()).g.mul(0.9) : float(0.9);
+  m.roughnessNode = mix(rough0, float(0.22), wetRock.mul(0.9));
   const [color, emissive] = wet(base, pw);
   m.colorNode = color;
   m.emissiveNode = emissive;

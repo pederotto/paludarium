@@ -22,7 +22,8 @@
 // (`dev`), and the mesh swaps between the two when the layer changes (update). Show equipment still hides the devices.
 
 import * as THREE from 'three/webgpu';
-import { attribute, uniform, sin, smoothstep, vec3, float, mix, abs, dot, normalView, normalWorld, positionWorld } from 'three/tsl';
+import { attribute, uniform, sin, smoothstep, vec2, vec3, float, mix, abs, dot, max, min, step, pow, clamp, floor, fract, length, normalize, reflect, cameraPosition, normalView, normalWorld, positionWorld, positionLocal, normalLocal } from 'three/tsl';
+import { noise3 } from './noise3.js';
 import { wet, U } from './shaders.js';
 import { TANK } from '../sim/tank.js';
 import { pumpCurve } from '../sim/hydro.js';
@@ -42,12 +43,18 @@ const FHOSE = new THREE.Color(0x4c5e55), WATER = new THREE.Color(0x1f4b52), DIRT
 const MEDIA = { mech: [0x2f6aa3, 0x4d3c25], bioSponge: [0x3d4f5f, 0x4a3f2c], bio: [0xb9b2a2, 0x5d5236], chem: [0x1a1c1e, 0x3e372c], floss: [0xe9e9e4, 0x8a7550] };
 const media = (id, c) => new THREE.Color(MEDIA[id][0]).lerp(new THREE.Color(MEDIA[id][1]), Math.min(1, c) * 0.9);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const hash2 = (p) => fract(sin(dot(p, vec2(12.9898, 78.233))).mul(43758.5453));
+const LAMP_UP = new THREE.Vector3(-0.18, 1, -0.12).normalize();   // toward the lamp, for the tubes' highlight
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-// Merged-geometry builder: positions, normals, vertex colours and `along` (x: distance along a hose in cm, y: the water's
-// speed in it in cm/s, z: its circuit, 1 the main pump, 2 the filter; all 0 off the hoses).
+// Merged-geometry builder: positions, normals, vertex colours, `along` (x: distance along a hose in cm, y: the water's
+// speed in it in cm/s, z: its circuit, 1 the main pump, 2 the filter; all 0 off the hoses) and `tdat` on tubes (x: 0 the
+// clear wall, 1 the water inside it; y: the way round the tube, 0 … 1; z: how much air the water carries, 0 … 1).
+// Four lists of triangles, in this order in the index: devices, tubes that sit in the tank (both drawn in every view), then
+// the hose run's devices (wall clips) and its tubes (only where the build is shown). Tubes are drawn with the clear-tube
+// material (geometry groups, material 1), everything else with the solid one (material 0).
 class Soup {
-  constructor() { this.p = []; this.n = []; this.c = []; this.a = []; this.i = []; this.ir = []; this.run = false; }   // ir: the hose run's triangles
+  constructor() { this.p = []; this.n = []; this.c = []; this.a = []; this.t = []; this.i = []; this.ti = []; this.ir = []; this.tir = []; this.run = false; }
   get count() { return this.p.length / 3; }
   geo(g, m, color) {
     const pos = g.attributes.position, nor = g.attributes.normal, base = this.count;
@@ -55,36 +62,51 @@ class Soup {
     for (let k = 0; k < pos.count; k++) {
       v.fromBufferAttribute(pos, k).applyMatrix4(m); this.p.push(v.x, v.y, v.z);
       v.fromBufferAttribute(nor, k).applyMatrix3(nm).normalize(); this.n.push(v.x, v.y, v.z);
-      this.c.push(color.r, color.g, color.b); this.a.push(0, 0, this.run ? 0.25 : 0);   // 0.25: hose run, no water band
+      this.c.push(color.r, color.g, color.b); this.a.push(0, 0, this.run ? 0.25 : 0); this.t.push(0, 0, 0);   // 0.25: hose run, no water band
     }
     const idx = g.index, out = this.run ? this.ir : this.i;
     for (let k = 0; k < idx.count; k++) out.push(base + idx.getX(k));
   }
   // A swept tube along `pts` (already dense), radius r, water at speed v (cm/s) from the first point to the last. Frames are
-  // parallel-transported.
-  tube(pts, r, color, seg = 7, v = 0, circuit = 0) {
+  // parallel-transported. `run`: part of the hose run (drawn only where the build is shown) or a pipe that sits in the tank
+  // (drawn in every view). A clear wall at r and, unless `core` is false, the water inside it at the bore `ri` (cm), carrying
+  // `air` (0 … 1: bubbles, most in a drain the pool spills into).
+  tube(pts, r, color, seg = 7, v = 0, circuit = 0, { run = true, core = true, ri = r * 0.78, air = 0.05 } = {}) {
     const n = pts.length;
     if (n < 2) return;
-    const base = this.count;
-    let nrm = V(0, 1, 0), len = 0;
-    const tan = V(0, 0, 0), bin = V(0, 0, 0);
-    for (let k = 0; k < n; k++) {
-      tan.subVectors(pts[Math.min(n - 1, k + 1)], pts[Math.max(0, k - 1)]).normalize();
-      if (Math.abs(tan.dot(nrm)) > 0.95) nrm = Math.abs(tan.y) < 0.9 ? V(0, 1, 0) : V(1, 0, 0);
-      nrm.addScaledVector(tan, -nrm.dot(tan)).normalize();
-      bin.crossVectors(tan, nrm);
-      if (k) len += pts[k].distanceTo(pts[k - 1]);
-      for (let s = 0; s < seg; s++) {
-        const a = (s / seg) * Math.PI * 2, cx = Math.cos(a), cy = Math.sin(a);
-        const nx = nrm.x * cx + bin.x * cy, ny = nrm.y * cx + bin.y * cy, nz = nrm.z * cx + bin.z * cy;
-        this.p.push(pts[k].x + nx * r, pts[k].y + ny * r, pts[k].z + nz * r); this.n.push(nx, ny, nz);
-        this.c.push(color.r, color.g, color.b); this.a.push(len, v, circuit);
+    const out = run ? this.tir : this.ti;
+    const sweep = (rad, layer) => {
+      const base = this.count;
+      let nrm = V(0, 1, 0), len = 0;
+      const tan = V(0, 0, 0), bin = V(0, 0, 0);
+      for (let k = 0; k < n; k++) {
+        tan.subVectors(pts[Math.min(n - 1, k + 1)], pts[Math.max(0, k - 1)]).normalize();
+        if (Math.abs(tan.dot(nrm)) > 0.95) nrm = Math.abs(tan.y) < 0.9 ? V(0, 1, 0) : V(1, 0, 0);
+        nrm.addScaledVector(tan, -nrm.dot(tan)).normalize();
+        bin.crossVectors(tan, nrm);
+        if (k) len += pts[k].distanceTo(pts[k - 1]);
+        for (let s = 0; s < seg; s++) {
+          const a = (s / seg) * Math.PI * 2, cx = Math.cos(a), cy = Math.sin(a);
+          const nx = nrm.x * cx + bin.x * cy, ny = nrm.y * cx + bin.y * cy, nz = nrm.z * cx + bin.z * cy;
+          this.p.push(pts[k].x + nx * rad, pts[k].y + ny * rad, pts[k].z + nz * rad); this.n.push(nx, ny, nz);
+          this.c.push(color.r, color.g, color.b); this.a.push(len, v, circuit); this.t.push(layer, s / seg, air);
+        }
       }
-    }
-    for (let k = 0; k < n - 1; k++) for (let s = 0; s < seg; s++) {
-      const a = base + k * seg + s, b = base + k * seg + (s + 1) % seg, c = a + seg, d = b + seg;
-      this.ir.push(a, c, b, b, c, d);
-    }
+      for (let k = 0; k < n - 1; k++) for (let s = 0; s < seg; s++) {
+        const a = base + k * seg + s, b = base + k * seg + (s + 1) % seg, c = a + seg, d = b + seg;
+        out.push(a, c, b, b, c, d);
+      }
+    };
+    // The water first, then the wall in front of it (both see-through, drawn in this order).
+    if (core) sweep(Math.min(ri, r * 0.92), 1);
+    sweep(r, 0);
+  }
+  // A hose clamp where a hose is pushed onto a port: a band round its end, turned along the hose there (`dir`, unit).
+  clamp(p, dir, r, color, run = this.run) {
+    const was = this.run;
+    this.run = run;
+    this.geo(new THREE.CylinderGeometry(r + 0.13, r + 0.13, 0.55, 12, 1, true), new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir), V(1, 1, 1)), color);
+    this.run = was;
   }
   build() {
     const g = new THREE.BufferGeometry();
@@ -92,12 +114,26 @@ class Soup {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
     g.setAttribute('along', new THREE.Float32BufferAttribute(this.a, 3));
-    g.setIndex(this.i.concat(this.ir));
-    // The devices alone: the same buffers, drawn up to the end of their triangles.
-    const dev = new THREE.BufferGeometry();
-    for (const k of ['position', 'normal', 'color', 'along']) dev.setAttribute(k, g.attributes[k]);
-    dev.setIndex(g.index); dev.setDrawRange(0, this.i.length);
-    g.userData.dev = dev;
+    g.setAttribute('tdat', new THREE.Float32BufferAttribute(this.t, 3));
+    // The whole build (the X-ray ghost draws it) and four views of it on the same buffers, one per mesh and layer: the solid
+    // parts and the clear tubes, each with the hose run (X-ray, Bottom) or without it (Surface). Two meshes with one material
+    // each rather than one mesh with groups: three's WebGPU shadow pass draws every group of a mesh with the same shadow
+    // material, and one render object drawn twice in a pass with different source materials is rebuilt between the draws,
+    // freeing what the first draw bound ("used in submit while destroyed").
+    const a = this.i.length, b = a + this.ir.length, c = b + this.ti.length, d = c + this.tir.length;
+    g.setIndex(this.i.concat(this.ir, this.ti, this.tir));
+    const view = (range, index, runRanges) => {
+      const v = new THREE.BufferGeometry();
+      for (const k of ['position', 'normal', 'color', 'along', 'tdat']) v.setAttribute(k, g.attributes[k]);
+      if (index) v.setIndex(index); else { v.setIndex(g.index); v.setDrawRange(range[0], range[1] - range[0]); }
+      v.userData.runRanges = runRanges;   // the hose run's triangles (tools/steps/plumbing-view.mjs)
+      return v;
+    };
+    g.userData.runRanges = [[a, b], [c, d]];
+    g.userData.solid = view([0, b], null, [[a, b]]);
+    g.userData.dev = view(null, this.i.slice(), []);
+    g.userData.tube = view([b, d], null, [[c, d]]);
+    g.userData.devTube = view(null, this.ti.slice(), []);
     return g;
   }
 }
@@ -130,17 +166,28 @@ export class Plumbing {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
     this.mesh.frustumCulled = false; this.mesh.castShadow = true; this.mesh.receiveShadow = true; this.mesh.name = 'plumbing-mesh';
     this.group.add(this.mesh);
+    // The clear tubes and the water in them: the same buffers, their own triangles (Soup.build). Drawn before the water's
+    // surface (5), whose look through it copies what is already drawn; no shadow (clear walls).
+    this.tubes = new THREE.Mesh(new THREE.BufferGeometry(), this.makeTubeMaterial());
+    this.tubes.frustumCulled = false; this.tubes.renderOrder = 2; this.tubes.name = 'plumbing-tubes';
+    this.group.add(this.tubes);
     // Clean water leaving the filter: short streaky jets from its outlets, as strong as the flow it still passes.
     this.fflow = uniform(0);     // 0 … 1: the filter's pump running, less what clogging takes
     const jm = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
     const ja = attribute('along', 'vec3');
     jm.colorNode = vec3(0.5, 0.82, 0.95);
+    // A pump's jet is turbulent (sim/jets.js: Re in the tens of thousands): its column wobbles and necks as it goes, more the
+    // further from the nozzle; three reads of the baked noise per vertex move it (none per fragment), so it is not a glass rod.
+    const jn = (o) => noise3(vec3(ja.x.mul(0.9).sub(this.clock.mul(min(ja.y, 30)).mul(0.09)), positionLocal.y.mul(0.4).add(o), o));
+    const reach = smoothstep(0.2, 2.5, ja.x);
+    jm.positionNode = positionLocal.add(vec3(jn(1.3), jn(4.1), jn(7.7)).mul(reach.mul(0.32))).add(normalLocal.mul(jn(9.9).mul(reach).mul(0.18)));
     const streak = sin(ja.x.sub(ja.y.mul(this.clock)).mul(Math.PI * 2 / JBAND)).mul(0.5).add(0.5);
     jm.opacityNode = this.fflow.mul(smoothstep(0.35, 1.0, streak).mul(0.7).add(0.2)).mul(float(1).sub(smoothstep(0.6, 3.6, ja.x))).mul(0.55);
     this.jets = new THREE.Mesh(new THREE.BufferGeometry(), jm);
     this.jets.frustumCulled = false; this.jets.renderOrder = 7; this.jets.name = 'filter-jets';
     this.group.add(this.jets);
     this.sig = ''; this.t = 1e9; this.kept = [];
+    this.nozzles = [];           // where water leaves a nozzle or a lip: {p, dir, v cm/s, r cm} (render/jet.js)
     this.layer = 'surface';      // render/layers.js
     this.ghost = null;           // made the first time the build is shown
   }
@@ -151,6 +198,49 @@ export class Plumbing {
     const wave = sin(al.x.sub(al.y.mul(this.clock)).mul(Math.PI * 2 / BAND)).mul(0.5).add(0.5);
     const gate = al.z.greaterThan(1.5).select(this.frun, al.z.greaterThan(0.5).select(this.run, float(0)));
     return smoothstep(0.55, 1.0, wave).mul(gate);
+  }
+
+  // Clear tubing (vinyl hose, acrylic pipe) with the water seen inside it. Two layers of one tube (Soup.tube, `tdat.x`):
+  // - the wall: a thin clear shell, tinted by the tube's colour, seen at its edges (Fresnel) with the lamp's highlight
+  //   running along its top; under water a clear wall all but disappears, in air (over the pool, in the cabinet) it reads.
+  // - the water: a faint tint, the bands of light that travel at the water's speed (band(), as before), and bubbles
+  //   carried at that speed: one hash per cell of a grid along and round the tube, a cell holding a bubble as often as
+  //   the water carries air (`tdat.z`: a drain the pool spills into is full of it, a pressure line has a few). With the
+  //   pump off they stop. No noise per fragment.
+  makeTubeMaterial() {
+    const m = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: THREE.FrontSide });
+    const td = attribute('tdat', 'vec3'), al = attribute('along', 'vec3'), col = attribute('color', 'vec3');
+    const layer = td.x, around = td.y, air = td.z;
+    const pw = positionWorld;
+    const inAir = max(step(U.waterLevel, pw.y), step(pw.y, -0.3));     // over the pool, or in the cabinet under the floor
+    const lit = U.daylight.mul(0.75).add(0.18);
+    const view = normalize(cameraPosition.sub(pw));
+    const facing = abs(dot(normalWorld, view));
+    const rim = pow(float(1).sub(facing), 2.2);
+    const rl = max(dot(reflect(view.negate(), normalWorld), vec3(LAMP_UP.x, LAMP_UP.y, LAMP_UP.z)), 0);
+    const hl = pow(rl, 24).mul(0.9).mul(U.daylight);
+    // the wall
+    const tint = mix(vec3(0.82, 0.88, 0.9), col.mul(1.6).add(0.15), 0.45);
+    const wallA = rim.mul(mix(float(0.35), float(0.7), inAir)).add(mix(float(0.03), float(0.07), inAir)).add(hl.mul(inAir.mul(0.6).add(0.25)));
+    // the water and its bubbles (cells 0.45 cm along, 6 round)
+    const gate = al.z.greaterThan(1.5).select(this.frun, al.z.greaterThan(0.5).select(this.run, float(0)));
+    // (a bubble rises against a slow drain, so the bubbles in it go down a little slower than the water)
+    const q = vec2(al.x.sub(al.y.mul(gate).mul(this.clock).mul(float(1).sub(air.mul(0.25)))).div(0.28), around.mul(9)), c = floor(q);
+    const h = hash2(c.add(al.z.mul(17)));
+    const f = fract(q).sub(0.5).add(vec2(hash2(c.add(3.7)), hash2(c.add(9.1))).sub(0.5).mul(0.5));
+    const br = hash2(c.add(5.3)).pow(2).mul(0.24).add(0.1);
+    const d = length(f);
+    const disc = smoothstep(br, br.sub(0.05), d).mul(step(h, air.mul(0.42).add(0.01))).mul(facing.mul(0.6).add(0.4));
+    const ring = smoothstep(br.mul(0.45), br.mul(0.85), d).mul(disc);       // a bubble is a bright rim round a clear middle
+    const bub = ring.mul(0.75).add(disc.mul(0.18));
+    const band = this.band();
+    const waterC = vec3(0.42, 0.62, 0.62).mul(lit).add(vec3(0.12, 0.5, 0.62).mul(band).mul(0.55));
+    const bubC = vec3(0.92, 0.97, 1.0).mul(lit.add(0.2));
+    const waterA = mix(float(0.06), float(0.2), inAir).add(band.mul(0.22));
+    const core = layer.greaterThan(0.5);
+    m.colorNode = core.select(mix(waterC, bubC, clamp(bub.mul(1.4), 0, 1)), tint.mul(lit).add(hl));
+    m.opacityNode = clamp(core.select(max(waterA, bub), wallA), 0, 1);
+    return m;
   }
 
   makeGhost() {
@@ -213,8 +303,8 @@ export class Plumbing {
     if (build && !this.ghost) this.ghost = this.makeGhost();
     if (this.ghost) this.ghost.visible = build;
     // Hose run only where the build is shown: a reference swap, done only when the layer changed (or after a rebuild, above).
-    const want = this.full && (build ? this.full : this.full.userData.dev);
-    if (want && this.mesh.geometry !== want) this.mesh.geometry = want;
+    const want = this.full && (build ? this.full.userData.solid : this.full.userData.dev);
+    if (want && this.mesh.geometry !== want) { this.mesh.geometry = want; this.tubes.geometry = build ? this.full.userData.tube : this.full.userData.devTube; }
     this.t += dt;
     if (this.t > 1.6) {
       this.t = 0;
@@ -257,7 +347,7 @@ export class Plumbing {
     const zoff = (k) => HR + 0.08 + (k % 2) * (2 * HR + 0.12);
     outs.forEach((o, k) => {
       const start = V(px, g + 2.4, pz - 2.4);
-      const pts = [start];
+      const pts = [start, V(px, g + 2.4, pz - 3.2)];   // off the nipple straight back, then wherever it goes
       let tx, tz, endY;
       if (o.wall) {
         tx = o.pos.x; tz = wall.zAt(o.pos.x, T.heightAt(o.pos.x, -TANK.d / 2 + 4) + 1) + zoff(k);
@@ -300,19 +390,24 @@ export class Plumbing {
       // Dense, even spacing for the highlight and the sweep.
       const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
       const dense = curve.getSpacedPoints(Math.max(8, Math.ceil(curve.getLength() / 0.9)));
-      S.tube(dense, HR, HOSE, 8, flows[k].v, 1);
+      S.tube(dense, HR, HOSE, 8, flows[k].v, 1, { ri: hid / 20, air: 0.04 });
+      S.clamp(V(px, g + 2.4, pz - 2.65), V(0, 0, -1), HR, CLIP, true);   // on the pump's nipple
+      S.clamp(dense[dense.length - 1].clone().lerp(dense[dense.length - 2], 0.5), dense[dense.length - 1].clone().sub(dense[dense.length - 2]).normalize(), HR, CLIP, true);
     });
 
     const J = new Soup();
+    this.nozzles = [];
     this.filterGear(S, px, pz, J);
     const oj = this.jets.geometry;
     this.jets.geometry = J.build();
     oj.dispose();
-    const old = this.full, first = old ? null : this.mesh.geometry;
+    const old = this.full, first = old ? null : [this.mesh.geometry, this.tubes.geometry];
     this.full = S.build(); this.clips = S.clips ?? 0;
-    this.mesh.geometry = this.layer !== 'surface' ? this.full : this.full.userData.dev;
+    const u = this.full.userData, build = this.layer !== 'surface';
+    this.mesh.geometry = build ? u.solid : u.dev;
+    this.tubes.geometry = build ? u.tube : u.devTube;
     if (this.ghost) this.ghost.geometry = this.full;
-    if (old) { old.userData.dev.dispose(); old.dispose(); } else first.dispose();
+    if (old) this.freeBuild(old); else for (const f of first) f.dispose();
   }
 
   // The filter (Care > Water) and the false bottom's pump tower, so the build that changes the water is there to see.
@@ -349,10 +444,12 @@ export class Plumbing {
     const line = (a, b, n) => Array.from({ length: n + 1 }, (_, k) => a.clone().lerp(b, k / n));
     // A jet of clean water from p along dir, as long as the water leaving the nozzle is fast (v, cm/s); its streaks move at
     // that speed, capped where they would strobe.
+    // Each nozzle is also an emitter of spray or bubbles (render/jet.js reads `nozzles`).
     const jet = (p, dir, r, v) => {
       const d = dir.clone().normalize(), len = 1.6 + Math.min(60, v) * 0.05, pts = [];
       for (let k = 0; k <= 8; k++) pts.push(p.clone().addScaledVector(d, (k / 8) * len));
-      J.tube(pts, r, CLEAR, 6, vq(Math.min(30, v)), 2);
+      J.tube(pts, r, CLEAR, 6, vq(Math.min(30, v)), 2, { core: false });
+      this.nozzles.push({ p: p.clone(), dir: d, v, r });
     };
     // External filters stand on the floor of the cabinet under the tank (sim/filterflow.js CABINET_DROP).
     const FLOOR = -CABINET_DROP;
@@ -362,7 +459,10 @@ export class Plumbing {
       const mid = V((x + end.x) / 2, (end.y - 4) / 2, (z + end.z) / 2);
       const pts = [V(x, -1.3, z), V(x, -4, z), V(x, -8, z), mid, V(end.x, end.y + 4, end.z), end.clone()];
       if (h.dir === 'up') pts.reverse();
-      S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(48), rOf(h.od), FHOSE, h.od > 20 ? 10 : 8, vq(h.v), 2);
+      S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(48), rOf(h.od), FHOSE, h.od > 20 ? 10 : 8, vq(h.v), 2, { ri: h.id / 20, air: h.dir === 'up' ? 0.05 : 0.6 });
+      // Clamped onto the bulkhead's tail under the floor and onto the filter's port, each end turned the way it runs there.
+      S.clamp(V(x, -1.55, z), V(0, 1, 0), rOf(h.od), CAPC, true);
+      S.clamp(end.clone().add(V(0, 0.3, 0)), V(0, 1, 0), rOf(h.od), CAPC, true);
     };
     // A bulkhead through the glass floor: its nut on the floor and its nut underneath.
     const bulkhead = (x, z, r) => {
@@ -374,7 +474,7 @@ export class Plumbing {
     const overflow = (x, z, foam, h) => {
       const g = T.heightAt(x, z), top = Math.max(g + 1.5, level - 0.3), r = rOf(h.od) + 0.1;
       W.water.hydro.ports.intake = { x, y: top, z, r: r + 0.3 };
-      S.tube(line(V(x, top - 1.2, z), V(x, -0.8, z), Math.max(2, Math.ceil(top / 0.8))), r, PIPE, 10, vq(h.v), 2);
+      S.tube(line(V(x, top - 1.2, z), V(x, -0.8, z), Math.max(2, Math.ceil(top / 0.8))), r, PIPE, 10, vq(h.v), 2, { run: false, ri: h.id / 20, air: 0.7 });
       bulkhead(x, z, r);
       if (foam) { S.geo(new THREE.CylinderGeometry(r + 1.1, r + 1.1, 3.4, 14), cylM(x, top - 1.3, z), FOAM.clone().lerp(DIRT, (st.mech ?? 0) * 0.7)); return; }
       S.geo(new THREE.CylinderGeometry(r + 0.3, r + 0.3, 1.6, 14, 1, true), cylM(x, top - 0.6, z), GRILL);
@@ -383,7 +483,7 @@ export class Plumbing {
     // The return: a pipe up from its bulkhead, a nozzle (70% of the hose's bore: twice its speed) jetting the clean water out.
     const ret = (x, z, h) => {
       const g = T.heightAt(x, z), y = Math.max(g + 0.8, Math.min(g + 2.5, level - 1.5)), r = rOf(h.od) * 0.85;
-      S.tube(line(V(x, -0.8, z), V(x, y, z), Math.max(2, Math.ceil(y / 0.8))), r, PIPE, 10, vq(h.v), 2);
+      S.tube(line(V(x, -0.8, z), V(x, y, z), Math.max(2, Math.ceil(y / 0.8))), r, PIPE, 10, vq(h.v), 2, { run: false, ri: h.id / 20, air: 0.05 });
       bulkhead(x, z, r);
       let dir = V(-x * 0.25, 0, TANK.d * 0.3 - z);
       if (dir.lengthSq() < 1) dir.set(0, 0, 1);
@@ -430,10 +530,10 @@ export class Plumbing {
           }
           const hi = hoseOf.intake, ho = hoseOf.return, top = y0 + bh + 0.8;
           // The drain comes in through the lid into the inlet chamber; the pump's outlet goes up through it to the return.
-          S.tube(line(V(at.in, top + 1.5, z), V(at.in, y0 + bh - 4, z), 6), rOf(hi.od) * 0.85, PIPE, 10, vq(hi.v), 2);
+          S.tube(line(V(at.in, top + 1.5, z), V(at.in, y0 + bh - 4, z), 6), rOf(hi.od) * 0.85, PIPE, 10, vq(hi.v), 2, { ri: hi.id / 20, air: 0.6 });
           S.geo(new THREE.CylinderGeometry(2.1, 2.3, 5.5, 14), cylM(at.pump, y0 + 3.3, z), BODY);
           S.geo(new THREE.CylinderGeometry(1.4, 1.4, 1.2, 12), cylM(at.pump, y0 + 6.6, z), CAPC);
-          S.tube(line(V(at.pump, y0 + 7, z), V(at.pump, top + 1.5, z), 8), rOf(ho.od) * 0.85, PIPE, 10, vq(ho.v), 2);
+          S.tube(line(V(at.pump, y0 + 7, z), V(at.pump, top + 1.5, z), 8), rOf(ho.od) * 0.85, PIPE, 10, vq(ho.v), 2, { ri: ho.id / 20 });
           overflow(f.x, f.z, false, hi);
           ret(f.rx, f.rz, ho);
           under(f.x, f.z, V(at.in, top + 1.5, z), hi);
@@ -477,7 +577,7 @@ export class Plumbing {
           // the pool; the water rises in the riser at its speed.
           S.geo(new THREE.BoxGeometry(3.2, 3.2, 2.4), new THREE.Matrix4().compose(V(tb.x, g + 1.6, tb.z), q, V(1, 1, 1)), BODY);
           const rp = [V(tb.x, g + 3.2, tb.z), V(tb.x, g + hgt * 0.5, tb.z), V(tb.x, g + hgt + 0.4, tb.z), V(tb.x - away.x * 1.4, g + hgt + 1.0, tb.z - away.z * 1.4), V(tb.x - away.x * 2.6, g + hgt + 0.3, tb.z - away.z * 2.6)];
-          S.tube(new THREE.CatmullRomCurve3(rp, false, 'centripetal').getSpacedPoints(24), rOf(h.od), PIPE, 10, vq(h.v), 2);
+          S.tube(new THREE.CatmullRomCurve3(rp, false, 'centripetal').getSpacedPoints(24), rOf(h.od), PIPE, 10, vq(h.v), 2, { run: false, ri: h.id / 20, air: 0.1 });
           jet(V(tb.x - away.x * 2.8, g + hgt, tb.z - away.z * 2.8), V(-away.x * 0.4, -0.9, -away.z * 0.4), rOf(h.id), h.v);
         }
       } else if (kind === 'canister') {
@@ -542,7 +642,8 @@ export class Plumbing {
           for (const da of [-3, 0, 3]) {
             const lip = W3(da, hh + 1.2, -3.6), land = best.Q.clone().addScaledVector(xa, da), fall = [];
             for (let k = 0; k <= 10; k++) { const t = k / 10; fall.push(V(lip.x + (land.x - lip.x) * t, hh + 1.2 - (hh + 1.2 - level) * t * t, lip.z + (land.z - lip.z) * t)); }
-            J.tube(fall, 0.4, CLEAR, 6, vq(30), 2);
+            J.tube(fall, 0.4, CLEAR, 6, vq(30), 2, { core: false });
+            this.nozzles.push({ p: lip.clone(), dir: V(land.x - lip.x, -0.4, land.z - lip.z).normalize(), v: 30, r: 0.4 });
           }
           // the tube: from the box down to the strainer along the inside of the glass (the background on the back rim); the water in it goes up
           const at0 = bw / 2 - 2.2, yt = T.heightAt(W3(at0, 0, -2).x, W3(at0, 0, -2).z) + 2.4, pts = [];
@@ -550,7 +651,7 @@ export class Plumbing {
             const y = hh + 0.6 - (hh + 0.6 - yt) * (k / 12), p0 = W3(at0, y, 0);
             pts.push(W3(at0, y, -(best.rim ? Math.max(1.4, back(p0.x, y) + hd + r + 0.2) : 1.4 + r)));
           }
-          S.tube(pts.reverse(), r, PIPE, 10, vq(ht.v), 2);
+          S.tube(pts.reverse(), r, PIPE, 10, vq(ht.v), 2, { run: false, ri: ht.id / 20, air: 0.03 });
           const s0 = pts[0];
           S.geo(new THREE.CylinderGeometry(2.1, 2.1, 2.6, 14, 1, true), cylM(s0.x, yt - 0.9, s0.z), GRILL);
           if (E.prefilter) S.geo(new THREE.CylinderGeometry(2.8, 2.8, 5, 14), cylM(s0.x, yt + 0.4, s0.z), FOAM.clone().lerp(DIRT, (st.mech ?? 0) * 0.7));
@@ -573,7 +674,7 @@ export class Plumbing {
           const fp = V(x, g + hgt * 0.5 + 0.4, z).addScaledVector(face, 2.5);
           at(fp, [5.6, Math.max(1, hgt - 3), 0.8], FOAM.clone().lerp(DIRT, (st.mech ?? 0) * 0.8));       // the foam face
           const ny = Math.max(g + 2.2, Math.min(level - 1.6, g + hgt + 0.2)), np = V(x, ny, z).addScaledVector(face, 1.0);
-          S.tube([V(x, g + 1.6, z), V(x, ny, z), np], rOf(ho.od), PIPE, 10, vq(ho.v), 2);
+          S.tube([V(x, g + 1.6, z), V(x, ny, z), np], rOf(ho.od), PIPE, 10, vq(ho.v), 2, { run: false, ri: ho.id / 20, air: 0.03 });
           jet(np.clone().addScaledVector(face, 0.3), face.clone().setY(-0.03), rOf(ho.od) * 0.6, ho.v / 0.49);
           W.water.hydro.ports.intake = { x: fp.x + face.x * 0.5, y: fp.y, z: fp.z + face.z * 0.5, r: 2.4 };
           W.water.hydro.ports.ret = { x: np.x + face.x * 0.3, y: ny, z: np.z + face.z * 0.3, dx: face.x, dz: face.z, D: 0.07 * ho.id };
@@ -613,7 +714,9 @@ export class Plumbing {
               pts.push(V(px2, Math.max(g + 1.4 + (sy + 1 - g - 1.4) * t, T.heightAt(px2, pz2) + 1.2) + Math.sin(Math.PI * t) * 1.5, pz2));
             }
             pts.push(V(end.x, sy, end.z));
-            S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(64), rOf(h.od), FHOSE, 10, vq(h.v), 2);
+            S.tube(new THREE.CatmullRomCurve3(pts, false, 'centripetal').getSpacedPoints(64), rOf(h.od), FHOSE, 10, vq(h.v), 2, { ri: h.id / 20 });
+            // The spout the hose ends in, over the water: an outlet, so it stays in every view (the hose to it is the run).
+            S.geo(new THREE.CylinderGeometry(rOf(h.od) * 0.75, rOf(h.od) + 0.1, 1.6, 10), new THREE.Matrix4().compose(V(end.x, sy, end.z).addScaledVector(dir.clone().setY(-0.6).normalize(), -0.6), new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir.clone().setY(-0.6).normalize()), V(1, 1, 1)), CAPC);
             jet(V(end.x, sy, end.z), dir.clone().setY(-0.6), rOf(h.od) * 0.7, h.v / 0.49);
             W.water.hydro.ports.ret = { x: end.x, y: sy, z: end.z, dx: dir.x, dz: dir.z, D: 0.07 * h.id };
           }
@@ -643,9 +746,14 @@ export class Plumbing {
     }
   }
 
+  freeBuild(g) {
+    for (const k of ['solid', 'dev', 'tube', 'devTube']) g.userData[k].dispose();
+    g.dispose();
+  }
+
   dispose() {
     this.group.removeFromParent();
-    if (this.full) { this.full.userData.dev.dispose(); this.full.dispose(); } else this.mesh.geometry.dispose();
+    if (this.full) this.freeBuild(this.full); else { this.mesh.geometry.dispose(); this.tubes.geometry.dispose(); }
     this.jets.geometry.dispose();
   }
 }
