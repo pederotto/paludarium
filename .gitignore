@@ -15,3 +15,7 @@ metrics/
 *.pfx
 id_rsa*
 id_ed25519*
+
+# regenerable intermediates of the Blender bakes (art-src/orchids/*_bake.py write them, pack_*.py read them)
+art-src/orchids/baked/
+__pycache__/

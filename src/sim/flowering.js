@@ -12,7 +12,8 @@
 import * as THREE from 'three/webgpu';
 import { Builder } from '../render/geo.js';
 import { rng, clamp } from '../util/math.js';
-import { ORCHID_LEAF, orchidLeafMap, orchidLeafRelief, orchidLeafNoise } from './orchid-leaves.js';   // (run orchids T1: painted orchid leaves; T2: their relief)
+import { ORCHID_LEAF, orchidLeafMap, orchidLeafRelief, orchidLeafNoise, orchidLeafTint } from './orchid-leaves.js';
+import { HEADS } from './orchid-heads.js';   // flower heads modelled in Blender (art-src/orchids), generated   // (run orchids T1: painted orchid leaves; T2: their relief)
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
@@ -233,10 +234,23 @@ function bristles(b, pts, { len, w, col }) {
   }
 }
 
+// A flower head modelled in Blender (art-src/orchids/<species>.py -> orchid-heads.js): its triangles replayed into the builder, the
+// same attributes the helpers above write (leaf coords [u, v] on petals and sepals, solid parts v = -1, palette mask).
+function bakedHead(b, H) {
+  const P = V(0, 0, 0), N = V(0, 0, 0);
+  b.atlas ??= [];      // petal-atlas coordinates (render/flowers.js reads them as the `fa` attribute; -1 = none)
+  for (let i = 0; i < H.idx.length; i++) {
+    const k = H.idx[i], r = H.msk[2 * k], g = H.msk[2 * k + 1], v = H.uv[2 * k + 1];
+    P.set(H.pos[3 * k], H.pos[3 * k + 1], H.pos[3 * k + 2]); N.set(H.nor[3 * k], H.nor[3 * k + 1], H.nor[3 * k + 2]);
+    put(b, P, N, [r, g, Math.max(0, 1 - r - g)], 0, v >= 0 ? [H.uv[2 * k], v] : null);
+    b.atlas.push(H.at[2 * k], H.at[2 * k + 1]);
+  }
+}
+
 // Masdevallia: a dense tuft of erect, narrow spoon-shaped leaves on channelled petioles (no pseudobulbs), 8.5-12 x 1.7-2.3 cm,
 // and single flowers on wiry stems from the base, held at or above the leaves, one arching out sideways.
 // Leathery, glossy spoon leaves with a channelled midrib (painted, sim/orchid-leaves.js); the underside a little paler.
-const MASD_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, wax: [0.38, 0.82, 0.45], leafMap: orchidLeafMap('masdevallia'), leafRelief: orchidLeafRelief('masdevallia'), leafNoise: orchidLeafNoise(), mottle: [0.08, 0.1, 0.06], leafPale: [0.62, 0.76, 0.46], leafBack: [1.1, 1.12, 1.0] });
+const MASD_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, wax: [0.38, 0.82, 0.45], leafMap: orchidLeafMap('masdevallia'), leafHue: orchidLeafTint('masdevallia'), leafRelief: orchidLeafRelief('masdevallia'), leafNoise: orchidLeafNoise(), mottle: [0.08, 0.1, 0.06], leafPale: [0.62, 0.76, 0.46], leafBack: [1.1, 1.12, 1.0] });
 const masdLayout = once(() => {
   const r = rng(101), leaves = [], stalks = [];
   for (let k = 0; k < 10; k++) {
@@ -257,7 +271,7 @@ const masdLayout = once(() => {
 // Dracula: a tuft of keeled, arching leaves; the flower stems grow out sideways past the leaves and arch over, so the
 // flowers hang facing out and down (they stay above the ground when it grows on land).
 // Keeled straps with a fold line and faint parallel veins, a satin sheen, a paler underside.
-const DRAC_MAT = () => ({ ...ORCHID_MAT, rough: 0.78, wax: [0.55, 0.82, 0.4], leafMap: orchidLeafMap('dracula'), leafRelief: orchidLeafRelief('dracula'), leafNoise: orchidLeafNoise(), mottle: [0.07, 0.1, 0.06], leafPale: [0.7, 0.8, 0.5], leafBack: [1.25, 1.25, 1.1] });
+const DRAC_MAT = () => ({ ...ORCHID_MAT, rough: 0.78, wax: [0.55, 0.82, 0.4], leafMap: orchidLeafMap('dracula'), leafHue: orchidLeafTint('dracula'), leafRelief: orchidLeafRelief('dracula'), leafNoise: orchidLeafNoise(), mottle: [0.07, 0.1, 0.06], leafPale: [0.7, 0.8, 0.5], leafBack: [1.25, 1.25, 1.1] });
 const dracLayout = once(() => {
   const r = rng(103), leaves = [], stalks = [];
   // (photos 1-3: about a dozen long narrow straps, 13-17 cm, erect then arching out)
@@ -285,7 +299,7 @@ const HEART = (t) => (t < 0.24 ? 0.14 + 0.36 * Math.pow(Math.sin((Math.PI / 2) *
   : 0.5 * Math.pow(Math.cos((Math.PI / 2) * (t - 0.24) / 0.76), 1.1) * (1 - 0.3 * sstep(0.7, 1, t)));
 // Thick, glossy hearts: a pale midrib, very faint arcuate veins, a soft mottling; the outline (lobes, notch, acuminate tip) is
 // the texture's alpha on a coarse blade (sim/orchid-leaves.js).
-const PLEURO_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, wax: [0.34, 0.82, 0.45], leafMap: orchidLeafMap('pleurothallis'), leafRelief: orchidLeafRelief('pleurothallis'), leafNoise: orchidLeafNoise(), mottle: [0.07, 0.12, 0.07], leafPale: [0.78, 0.86, 0.55], leafBack: [1.04, 1.07, 0.97] });
+const PLEURO_MAT = () => ({ ...ORCHID_MAT, rough: 0.8, wax: [0.34, 0.82, 0.45], leafMap: orchidLeafMap('pleurothallis'), leafHue: orchidLeafTint('pleurothallis'), leafRelief: orchidLeafRelief('pleurothallis'), leafNoise: orchidLeafNoise(), mottle: [0.07, 0.12, 0.07], leafPale: [0.78, 0.86, 0.55], leafBack: [1.04, 1.07, 0.97] });
 // (F3) A smooth tepal for the bell and cup flowers of Pleurothallis and D. cuthbertsonii: from radius r0 about the head axis
 // (+Y) at angle th (0 = +Z, the dorsal side), its spine leaves at a0 from the axis and bends out to a1 at the tip (radians: a
 // trumpet that flares, or a cup); the outline widens from `base` x width to the full width at s = 0.68 and closes in a rounded
@@ -348,28 +362,36 @@ const lepLayout = once(() => {
 // dark leaves on each; one flower per bulb on a short stalk, all round the clump and facing out (photo 2), the flowers far
 // bigger than the leaves. Bulbs on a sunflower spiral; the facings from a little below the horizon to steep.
 // Small dark leaves with raised silver-white warts on top (painted), flushed red-brown underneath (the back-face tint).
-const CUTH_MAT = () => ({ ...ORCHID_MAT, rough: 0.74, wax: [0.45, 0.8, 0.45], leafMap: orchidLeafMap('cuthbertsonii'), leafRelief: orchidLeafRelief('cuthbertsonii'), leafNoise: orchidLeafNoise(), mottle: [0.15, 0.1, 0.05], leafPale: [0.86, 0.9, 0.86], leafBack: [3.0, 0.85, 1.15] });
+const CUTH_MAT = () => ({ ...ORCHID_MAT, rough: 0.74, wax: [0.45, 0.8, 0.45], leafMap: orchidLeafMap('cuthbertsonii'), leafHue: orchidLeafTint('cuthbertsonii'), leafRelief: orchidLeafRelief('cuthbertsonii'), leafNoise: orchidLeafNoise(), mottle: [0.15, 0.1, 0.05], leafPale: [0.86, 0.9, 0.86], leafBack: [3.0, 0.85, 1.15] });
 const cuthLayout = once(() => {
   const r = rng(113), r2 = rng(117), bulbs = [], stalks = [], N = 12;
   for (let k = 0; k < N; k++) {
-    const a = k * 2.39996 + (r() - 0.5) * 0.4, d = 0.25 + 0.85 * Math.sqrt((k + 0.5) / N), out = V(Math.cos(a), 0, Math.sin(a));
-    const p = out.clone().multiplyScalar(d), lean = V(out.x * 0.3, 1, out.z * 0.3).normalize(), h = 0.7 + r() * 0.35;
+    const a = k * 2.39996 + (r() - 0.5) * 0.4, d = 0.3 + 1.25 * Math.sqrt((k + 0.5) / N), out = V(Math.cos(a), 0, Math.sin(a));
+    const p = out.clone().multiplyScalar(d), lean = V(out.x * 0.45, 1, out.z * 0.45).normalize(), h = 0.7 + r() * 0.35;
     const top = p.clone().addScaledVector(lean, h), leaves = [], nl = k % 2 ? 1 : 2;
     for (let j = 0; j < nl; j++) {
       const b = a + (nl === 1 ? (r() - 0.5) * 0.6 : j ? 0.55 : -0.55);
-      leaves.push({ dir: V(Math.cos(b) * 0.65, 1, Math.sin(b) * 0.65), len: 1.5 + r() * 1.0, width: 0.62 + r() * 0.14, red: r() });
+      leaves.push({ dir: V(Math.cos(b) * 0.75, 1, Math.sin(b) * 0.75), len: 2.1 + r() * 1.0, width: 0.7 + r() * 0.16, red: r() });
     }
     bulbs.push({ a, p, top, lean, h, leaves });
   }
-  // (F5, photo 2; decision 21: wallSpin 0.4, so local +Z stays down the wall) Eight flowers round the lower, front side of the
-  // clump, each on a stalk from the nearest outer bulb out past the leaf ring, facing out and up 31-39 deg in the body frame (on
-  // a wall: out and down 10-30 deg); the upper side stays free, so leaves show between and above them (the old ten made a wheel).
-  for (let j = 0; j < 8; j++) {
-    const az = Math.PI / 2 + ((j + 0.5) / 8 - 0.5) * 2.3 + (r2() - 0.5) * 0.16, side = Math.abs(Math.cos(az));
-    const B = bulbs.slice(4).reduce((m, q) => (Math.cos(q.a - az) > Math.cos(m.a - az) ? q : m));
-    const e = 0.55 + 0.08 * side + 0.05 * r2(), ce = Math.cos(e), face = V(Math.cos(az) * ce, Math.sin(e), Math.sin(az) * ce);
-    const R = 2.0 + 0.45 * r2(), tip = V(Math.cos(az) * R, 1.1 + 0.6 * side + 0.2 * r2(), Math.sin(az) * R);
-    stalks.push({ pts: [B.top.clone(), tip], tip, face, age: r2() });
+  // (orchids2, third attempt; photo 2; decision 21: wallSpin 0.4, so local +Z stays down the wall) Nine flowers hanging as a loose BUNCH below
+  // the leaf mass, like the pendent bells of photo 2: a flower's top follows the plant's up, so each faces down-out (+Z) or it would hang upside
+  // down on a wall. Positions scatter over the lower half-disc (x about the middle, z 0.3-3.5 below it, depth 1.55-2.95), each tried 40 times and
+  // the most clear of the others kept (neighbours >= 1.25 apart: no ring, no fan), on a stalk from the nearest bulb; the size 0.62-1.05.
+  // The upper leaf mass stays free, and the bunch overlaps only the lower leaves.
+  const tips = [];
+  for (let j = 0; j < 9; j++) {
+    let best = null;
+    for (let t = 0; t < 40; t++) {
+      const x = (r2() + r2() + r2() - 1.5) * 3.1, z = 0.3 + 3.2 * Math.pow(r2(), 0.9), y = 1.55 + 1.4 * r2();
+      const c = V(x, y, z), gap = Math.min(9, ...tips.map((q) => Math.hypot(q.x - c.x, q.z - c.z) + 0.6 * Math.abs(q.y - c.y)));
+      if (!best || gap > best.gap) best = { c, gap };
+    }
+    tips.push(best.c);
+    const B = bulbs.reduce((m, q) => (Math.hypot(q.top.x - best.c.x, q.top.z - best.c.z) < Math.hypot(m.top.x - best.c.x, m.top.z - best.c.z) ? q : m));
+    const e = 0.6 + 0.3 * r2(), yaw = Math.PI / 2 + (r2() - 0.5) * 0.9 + 0.22 * best.c.x, ce = Math.cos(e), face = V(Math.cos(yaw) * ce, Math.sin(e), Math.sin(yaw) * ce);
+    stalks.push({ pts: [B.top.clone(), best.c], tip: best.c, face, age: r2() });
   }
   return { bulbs, stalks };
 });
@@ -501,35 +523,7 @@ export const FLOWERING = {
     },
     get material() { return MASD_MAT(); },
     flower: {
-      build(b) {
-        // (F5, photos 1-3) A SHORT narrow tube, then three sepals that open almost flat at its mouth (front view): the dorsal a
-        // narrow triangle drawn into a long tail straight up; the two laterals broad, spreading out and down and a little
-        // forward, joined along the midline over their inner 36 % (one wide kite-shaped blade from the front), the free lobes
-        // tapering into tails 1.2-1.4x the blade. Each blade starts just inside the mouth, so tube and blades join without a gap.
-        // Colours: blade main (decumana's spots), a throat blotch at each blade's base in the accent, the tails (and a tint of
-        // the dorsal) in the centre colour.
-        const tl = 0.5, r0 = 0.19, vk = 0.4, al = 0.65, ta = Math.tan(al), ef = 0.36, Ll = 1.35;
-        const col = (hood) => (u, v) => {
-          const s = v / vk, tail = sstep(0.96, 1.04, s), thr = 0.85 * (1 - sstep(0.06, 0.32, s)) * (1 - tail);
-          const h = hood * (1 - tail) * sstep(0.4, 0.95, s), m = (1 - tail) * (1 - thr) * (1 - h);
-          return M(m, thr, 1 - m - thr);
-        };
-        const spine = (len, fwd) => (s) => [r0 + len * s, tl - 0.12 * (1 - s) ** 4 + fwd * s];
-        tube(b, [V(0, 0, 0), V(0, tl, 0)], [0.15, 0.22], { sides: 6, color: () => M(0.85, 0.15, 0), sway: () => 0 });
-        // dorsal: a narrow cupped triangle, its tail ~1.3x the blade, up and a little forward
-        cupSepal(b, { th: 0, len: 1.0, width: 0.7, tail: 1.6, tw: 0.04, nu: 3, rows: [0, 0.14, 0.32, 0.52, 0.74, 1], tRows: 6, vk, spine: spine(1.0, 0.18),
-          outline: (s) => 0.34 * (1 - s) * (0.8 + 0.2 * sstep(0, 0.2, s)) * (1 + 0.6 * s * (1 - s)), cupAt: (s) => 0.12 + 0.7 * (1 - sstep(0, 0.3, s)),
-          bend: V(0, 0.2, 1).normalize(), hang: 0.12, col: col(0.35) });
-        // laterals: each a blade at `al` from straight down; over s < ef its inner margin runs down the midline (half-width =
-        // radius x tan al, so the two meet: the fused synsepal), then the free lobe keeps its width a little and tapers to the tail
-        const wf = 1.02 * ta * (r0 + Ll * ef);
-        const latW = (s) => (s <= ef ? 1.02 * ta * (r0 + Ll * s) : wf * Math.pow(Math.cos((Math.PI / 2) * Math.max(0, s - ef - 0.08) / (0.92 - ef)), 0.85));
-        for (const sd of [-1, 1]) cupSepal(b, { th: Math.PI + sd * al, len: Ll, width: 2 * wf, tail: 1.9, tw: 0.04, nu: 4, rows: [0, 0.12, 0.24, 0.36, 0.5, 0.62, 0.75, 0.88, 1], tRows: 6, vk,
-          spine: spine(Ll, 0.32), outline: latW, cupAt: (s) => 0.06 + 0.5 * (1 - sstep(0, 0.25, s)), bend: V(-sd * 0.45, 0.35, -1).normalize(), hang: 0.2, col: col(0) });
-        // tiny petals and the lip just inside the mouth
-        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.07, tl - 0.12, 0.04), dir: V(s * 0.6, 0.6, 0.3), len: 0.26, width: 0.1, nu: 1, nv: 1, color: () => M(0.3, 0.7, 0) });
-        sheet(b, { base: V(0, tl - 0.12, -0.07), dir: V(0, 0.7, -0.6), face: V(0, 0.6, 1), len: 0.32, width: 0.16, nu: 1, nv: 1, color: () => M(0, 1, 0) });
-      },
+      build(b) { bakedHead(b, HEADS.masdevallia); },   // Blender model: short tube, cupped dorsal sepal with a rising tail, fused kite-shaped lateral blade, two long tails
       palettes: [
         [0xc2185b, 0x6a0a30, 0x7a0a3a, 0, 1],      // M. coccinea, magenta, dark magenta tails (the common form)
         [0xd8261c, 0x8a1010, 0xa01a14, 0, 1],      // scarlet (M. ignea)
@@ -565,28 +559,7 @@ export const FLOWERING = {
     },
     get material() { return DRAC_MAT(); },
     flower: {
-      build(b) {
-        // Pass 3: three broad sepals joined at the base into a shallow bowl (the dorsal arched forward into a hood, the laterals
-        // out and down), each narrowing in a curve into a long tail that hangs; dark bristles on the margins and the hood; a
-        // white scallop-shell lip with radiating pink veins below a short column, the two tiny dark petals (the "eyes") beside it.
-        // Blade in the main colour (the pattern shows here), pale at its base (centre); tails in the accent.
-        const col = (u, t) => { const tail = sstep(0.25, 0.31, t), pale = 0.7 * (1 - sstep(0.01, 0.07, t)); return M((1 - tail) * (1 - pale), tail, (1 - tail) * pale); };
-        // Pass 4 (photos 1-3, front view): each sepal a broad ovate blade, joined to its neighbours over the inner third (a
-        // shallow notch between them), widest at about 0.4, rounded shoulders tapering over the outer part into the tail.
-        const round = (W) => (s) => W * (s < 0.4 ? 0.7 + 0.3 * Math.sin((Math.PI / 2) * s / 0.4) : Math.pow(Math.cos((Math.PI / 2) * (s - 0.4) / 0.6), 0.8));
-        const rows = [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.88, 1], hair = [];   // (F5: one row less pays for more, longer hairs)
-        const lat = (s) => ({ len: 3, width: 2.7, outline: round(1.35), cup: 0.3, tail: 7, tw: 0.1, bend: HEAD_DOWN.clone().add(V(s * 0.35, 0, 0)).normalize(), hang: 0.38 });
-        for (const [th, o] of [[0, { len: 2.8, width: 2.4, outline: round(1.2), hood: 0.8, cup: 0.45, tail: 6.6, tw: 0.1, bend: V(0, 0.3, 1).normalize(), hang: 0.3 }], [2.15, lat(1)], [-2.15, lat(-1)]]) {
-          const h = cupSepal(b, { th, depth: 0.9, col, rows, tRows: 5, ...o });
-          hair.push(...h.margin, ...(th === 0 ? h.face : []));
-        }
-        bristles(b, hair.slice(0, 24), { len: 0.42, w: 0.05, col: M(0.1, 0.9, 0) });
-        for (const s of [-1, 1]) sheet(b, { base: V(s * 0.22, 0.6, 0.3), dir: V(s, 0.7, 0.35), face: V(0, 1, 0), len: 0.4, width: 0.26, nu: 1, nv: 1, cup: 0.3, color: () => M(0.08, 0.84, 0.08) });
-        tube(b, [V(0, 0.1, 0.1), V(0, 0.7, 0.3)], [0.1, 0.07], { sides: 3, color: () => M(0.25, 0.05, 0.7), sway: () => 0 });
-        tube(b, [V(0, 0.1, -0.05), V(0, 0.8, -0.3)], [0.07, 0.05], { sides: 3, color: () => M(0, 0.05, 0.95), sway: () => 0 });
-        shellLip(b, { c: V(0, 0.95, -0.4), axis: V(0, 1, -0.8), w: 0.62, h: 0.52, depth: 0.42,
-          segs: 12, col: (i, j) => (i === 0 ? M(0.05, 0.4, 0.55) : j % 2 ? M(0, 0.42, 0.58) : M(0, 0.03, 0.97)) });   // (F5) 6 pink rays
-      },
+      build(b) { bakedHead(b, HEADS.dracula); },   // Blender model: hood, two shield-shaped lateral sepals with tails, dome lip, eyes, bristles
       palettes: [
         [0xf0e6d8, 0x6a1020, 0xfaf4f0, 1, 3],   // D. simia (photo 3): cream, dense maroon spots, maroon tails, white lip
         [0xc07a3c, 0x24101a, 0xf0e8ec, 2, 3],   // D. vampira (photo 1): orange-tan under a black-purple net, black tails
@@ -730,26 +703,7 @@ export const FLOWERING = {
     },
     get material() { return CUTH_MAT(); },
     flower: {
-      build(b) {
-        // (F3) A smooth 3D trumpet (photos 1-3). The head's origin is the back of the chin, so a bud folds forward along +Y
-        // (nothing behind the origin to swing through the flower). Five broad tepals rise from a narrow tube on the axis
-        // (z = ZA) and flare out to rounded tips; the lateral sepals start lower, over a rounded chin (mentum) that runs back
-        // and down to the origin; a narrow rolled tongue lip lies in the lower throat, its tip orange-red (centre). Tips
-        // accent (the white form's pink tips), the throat the centre colour (cream to orange, never dark).
-        const ZA = 0.45, fr = { o: V(0, 0, ZA), X: V(1, 0, 0), Y: V(0, 1, 0), Z: V(0, 0, 1) };
-        const tint = (a0) => (u, t) => { const a = a0 * sstep(0.7, 1, t), thr = 0.45 * (1 - sstep(0.05, 0.4, t)); return M((1 - a) * (1 - thr), a, thr); };
-        bellTepal(b, { th: 0, y0: 0.8, r0: 0.2, len: 1.9, width: 1.25, a0: 0.18, a1: 1.45, base: 0.5, cup: [0.6, 0.1], fr, col: tint(0.8) });      // dorsal sepal
-        for (const s of [-1, 1]) {
-          bellTepal(b, { th: s * 1.22, y0: 0.8, r0: 0.2, len: 1.8, width: 1.35, a0: 0.24, a1: 1.5, base: 0.45, cup: [0.55, 0.08], fr, col: tint(0.8) });   // broad petals
-          bellTepal(b, { th: s * 2.5, y0: 0.55, r0: 0.3, len: 2.0, width: 1.4, a0: 0.3, a1: 1.4, base: 0.5, cup: [0.6, 0.12], fr, col: tint(0.6) });      // lateral sepals
-        }
-        // the chin: a rounded sac from the origin (back, below the axis) up into the tube under the lateral sepals
-        const ring = (y, z, rx, rz) => Array.from({ length: 5 }, (_, j) => { const q = (j / 5) * Math.PI * 2; return V(Math.cos(q) * rx, y, z + Math.sin(q) * rz); });
-        surf(b, [ring(0.02, 0.02, 0.05, 0.05), ring(0.25, 0.1, 0.2, 0.18), ring(0.55, 0.25, 0.3, 0.27), ring(0.88, 0.4, 0.33, 0.3)], { wrap: true, leaf: (i) => [0, 0.05 * i], col: () => M(1, 0, 0), sway: () => 0 });
-        // the tongue lip: narrow, rolled, along the lower throat and out of the mouth, its tip orange-red
-        bellTepal(b, { th: Math.PI, y0: 0.85, r0: 0.1, len: 1.75, width: 0.42, a0: 0.1, a1: 0.6, base: 0.65, cup: [0.9, 0.5], nu: 2, rows: [0, 0.4, 0.75, 0.97], fr,
-          col: (u, t) => { const c = sstep(0.55, 0.92, t); return M(0.25 * (1 - c), 0.75 * (1 - c), c); } });
-      },
+      build(b) { bakedHead(b, HEADS.cuthbertsonii); },   // Blender model: five broad flaring tepals, a chin, a rolled tongue lip with an orange tip
       // [main, accent (tips, lip), centre (lip tip, throat), 4 SPARKLE: the crystalline sheen]
       palettes: [
         [0xe0221a, 0xf0581c, 0xf5901c, 4, 2],   // scarlet, orange lip (photo 1)
@@ -763,7 +717,7 @@ export const FLOWERING = {
       heads(r, grown) {
         r = warm(r);
         if (grown < 0.5) return [];
-        return cuthLayout().stalks.map((s) => [s.tip.x, s.tip.y, s.tip.z, s.face.x, s.face.y, s.face.z, (0.82 + 0.26 * s.age) * (0.95 + r() * 0.1)]);   // every stalk of the body ends in a flower; younger ones smaller
+        return cuthLayout().stalks.map((s) => [s.tip.x, s.tip.y, s.tip.z, s.face.x, s.face.y, s.face.z, (0.56 + 0.4 * s.age) * (0.95 + r() * 0.1)]);   // every stalk of the body ends in a flower; younger ones smaller
       },
       translucent: 0.15, daily: null,
       cycle: { budDays: 45, openDays: 150, fadeDays: 10, restDays: 60, season: 'any', minLight: 0.3, minHumidity: 75 },

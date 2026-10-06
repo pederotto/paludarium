@@ -11,7 +11,7 @@ import { PLANT_INFO } from '../src/content/plant-info.js';
 import { CONCEPTS } from '../src/content/concepts.js';
 import { BIOTOPES } from '../src/content/biotopes.js';
 
-const BODY_TRIS = 480, HEAD_TRIS = 240;   // run orchids, decisions 7 and 9
+const BODY_TRIS = 480, HEAD_TRIS = 480;   // run orchids, decisions 7 and 9; heads 240 -> 480 for the Blender-modelled heads (orchids2)
 const flowers = { ...Object.fromEntries(Object.entries(FLOWERING).map(([id, d]) => [id, d.flower])), bromeliad: BROMELIAD_FLOWER };
 
 test('every flowering body builds within its budget', () => {
