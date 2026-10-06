@@ -17,8 +17,8 @@ const split = (bones) => {
   for (const b of B) if (b.parent === 'spine' && b.name !== 'spineB') b.parent = 'spineB';
   return B;
 };
-test('row layout: the bellies start after a 22-bone row, 21 texels for 22 slots (the trunk pair shares the last), 88 texels', () => {
-  assert.equal(MUSCLE_TEXEL0, 66); assert.equal(MAX_SLOTS, 22); assert.equal(ROW_TEXELS, 88); assert.ok(22 * 3 <= MUSCLE_TEXEL0); assert.ok(MUSCLE_TEXEL0 + 21 <= ROW_TEXELS);
+test('row layout: the bellies start after a 24-bone row, 21 texels for 22 slots (the trunk pair shares the last), 94 texels', () => {
+  assert.equal(MUSCLE_TEXEL0, 72); assert.equal(MAX_SLOTS, 22); assert.equal(ROW_TEXELS, 94); assert.ok(24 * 3 <= MUSCLE_TEXEL0); assert.ok(MUSCLE_TEXEL0 + 21 <= ROW_TEXELS);
 });
 test('frogBones with mid2: spineB between spine and head, arms on spineB; without it 17 bones', () => {
   const j = { vent: [0, 0, 0], mid: [0, 0, 1], mid2: [0, 0, 2], chest: [0, 0, 3], neck: [0, 0, 4], snout: [0, 0, 5] };
@@ -37,7 +37,7 @@ test('frogBones with scap and fingertip: a scapula the arm hangs from and a fing
     assert.ok(nm.indexOf('scapula' + s) < nm.indexOf('arm' + s) && nm.indexOf('hand' + s) < nm.indexOf('fingers' + s), 'parents come first');
   }
   assert.equal(frogBones({ ...j, scapL: undefined, scapR: undefined, fingertipL: undefined, fingertipR: undefined }).length, 18);
-  assert.ok(22 * 3 <= MUSCLE_TEXEL0, 'the 22 bones fit before the bellies');
+  assert.ok(23 * 3 <= MUSCLE_TEXEL0, 'the 22 bones and a jaw fit before the bellies');
 });
 test('ramp: 0 behind, 1 in front, 0.5 at the split', () => { assert.equal(spineRamp(0), 0); assert.equal(spineRamp(1), 1); assert.ok(Math.abs(spineRamp(0.5) - 0.5) < 1e-12); });
 test('trunk yaw 20 turns spine 10 and spineB 20; head tip within 0.2 cm of one 20 deg joint; 17 bones: one joint, clamp 25', () => {
