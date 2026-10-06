@@ -29,7 +29,7 @@ import { lizardRig } from './lizardpose.js';
 import { bellyRig, writeBellies, MUSCLE_TEXEL0, MUSCLE_PAIR } from './muscles.js';
 export { MUSCLE_TEXEL0, MUSCLE_PAIR };
 
-export const ROW_TEXELS = 75;                  // (25 bones: a lizard's) texels in an instance's row of the bone texture (RGBA float each)
+export const ROW_TEXELS = 88;                  // texels in an instance's row of the bone texture (RGBA float each): 22 frog bones (66 texels: 17 to 22, the red-eyed tree frog's fingers and shoulder girdle) then 22 belly texels; a lizard's 25 bones fit too
 export const BONE_TEXELS = 3;                  // a bone is an affine 3 x 4 matrix: three rows of [m0, m1, m2, t]
 export const MAX_BONES = Math.floor(ROW_TEXELS / BONE_TEXELS);
 export const ROW_FLOATS = ROW_TEXELS * 4;

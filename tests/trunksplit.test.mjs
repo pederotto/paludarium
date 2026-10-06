@@ -17,8 +17,8 @@ const split = (bones) => {
   for (const b of B) if (b.parent === 'spine' && b.name !== 'spineB') b.parent = 'spineB';
   return B;
 };
-test('row layout: the bellies start after an 18-bone row, 21 texels for 22 slots (the trunk pair shares the last), 75 texels', () => {
-  assert.equal(MUSCLE_TEXEL0, 54); assert.equal(MAX_SLOTS, 22); assert.equal(ROW_TEXELS, 75); assert.ok(18 * 3 <= MUSCLE_TEXEL0);
+test('row layout: the bellies start after a 22-bone row, 21 texels for 22 slots (the trunk pair shares the last), 88 texels', () => {
+  assert.equal(MUSCLE_TEXEL0, 66); assert.equal(MAX_SLOTS, 22); assert.equal(ROW_TEXELS, 88); assert.ok(22 * 3 <= MUSCLE_TEXEL0); assert.ok(MUSCLE_TEXEL0 + 21 <= ROW_TEXELS);
 });
 test('frogBones with mid2: spineB between spine and head, arms on spineB; without it 17 bones', () => {
   const j = { vent: [0, 0, 0], mid: [0, 0, 1], mid2: [0, 0, 2], chest: [0, 0, 3], neck: [0, 0, 4], snout: [0, 0, 5] };

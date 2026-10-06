@@ -2,7 +2,7 @@
 // CPU (skeleton.js), one row of a shared float texture an instance, and the creature vertex shader blending four bones a vertex
 // (render/creatures/instanced.js, `skin`). Far instances keep the vertex rig.
 //
-//   texture   64 texels a row (21 bones x 3 texels: rows of an affine [R | t]), SKIN_ROWS rows shared by every skinned mesh; each
+//   texture   88 texels a row (22 bones x 3 texels: rows of an affine [R | t], then the belly texels), SKIN_ROWS rows shared by every skinned mesh; each
 //             mesh holds a run of rows (one an instance it may skin, `cap`), and an instance's row rides in its anim.y (which the
 //             rig uses for the body wave or the turning mix: the bones carry both). Uploaded once a frame when anything changed.
 //   vertex    the bake's binding (`_SKIN`: bone 0, bone 1, w0, w1; `_SKINX`: bone 2, bone 3, w2, w3; tools/rig/skeleton.mjs skinFour)
