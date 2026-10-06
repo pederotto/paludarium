@@ -51,6 +51,8 @@ export const L = {
   bugs: signal(0),
   pauseOnBug: signal(false),      // freeze the clock on a finding that is a bug on its face
   report: signal(null),           // the report text when it could not be copied: shown to select by hand
+  background: signal(true),       // keep the world running while the tab is hidden (background.js)
+  hiddenRun: signal(0),           // steps made while hidden (for tests)
   restored: signal(false),        // this page came back from a saved session
   tab: signal('animals'),         // phone: the open sheet ('world' | 'animals' | 'sel' | null)
 };

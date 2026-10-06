@@ -112,3 +112,13 @@ test('an orbiting dot keeps its radius and goes round at speed / radius', () => 
   for (let k = 0; k < 200; k++) { dotStep(d, 0.1, B); assert.ok(Math.abs(Math.hypot(d.x, d.z) - 10) < 1e-9); }
   assert.ok(Math.abs(d.ang - (5 / 10) * 20) < 1e-9);
 });
+
+test('a go-to on the wall names its goal across and up, and is done only once the animal is on the wall within tolerance', () => {
+  const d = makeDrive({ type: 'goto', wall: true, x: 10, y: 30, z: -22, tol: 2 });
+  const r0 = driveStep(d, { x: 10, y: 3, z: 0 }, {}, 0, false);
+  assert.deepEqual(r0.goal, { x: 10, y: 30, z: -22, wall: true });
+  assert.equal(driveStep(d, { x: 10, y: 29, z: 0 }, {}, 0, false).done, false, 'on the floor below the point it is not there');
+  assert.equal(driveStep(d, { x: 15, y: 30, z: -21 }, {}, 0, true).done, false, '5 cm along the wall is not there');
+  const r = driveStep(d, { x: 10.5, y: 29.2, z: -21.9 }, {}, 0, true);
+  assert.equal(r.done, true); assert.equal(r.goal, null);
+});

@@ -104,6 +104,7 @@ export function dotStep(d, dt, b) {
 
 // --- Drives ------------------------------------------------------------------------------------------------------------------
 // { type: 'goto', x, z, tol }                      go there and stop
+// { type: 'goto', wall: true, x, y, z, tol }       a point on the background wall (a climber: x across, y up): there when it is on the wall within tol
 // { type: 'path', pts, closed, mode, tol }         mode 'loop' (round and round), 'once', 'pingpong'
 // { type: 'follow', dot, keep, tol }               chase a dot; stop `keep` cm from it
 export function makeDrive(spec) {
@@ -117,10 +118,15 @@ export function makeDrive(spec) {
 // One step of a drive from position p: returns { goal: { x, z } | null, done, pace }. `dots`: { [id]: { x, z } }. `dt`: seconds since
 // the last step, for a waypoint that makes the animal wait (a stop in a random path). `pace`: what the goal waypoint asks of the walking
 // pace (1 = the drive's own).
-export function driveStep(d, p, dots = {}, dt = 0) {
+export function driveStep(d, p, dots = {}, dt = 0, onWall = false) {
   if (d.done) return { goal: null, done: true };
   switch (d.type) {
     case 'goto': {
+      if (d.wall) {
+        // (on the wall the animal's depth is the relief's: only across and up count)
+        if (onWall && Math.hypot(p.x - d.x, p.y - d.y) <= d.tol) { d.done = true; d.reached++; return { goal: null, done: true }; }
+        return { goal: { x: d.x, y: d.y, z: d.z, wall: true }, done: false };
+      }
       if (dist2(p, d) <= d.tol) { d.done = true; d.reached++; return { goal: null, done: true }; }
       return { goal: { x: d.x, z: d.z }, done: false };
     }

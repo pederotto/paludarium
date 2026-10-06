@@ -11,7 +11,7 @@ import { L } from './state.js';
 // The grounds the arena comes with. Flat: the whole floor at FLOOR cm. Shore: dry land at LAND cm on the left, a ramp of a bank
 // in the middle and a pool floor at POOL cm on the right, so animals that need a shore (newts, seashore springtails) can be released.
 export const GROUNDS = { flat: 'Flat floor', shore: 'Pool and bank' };
-export const FLOOR = 3, LAND = 8, POOL = 0.5;
+export const FLOOR = 3, LAND = 8, POOL = 0.5, BACKGROUND = 2.5;
 export const maxDepth = (ground) => (ground === 'shore' ? LAND - POOL - 1 : 30);
 
 export const tankChoices = () => Object.values(TANKS).filter((t) => t.id !== 'custom').map((t) => ({ id: t.id, name: `${t.name} ${t.w}×${t.d}×${t.h}` }));
@@ -28,6 +28,9 @@ export async function buildArena(game, { tank = 'standard', ground = 'flat', dep
   game.rig.setZone('tank', false);
   L.tank.value = game.tankId;
   L.sel.value = null;
+  // The background is as thick as a real one (the starter tank's averages 2.5 cm): on a flat 0.6 cm one a gecko on the floor never gets
+  // close enough to the wall to start a climb (the mind needs it within 2.6 cm of the relief and animals keep 4 cm from the glass).
+  W.wall.field.h.fill(BACKGROUND); W.wall.field.dirty = true;
   shapeGround(game, ground);
   setDepth(game, depth);
   if (settle) await game.settle();   // (needs the frame loop: the first build starts it first, see index.js start)
