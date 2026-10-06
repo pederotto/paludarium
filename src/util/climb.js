@@ -1,0 +1,116 @@
+// A frog's climb as a body movement (owner's Movement rule, CLAUDE.md): the pulses of its four limbs, and the advance and the yaw that come out
+// of them, never the sim writing a position or a heading. Pure arithmetic; the state lives on `st` (climbState). The sim only asks for an intent
+// (`go`, `steer`); the render layer draws the limbs through render/creatures/skeleton.js poseStroke from `climbPose`, and the muscles get their
+// activation from the same phases (`climbMove`: content/anuranmuscles.js moveExcitation mode 'climb', windows swing 0-0.25 of a limb's cycle,
+// placing to 0.45, the stretch 0.45-0.60, then stance).
+//
+// READ OFF THE OWNER'S CLIPS (.agents/refs/walk-climb-turn-1006, reports/W1.md, W2.md, A3.md; ONE OR TWO EVENTS EACH: every number is inconclusive):
+//   a dart frog up a wall (clip 2): a PULSE, fore right, fore left, hind right, hind left, 0.07-0.1 s apart, each limb's swing 0.07-0.13 s, then a
+//   hold of 3 s or more; the torso bends 10-20 deg toward the reaching hand; the body advances 0.25-0.5 of its length a pulse.
+//   a tiger-striped tree frog up a branch (clip 1): slow single-limb steps (a fore swing 0.5-0.6 s), a fore pair then a hind pair, the hand
+//   peeled wrist first and the toes spread before it lands.
+// GUESSED (no clip): the hold between pulses of a game frog (shorter than the clips' 3 s), the share of the advance each limb gives, the yaw a pulse
+// turns the body, the head leading the trunk, the poses between the key poses.
+
+// (util imports nothing from src, util included: the key poses are copied from gait.js HIND and FORE, and tests/climb.test.mjs keeps them in step)
+const HIND = { cock: [105, -25, 80, 85, -14, 16, -22, -22, 0], open: [36, 24, 34, 40, -5, 0, -8, -5, 35], turn: [95, -25, 45, 55, -12, 14, -10, -12, 30] };
+const FORE = { spread: [76, 109, 119, 10, -9, -2], reach: [150, 165, 172, -38, -48, -12] };
+export const CLIMB_KEYS = { HIND, FORE };
+
+const DEG = Math.PI / 180;
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const smooth = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
+
+export const CLIMB = {
+  limbDur: 0.4,                      // s one limb's cycle lasts: a swing of 0.1 s is a quarter of it (clip 2: 0.07-0.13 s)
+  // each limb starts this long after the pulse began, the lead side's fore first (clip 2: R fore, L fore, R hind, L hind, 0.07-0.1 s apart)
+  stagger: { foreLead: 0, foreOther: 0.08, hindLead: 0.20, hindOther: 0.28 },
+  stride: 0.4,                       // body lengths a pulse advances (clip 2: 0.25-0.5)
+  share: { fore: 0.15, hind: 0.35 }, // of a pulse's advance each fore and each hind leg gives (guess: the hind legs push, the fore pull)
+  stretch: [0.45, 0.60],             // a hind leg's own phase window of the stretch that drives the body (anuranmuscles.js moveExcitation, W2 clip 3)
+  pull: [0.45, 0.80],                // a fore leg's, the hand planted and the body drawn up to it
+  yawPulse: 35 * DEG,                // rad a pulse at full steer turns the body (guess: clip 4's 105 deg in 0.65 s was fore steps and legs together)
+  trunkYaw: 12,                      // deg the torso bends toward the reaching hand (clip 2: 10-20), and 25 more at full steer (rom spine 25)
+  headLead: 1.5,                     // the head turns this much more than the torso, and a little before it (clip 4: the head leads the hips by 20-30 deg)
+  period: [2.4, 1.0],                // s between the starts of two pulses, at urgency 0 and 1 (guess: the clips hold 3 s; a game frog climbs to a perch)
+};
+const PULSE_LEN = CLIMB.stagger.hindOther + CLIMB.limbDur;
+
+export const climbState = (rnd = Math.random) => ({
+  t: -1,                             // the pulse clock (s); < 0 between pulses
+  hold: 0.3 + rnd() * 0.5,           // s until the next pulse
+  lead: rnd() < 0.5 ? -1 : 1,        // the side whose fore leg starts the pulse (+1 the right)
+  fL: 0, fR: 0, hL: 0, hR: 0,        // each limb's own phase 0 ... 1 (0 and 1: held)
+  act: 0,                            // 1 while any limb is moving
+  steer: 0, pulses: 0,
+  trunk: new Float32Array(6),        // the torso's and the head's channels as poseStroke reads them: [spine yaw, pitch, twist, head yaw, pitch, twist] (deg)
+});
+
+const win = (p, [a, b]) => clamp01((p - a) / (b - a));         // 0 before the window, 1 after it
+const wind = (p0, p1, w) => smooth(win(p1, w)) - smooth(win(p0, w));   // how much of a window's work an advance of phase p0 -> p1 does
+
+// One tick. intent: `go` (0 | 1: climb), `steer` (-1 ... 1: the turn to make, + toward the right), `urgency` (0 ... 1). `bodyLen` (cm) sizes the stride.
+// Returns { adv (cm along the heading), dyaw (rad) } this tick: nonzero only inside a pulse, from the limbs' own drive windows.
+export function climbStep(st, { go = 1, steer = 0, urgency = 0.5, bodyLen = 3, rnd = Math.random } = {}, dt) {
+  const out = { adv: 0, dyaw: 0 };
+  st.steer = steer;
+  if (st.t < 0) {                                                // between pulses: still
+    st.act = 0; st.fL = st.fR = st.hL = st.hR = 0; st.trunk.fill(0);
+    st.hold -= dt;
+    if (go && st.hold <= 0) { st.t = 0; st.lead = steer > 0.15 ? 1 : steer < -0.15 ? -1 : -st.lead; st.pulses++; }
+    else return out;
+  }
+  const t0 = st.t; st.t += dt;
+  const S = CLIMB.stagger, lead = st.lead;
+  // each limb's phase at a time t of the pulse, and the lead side's first
+  const at = (t, off) => clamp01((t - off) / CLIMB.limbDur);
+  const off = { fR: lead > 0 ? S.foreLead : S.foreOther, fL: lead > 0 ? S.foreOther : S.foreLead, hR: lead > 0 ? S.hindLead : S.hindOther, hL: lead > 0 ? S.hindOther : S.hindLead };
+  let f = 0;                                                     // the share of the pulse's work done this tick
+  for (const k of ['fR', 'fL']) { f += CLIMB.share.fore * wind(at(t0, off[k]), at(st.t, off[k]), CLIMB.pull); st[k] = at(st.t, off[k]); }
+  for (const k of ['hR', 'hL']) { f += CLIMB.share.hind * wind(at(t0, off[k]), at(st.t, off[k]), CLIMB.stretch); st[k] = at(st.t, off[k]); }
+  st.act = 1;
+  out.adv = f * CLIMB.stride * bodyLen;
+  out.dyaw = steer * CLIMB.yawPulse * f;                         // the turn comes with the drive: the legs' push, with the torso bent toward the way it goes
+  // the torso toward the reaching hand (and the steer), the head ahead of it: a bump over the fore swings and the draw (the pulse's first 0.7)
+  const u = clamp01(st.t / (PULSE_LEN * 0.9)), bump = Math.sin(Math.PI * u) ** 2;
+  const yaw = (lead * CLIMB.trunkYaw + steer * 25) * bump;
+  st.trunk[0] = yaw; st.trunk[3] = yaw * CLIMB.headLead * (1 + 0.2 * Math.cos(Math.PI * u));
+  if (st.t >= PULSE_LEN) {                                       // the pulse is over: hold
+    st.t = -1; st.fL = st.fR = st.hL = st.hR = 0; st.trunk.fill(0); st.act = 0;
+    const [slow, fast] = CLIMB.period;
+    st.hold = Math.max(0.15, slow + (fast - slow) * urgency - PULSE_LEN) * (0.8 + 0.4 * rnd());
+  }
+  return out;
+}
+
+// --- The limbs' angles through a pulse -----------------------------------------------------------------------------------------------
+// A limb's key poses against its own phase 0 ... 1: [phase, pose]. Hold: the hind legs cocked, the arms out to the sides (the swimming scan's
+// own spread: the frog is drawn on its swimming body against the wall, limbs apart). A hind leg swings forward with the foot peeled off the wall
+// (ph +), plants, then stretches straight back (HIND.open) and relaxes; a fore leg lifts and reaches forward, plants with the hand toward the wall
+// (ph -), and draws back as the body comes up to it.
+const HIND_KEYS = [[0, HIND.cock], [0.14, [128, -34, 70, 80, 8, 20, -4, -4, 20]], [0.30, [124, -30, 66, 76, -10, 14, -14, -14, 10]], [0.45, [118, -24, 60, 70, -14, 10, -18, -18, 0]],
+  [0.60, HIND.open], [0.80, HIND.turn], [1, HIND.cock]];
+const FORE_KEYS = [[0, FORE.spread], [0.12, [112, 140, 150, 16, -6, -4]], [0.30, FORE.reach], [0.45, FORE.reach], [0.80, FORE.spread], [1, FORE.spread]];
+function keyed(keys, p, out, o) {
+  let i = 1; while (i < keys.length - 1 && p > keys[i][0]) i++;
+  const [p0, A] = keys[i - 1], [p1, B] = keys[i], k = smooth((p - p0) / (p1 - p0 || 1));
+  for (let j = 0; j < A.length; j++) out[o + j] = A[j] + (B[j] - A[j]) * k;
+}
+
+// The pose of a climbing frog as a stroke for the swimming body (render/creatures/skeleton.js poseStroke): `out` is reused between calls.
+// { legA (18: left hind then right), armA (12: left then right), trunk (6), move (the muscles' mode and each hind leg's own phase) }
+export function climbPose(st, out = {}) {
+  out.legA ??= new Float32Array(18); out.armA ??= new Float32Array(12);
+  keyed(HIND_KEYS, st.hL, out.legA, 0); keyed(HIND_KEYS, st.hR, out.legA, 9);
+  // (the fore keys are [th x3, ph x3] a side)
+  keyed(FORE_KEYS, st.fL, out.armA, 0); keyed(FORE_KEYS, st.fR, out.armA, 6);
+  out.trunk = st.trunk;
+  out.move = climbMove(st, out.move);
+  return out;
+}
+
+// What the muscle layer reads (render/creatures/muscles.js motionOf): the mode, each hind leg's own phase and its strength.
+export function climbMove(st, out = {}) {
+  out.mode = 'climb'; out.pL = st.hL; out.pR = st.hR; out.ampL = st.act ? 1 : 0; out.ampR = st.act ? 1 : 0;
+  return out;
+}

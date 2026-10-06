@@ -14,6 +14,7 @@ import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, kickHeave, fra
 import { limbFrame, turnFrame, turnStep, pivotShift, turnSteps, turnPose, steerLimit } from '../util/turn.js';
 import { PLANS, planOf, limitRig, swimProfile } from '../util/bodyplan.js';
 import { swimState, swimStep, swimPose, leapPose } from '../util/gait.js';
+import { climbState, climbStep, climbPose, CLIMB } from '../util/climb.js';
 import { swimMotion, spinHz, queuePush, pushPending } from '../util/swimturn.js';
 import { hopPlan, hopAt, hopPitch, hopFrame, svlOf } from '../util/hop.js';
 import { buccalState, buccalStep, pumpThroat, pumpBreath, swallowDrive, eyeStep } from '../content/anuranheadmuscles.js';
@@ -2078,6 +2079,7 @@ export class Animals {
     const W = this.world, T = W.terrain;
     const want = W.env.bright() > 0.25 && a.hunger < 0.6 && !a.swimming && !a.order && !a.hop;
     const P = a.perch;
+    a._climbPrev = a.climbOn; a.climbOn = false;
     if (P && !P.path) a.perch = null;                                    // (a perch from an older version: start again)
     else if (P) {
       const gone = (P.plant && !W.plants.list.includes(P.plant)) || (P.piece && !W.decor.pieces.includes(P.piece));
@@ -2113,14 +2115,30 @@ export class Animals {
       if (P.ph === 'up' || P.ph === 'down') {
         const goal = P.path[P.i];
         const dx = goal.x - a.pos.x, dy = goal.y - a.pos.y, dz = goal.z - a.pos.z, dist = Math.hypot(dx, dy, dz), dh = Math.hypot(dx, dz);
-        const step = Math.min(dist, sp.speed * 1.4 * dt);
-        if (dist > 1e-3) { a.pos.x += (dx / dist) * step; a.pos.y += (dy / dist) * step; a.pos.z += (dz / dist) * step; }
+        // Belly to a surface (the pane, a piece's side) the climb is the limbs' (util/climb.js): pulses of the four limbs, and the advance and the yaw come
+        // out of them (owner's Movement rule); a stem, the ground and the water as before.
+        const surf = P.exit === 'glass' ? (P.i >= 2 && P.i <= P.glassTo ? P.glassN : null) : P.glassN ? (Math.abs(dy) > dh * 1.5 ? P.glassN : null) : goal.n ?? null;
+        let step = 0;
+        if (surf) {
+          const cl = a.climb ??= climbState(), bb = this.bodyBox(a, sp), want = dist > 0.05 ? this.glassYawTo(surf, dx, dy, dz) : (a.yaw ?? 0);
+          if (!a._climbPrev) { a.yaw = want; cl.t = -1; cl.hold = 0.15; }       // (it takes hold of the surface heading the way it climbs: the mount, as before)
+          const err = angDiff(want, a.yaw ?? 0);
+          const m = climbStep(cl, { go: dist > 0.3 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.6, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
+          a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
+          const adv = Math.min(dist, m.adv * Math.max(0, Math.cos(err)));
+          surfaceFrame(surf.x, surf.y, surf.z, a.yaw, _gf);
+          a.pos.x += _gf[0] * adv; a.pos.y += _gf[1] * adv; a.pos.z += _gf[2] * adv;
+          step = adv; a.climbOn = true; a.stepping = cl.act ? 0.18 : 0;
+        } else {
+          step = Math.min(dist, sp.speed * 1.4 * dt);
+          if (dist > 1e-3) { a.pos.x += (dx / dist) * step; a.pos.y += (dy / dist) * step; a.pos.z += (dz / dist) * step; }
+        }
         // Climbing out of the water and held back (the glass or a bank keeps its body off the next point for 2 s): it lets go and
         // swims for another way out (that one is no good for a while).
         if (P.exit) {
           if (P.gi !== P.i) { P.gi = P.i; P.near = Infinity; P.stuck = 0; }
           if (dist < P.near - 0.05) { P.near = dist; P.stuck = 0; }
-          else if ((P.stuck += dt) > 2) {
+          else if ((P.stuck += dt) > (surf ? 4.5 : 2)) {             // (a pulsed climb holds between its pulses)
             a.perch = null; a.pitch = 0; a.normal = null; a.timer = 0;
             (a.badShore ??= []).push([P.top.x, P.top.z]); if (a.badShore.length > 8) a.badShore.shift();
             return false;
@@ -2130,18 +2148,17 @@ export class Animals {
         if (P.exit === 'glass') {
           // Out of the water up the glass: belly to it, heading the way it climbs (up, along the pane, down onto the land); at the
           // foot of the glass in the water and on the land beyond it, by its heading.
-          if (P.i >= 2 && P.i <= P.glassTo) { a.normal = P.glassN; onGlass = true; if (dist > 0.05) a.yaw = this.glassYawTo(P.glassN, dx, dy, dz); }
+          if (P.i >= 2 && P.i <= P.glassTo) { a.normal = P.glassN; onGlass = true; }
           else { a.normal = P.i > P.glassTo ? T.normalAt(a.pos.x, a.pos.z) : null; if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6)); }
           a.pitch = 0;
         } else if (P.glassN) {
           // On the glass belly to it, head up (head first coming down); across the ground at its foot, standing on the ground.
-          if (Math.abs(dy) > dh * 1.5) { a.normal = P.glassN; onGlass = true; a.yaw = P.glassYaw + (dy < 0 ? Math.PI : 0); }
+          if (Math.abs(dy) > dh * 1.5) { a.normal = P.glassN; onGlass = true; }
           else { a.normal = T.normalAt(a.pos.x, a.pos.z); if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6)); }
           a.pitch = 0;
         } else if (goal.n) {
           // Up the side of a piece: belly to its surface here, heading the way it climbs, the belly plane on the surface (as on the glass).
           a.normal = goal.n; onGlass = true; a.pitch = 0;
-          if (dist > 0.05) a.yaw = this.glassYawTo(goal.n, dx, dy, dz);
         } else {
           // Up a stem or the background, over wood: drawn by heading and pitch, nose up the climb (head first coming down).
           a.normal = null;
@@ -2158,7 +2175,7 @@ export class Animals {
           a.pos.x -= n.x * k; a.pos.z -= n.z * k;
         }
         a.speedNow = step / Math.max(1e-4, dt); a.state = 'walk';
-        if (dist - step < 0.05) {
+        if (surf ? Math.hypot(goal.x - a.pos.x, goal.y - a.pos.y, goal.z - a.pos.z) < 0.3 : dist - step < 0.05) {
           P.i += P.ph === 'up' ? 1 : -1;
           if (P.ph === 'up' && P.i >= P.path.length) {
             // Out of the water (startExit): it sits on the land it climbed onto, a moment, then frog() is in charge again.
@@ -4698,6 +4715,9 @@ export class Animals {
         // A frog in the water is drawn in its swimming body (`<id>.swim`: the frog scanned mid-stroke, its limbs apart, skinned by its
         // own skeleton through the stroke: render/creatures/skeleton.js poseStroke); until that has loaded, in the sitting one.
         const swimMesh = frogish && a.swimming && !a.hop ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
+        // A frog climbing belly to a surface is drawn on its swimming body (limbs apart, against the wall) posed by its climb (util/climb.js: each limb its own
+        // phase in the pulse, the torso bent toward the reaching hand); the sitting body walks when the swimming one has not loaded (or on Low).
+        const climbMesh = frogish && a.climbOn && a.climb && (a.perch?.ph === 'up' || a.perch?.ph === 'down') && !a.swimming && !a.hop ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
         const sw = frogish && a.swimming && !a.hop ? swimPose(a.sw ??= swimState(), swimProfile(id), { t: this.t + a.phase, ...(swimMesh ? { level: 0 } : {}) }) : null;
         // At the surface it rides the water: up and down with the ripples under it and tipped with their slope (ride).
         const rd = a.swimming && !a.hop && (frogish || sp.kind === 'newt' || sp.kind === 'axolotl') ? this.ride(a, sp, sc, dt / this.tf) : null;
@@ -4803,6 +4823,8 @@ export class Animals {
           _p.set(hp.from.x + hf.pos[0] * ch + hf.pos[2] * sh, hp.from.y + hf.pos[1], hp.from.z - hf.pos[0] * sh + hf.pos[2] * ch);
           q.setFromEuler(e.set(hf.pitch, a.yaw, hf.roll, 'YXZ'));
           leapMesh.put(_p, q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, st);
+        } else if (climbMesh?.strokes) {
+          climbMesh.put(pos, q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, a.climbSt = climbPose(a.climb, a.climbSt ?? {}));
         } else if (sleepMesh) sleepMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (breathing, eyes shut)
         else if (swimMesh) {
           sw.stroke.info = a.swTips ??= {};
