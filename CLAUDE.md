@@ -1,5 +1,28 @@
 # Paludarium
 
+@docs/RULES.md
+
+## The owner's documents: read them cheaply
+A full read of the master document costs about 50k tokens; what a session needs from it is about 4k.
+- **Master document** "Paludarium: what's left and the rules" (Claude Doc `84818151-7698-4d92-b67d-4280866913ff`):
+  read only its **Start here** tab, which is kept short: Docs connector `read` with ref
+  `{"object":"node","id":"02f6cee4-738b"}`, engine `prose`, container
+  `{"kind":"project","id":"84818151-7698-4d92-b67d-4280866913ff"}`, payload `{"kind":"view"}` (`/start` does this).
+  The **History and details** tab (body `3988540d-8056`) is never read whole: `{"projection":"outline"}` gives its
+  headings (about 4k tokens), then `{"kind":"view","parentId":"<block id>"}` for one block, or
+  `{"kind":"search","text":"<words>"}`.
+- **Boards: read their data, never their pages** (a page is about 10k characters of HTML with no content). With
+  `ArtifactData`: Status Board `https://claude.ai/artifact/UsHwHfZ5meb88MFqTADtPW` (`live/site`, `work`,
+  `decisions`); Playtest `https://claude.ai/artifact/9Jxje2XY35aqoyyfDgErAz` (`reports`, `triage`); Species Board
+  `https://claude.ai/artifact/3pxzRNmVqRJAjGFKvMHqHj` (`species`, one document per species id: `get` the one you
+  need); Performance `https://claude.ai/artifact/TvBZLiAcxsjkwyBbCKNhii` (`baselines`).
+- **Rig playbook** (Claude Doc `3081e0e0-084a-470e-ba7e-195756061767`) and **frog muscle pack**
+  (`10b3faaf-aca0-4f2c-9f33-ed571282a7b0`): only for animal work, by outline and then one section.
+- **What to use for water, false bottom, plumbing, textures and breathing**: "Paludarium: repos and strategies to
+  use" (`1d58f5c9-1827-4a71-9f86-6a56e622b8f4`), by outline.
+- Agents in a run never read these: their lead gives them a one-page brief (docs/AGENT_RUNS.md).
+- At the end of a session, rewrite the handoff at the top of the Start here tab (at most 20 lines).
+
 ## Assets
 - Raw assets are dropped in `art-src/drop/`, any name, any kind, unsorted. When the user says
   they dropped something, or asks for art work, look there first.
