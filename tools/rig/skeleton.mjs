@@ -287,7 +287,7 @@ export function skin(pos, nor, bind, mats) {
 }
 
 // A frog's bones from its joints (scan units): pelvis, spine and head along the body; per side (L x < 0, R x > 0) thigh, shin,
-// foot and toes (hind legs, rig ids 3 / 4) and upper arm, forearm and hand (front legs, 1 / 2).
+// foot and toes (hind legs, rig ids 3 / 4) and upper arm, forearm and hand (front legs, 1 / 2); with `scap<side>` a scapula, with `fingertip<side>` a fingers bone.
 export function frogBones(j) {
   const B = [
     { name: 'pelvis', parent: null, head: j.vent, tail: j.mid, limb: 0 },
@@ -295,6 +295,7 @@ export function frogBones(j) {
     ...(j.mid2 ? [{ name: 'spineB', parent: 'spine', head: j.mid2, tail: j.chest, limb: 0 }] : []),   // (T4: the trunk split in two, the swim toad's 18th bone; head and arms hang from it)
     { name: 'head', parent: j.mid2 ? 'spineB' : 'spine', head: j.neck, tail: j.snout, limb: 0 },
   ];
+  const trunkB = j.mid2 ? 'spineB' : 'spine';
   for (const [s, hind, front] of [['L', 3, 1], ['R', 4, 2]]) {
     const J = (k) => j[k + s];
     B.push(
@@ -302,9 +303,14 @@ export function frogBones(j) {
       { name: 'shin' + s, parent: 'thigh' + s, head: J('knee'), tail: J('heel'), limb: hind },
       { name: 'foot' + s, parent: 'shin' + s, head: J('heel'), tail: J('ankle'), limb: hind },
       { name: 'toes' + s, parent: 'foot' + s, head: J('ankle'), tail: J('toe'), limb: hind },
-      { name: 'arm' + s, parent: j.mid2 ? 'spineB' : 'spine', head: J('shoulder'), tail: J('elbow'), limb: front },
+      // (the shoulder girdle, 22-bone frogs: a scapula from a point on the back by the spine to the shoulder, which the arm hangs from; it lets the arm
+      // reach overhead: the red-eyed tree frog's clip 3. Absent = the arm hangs from the trunk as before)
+      ...(J('scap') ? [{ name: 'scapula' + s, parent: trunkB, head: J('scap'), tail: J('shoulder'), limb: 0 }] : []),
+      { name: 'arm' + s, parent: J('scap') ? 'scapula' + s : trunkB, head: J('shoulder'), tail: J('elbow'), limb: front },
       { name: 'forearm' + s, parent: 'arm' + s, head: J('elbow'), tail: J('wrist'), limb: front },
       { name: 'hand' + s, parent: 'forearm' + s, head: J('wrist'), tail: J('finger'), limb: front },
+      // (the fingers: the discs' bone, from the palm's end to the disc tips; it curls and peels as the pad does)
+      ...(J('fingertip') ? [{ name: 'fingers' + s, parent: 'hand' + s, head: J('finger'), tail: J('fingertip'), limb: front }] : []),
     );
   }
   return B;
