@@ -144,7 +144,19 @@ Nauwelaerts 2005 and Richards 2010 (`control/anatomy-A2.md`):
   (`DIAMOND_HOLD`: up to 0.12 of a cycle at urgency 0, none fleeing; the pool frog held it about twice its draw).
 - The turn-out parts the heels (shin -25 rather than -38, which kept them on the midline and made an X from above) and turns the feet
   out; cocked, the knees are at the sides (thigh 105, the clips 95-110), the feet out to the sides.
-- A leg that kicks less holds the diamond while the other kicks (the pool frog's turn), rather than drifting to the floating pose.
+- A leg that kicks less holds the diamond while the other kicks (the pool frog's turn), rather than drifting to the floating pose, and
+  only then: `steerWeight` (util/gait.js) is 0 through the glide (0.26-0.72), ramps in over 0.72-0.92, is 1 from 0.92 to 0.16 and ramps
+  out by 0.26, so in the glide both legs lie together (until 6 Oct the steering leg stayed folded in the diamond through the other's
+  glide: thigh 25.5 deg and shin 19.5 deg apart, its shin across the midline). The window edges are guesses. The clip's one-leg kick
+  FROM the diamond, then both legs turning out, is a separate phase not built.
+- Heading and pushes come from the stroke (`util/swimturn.js`, `swimMotion`): yaw 30 deg/s at most at full steer, only on the ticks the
+  stroke runs (the pool frog turned 45 deg in 1.8 s, `.agents/frogfix/refs/STEER.md`, one clip: measured; the dead zone and the rate's
+  shape inside a cycle are guesses); a neighbour's push is queued and released by the next kick, a floating body drifts at once (2 cm/s,
+  guess); a nearly stopped swimmer facing the wrong way pivots at 60 deg/s (guess, and it has no leg pose yet: a body turning
+  without a body movement). Back-off and sidestep exist in the module but the sim does not call them (no clip).
+- Every swimming frog is drawn by its stroke, not as the vertex rig's frozen pose (`render/creatures/skin.js`, `instanced.js`): a
+  swimming body's rows follow its species' cap instead of 6 (SKIN_ROWS 512; 614 KB of bone texture uploaded a frame); on the Low
+  preset and weak GPUs (skinning off) the old 6 stay (`SKIN.lowStrokes`), so there the rest still draw frozen.
 - The arms sweep back over the kick's first half, lie back along the body through the glide, and brace forward with the elbow bent at
   most halfway as the legs draw up (never out like wings).
 - Floating is by species (the owner: "species based mix"): `floatPose` 'spread' (the fire-bellied toad, spread-eagled, head up) or

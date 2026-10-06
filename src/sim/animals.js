@@ -14,6 +14,7 @@ import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, kickHeave, fra
 import { limbFrame, turnFrame, turnStep, pivotShift, turnSteps, turnPose, steerLimit } from '../util/turn.js';
 import { PLANS, planOf, limitRig, swimProfile } from '../util/bodyplan.js';
 import { swimState, swimStep, swimPose, leapPose } from '../util/gait.js';
+import { swimMotion, queuePush, pushPending } from '../util/swimturn.js';
 import { hopPlan, hopAt, hopPitch, hopFrame, svlOf } from '../util/hop.js';
 import { buccalState, buccalStep, pumpThroat, pumpBreath, swallowDrive, eyeStep } from '../content/anuranheadmuscles.js';
 import { Tongues } from '../render/creatures/tongue.js';
@@ -3019,11 +3020,19 @@ export class Animals {
     // making for its way out kicks with both legs; a toad at home in the water potters about, one leg after the other. It steers
     // with its legs: the leg on the inside of a turn trails while the outer one drives.
     const want = a.shore ? Math.atan2(a.shore.x - a.pos.x, a.shore.z - a.pos.z) : a.yaw;
-    const v = this.swimClock(a, sp, a.floating ? 0.1 : toad ? (a.roam || !a.exit && !a.shoreLand ? 0.25 : 0.6) : 0.95, dt, angDiff(want, a.yaw) / 0.9);
+    let v = this.swimClock(a, sp, a.floating ? 0.1 : toad ? (a.roam || !a.exit && !a.shoreLand ? 0.25 : 0.6) : 0.95, dt, angDiff(want, a.yaw) / 0.9);
+    // The heading changes only through the legs (util/swimturn.js); a push queued by separate()/nudge() is released by a kick.
+    // A frog facing well away from where it is going and nearly stopped pivots on the spot (legs opposed) instead of waiting for a stroke.
+    const err = a.shore && !a.floating ? angDiff(want, a.yaw) : 0, sw = a.sw;
+    if (sw) { if (Math.abs(err) > 1.57 && sw.v < 1.5) sw.spin = Math.sign(err); else if (Math.abs(err) < 0.9) sw.spin = 0; }
+    const spin = sw && sw.spin && Math.abs(err) > 0.9;
+    const mo = swimMotion(a.sw, swimProfile(a.sp), spin ? { intent: 'spin', dir: sw.spin } : {}, dt);
+    a.yaw += spin ? Math.sign(mo.dyaw) * Math.min(Math.abs(mo.dyaw), Math.abs(err)) : mo.dyaw;
+    if ((mo.px || mo.pz) && this.occ.segmentFreeAt(a, a.pos.x, a.pos.y, a.pos.z, a.pos.x + mo.px, a.pos.y, a.pos.z + mo.pz) >= 1) { a.pos.x += mo.px; a.pos.z += mo.pz; a.sw.pushOut = Math.hypot(mo.px, mo.pz); } else if (a.sw) a.sw.pushOut = 0;
     if (!a.shore) return;
     const dir = V(a.shore.x - a.pos.x, 0, a.shore.z - a.pos.z);
     const dist = dir.length();
-    this.turnTo(a, sp, want, dt, 3, false);
+    if (spin) v = 0;
     const nx = a.pos.x + Math.sin(a.yaw) * v * dt, nz = a.pos.z + Math.cos(a.yaw) * v * dt;
     // (resting or pottering it stays in water it can swim in: it turns back from the shallows instead of drifting ashore; one making
     // for a bank swims on into them)
@@ -3129,7 +3138,7 @@ export class Animals {
   // the phase the rig draws) and returns its speed in cm/s. (The water it moves: its hull and feet in the ripple field, hulls().)
   swimClock(a, sp, urgency, dt, steer = 0, sitting = false) {
     const st = (a.sw ??= swimState()), b = this.bodyOf(a.sp);
-    const v = swimStep(st, swimProfile(a.sp), { urgency, floating: !!a.floating, steer, sitting, bodyLen: b ? 2 * b.hlen * drawScale(a, sp) : 3 * sp.size }, dt);
+    const v = swimStep(st, swimProfile(a.sp), { urgency, floating: !!a.floating, steer, sitting, bodyLen: b ? 2 * b.hlen * drawScale(a, sp) : 3 * sp.size, wake: pushPending(st) > 0.3 && !a.floating }, dt);
     a.kick = st.phase;
     return v;
   }
@@ -3854,7 +3863,7 @@ export class Animals {
           if (sp.kind === 'swim') { a.vel.x += dx * 2; a.vel.y += dy * 2; a.vel.z += dz * 2; }
         } else if (sp.kind === 'frog' || sp.kind === 'toad') {
           if (!(L - fl >= 0.9 * sp.size) || this.occ.solidAt(x, a.pos.y, z)) continue;
-          a.pos.x = x; a.pos.z = z;
+          queuePush(a.sw ??= swimState(), x - a.pos.x, z - a.pos.z);      // (released by a kick: util/swimturn.js)
         } else {
           if (!this.okFor('water', x, z, 5, 0, Math.max(0.2, a.bh ?? 0.5))) continue;
           a.pos.x = x; a.pos.z = z; a.pos.y = fl;

@@ -410,7 +410,17 @@ const STROKE_TAB = (() => {
 // One hind leg's angles (degrees, the nine of HIND) at stroke phase `p`, written to out[o … o + 8]. `amp` (0 … 1): how fully it
 // kicks (less: toward the diamond, a leg that holds while the other kicks to turn, the pool frog 13.8-14.4 s); `float` (0 … 1):
 // resting at the surface, in the species' way (`floatPose` 'spread' or 'trail').
+// The damping only acts while the other leg kicks (steerWeight): in the glide both legs lie together. The window edges
+// (0.72-0.92 ramp in, 0.92 to 0.16 full, 0.16-0.26 ramp out) are GUESSES, not measured on the clip.
+export function steerWeight(p) {
+  p = frac(p);
+  if (p >= 0.92 || p < 0.16) return 1;
+  if (p < 0.26) return 1 - smooth((p - 0.16) / 0.1);
+  if (p < 0.72) return 0;
+  return smooth((p - 0.72) / 0.2);
+}
 export function strokeAngles(p, out, o = 0, amp = 1, float = 0, floatPose = 'spread') {
+  amp = 1 + (amp - 1) * steerWeight(p);
   const u = frac(p) * STROKE_N, i = Math.min(STROKE_N - 1, Math.floor(u)), f = u - i, D = HIND.draw, F = floatPose === 'trail' ? HIND.floatTrail : HIND.float;
   for (let c = 0; c < HC; c++) {
     const v = STROKE_TAB[i * HC + c] * (1 - f) + STROKE_TAB[(i + 1) * HC + c] * f, a = D[c] + (v - D[c]) * amp;
@@ -452,8 +462,12 @@ export const swimState = (rnd = Math.random) => ({ phase: 0.9 + rnd() * 0.08, bu
 // Kicks a second at an urgency 0 (pottering) … 1 (a dash for the way out).
 export const kickRate = (prof, urgency) => lerp(prof.kickHz[0], prof.kickHz[1], clamp01(urgency));
 
-export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0, sitting = false, bodyLen = 4, rnd = Math.random } = {}, dt) {
+export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0, sitting = false, bodyLen = 4, rnd = Math.random, wake = false } = {}, dt) {
   if (!(dt > 0)) return st.v;
+  // (st.act / st.dph: the stroke ran this tick, and how far the clock moved: util/swimturn.js turns and pushes only on those; `wake`:
+  // a push is queued, so a resting or floating frog takes a stroke to release it)
+  st.act = 0; st.dph = 0;
+  if (wake && !sitting) { floating = false; st.rest = 0; st.hold = 0; }
   // (eased, so the legs pass from one way of swimming to another instead of jumping: floating, one leg after the other, steering,
   // sitting on the bottom)
   const ease = (k, to, rate) => { st[k] = (st[k] ?? 0) + (to - (st[k] ?? 0)) * Math.min(1, dt * rate); };
@@ -498,6 +512,7 @@ export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0,
   // (pottering) drives half as hard twice a cycle and gets on more slowly; a leg held back to steer drives less.
   const both = kickSpeed(st.phase), one = 0.5 * (kickSpeed(st.phase) + kickSpeed(st.phase + 0.5)) * 0.7;
   st.v = (prof.reach * bodyLen * hz / KICK_MEAN) * lerp(both, one, st.alt) * (1 - 0.3 * Math.abs(st.steer));
+  st.act = st.hold > 0 ? 0 : 1; st.dph = dt * hz;      // (the tick the diamond is taken up is its first: no turn)
   return st.v;
 }
 

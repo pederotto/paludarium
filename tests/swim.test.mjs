@@ -94,7 +94,7 @@ test('the stroke as joint angles: cocked, a wide kick, legs together in the glid
   // a leg that kicks less holds the diamond (pool 13.8-14.4 s: one leg kicks to turn, the other holds); floating is the species'
   // floating posture (the owner, 5 Oct: "species based mix")
   for (let c = 0; c < 9; c++) {
-    assert.ok(Math.abs(A(0.4, 0)[c] - HIND.draw[c]) < 1e-3);
+    assert.ok(Math.abs(A(0.98, 0)[c] - HIND.draw[c]) < 1e-3);
     assert.ok(Math.abs(A(0.1, 1, 1)[c] - HIND.float[c]) < 1e-3);
     assert.ok(Math.abs(Array.from(strokeAngles(0.1, new Float32Array(9), 0, 1, 1, 'trail'))[c] - HIND.floatTrail[c]) < 1e-3);
   }
@@ -238,4 +238,12 @@ test('only a frog at home in the water dives', () => {
   assert.ok(swimProfile('toad').dive && swimProfile('toad').float);
   for (const id of ['dartfrog', 'leucomelas', 'auratus', 'strawberry', 'bumblebee', 'reedfrog', 'redeye']) assert.ok(!swimProfile(id).dive && !swimProfile(id).float, id);
   assert.ok(man['redeye.swim']?.skeleton?.bind === 'swim', 'the red-eyed tree frog has the body it leaps in');
+});
+
+test('a steering leg lies with the other in the glide and still holds while the other kicks', () => {
+  const a = [], b = [];
+  strokeAngles(0.4, a, 0, 0.25); strokeAngles(0.4, b, 0, 1);
+  for (let c = 0; c < 9; c++) assert.ok(Math.abs(a[c] - b[c]) < 1e-9, 'glide: the legs mirror');
+  strokeAngles(0.08, a, 0, 0.25); strokeAngles(0.08, b, 0, 1);
+  assert.ok(Math.abs(a[0] - b[0]) > 10, 'kick window: the steering leg holds back');
 });
