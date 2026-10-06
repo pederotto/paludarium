@@ -159,6 +159,12 @@ export function climbPose(st, out = {}) {
   // (the fore keys are [th x3, ph x3] a side)
   keyed(FK, st.fL, out.armA, 0); keyed(FK, st.fR, out.armA, 6);
   out.trunk = st.trunk;
+  // the girdle and the fingers (a 22-bone frog; ignored by the others): the reaching side's shoulder lifts and swings forward through the fore leg's swing and
+  // placing and settles as the body is drawn up; the fingers peel (curl) as the hand lifts off and lie flat, the discs pressed, once it is placed
+  const reach = (p) => smooth(win(p, [0, 0.25])) * (1 - smooth(win(p, [0.45, 0.8]))), peel = (p) => Math.sin(Math.PI * clamp01(p / 0.3));
+  const rL = reach(st.fL), rR = reach(st.fR), sc = out.scap ??= [0, 0, 0, 0], fc = out.fcurl ??= [0, 0];
+  sc[0] = 12 * rL; sc[1] = 22 * rL; sc[2] = 12 * rR; sc[3] = 22 * rR;
+  fc[0] = 30 * peel(st.fL); fc[1] = 30 * peel(st.fR);
   out.move = climbMove(st, out.move);
   return out;
 }
