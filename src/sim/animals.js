@@ -44,7 +44,7 @@ const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
 const TAU = Math.PI * 2;
-const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion(), _qh = new THREE.Quaternion();
+const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _d = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion(), _qh = new THREE.Quaternion();
 const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0), _gb = V(0, 0, 0);
 const _fr = new Array(9), _gp = [0, 0, 0], _bb = { X: 0, z0: 0, z1: 0, H: 0 }, _sd = [0, 0, 0];     // (whole-body containment: inGlass, bodyBox, stemDepth)
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
@@ -60,6 +60,12 @@ function clingYaw(N) {
   return Math.atan2(v.x, v.z);
 }
 const GLASS_N = { front: V(0, 0, -1), left: V(1, 0, 0), right: V(-1, 0, 0) };
+// How far the pane is from the belly plane a frog clinging to it is drawn from (the pads' thickness; Animals.inGlass keeps 0.1 clear). It was 0.7 (0.4 where
+// the second look clamps), and the straight line from the foot of the climb to the top kept it further out while it went up: frogs floating off the glass
+// (owner, 6 Oct 2026; tools/steps/glass-cling.mjs).
+const GLASS_GAP = 0.12;
+// Where the belly plane of a frog on a piece (wood, roots, a stump, cork, a pole) is from its surface: pads on it, not the 0.35 it sat at.
+const PIECE_GAP = 0.12;
 // Frogs without toe pads (the bumblebee toad, the fire-bellied toad): out of the water they climb rough faces only up to about 70
 // degrees, and not the glass (Animals.exitClimb, exitGlass).
 const PADLESS = new Set(['bumblebee', 'toad']);
@@ -987,8 +993,10 @@ export class Animals {
       for (const [id, arr] of Object.entries(this.by)) {
         const sp = SPECIES[id];
         for (const a of arr) {
-          // Never beyond the glass: its middle, then the whole body as it is drawn (inGlass).
-          const hx = TANK.w / 2 - 0.4, hz = TANK.d / 2 - 0.4;
+          // Never beyond the glass: its middle, then the whole body as it is drawn (inGlass). (A frog clinging to the pane is held GLASS_GAP off it,
+          // not 0.4: the toes' pads on the glass, not a gap of a seventh of its length.)
+          const cling = a.perch?.glassN && a.perch.ph !== 'go' && a.normal && a.normal.dot(a.perch.glassN) > 0.99 ? GLASS_GAP : 0.4;
+          const hx = TANK.w / 2 - cling, hz = TANK.d / 2 - cling;
           a.pos.x = clamp(a.pos.x, -hx, hx); a.pos.y = clamp(a.pos.y, 0, TANK.h - 0.5);
           if (!a.wallMode) a.pos.z = clamp(a.pos.z, -hz, hz);
           if (sp.kind !== 'egg') this.inGlass(a, sp);
@@ -2118,22 +2126,36 @@ export class Animals {
             return false;
           }
         }
+        let onGlass = false;
         if (P.exit === 'glass') {
           // Out of the water up the glass: belly to it, heading the way it climbs (up, along the pane, down onto the land); at the
           // foot of the glass in the water and on the land beyond it, by its heading.
-          if (P.i >= 2 && P.i <= P.glassTo) { a.normal = P.glassN; if (dist > 0.05) a.yaw = this.glassYawTo(P.glassN, dx, dy, dz); }
+          if (P.i >= 2 && P.i <= P.glassTo) { a.normal = P.glassN; onGlass = true; if (dist > 0.05) a.yaw = this.glassYawTo(P.glassN, dx, dy, dz); }
           else { a.normal = P.i > P.glassTo ? T.normalAt(a.pos.x, a.pos.z) : null; if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6)); }
           a.pitch = 0;
         } else if (P.glassN) {
           // On the glass belly to it, head up (head first coming down); across the ground at its foot, standing on the ground.
-          if (Math.abs(dy) > dh * 1.5) { a.normal = P.glassN; a.yaw = P.glassYaw + (dy < 0 ? Math.PI : 0); }
+          if (Math.abs(dy) > dh * 1.5) { a.normal = P.glassN; onGlass = true; a.yaw = P.glassYaw + (dy < 0 ? Math.PI : 0); }
           else { a.normal = T.normalAt(a.pos.x, a.pos.z); if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6)); }
           a.pitch = 0;
+        } else if (goal.n) {
+          // Up the side of a piece: belly to its surface here, heading the way it climbs, the belly plane on the surface (as on the glass).
+          a.normal = goal.n; onGlass = true; a.pitch = 0;
+          if (dist > 0.05) a.yaw = this.glassYawTo(goal.n, dx, dy, dz);
         } else {
           // Up a stem or the background, over wood: drawn by heading and pitch, nose up the climb (head first coming down).
           a.normal = null;
           if (dh > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
           if (dist > 0.05) a.pitch = lerp(a.pitch ?? 0, clamp(-Math.atan2(dy, dh), -1.25, 1.25), Math.min(1, dt * 8));
+        }
+        // Belly to the glass it is ON the glass: the belly plane GLASS_GAP off the pane all the way up, not on the straight line from the foot of
+        // the climb to the top, which kept it 2 cm out in the air at the start (the plane through the pane's points of the path: its top).
+        if (onGlass && goal.n && !P.glassN) {                            // (a piece's side: the plane through the point it is climbing to, along its normal)
+          const n = goal.n, off = (a.pos.x - goal.x) * n.x + (a.pos.y - goal.y) * n.y + (a.pos.z - goal.z) * n.z, k = Math.min(1, dt * 8) * off;
+          a.pos.x -= n.x * k; a.pos.y -= n.y * k; a.pos.z -= n.z * k;
+        } else if (onGlass) {
+          const n = P.glassN, gp = P.exit ? P.path[2] : P.top, off = (a.pos.x - gp.x) * n.x + (a.pos.z - gp.z) * n.z, k = Math.min(1, dt * 8) * off;
+          a.pos.x -= n.x * k; a.pos.z -= n.z * k;
         }
         a.speedNow = step / Math.max(1e-4, dt); a.state = 'walk';
         if (dist - step < 0.05) {
@@ -2225,7 +2247,7 @@ export class Animals {
         const px = lerp(_box.min.x, _box.max.x, 0.2 + Math.random() * 0.6), pz = lerp(_box.min.z, _box.max.z, 0.2 + Math.random() * 0.6);
         _ray.set(_t.set(px, _box.max.y + 2, pz), DOWN);
         const hit = _ray.intersectObject(m, false)[0];
-        if (hit && (!top || hit.point.y > top.y)) top = V(hit.point.x, hit.point.y + 0.35, hit.point.z);
+        if (hit && (!top || hit.point.y > top.y)) top = V(hit.point.x, hit.point.y + PIECE_GAP, hit.point.z);
       }
       if (!top || Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1 || taken(top) || !this.perchFits(a, sp, top)) continue;
       const gy = T.heightAt(top.x, top.z), over = W.water.surfaceAt(top.x, top.z) > gy;
@@ -2239,8 +2261,8 @@ export class Animals {
     for (let k = 0; k < 4; k++) {
       const side = k === 0 || k === 1 ? 0 : k === 2 ? 1 : -1;
       let x, z, n, yaw;
-      if (side === 0) { x = clamp(a.pos.x + (Math.random() - 0.5) * 30, -TANK.w / 2 + 3, TANK.w / 2 - 3); z = TANK.d / 2 - 0.7; n = GLASS_N.front; yaw = 0; }
-      else { x = side * (TANK.w / 2 - 0.7); z = clamp(a.pos.z + (Math.random() - 0.5) * 16, -TANK.d / 2 + 4, TANK.d / 2 - 3); n = side > 0 ? GLASS_N.right : GLASS_N.left; yaw = side * Math.PI / 2; }
+      if (side === 0) { x = clamp(a.pos.x + (Math.random() - 0.5) * 30, -TANK.w / 2 + 3, TANK.w / 2 - 3); z = TANK.d / 2 - GLASS_GAP; n = GLASS_N.front; yaw = 0; }
+      else { x = side * (TANK.w / 2 - GLASS_GAP); z = clamp(a.pos.z + (Math.random() - 0.5) * 16, -TANK.d / 2 + 4, TANK.d / 2 - 3); n = side > 0 ? GLASS_N.right : GLASS_N.left; yaw = side * Math.PI / 2; }
       const bx = x + n.x * 1.2, bz = z + n.z * 1.2;                       // the foot of the climb, a little in from the glass
       const gy = T.heightAt(bx, bz), y = Math.min(TANK.h - 4, Math.max(gy, W.water.level) + 5 + Math.random() * 14);
       const top = V(x, y, z);
@@ -2320,8 +2342,24 @@ export class Animals {
           if (!sp.perchSwim && !dryAt(x, z)) return null;                // water before the wood (a floating log)
           continue;
         }
-        const y = hit.point.y + 0.35;
-        if (!on) { on = true; const g = Math.max(T.heightAt(x, z), path[path.length - 1].y); path.push(V(x, g, z)); }   // up its side
+        const y = hit.point.y + PIECE_GAP;
+        if (!on) {
+          on = true; const g = Math.max(T.heightAt(x, z), path[path.length - 1].y);
+          // Up its side: the points ON the surface (a ray into it from the frog's side every 1.2 cm of height), each with the surface's normal, so it climbs
+          // belly to the wood, not along a straight line from the foot to the top through the air (which kept a frog on a pole up to 14 cm off it).
+          const ux = (top.x - bx) / Math.max(1e-3, Math.hypot(top.x - bx, top.z - bz)), uz = (top.z - bz) / Math.max(1e-3, Math.hypot(top.x - bx, top.z - bz));
+          const side = [];
+          for (let h = g + 0.6; h < y - 0.4; h += 1.2) {
+            _ray.set(_t.set(x - ux * 3, h, z - uz * 3), _d.set(ux, 0, uz));
+            const sh = _ray.intersectObject(m, false)[0];
+            if (!sh || !sh.face) continue;
+            const N = sh.face.normal.clone().transformDirection(m.matrixWorld);
+            if (N.dot(_d) > 0) N.negate();                                // (facing the frog)
+            const q = V(sh.point.x + N.x * PIECE_GAP, sh.point.y + N.y * PIECE_GAP, sh.point.z + N.z * PIECE_GAP); q.n = N;
+            if (Math.abs(N.y) < 0.85) side.push(q);                       // (a wall, not the top: that is the ray from above's)
+          }
+          if (side.length >= 2) path.push(...side); else path.push(V(x, g, z));
+        }
         path.push(V(x, y, z));
       }
       if (!on) path.push(V(top.x, Math.max(T.heightAt(top.x, top.z), base.y), top.z));
@@ -3215,8 +3253,8 @@ export class Animals {
     if (PADLESS.has(a.sp)) return null;
     const W = this.world, T = W.terrain, hx = TANK.w / 2, hz = TANK.d / 2;
     let N, along;
-    if (z > hz - 2.5 && Math.abs(x) < hx - 2) { N = GLASS_N.front; along = (o) => [x + o, hz - 0.7]; }
-    else if (Math.abs(x) > hx - 2.5 && z > -hz + 4) { N = x < 0 ? GLASS_N.left : GLASS_N.right; along = (o) => [Math.sign(x) * (hx - 0.7), z + o]; }
+    if (z > hz - 2.5 && Math.abs(x) < hx - 2) { N = GLASS_N.front; along = (o) => [x + o, hz - GLASS_GAP]; }
+    else if (Math.abs(x) > hx - 2.5 && z > -hz + 4) { N = x < 0 ? GLASS_N.left : GLASS_N.right; along = (o) => [Math.sign(x) * (hx - GLASS_GAP), z + o]; }
     else return null;
     const bb = this.bodyBox(a, sp), up = Math.max(1.2, bb.z1), yaw = clingYaw(N);
     // the land: the nearest stretch of the pane, either way, with ground it can sit on just inside the glass

@@ -68,10 +68,9 @@ test('spin on the spot turns only with a stroke playing', () => {
     assert.ok(any > 0 && out === 0, `${style}: ${any} turning ticks, ${out} outside a thrust`);
   }
 });
-// (owner, 6 Oct 2026: the trunk muscles stay UNMAPPED until the skinning pilot has been judged on its own, no partial fix that breaks the belly rule.
-// What it takes: the trunk pair (epaxial longissimus and the flank wall: frames on spine/spineB/head, landmarks, excitation from stroke.trunk, tests); two
-// bellies in the row's last free texel, slot 20 as it is and slot 21 packed in its .z/.w (the shader reads only .x swell and .y slide of a belly texel:
-// skin.js belly() picks the pair by slot, a few lines); the frog models re-bound with tools/rig/muscles.mjs --write.)
-test('every moving frog has its muscles active', { todo: 'the hind-limb bellies are tied to the stroke (tests/anuran-muscles.test.mjs); the trunk and the forelimbs have no belly yet (see the note above): write the test with them' }, () => {
+// (owner, 6 Oct 2026, the trunk muscles go in once the skinning pilot was judged: the longissimus dorsi pair, one belly a side from the sacrum to the skull,
+// in the row's last belly texel (slot 20 in .xy, slot 21 in .zw; skin.js belly()), bound into the two toad bodies only so far; its activation comes from the
+// stroke's trunk channels (anuranmuscles.js trunkExcitation), tests/trunk-muscles.test.mjs. The flank wall (external oblique) and the forelimbs have no belly.)
+test('every moving frog has its muscles active', { todo: 'the hind-limb and the trunk (longissimus) bellies are tied to the stroke (tests/anuran-muscles.test.mjs, tests/trunk-muscles.test.mjs); the forelimbs and the flank wall have no belly yet: write the test with them' }, () => {
   assert.fail('not written');
 });

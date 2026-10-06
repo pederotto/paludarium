@@ -26,8 +26,8 @@
 import { PLANS, bendAngle } from '../../util/bodyplan.js';
 import { strokeAngles, armAngles, HIND, FORE } from '../../util/gait.js';
 import { lizardRig } from './lizardpose.js';
-import { bellyRig, writeBellies, MUSCLE_TEXEL0 } from './muscles.js';
-export { MUSCLE_TEXEL0 };
+import { bellyRig, writeBellies, MUSCLE_TEXEL0, MUSCLE_PAIR } from './muscles.js';
+export { MUSCLE_TEXEL0, MUSCLE_PAIR };
 
 export const ROW_TEXELS = 75;                  // (25 bones: a lizard's) texels in an instance's row of the bone texture (RGBA float each)
 export const BONE_TEXELS = 3;                  // a bone is an affine 3 x 4 matrix: three rows of [m0, m1, m2, t]

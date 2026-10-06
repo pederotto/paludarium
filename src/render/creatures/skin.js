@@ -12,8 +12,8 @@
 //             rig on the fine mesh, as before. SKIN.swim (a frog's swimming body, a handful of instances at most): off only with
 //             ?noskin.
 import * as THREE from 'three/webgpu';
-import { attribute, textureLoad, ivec2, int, vec3, vec4, dot, normalize, floor, fract, sin, clamp } from 'three/tsl';
-import { ROW_TEXELS, ROW_FLOATS, RowAllocator, MUSCLE_TEXEL0 } from './skeleton.js';
+import { attribute, textureLoad, ivec2, int, vec3, vec4, dot, normalize, floor, fract, sin, clamp, select } from 'three/tsl';
+import { ROW_TEXELS, ROW_FLOATS, RowAllocator, MUSCLE_TEXEL0, MUSCLE_PAIR } from './skeleton.js';
 
 // on: near vertebrates drawn by their bones; swim: a frog's swimming body drawn by its stroke (at any distance: without its bones it
 // is one frozen pose); cap: rows a species' mesh may hold (more of it near the camera draw with the rig)
@@ -79,9 +79,12 @@ export function skinVertex(p, n, musc = false) {
   if (musc) {
     const mu = attribute('musc', 'vec4');
     const belly = (x, a) => {
-      const slot = floor(x), u = fract(x).div(0.999), st = textureLoad(boneTexture, ivec2(int(slot).add(MUSCLE_TEXEL0), row));
+      // (slots 0 … MUSCLE_PAIR - 1 are a texel each, [dR / R0, slide, …]; slot MUSCLE_PAIR is the left trunk belly in the next texel's .xy and
+      // MUSCLE_PAIR + 1 the right one in its .zw: the shader reads only a belly's swell and slide, so two share a texel)
+      const slot = floor(x), u = fract(x).div(0.999), st = textureLoad(boneTexture, ivec2(int(slot).min(int(MUSCLE_PAIR)).add(MUSCLE_TEXEL0), row));
+      const hi = slot.greaterThan(MUSCLE_PAIR + 0.5), swell = select(hi, st.z, st.x), slide = select(hi, st.w, st.y);
       const prof = (v) => { const sv = sin(clamp(v, 0, 1).mul(Math.PI)); return sv.mul(sv); };
-      return a.mul(st.x.add(1).mul(prof(u.sub(st.y))).sub(prof(u)));
+      return a.mul(swell.add(1).mul(prof(u.sub(slide))).sub(prof(u)));
     };
     p = p.add(n.mul(belly(mu.x, mu.z).add(belly(mu.y, mu.w))));
   }
