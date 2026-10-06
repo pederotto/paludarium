@@ -11,6 +11,8 @@ import { L } from './state.js';
 
 // The movement kinds the lab can drive so far (the rest keep their own minds, the panel says so).
 export const DRIVABLE = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink', 'crab', 'swim']);
+// The kinds that climb the background wall: a go-to can name a point on it.
+export const CLIMBERS = new Set(['gecko']);
 export const SHAPES = { figure8: 'Figure 8', circle: 'Circle', square: 'Square', zigzag: 'Zig-zag', line: 'Back and forth' };
 const MARGIN = 3;
 
@@ -71,12 +73,15 @@ export function createDriver(game, opts = {}) {
     if (!pts?.length) { l.visible = false; return; }
     const arr = l.geometry.attributes.position.array;
     let n = 0;
-    const put = (x, z) => { if (n < arr.length / 3) { arr[n * 3] = x; arr[n * 3 + 1] = yAt(x, z); arr[n * 3 + 2] = z; n++; } };
+    const put = (x, z, y) => { if (n < arr.length / 3) { arr[n * 3] = x; arr[n * 3 + 1] = y ?? yAt(x, z); arr[n * 3 + 2] = z; n++; } };
     const seq = closed ? [...pts, pts[0]] : pts;
     for (let i = 0; i < seq.length; i++) {
-      put(seq[i].x, seq[i].z);
+      put(seq[i].x, seq[i].z, seq[i].y);
       const nx = seq[i + 1];
-      if (nx) { const k = Math.min(20, Math.floor(Math.hypot(nx.x - seq[i].x, nx.z - seq[i].z) / 2.5)); for (let j = 1; j <= k; j++) put(seq[i].x + ((nx.x - seq[i].x) * j) / (k + 1), seq[i].z + ((nx.z - seq[i].z) * j) / (k + 1)); }
+      if (nx) {
+        const k = Math.min(20, Math.floor(Math.hypot(nx.x - seq[i].x, nx.z - seq[i].z, (nx.y ?? 0) - (seq[i].y ?? 0)) / 2.5));
+        for (let j = 1; j <= k; j++) put(seq[i].x + ((nx.x - seq[i].x) * j) / (k + 1), seq[i].z + ((nx.z - seq[i].z) * j) / (k + 1), seq[i].y != null && nx.y != null ? seq[i].y + ((nx.y - seq[i].y) * j) / (k + 1) : undefined);
+      }
     }
     l.geometry.setDrawRange(0, n);
     l.geometry.attributes.position.needsUpdate = true;
@@ -96,7 +101,9 @@ export function createDriver(game, opts = {}) {
   const build = (a, d) => {
     const sp = SPECIES[a.sp], tol = tolFor(sp), spacing = Math.max(3, tol * 2);
     switch (d.type) {
-      case 'goto': return { type: 'goto', x: d.x, z: d.z, tol, d0: Math.hypot(d.x - a.pos.x, d.z - a.pos.z) };
+      case 'goto':
+        if (d.wall) return { type: 'goto', wall: true, x: d.x, y: d.y, z: d.z, tol: 2, d0: Math.hypot(d.x - a.pos.x, d.y - a.pos.y) };
+        return { type: 'goto', x: d.x, z: d.z, tol, d0: Math.hypot(d.x - a.pos.x, d.z - a.pos.z) };
       case 'follow': return { type: 'follow', dot: d.dot, keep: d.keep ?? 4, tol: 1.5 };
       default: {
         let pts, closed = false;
@@ -129,6 +136,13 @@ export function createDriver(game, opts = {}) {
     setGait(g) { L.gait.value = g; for (const a of targets()) if (a.lab) a.lab.gait = g; },
     free() { for (const a of targets()) a.lab = null; L.draft.value = []; L.pick.value = null; resetTrail(L.sel.value); },
     goto(x, z) { give(targets(), { type: 'goto', x, z }); },
+    // A point on the background wall, for the animals that climb it (x across, y up, z the wall's depth there). The others are left as they are.
+    gotoWall(x, y, z) {
+      const list = targets().filter((a) => CLIMBERS.has(SPECIES[a.sp].kind));
+      if (!list.length) { L.note.value = 'Only a climber (the gecko) can go to a point on the wall.'; return false; }
+      give(list, { type: 'goto', wall: true, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, z: Math.round(z * 10) / 10 });
+      return true;
+    },
     path(shape = 'figure8', { size = L.size.value, mode = L.pathMode.value } = {}) { give(targets(), { type: 'path', shape, size, mode }); },
     // A random path from a seed (the same seed, the same path for the same animal and obstacles). Returns the seed used.
     random(style = L.rndStyle.value, seed = L.rndSeed.value, { length = L.rndLength.value, mode = L.pathMode.value } = {}) {
@@ -191,13 +205,18 @@ export function createDriver(game, opts = {}) {
     if (D?.type === 'path') { if (pathLine.userData.drive !== D) { setPoly(pathLine, D.pts, D.closed); pathLine.userData.drive = D; } } else { pathLine.visible = false; pathLine.userData.drive = null; }
     const g = a?.lab?.goal;
     goalRing.visible = !!g;
-    if (g) { goalRing.position.set(g.x, yAt(g.x, g.z), g.z); goalRing.scale.setScalar(Math.max(1.2, tolFor(SPECIES[a.sp]))); }
+    if (g) {
+      // a ring flat on the floor, or standing on the wall at a wall goal
+      goalRing.rotation.x = g.wall ? 0 : -Math.PI / 2;
+      if (g.wall) goalRing.position.set(g.x, g.y, game.world.wall.zAt(g.x, g.y) + 0.6); else goalRing.position.set(g.x, yAt(g.x, g.z), g.z);
+      goalRing.scale.setScalar(Math.max(1.2, tolFor(SPECIES[a.sp])));
+    }
     if (L.draft.value.length) setPoly(draftLine, L.draft.value); else draftLine.visible = false;
     if (a && !a.dead && k > 0) {
       trailT += dt * k;
       if (trailT >= 0.1) {
         trailT = 0;
-        trailPts.push({ x: a.pos.x, z: a.pos.z });
+        trailPts.push(a.onWall || a.wallMode ? { x: a.pos.x, z: a.pos.z, y: a.pos.y } : { x: a.pos.x, z: a.pos.z });
         if (trailPts.length > 600) trailPts.shift();
         setPoly(trail, trailPts);
       }

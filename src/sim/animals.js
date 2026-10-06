@@ -3385,7 +3385,7 @@ export class Animals {
   labDrive(a, dt) {
     const L = a.lab;
     if (!L.drive) { L.goal = null; return; }
-    const r = driveStep(L.drive, a.pos, this.labDots ?? {}, dt);
+    const r = driveStep(L.drive, a.pos, this.labDots ?? {}, dt, !!(a.onWall || a.wallMode));
     if (!r.goal && L.goal) L.kicked = false;
     L.goal = r.goal;
     L.k = L.pace * (r.pace ?? 1);                    // (the drive's pace times what the waypoint asks)
@@ -3421,10 +3421,13 @@ export class Animals {
   // A newt, axolotl or gecko told where to go: what its mind thought is replaced by the goal, at its walking (or swimming) pace.
   labHerp(a, P, it, depth) {
     const g = a.lab.goal;
-    it.goal = g ? { x: g.x, z: g.z } : null;
-    it.swim = !!g && depth > 1.3;
+    // A goal on the wall (a climber: the mind works on the wall in the plane (x, -y), see herp): it walks to the foot of the wall, climbs, and goes to the point.
+    it.goal = g ? g.wall ? { x: g.x, z: -g.y } : { x: g.x, z: g.z } : null;
+    it.swim = !!g && !g.wall && depth > 1.3;
     it.speed = g ? (it.swim ? P.swim ?? P.walk : P.walk) * a.lab.k : 0;
-    it.wantWall = false; it.face = null; it.needHome = false; it.tuck = 0;
+    // (and once there it stays on the wall: with no goal the mind would send it back down to the foot of the wall)
+    const D = a.lab.drive;
+    it.wantWall = !!g?.wall || (D?.type === 'goto' && !!D.wall); it.face = null; it.needHome = false; it.tuck = 0;
     it.mated = false; it.birth = null; it.dropTail = false; it.shed = false; it.say = null;
   }
 
@@ -4297,7 +4300,10 @@ export class Animals {
     if (it.wantWall) {
       // To the back of the tank, then up the background.
       const wz = Wl.zAt(a.pos.x, a.pos.y + 1);
-      if (a.pos.z < wz + 2.6) { a.onWall = true; a.pos.y += 1; a.hsp = 0; return; }
+      // (Close enough: within 2.6 cm of the relief, or as close as its long body is let come. clearOfWall keeps both ends of the capsule in front
+      // of the relief, so a gecko facing the wall cannot bring its middle nearer than about 3 cm: with the first test alone, a gecko on the
+      // floor of a tank with a flat or low background never reached the wall. Found by the test lab's go-to a point on the wall.)
+      if (a.pos.z < wz + 2.6 || this.wallNeed(a, a.pos.x, a.pos.y, a.pos.z, a.yaw, false) > -0.8) { a.onWall = true; a.pos.y += 1; a.hsp = 0; return; }
       this.herpStep(a, sp, P, { x: a.pos.x, z: wz + 1.5 }, goal ? it.speed : P.walk, dt, 'land', 5);
     } else if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, 'land', 0.3);
     else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - a.pos.x, it.face.z - a.pos.z), dt, 5); }
