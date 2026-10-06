@@ -12,16 +12,18 @@
 //             rig on the fine mesh, as before. SKIN.swim (a frog's swimming body, a handful of instances at most): off only with
 //             ?noskin.
 import * as THREE from 'three/webgpu';
-import { attribute, textureLoad, ivec2, int, vec3, vec4, dot, normalize, floor, fract, sin, clamp } from 'three/tsl';
-import { ROW_TEXELS, ROW_FLOATS, RowAllocator, MUSCLE_TEXEL0 } from './skeleton.js';
+import { attribute, textureLoad, ivec2, int, vec3, vec4, dot, normalize, floor, fract, sin, clamp, select } from 'three/tsl';
+import { ROW_TEXELS, ROW_FLOATS, RowAllocator, MUSCLE_TEXEL0, MUSCLE_PAIR } from './skeleton.js';
 
 // on: near vertebrates drawn by their bones; swim: a frog's swimming body drawn by its stroke (at any distance: without its bones it
 // is one frozen pose); cap: rows a species' mesh may hold (more of it near the camera draw with the rig)
-export const SKIN = { on: true, swim: true, cap: 8, strokes: 6 };       // (strokes: rows a swimming body's mesh holds)
-// Instances skinned at once in the whole scene (rows of the bone texture, 1 KB each). A frog species holds two runs: its sitting
-// body's (SKIN.cap) and its swimming body's (SKIN.strokes: it swims and leaps in that one), so a tank with every frog and morph
-// needs about 150; when the rows ran out (64 once) the last species to arrive swam as a frozen pose.
-export const SKIN_ROWS = 192;
+export const SKIN = { on: true, swim: true, cap: 8, lowStrokes: 6 };       // (a swimming body's mesh holds `cap` rows of its own: the species' animal cap in the tank, see CreatureMesh)
+// Instances skinned at once in the whole scene (rows of the bone texture, 1200 B each). A frog species holds two runs: its sitting
+// body's (SKIN.cap = 8) and its swimming body's (one row per animal the tank may hold of it: the mesh cap, species cap + 20 = 26 to
+// 28; it swims and leaps in that one). The 11 swim meshes (9 x 28 + 2 x 26, manifest) + 11 sitting runs of 8 = 392 if every frog and
+// morph is in one tank, and lizards and the 28-wide dartfrog morph meshes take rows too (380 of 384 measured, one mesh starved);
+// 512 leaves about 100 over. (The bone texture is uploaded whole each frame: three 0.186 uploads partial DataTexture ranges on neither backend.)
+export const SKIN_ROWS = 512;
 
 export const boneData = new Float32Array(ROW_FLOATS * SKIN_ROWS);
 export const boneTexture = new THREE.DataTexture(boneData, ROW_TEXELS, SKIN_ROWS, THREE.RGBAFormat, THREE.FloatType);
@@ -32,7 +34,7 @@ export const rows = new RowAllocator(SKIN_ROWS);
 
 // Skinned meshes alive (for the probe tools/steps/skin-perf.mjs: window.__skin.drawn).
 export const live = new Set();
-if (typeof window !== 'undefined') window.__skin = { get drawn() { let s = 0; for (const m of live) s += m.n; return s; }, SKIN };
+if (typeof window !== 'undefined') window.__skin = { get drawn() { let s = 0; for (const m of live) s += m.n; return s; }, get strokeDrawn() { let s = 0; for (const m of live) if (m.skinRig?.stroke) s += m.n; return s; }, SKIN };
 
 // The fine mesh's geometry with the rig and the skin binding in one interleaved buffer (cached per source geometry).
 const SKIN_GEO = new WeakMap();
@@ -77,9 +79,12 @@ export function skinVertex(p, n, musc = false) {
   if (musc) {
     const mu = attribute('musc', 'vec4');
     const belly = (x, a) => {
-      const slot = floor(x), u = fract(x).div(0.999), st = textureLoad(boneTexture, ivec2(int(slot).add(MUSCLE_TEXEL0), row));
+      // (slots 0 … MUSCLE_PAIR - 1 are a texel each, [dR / R0, slide, …]; slot MUSCLE_PAIR is the left trunk belly in the next texel's .xy and
+      // MUSCLE_PAIR + 1 the right one in its .zw: the shader reads only a belly's swell and slide, so two share a texel)
+      const slot = floor(x), u = fract(x).div(0.999), st = textureLoad(boneTexture, ivec2(int(slot).min(int(MUSCLE_PAIR)).add(MUSCLE_TEXEL0), row));
+      const hi = slot.greaterThan(MUSCLE_PAIR + 0.5), swell = select(hi, st.z, st.x), slide = select(hi, st.w, st.y);
       const prof = (v) => { const sv = sin(clamp(v, 0, 1).mul(Math.PI)); return sv.mul(sv); };
-      return a.mul(st.x.add(1).mul(prof(u.sub(st.y))).sub(prof(u)));
+      return a.mul(swell.add(1).mul(prof(u.sub(slide))).sub(prof(u)));
     };
     p = p.add(n.mul(belly(mu.x, mu.z).add(belly(mu.y, mu.w))));
   }

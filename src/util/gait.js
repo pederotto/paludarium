@@ -410,7 +410,17 @@ const STROKE_TAB = (() => {
 // One hind leg's angles (degrees, the nine of HIND) at stroke phase `p`, written to out[o … o + 8]. `amp` (0 … 1): how fully it
 // kicks (less: toward the diamond, a leg that holds while the other kicks to turn, the pool frog 13.8-14.4 s); `float` (0 … 1):
 // resting at the surface, in the species' way (`floatPose` 'spread' or 'trail').
+// The damping only acts while the other leg kicks (steerWeight): in the glide both legs lie together. The window edges
+// (0.72-0.92 ramp in, 0.92 to 0.16 full, 0.16-0.26 ramp out) are GUESSES, not measured on the clip.
+export function steerWeight(p) {
+  p = frac(p);
+  if (p >= 0.92 || p < 0.16) return 1;
+  if (p < 0.26) return 1 - smooth((p - 0.16) / 0.1);
+  if (p < 0.72) return 0;
+  return smooth((p - 0.72) / 0.2);
+}
 export function strokeAngles(p, out, o = 0, amp = 1, float = 0, floatPose = 'spread') {
+  amp = 1 + (amp - 1) * steerWeight(p);
   const u = frac(p) * STROKE_N, i = Math.min(STROKE_N - 1, Math.floor(u)), f = u - i, D = HIND.draw, F = floatPose === 'trail' ? HIND.floatTrail : HIND.float;
   for (let c = 0; c < HC; c++) {
     const v = STROKE_TAB[i * HC + c] * (1 - f) + STROKE_TAB[(i + 1) * HC + c] * f, a = D[c] + (v - D[c]) * amp;
@@ -452,8 +462,12 @@ export const swimState = (rnd = Math.random) => ({ phase: 0.9 + rnd() * 0.08, bu
 // Kicks a second at an urgency 0 (pottering) … 1 (a dash for the way out).
 export const kickRate = (prof, urgency) => lerp(prof.kickHz[0], prof.kickHz[1], clamp01(urgency));
 
-export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0, sitting = false, bodyLen = 4, rnd = Math.random } = {}, dt) {
+export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0, sitting = false, bodyLen = 4, rnd = Math.random, wake = false, spin = 0, spinStyle = 'pivot', spinErr = 9, spinHz = 0.67 } = {}, dt) {
   if (!(dt > 0)) return st.v;
+  // (st.act / st.dph: the stroke ran this tick, and how far the clock moved: util/swimturn.js turns and pushes only on those; `wake`:
+  // a push is queued, so a resting or floating frog takes a stroke to release it)
+  st.act = 0; st.dph = 0;
+  if (wake && !sitting) { floating = false; st.rest = 0; st.hold = 0; }
   // (eased, so the legs pass from one way of swimming to another instead of jumping: floating, one leg after the other, steering,
   // sitting on the bottom)
   const ease = (k, to, rate) => { st[k] = (st[k] ?? 0) + (to - (st[k] ?? 0)) * Math.min(1, dt * rate); };
@@ -462,6 +476,7 @@ export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0,
   ease('fl', floating ? 1 : 0, 2.5);
   ease('alt', !floating && urgency < 0.3 ? 1 : 0, 3);
   ease('steer', Math.max(-1, Math.min(1, steer)), 6);
+  if ((spin || st.sp) && spinStep(st, prof, spin, spinStyle, spinErr, spinHz, dt)) return st.v;
   if (floating) {
     // Resting at the surface, limbs spread (a fire-bellied toad): an idle paddle now and then, hardly any way on.
     st.phase += dt * prof.kickHz[0] * 0.35;
@@ -497,8 +512,60 @@ export function swimStep(st, prof, { urgency = 0.5, floating = false, steer = 0,
   // the mean of kickSpeed over a cycle is KICK_MEAN: the peak that makes `reach` body lengths a kick. One leg after the other
   // (pottering) drives half as hard twice a cycle and gets on more slowly; a leg held back to steer drives less.
   const both = kickSpeed(st.phase), one = 0.5 * (kickSpeed(st.phase) + kickSpeed(st.phase + 0.5)) * 0.7;
-  st.v = (prof.reach * bodyLen * hz / KICK_MEAN) * lerp(both, one, st.alt) * (1 - 0.3 * Math.abs(st.steer));
+  const target = (prof.reach * bodyLen * hz / KICK_MEAN) * lerp(both, one, st.alt) * (1 - 0.3 * Math.abs(st.steer));
+  // Speed rises only while a leg drives (the thrust part of the stroke, either leg when pottering); anywhere else it can only fall to
+  // the glide's curve. A body woken from rest (a floater, a sitter, a coasting stop) at any phase starts from 0: its speed is the
+  // momentum of a kick it made, never read off the clock (the body rule, tests/bodyrule.test.mjs).
+  const drive = p < KICK.thrust || (st.alt > 0.5 && frac(p + 0.5) < KICK.thrust);
+  st.v = drive ? target : Math.min(target, st.v);
+  st.act = st.hold > 0 ? 0 : 1; st.dph = dt * hz;      // (the tick the diamond is taken up is its first: no turn)
   return st.v;
+}
+
+// Turning on the spot, a body movement of its own (owner, 6 Oct 2026: the head orients first, the torso next, then hands and legs; the
+// body's yaw comes out of the leg thrust, util/swimturn.js swimMotion). Its own clock st.sp.p (a cycle of 1/spinHz s). 'pivot': one leg
+// kicks while the other is held drawn up; 'opposed': the two kick half a cycle apart. Poses from tools/blender/spin-stroke2.mjs.
+const SPIN_BLEND = 0.3;                                 // s the legs and hands take to pass between the stroke and the spin, each way
+const SPIN_START = 0.85, SPIN_KICK = [0.08, 0.26];       // the clock starts in the leg's draw: the head moves 0.12 cycle in, the torso 0.24, the first thrust 0.30 (SPIN_KICK: hand-copy of swimturn KICK_WIN)
+const spinComp = (p) => (p < 0.5 ? 0.26 * (2 * p) : 0.72 + 0.28 * (2 * p - 1));   // the leg's phase at spin cycle p (skips the long glide)
+const spinBump = (x) => { x -= Math.floor(x); return x < 0.5 ? Math.sin(Math.PI * 2 * x) ** 2 : 0; };
+const inKick = (q) => q >= SPIN_KICK[0] && q < SPIN_KICK[1];
+// One tick of the spin clock; true when it has taken over this tick's stroke. dir: +-1 the intent, or 0; err: rad still to turn.
+function spinStep(st, prof, dir, style, err, hz, dt) {
+  let S = st.sp;
+  // (`ph0`: where the stroke clock stood when the spin began, the pose the legs and hands come from; `mix`: how far the spin's pose is in
+  // force, 0 … 1 over SPIN_BLEND s in and out, so nothing pops: swimPose blends the two)
+  if (dir && !S) S = st.sp = { dir, style, p: SPIN_START, amt: 0, run: 1, dp: 0, pL: 0, pR: 0, arm: new Float32Array(12), ph0: st.phase, mix: 0, k: [0, 0, 0, 0] };
+  if (!S) return false;
+  S.dp = 0;
+  if (dir) { S.run = 1; S.dir = dir; S.style = style; }
+  else if (S.run && !(S.p >= SPIN_KICK[0] / 0.52 && S.p < 0.5)) { S.run = 0; st.phase = spinComp(S.p); }   // told to stop: a thrust begun is finished, else stop at once
+  S.mix = Math.max(0, Math.min(1, S.mix + (S.run ? dt : -dt) / SPIN_BLEND));
+  const kp0 = S.p;                                                                        // (the kicking legs' phases before this tick, for the push release)
+  if (S.run) {
+    const p0 = S.p; S.p += dt * hz;
+    if (!dir && p0 < 0.5 && S.p >= 0.5) { S.p = 0.5 - 1e-6; S.run = 0; }               // the thrust done
+    if (S.p >= 1) S.p -= 1;
+    S.dp = (S.p - p0 + 1) % 1;
+  }
+  const pK = spinComp(S.p), pO = S.style === 'opposed' ? spinComp(1 - S.p) : 0.92;       // the kicking leg's phase, the other's
+  S.pL = S.dir > 0 ? pK : pO; S.pR = S.dir > 0 ? pO : pK; S.pK = pK; S.pO = pO;
+  S.k[0] = spinComp(kp0); S.k[1] = pK; S.k[2] = S.style === 'opposed' ? spinComp(1 - kp0) : 0.92; S.k[3] = pO;
+  S.amt += ((S.run ? Math.max(0, Math.min(1, err / 1.2)) : 0) - S.amt) * Math.min(1, dt * 8);   // head and torso unwind as the body comes round
+  if (!S.run) { if (S.amt < 0.01 && S.mix <= 0) st.sp = null; else if (!S.fin) { S.fin = 1; st.phase = pK; } return false; }
+  S.fin = 0;
+  // (a thrust includes the tick that finishes it: the leg's phase jumps past the window there, and the push queued on the body is released then)
+  st.act = inKick(pK) || inKick(S.k[0]) || (S.style === 'opposed' && (inKick(pO) || inKick(S.k[2]))) ? 1 : 0; st.dph = S.dp; st.phase = S.pL;
+  st.v *= Math.exp(-dt * prof.drag);
+  return true;
+}
+const _spinT = [0, 0, 0, 0, 0, 0];
+// the spin's trunk channels (degrees: spine yaw first, head next, the head leading) and its hands (inside open, outside tucked)
+function spinChannels(S) {
+  const d = S.dir, a = S.amt, b = spinBump(S.p), tr = _spinT;
+  tr[0] = d * a * 8 * spinBump(S.p + 0.06); tr[3] = d * a * 18 * spinBump(S.p + 0.12);     // (guess: leads of 0.06 and 0.12 of a cycle)
+  armAngles(0, S.arm, d > 0 ? 0 : 6, 0, 'spread'); armAngles(0.25 + 0.65 * b, S.arm, d > 0 ? 6 : 0, 0, 'spread');   // armA: left then right
+  return tr;
 }
 
 // The pose at this moment (see the header). `level`: the pitch that lays the body's trunk flat (0 for the swimming body, which is
@@ -509,7 +576,7 @@ export function swimPose(st, prof, { level = prof.level, t = 0, floating = null 
   // floating at rest, the limbs lie spread, sculling gently
   const ext = lerp(legExtension(p), 0.55 + 0.15 * Math.sin(TAU * p), f);
   const open = prof.arms ?? [1, 0.15];
-  return {
+  const out = {
     hop: ext,
     pose: 1 - 0.5 * f,                                         // forelegs held out to the sides (floating: looser)
     calm: 1,
@@ -530,4 +597,16 @@ export function swimPose(st, prof, { level = prof.level, t = 0, floating = null 
       arms: 0.5 * lerp(armOpen(p, open[0], open[1]), 1, 0.6 * alt), push,
     },
   };
+  const S = st.sp;
+  if (S) {                                                  // turning on the spot (spinStep): the legs, hands and trunk of the spin
+    out.stroke.trunk = spinChannels(S);
+    const w = smooth(S.mix ?? 1), spin = { pL: S.pL, pR: S.pR, ampL: 1, ampR: 1, float: 0, scull: 0, arms: 0.25, push: 0, armA: S.arm };
+    if (S.run) {
+      // into the spin: from the stroke the legs were in when it began (frozen at that phase), over SPIN_BLEND
+      const q = S.ph0 ?? p, from = w < 1 ? { ...out.stroke, pL: q, pR: q + 0.5 * alt, scull: 0.1 * Math.sin(TAU * q), arms: 0.5 * lerp(armOpen(q, open[0], open[1]), 1, 0.6 * alt), push: 0 } : null;
+      Object.assign(out.stroke, spin); out.push = 0;
+      if (from) { out.stroke.blend = from; out.stroke.bw = 1 - w; }
+    } else if (w > 0) { out.stroke.blend = spin; out.stroke.bw = w; }        // out of it: the ordinary stroke again, from the spin's last pose
+  }
+  return out;
 }

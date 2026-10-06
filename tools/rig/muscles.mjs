@@ -39,7 +39,7 @@ export function volumes(P, idx, owner, bones) {
 export function muscleBodies(skel, bodyMassG, W = ANURAN_WHOLE) {
   const set = anuranMuscleSet(skel), hl = bodyMassG * W.hindlimbOfBody.value / 2;      // a side
   return set.map((mu) => {
-    const mass = hl * W.segOfHindlimb[mu.def.seg] * mu.def.share;
+    const mass = mu.def.seg === 'trunk' ? (bodyMassG * W.longissimus.value / 2) * mu.def.share : hl * W.segOfHindlimb[mu.def.seg] * mu.def.share;   // (the trunk's: its own share of the body, a side)
     const u = muscleUnit(mu, skel, mass, W.sigma.value);
     const pts = mu.pts.map((q) => q.p), cum = [0];
     for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(...sub(pts[i], pts[i - 1])));

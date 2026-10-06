@@ -22,6 +22,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, attribute, positionLocal, normalLocal, vec2, vec3, float, bool, sin, sqrt, mix, select, abs, max, normalize, dot, transformNormalToView,
   cross, time, cameraPosition, positionWorld, pow, smoothstep, texture, uv, length, floor, varying, fwidth,
+  dFdx, dFdy, positionView, inverseSqrt,
 } from 'three/tsl';
 import { noise3 } from '../noise3.js';
 import { wet, waterAt } from '../shaders.js';
@@ -113,7 +114,29 @@ function analyticEyes(eyes) {
   return { k, col, glint };
 }
 
+// A baked tangent-space normal map (skin relief: tubercles, warts) applied in VIEW space around a given shading normal `nv`.
+// The creature shader builds its own shading normal (the skinned, instance-turned one), and a creature has no tangent attribute (the 8
+// vertex buffers are full), so three's built-in normal map cannot be used (it is ignored once normalNode is set). The frame is three's own
+// derivative frame (accessors/TangentUtils.js, "normal mapping without precomputed tangents") built around OUR normal. The maps are baked
+// in Blender (OpenGL, +green = +V of Blender's UV, which glTF stores flipped), and three's GLTFLoader flips the green channel for meshes
+// without tangents (GLTFLoader.js: normalScale.y *= -1, mrdoob/three.js#11438), hence NORMALMAP_GREEN = -1.
+const NORMALMAP_GREEN = -1;
+function normalMapper(normalMap, strength = 1) {
+  const st = uv();
+  const q0 = dFdx(positionView), q1 = dFdy(positionView), st0 = dFdx(st), st1 = dFdy(st);
+  const mapN = texture(normalMap, st).xyz.mul(2).sub(1);          // one sample, shared by the skin normal and the coat normal
+  return (nv) => {
+    const q1perp = cross(q1, nv), q0perp = cross(nv, q0);
+    const T = q1perp.mul(st0.x).add(q0perp.mul(st1.x)), B = q1perp.mul(st0.y).add(q0perp.mul(st1.y));
+    const det = max(dot(T, T), dot(B, B));
+    const sc = det.equal(0).select(float(0), inverseSqrt(det));
+    return normalize(T.mul(sc).mul(mapN.x.mul(strength)).add(B.mul(sc).mul(mapN.y.mul(strength * NORMALMAP_GREEN))).add(nv.mul(mapN.z)));
+  };
+}
+
 // `nrm`: the vertex normal to shade with (a skinned mesh passes its posed normal as a varying); the attribute otherwise.
+// A body with a `normalMap` also returns `nmap(nv)`: the caller (instanced.js) runs its final view-space normals through it. A body without one
+// is shaded exactly as before.
 export function creatureMaterial(finish = {}, { map = null, normalMap = null, roughnessMap = null, pass = 'all', nrm: nrmIn = null } = {}) {
   const f = { ...FINISH.amphibian, ...finish };
   const moist = !!finish.moist;                    // (not f.moist: f falls back on the amphibian defaults whatever the group)
@@ -221,6 +244,13 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
     coat = coat.mul(graze);
     m.specularIntensityNode = graze.mul(0.6).add(0.4);
   }
+  // Textured skins with a normal map: the baked colour carries "wet green vs matte black" (no third map): the darker the texel, the rougher
+  // and the less coated (a black blotch is a keratin-rich, dry-looking patch). finish.matteBlack = { rough, coat } overrides the defaults.
+  const mb = f.matteBlack ?? (normalMap && map ? { rough: 0.72, coat: 0 } : null);
+  if (mb) {
+    const blk = float(1).sub(smoothstep(0.008, 0.035, dot(base, vec3(0.2126, 0.7152, 0.0722)))).mul(skinK);
+    rough = mix(rough, float(mb.rough), blk); coat = mix(coat, float(mb.coat), blk);
+  }
   if (A) { rough = mix(rough, float(0.06), A.k); coat = mix(coat, float(0.8), A.k); coatRough = mix(coatRough, float(0.04), A.k); }
   m.roughnessNode = rough;
   m.metalnessNode = select(iri, float(0.25), float(0));
@@ -253,7 +283,7 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   m.vertexColors = false;
   if (normalMap) { m.normalMap = normalMap; m.normalScale = new THREE.Vector2(1, 1); }
   if (roughnessMap) m.roughnessMap = roughnessMap;
-  return { material: m, n, nCoat, is: { eye, fin, iri }, textured: !!map };
+  return { material: m, n, nCoat, is: { eye, fin, iri }, textured: !!map, nmap: normalMap ? normalMapper(normalMap, f.nmapStrength ?? 1) : null };
 }
 
 export { qrot, is };

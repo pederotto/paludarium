@@ -11,13 +11,18 @@ import { buildArena, shapeGround, setDepth, setView, setPaused, setRate, stepFra
 import { animalAt, groundAt, onTap } from './pick.js';
 import { spawn } from './spawn.js';
 import { readout, census } from './readout.js';
-import { createDriver } from './driver.js';
+import { createDriver, CLIMBERS } from './driver.js';
 import { createRadar } from './radar.js';
+import { createFuzz, speciesPool } from './fuzz.js';
+import { createBackground } from './background.js';
+import { applyScenario, createSession, linkFor, specFromHash, snapshot } from './scenario.js';
+import { createObstacles } from './obstacles.js';
 import { buildReport, copyText } from './report.js';
 
 export async function start(game, params) {
   let ring = null;
-  const driver = createDriver(game);
+  const obstacles = createObstacles(game);
+  const driver = createDriver(game, { obstacles: () => obstacles.items });
   const radar = createRadar(game);
 
   const makeRing = () => {
@@ -78,11 +83,16 @@ export async function start(game, params) {
     if (!game.world) return;
     // A tap that is an answer: where to go, or the next waypoint of a drawn path.
     if (L.pick.value) {
-      const hit = groundAt(game, e, { water: true });
+      // (a climber may be sent to a point on the wall: the ray then also tests the background)
+      const climber = !!L.sel.value && CLIMBERS.has(SPECIES[L.sel.value.sp].kind);
+      const hit = groundAt(game, e, { water: true, wall: L.pick.value === 'goto' && climber });
       if (!hit) return;
       const p = hit.ground ?? hit.point;
-      if (L.pick.value === 'goto' && L.sel.value) { driver.goto(p.x, p.z); L.pick.value = null; }
+      if (L.pick.value === 'goto' && L.sel.value) {
+        if (hit.surface === 'wall') { if (driver.gotoWall(p.x, p.y, p.z)) L.pick.value = null; } else { driver.goto(p.x, p.z); L.pick.value = null; }
+      }
       else if (L.pick.value === 'draw') L.draft.value = [...L.draft.value, { x: p.x, z: p.z }];
+      else if (L.pick.value === 'place') obstacles.place(p.x, p.z);
       refresh();
       return;
     }
@@ -95,11 +105,18 @@ export async function start(game, params) {
   });
 
   const api = {
-    game, L, driver, radar, SPECIES, TANK,
+    game, L, driver, radar, obstacles, SPECIES, TANK, pool: speciesPool,
+    // The lab as data, a link to it, and back (scenario.js).
+    snapshot: () => snapshot(game, driver, obstacles),
+    link: () => linkFor(snapshot(game, driver, obstacles)),
+    async copyLink() { const url = api.link(); if (await copyText(url)) L.note.value = `Copied a link (${url.length} characters).`; else L.report.value = url; return url; },
+    apply: (spec, opts) => applyScenario(api, spec, opts),
+    // Everything back to the empty arena (also forgets the saved session).
+    async reset() { session.forget(); driver.clear(); await api.arena({ ground: 'flat', depth: 0 }); L.note.value = 'Started fresh.'; },
     // The report as text, copied if the browser lets it; else shown for selecting by hand.
-    report: () => buildReport(game, driver, radar),
+    report: () => buildReport(game, driver, radar, obstacles),
     async copyReport() {
-      const text = buildReport(game, driver, radar);
+      const text = buildReport(game, driver, radar, obstacles);
       if (await copyText(text)) { L.note.value = `Copied a report of ${radar.rows().length} findings.`; L.report.value = null; }
       else L.report.value = text;
       return text;
@@ -115,7 +132,7 @@ export async function start(game, params) {
       refresh();
     },
     // The ground under the animals: 'flat' or 'shore'. Animals already there stay where they are (they may end up under it).
-    ground(kind) { shapeGround(game, kind); setDepth(game, L.depth.value); },
+    ground(kind) { shapeGround(game, kind, obstacles.shapes()); setDepth(game, L.depth.value); obstacles.reapply(); },
     depth: (cm) => setDepth(game, cm),
     view: (id) => setView(game, id),
     pause: (on = true) => setPaused(game, on),
@@ -127,19 +144,49 @@ export async function start(game, params) {
       const water = s > g + 0.2;
       return add({ point: new THREE.Vector3(x, water ? s : g, z), surface: water ? 'water' : 'terrain' }, id, n);
     },
+    // Release n climbers on the background wall at (x, y), x across and y up.
+    addOnWall(id, n = 1, x = 0, y = 25) {
+      const W = game.world;
+      return add({ point: new THREE.Vector3(x, y, W.wall.zAt(x, y)), surface: 'wall' }, id, n);
+    },
     select,
     remove(a = L.sel.value) { if (a) { game.world.animals.remove(a, 'removed'); if (L.sel.value === a) L.sel.value = null; refresh(); } },
     clear() { game.world.animals.clear(); L.sel.value = null; driver.clear(); refresh(); },
+    clearAll() { api.clear(); obstacles.clear(); },
     animals: () => game.world.animals.all,
   };
   window.lab = api;
+  const session = createSession(api);
+  api.session = session;
+  api.fuzz = createFuzz(api);
+  api.background = createBackground(game);
 
+  // The start-up screen says what it is waiting for (a slow phone or laptop takes a while to build shaders: it must not look stuck).
+  const say = (t) => { const el = document.getElementById('loading'); if (el && !el.classList.contains('gone')) el.textContent = t; };
   setRate(game, 1);
+  say('Building the arena…');
   await buildArena(game, { tank: params.get('tank') ?? 'standard', ground: params.get('ground') ?? 'flat', depth: +(params.get('depth') ?? 0), settle: false });
   game.rig.setZone(params.get('view') === 'top' ? 'top' : 'tank', false);
   L.backend.value = game.gfx.backend;
   game.start();
+  say('Building shaders…');
   await game.settle();
+  // (Not ready until the saved lab is back: the session is saved only when ready, and a half-built lab must not overwrite it.)
+  // A lab in the address wins over the saved session; ?fresh starts empty.
+  const link = specFromHash(), saved = params.has('fresh') ? null : session.load();
+  const spec = link ?? saved?.s;
+  if (spec) {
+    say(link ? 'Opening the shared lab…' : 'Putting your lab back…');
+    try {
+      await applyScenario(api, spec, { view: true });
+      L.restored.value = true;
+      L.note.value = link ? 'Opened the lab from a link.' : 'The page was reloaded: your lab is back as you left it.';
+    } catch (e) {
+      console.warn('lab restore', e);
+      session.forget();
+      L.note.value = 'Could not put the saved lab back: started fresh.';
+    }
+  }
   L.ready.value = true;
   refresh();
   return api;

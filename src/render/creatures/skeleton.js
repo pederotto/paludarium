@@ -26,8 +26,8 @@
 import { PLANS, bendAngle } from '../../util/bodyplan.js';
 import { strokeAngles, armAngles, HIND, FORE } from '../../util/gait.js';
 import { lizardRig } from './lizardpose.js';
-import { bellyRig, writeBellies, MUSCLE_TEXEL0 } from './muscles.js';
-export { MUSCLE_TEXEL0 };
+import { bellyRig, writeBellies, MUSCLE_TEXEL0, MUSCLE_PAIR } from './muscles.js';
+export { MUSCLE_TEXEL0, MUSCLE_PAIR };
 
 export const ROW_TEXELS = 75;                  // (25 bones: a lizard's) texels in an instance's row of the bone texture (RGBA float each)
 export const BONE_TEXELS = 3;                  // a bone is an affine 3 x 4 matrix: three rows of [m0, m1, m2, t]
@@ -285,9 +285,57 @@ function segDir(th, ph, side) {
   const c = Math.cos(ph * RAD);
   return [side * Math.sin(th * RAD) * c, Math.sin(ph * RAD), -Math.cos(th * RAD) * c];
 }
-const _hind = new Float32Array(9), _fore = new Float32Array(6);
+const _hind = new Float32Array(9), _fore = new Float32Array(6), _hind2 = new Float32Array(9), _fore2 = new Float32Array(6);
 // A frog between strokes, for a swimming body drawn without one: legs trailing, forelegs half out.
 export const GLIDING = { pL: 0.45, pR: 0.45, ampL: 1, ampR: 1, float: 0, scull: 0, arms: 0.35, push: 0 };
+
+// Trunk channel signs (the game's own senses; the twist sign is a guess): yaw positive turns the head toward +x (the frog's right, as
+// the sim's a.yaw = atan2(dx, dz)); pitch positive tips the nose DOWN (util/gait.js swimPose); twist positive sinks the right side
+// (+x). Order: twist about the bone's own axis first, then pitch, then yaw, about the bone's head (its joint). The head bone turns
+// about its own head point, carried by the spine's turn (the bones do not chain: the baked head joint lies 0.35 cm (toad) ahead of
+// the spine's tail, accepted as baked). The arms hang from the spine and turn with it; the pelvis and the hind legs stay.
+const _ltr = (a, lim) => clamp(a || 0, lim ? lim[0] : -90, lim ? lim[1] : 90) * RAD;
+const trunkRot = (d, y, p, t) => mm(rotY(y), mm(rotX(p), rotAxis(d, -t)));
+function trunkQ(rig, s) {
+  const T = s.trunk;
+  if (!T || !rig.byName || rig.byName.spine == null || rig.byName.head == null) return null;
+  let any = false; for (let i = 0; i < 6; i++) if (T[i]) any = true;
+  if (!any) return null;
+  const rh = rig.plan?.rom?.head, sb = rig.byName.spine, hb = rig.byName.head, bB = rig.byName.spineB;
+  const Qh = trunkRot(rig.dir[hb], _ltr(T[3], rh?.yaw), _ltr(T[4], rh?.pitch), _ltr(T[5], rh?.twist));
+  if (bB == null) {   // (17 bones: one trunk joint, as before)
+    const rs = rig.plan?.rom?.spine, Qs = trunkRot(rig.dir[sb], _ltr(T[0], rs?.yaw), _ltr(T[1], rs?.pitch), _ltr(T[2], rs?.twist));
+    const Js = rig.head[sb];
+    return { Qs, Q0: Qs, Qh, Js, J0: Js, at: (p) => addv(Js, mv(Qs, sub(p, Js))) };
+  }
+  // T4: spine and spineB, the total (clamped to rom.spineB) shared half and half; spineB turns about its own head point, carried by the spine
+  const rt = rig.plan?.rom?.spineB ?? { yaw: [-35, 35], pitch: [-25, 25], twist: [-25, 25] };
+  const y = _ltr(T[0], rt.yaw) / 2, p = _ltr(T[1], rt.pitch) / 2, t = _ltr(T[2], rt.twist) / 2;
+  const Q0 = trunkRot(rig.dir[sb], y, p, t), J0 = rig.head[sb], JB = addv(J0, mv(Q0, sub(rig.head[bB], J0)));
+  const Qs = mm(Q0, trunkRot(rig.dir[bB], y, p, t));
+  return { Qs, Q0, Qh, Js: JB, J0, at: (q) => addv(JB, mv(Qs, sub(q, rig.head[bB]))) };   // (`at`, Qs: the front half, spineB's turn)
+}
+// the roll (degrees, clamped to the plan's rom) of limb bone i of limb c: fore forearm (1) and hand (2), hind thigh (0)
+function rollOf(rig, c, i, roll, left) {
+  const rom = rig.plan?.rom;
+  const nm = c.hind ? (i === 0 ? 'thigh' : null) : i === 1 ? 'forearm' : i === 2 ? 'hand' : null;
+  if (!nm) return 0;
+  const v = c.hind ? roll[left ? 4 : 5] : roll[(left ? 0 : 2) + (i - 1)], lim = rom?.[nm]?.roll;
+  return v ? clamp(v, lim ? lim[0] : -90, lim ? lim[1] : 90) : 0;
+}
+
+// A limb's joint angles in the stroke `s` (a hop's legA, a spin's armA, or the stroke clock's two legs and the arms), written to the given buffers.
+function limbAngles(c, left, s, hb, fb) {
+  if (c.hind && s.legA) return s.legA.length >= 18 ? s.legA.subarray(left ? 0 : 9, left ? 9 : 18) : s.legA;   // (a hop gives each leg its own: util/gait.js leapPose)
+  if (!c.hind && s.armA) return s.armA.length >= 12 ? s.armA.slice(left ? 0 : 6, left ? 6 : 12) : s.armA;   // (12 numbers: left then right, like legA)
+  if (c.hind) {
+    const A = strokeAngles(left ? s.pL : s.pR, hb, 0, left ? s.ampL : s.ampR, s.float, s.floatPose);
+    // (floating, the legs scull gently about their spread, one side then the other)
+    if (s.float > 0) { const w = s.float * (s.scull ?? 0) * (left ? 1 : -1) * 60; A[0] += w; A[1] += w * 0.6; A[2] -= w * 0.8; }
+    return A;
+  }
+  return armAngles(s.arms, fb, 0, s.float, s.floatPose);
+}
 
 // One instance of the swimming body (a rig from a `bind: 'swim'` skeleton) in the stroke `st` (util/gait.js swimPose().stroke:
 // { pL, pR (each hind leg's phase), ampL, ampR (how fully it kicks), float, scull, arms (0 laid back … 1 held out) }, or a leap's
@@ -304,16 +352,14 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
     const P = (info.hull ??= []); P.length = 0;
     for (const nm of ['pelvis', 'spine', 'head']) { const b = rig.byName[nm]; if (b != null) P.push([(head[b][0] + rig.tail[b][0]) / 2, (head[b][1] + rig.tail[b][1]) / 2, (head[b][2] + rig.tail[b][2]) / 2, (rig.B[b].r ?? 0.3) * 0.85]); }
   }
+  // The trunk's channels (stroke.trunk, degrees: [spine yaw, pitch, twist, head yaw, pitch, twist]; absent or all zero = the body as it
+  // rests, byte for byte) and the limb rolls (stroke.roll: [forearmL, handL, forearmR, handR, thighL, thighR]), each clamped to the plan's rom.
+  const tq = trunkQ(rig, s);
   for (const c of limbs) {
-    const left = c.side < 0, k = c.bones.length;
-    let A;
-    if (c.hind && s.legA) A = s.legA.length >= 18 ? s.legA.subarray(left ? 0 : 9, left ? 9 : 18) : s.legA;   // (a hop gives each leg its own: util/gait.js leapPose)
-    else if (!c.hind && s.armA) A = s.armA;
-    else if (c.hind) {
-      A = strokeAngles(left ? s.pL : s.pR, _hind, 0, left ? s.ampL : s.ampR, s.float, s.floatPose);
-      // (floating, the legs scull gently about their spread, one side then the other)
-      if (s.float > 0) { const w = s.float * (s.scull ?? 0) * (left ? 1 : -1) * 60; A[0] += w; A[1] += w * 0.6; A[2] -= w * 0.8; }
-    } else A = armAngles(s.arms, _fore, 0, s.float, s.floatPose);
+    const left = c.side < 0, k = c.bones.length, hull0 = info ? info.hull.length : 0;
+    let A = limbAngles(c, left, s, _hind, _fore);
+    // (a stroke with a `blend` (util/gait.js swimPose: into and out of a spin) is a mix of two poses, `bw` of the blend's, so no limb pops)
+    if (s.blend && s.bw > 0) { const B = limbAngles(c, left, s.blend, _hind2, _fore2), k = Math.min(1, s.bw); for (let i = 0; i < A.length; i++) A[i] += (B[i] - A[i]) * k; }
     // (sitting on the bottom: the legs folded and the hands down, as it sits on land)
     if (s.sit > 0 && !s.legA) { const to = c.hind ? HIND.fold : FORE.stand; for (let i = 0; i < to.length; i++) A[i] += (to[i] - A[i]) * s.sit; }
     let J = head[c.bones[0]], dPrev = null;
@@ -326,6 +372,8 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
       let u1 = s.hop ? mv(arc(dir[b], d1), c.u0[i]) : across(d1, UP);
       // (the foot rolls about its own length: the web upright as it pushes, flat as it trails)
       if (c.hind && i >= 2 && A[8]) u1 = mv(rotAxis(d1, A[8] * RAD * c.side), u1);
+      // (a segment's roll about its own axis: the thigh, the forearm, the hand; the chain's joints do not move)
+      if (s.roll) { const rl = rollOf(rig, c, i, s.roll, left); if (rl) u1 = mv(rotAxis(d1, rl * RAD * c.side), u1); }
       R[b] = frameRot(dir[b], c.u0[i], d1, u1);
       H[b] = J;
       J = addv(J, mul(d1, L[b]));
@@ -337,7 +385,23 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
     // (in a hop no limb goes through the floor: a limb reaching below it turns up about its root just enough to rest on it, as a
     // limb pressing on the ground does; util/hop.js frames carry the body's place, so the floor is known in the model's terms)
     if (s.frames) J = floorLimb(c, R, H, J, head[c.bones[0]], s.frames.ft);
+    // (an arm hangs from the spine: it turns with it, about the spine's joint)
+    if (tq && !c.hind) {
+      for (const b of c.bones) { R[b] = mm(tq.Qs, R[b]); H[b] = tq.at(H[b]); }
+      J = tq.at(J);
+      if (info) for (let h = hull0; h < info.hull.length; h++) { const q = tq.at(info.hull[h]); info.hull[h][0] = q[0]; info.hull[h][1] = q[1]; info.hull[h][2] = q[2]; }
+    }
     if (info) info.tips[c.limb] = J;
+  }
+  if (tq) {
+    const sb = rig.byName.spine, hb = rig.byName.head;
+    R[sb] = tq.Q0; H[sb] = tq.J0;
+    if (rig.byName.spineB != null) { R[rig.byName.spineB] = tq.Qs; H[rig.byName.spineB] = tq.Js; }
+    R[hb] = mm(tq.Qs, tq.Qh); H[hb] = tq.at(head[hb]);
+    if (info) {
+      const hu = info.hull, c1 = tq.at(hu[1]), c2 = addv(H[hb], mv(R[hb], sub(hu[2], head[hb])));
+      hu[1][0] = c1[0]; hu[1][1] = c1[1]; hu[1][2] = c1[2]; hu[2][0] = c2[0]; hu[2][1] = c2[1]; hu[2][2] = c2[2];
+    }
   }
   writeBones(rig, R, H, out, o, s);
   return info;

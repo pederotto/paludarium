@@ -31,6 +31,14 @@ export const PLANS = {
       arm: { min: 10, max: 160 }, forearm: { min: 0, max: 160 }, hand: { min: 0, max: 150 },
     },
     rig: { head: deg(10), bend: 0.06, tail: 0 },
+    // The trunk's and limbs' channels (render/creatures/skeleton.js poseStroke, stroke.trunk / stroke.roll), degrees, each side
+    // symmetric: guess, from the clips (C-bend 25-30, head lead 20-30, incline 10-20) and the owner's Blender test (25 / 20 / 20).
+    rom: {
+      spine: { yaw: [-25, 25], pitch: [-20, 20], twist: [-20, 20] },
+      // (T4, a body with spineB: the total over its two trunk bones, half each: GUESS, the owner asked for more twist and incline than one joint gave)
+      spineB: { yaw: [-35, 35], pitch: [-25, 25], twist: [-25, 25] }, head: { yaw: [-30, 30], pitch: [-30, 30], twist: [-20, 20] },
+      forearm: { roll: [-45, 45] }, hand: { roll: [-45, 45] }, thigh: { roll: [-30, 30] },
+    },
     muscles: [
       { name: 'thigh (iliofibularis, cruralis)', bone: 'thigh', joint: 'shin', from: 0.15, to: 0.8, gain: 0.1 },
       { name: 'calf (plantaris longus)', bone: 'shin', joint: 'foot', from: 0.1, to: 0.6, gain: 0.08 },

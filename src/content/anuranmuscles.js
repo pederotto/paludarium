@@ -39,6 +39,13 @@ export const ANURAN_LANDMARKS = {
   ischium_post:    { bone: 'pelvis', at: 'hip', t: -0.16, dors: 0.00, out: -0.08, what: 'posterior ischium' },
   ischium_vent:    { bone: 'pelvis', at: 'hip', t: -0.10, dors: -0.35, out: -0.08, what: 'ventral border of the ischium, behind the acetabulum' },
   pubis:           { bone: 'pelvis', at: 'hip', t: 0.10, dors: -0.45, out: -0.08, what: 'ventral rim of the disc in front of the ischium (pubis): placed so the straps\' line of pull protracts, as Collings 2022 finds' },
+  // the trunk (`trunk: true`: a bone without a side; `out` is toward the muscle's own side, in the bone's flesh radii). Placed on the plate
+  // of the edible frog's muscular system (Hogya, refs/frog-muscles-1006): the longissimus dorsi a strap beside the midline of the back, from
+  // the sacral region over the vertebral column to the back of the skull. The exact spots are guesses (tag guess).
+  lgd_sacrum:      { trunk: true, bone: 'pelvis', t: 0.80, dors: 0.55, out: 0.45, what: 'dorsal ilium beside the urostyle and sacrum: where the longissimus starts' },
+  lgd_spine:       { trunk: true, bone: 'spine', t: 0.50, dors: 0.55, out: 0.45, what: 'beside the vertebral column, mid trunk' },
+  lgd_spineB:      { trunk: true, optional: true, bone: 'spineB', t: 0.50, dors: 0.55, out: 0.45, what: 'beside the vertebral column, the front half of a body with the trunk in two bones' },
+  lgd_occ:         { trunk: true, bone: 'head', t: 0.10, dors: 0.50, out: 0.40, what: 'back of the skull, beside the occiput' },
   // femur (bone 'thigh')
   femur_prox:      { bone: 'thigh', t: 0.12, post: 0.15, what: 'proximal femur' },
   troch_post:      { bone: 'thigh', t: 0.03, post: 0.45, dors: 0.05, soft: true, what: 'behind the femoral head: the short retractors pass round it' },
@@ -159,6 +166,12 @@ export const ANURAN_MUSCLES = [
     path: ['knee_ant', 'tib_prox_ant', 'tib_dist_lat'], wraps: { knee: 'ant' }, belly: [0.08, 0.9], seg: 'shank', share: 0.13,
     fibre: { lf: 0.6, alpha: 10, ln0: 0.95 }, e0: 0.04, acts: { knee: 'extensor' },
     actSrc: 'knee (shank): Leavey 2024 Table 1', visible: true, num: G('') },
+  // the trunk (one pair, packed in the row's last belly texel: visibleSlots, PAIR_SLOT)
+  { id: 'LGD', trunk: true, drive: 'trunk', members: ['LD'], name: 'longissimus dorsi (epaxial: the strap along the back, sacrum to skull)',
+    path: ['lgd_sacrum', 'lgd_spine', 'lgd_spineB', 'lgd_occ'], belly: [0.08, 0.92], seg: 'trunk', share: 1,
+    fibre: { lf: 0.5, alpha: 0, ln0: 1.0 }, e0: 0.04, acts: { spine: 'extensor; on one side, lateral flexor toward that side' },
+    actSrc: 'where it lies and what it does: the muscular-system plate of the edible frog (Hogya, refs/frog-muscles-1006); the rest is a guess', visible: true,
+    num: G('mass share, fibres and tendon: no number found; unilateral it bends the trunk toward its side, both extend it') },
 ];
 
 // The cylinders tendons wrap over (musculo.js wrapLength): at the knee the aponeurosis over the femur's condyles, at the ankle (heel) the
@@ -170,10 +183,13 @@ export const ANURAN_WRAPS = {
 
 // The visible bellies' slots in the bone texture (render/creatures/skin.js: one texel each after the bones), left then right, in the
 // template's order, as `${id}${side}`; the bake writes each skin vertex's two slots (_MUSC), so this order is part of the schema.
-export const MAX_SLOTS = 24;                 // texels 51 ... 74 of a 75-texel row are free on a 17-bone frog
+export const MAX_SLOTS = 22;                 // texels 54 ... 74 of a 75-texel row are free on an 18-bone frog (spineB): 20 limb bellies a texel each, then the trunk pair sharing the last
+export const PAIR_SLOT = 20;                 // the left trunk belly (.xy of texel 20; the right one is slot 21, its .zw): the vertex shader reads only a belly's swell and slide
 export function visibleSlots(defs = ANURAN_MUSCLES) {
-  const ids = defs.filter((d) => d.visible).map((d) => d.id), out = [...ids.map((i) => i + 'L'), ...ids.map((i) => i + 'R')];
-  if (out.length > MAX_SLOTS) throw new Error(`${out.length} visible muscles, the row has room for ${MAX_SLOTS}`);
+  const vis = defs.filter((d) => d.visible), limb = vis.filter((d) => !d.trunk).map((d) => d.id), trunk = vis.filter((d) => d.trunk).map((d) => d.id);
+  const out = [...limb.map((i) => i + 'L'), ...limb.map((i) => i + 'R'), ...trunk.map((i) => i + 'L'), ...trunk.map((i) => i + 'R')];
+  if (limb.length * 2 > PAIR_SLOT || trunk.length > 1) throw new Error(`${limb.length} limb and ${trunk.length} trunk bellies: the row has room for ${PAIR_SLOT / 2} limb ids and one trunk id`);
+  if (trunk.length && limb.length * 2 !== PAIR_SLOT) throw new Error(`the trunk pair belongs at slot ${PAIR_SLOT}, after ${limb.length * 2} limb bellies`);
   return out;
 }
 
@@ -184,6 +200,7 @@ export const ANURAN_WHOLE = {
   // short, so the walker-hopper's; no dendrobatid number found)
   hindlimbOfBody: { value: 0.13, band: [0.13, 0.25], src: 'Roberts, Abbott & Azizi 2011, Phil Trans R Soc B 366:1488, Table 1', tag: 'scaled', note: 'hind-limb muscle mass, both legs, over body mass' },
   segOfHindlimb: { thigh: 0.58, shank: 0.42, src: 'none yet', tag: 'guess', note: 'pelvic and foot muscles not modelled yet' },
+  longissimus: { value: 0.03, src: 'none yet', tag: 'guess', note: 'longissimus dorsi, both sides, over body mass (the hind limbs are 13-25 %)' },
   sigma: { value: 21.4, unit: 'N/cm2', src: 'Roberts, Abbott & Azizi 2011 Table 1, P0 in vitro (Osteopilus; Rana 22.7, Rhinella 20.2)', tag: 'measured', note: 'the table does not name the muscle (control/round-4.md)' },
   density: { value: 1.0, unit: 'g/cm3', src: 'none yet', tag: 'guess', note: 'the whole frog, for its mass from the scan volume' },
 };
@@ -205,6 +222,12 @@ export function anuranFrames(skel) {
   fp.dors = across(UP, fp.a);
   fp.post = mul(fp.dors, -1);
   F.pelvis = fp;
+  for (const n of ['spine', 'spineB', 'head']) {      // (the trunk's bones: `outR` the side toward +x, the frog's right)
+    if (!by[n]) continue;
+    const f = base(by[n]), o = norm(cross(across(UP, f.a), f.a));
+    f.dors = across(UP, f.a); f.post = mul(f.dors, -1); f.outR = o[0] >= 0 ? o : mul(o, -1);
+    F[n] = f;
+  }
   for (const s of ['L', 'R']) {
     const th = by['thigh' + s], sh = by['shin' + s], ft = by['foot' + s], to = by['toes' + s];
     if (!th || !sh || !ft || !to) return null;
@@ -230,6 +253,10 @@ export function anuranFrames(skel) {
 export function landmarkAt(skel, F, id, s, L = ANURAN_LANDMARKS) {
   const lm = L[id];
   if (!lm) throw new Error(`no landmark ${id}`);
+  if (lm.trunk) {
+    const f = F[lm.bone], out = lm.bone === 'pelvis' ? F['out' + s] : mul(f.outR, s === 'L' ? -1 : 1);
+    return framePoint({ o: f.o, a: f.a, L: f.L, r: f.r, post: f.post, dors: f.dors, out }, lm);
+  }
   if (lm.bone === 'pelvis') {
     const fp = F.pelvis, out = F['out' + s];
     const hip = skel.bones.find((b) => b.name === 'thigh' + s).head;
@@ -249,9 +276,9 @@ export function anuranMuscleSet(skel, defs = ANURAN_MUSCLES, L = ANURAN_LANDMARK
   const out = [];
   for (const s of ['L', 'R']) {
     for (const def of defs) {
-      const pts = def.path.map((id) => {
+      const pts = def.path.filter((id) => !(L[id].optional && idx[L[id].bone] == null)).map((id) => {
         const lm = L[id];
-        return { bone: idx[lm.bone === 'pelvis' ? 'pelvis' : lm.bone + s], p: landmarkAt(skel, F, id, s, L), id };
+        return { bone: idx[lm.bone === 'pelvis' || lm.trunk ? lm.bone : lm.bone + s], p: landmarkAt(skel, F, id, s, L), id };
       });
       out.push({ id: def.id, side: s, def, pts, L0: pathLength(pts.map((q) => q.p)) });
     }
@@ -365,8 +392,28 @@ export function muscleUnit(mu, skel, massG = 0, sigma = ANURAN_WHOLE.sigma.value
 // t: 0 ... 1 through it }. The take-off and the kick's thrust fire the 'push' muscles; the flight and the recovery fold the legs with
 // the 'recover' ones; the landing braces with the push muscles; at rest a low tone. A guess in the shape of the jump EMG (extensors
 // active through the push, flexors after take-off) until R2's timings land.
+// The activation modes of one hind leg, from its own phase t (0 = cock, the diamond fold; ctx.amp 0 ... 1 scales the phasic part above
+// tone). Windows = frame (W2 clip 3: swing 0.25 of the cycle, stretch at 0.45-0.60; W1 clip 2); every height = guess.
+export function moveExcitation(def, ctx) {
+  const t = (ctx.t ?? 0) - Math.floor(ctx.t ?? 0), amp = ctx.amp ?? 1, tone = MOTOR.tone;
+  let push, rec;
+  if (t < 0.25) { push = tone; rec = 0.5; }                                             // swing: the diamond fold (guess)
+  else if (t < (ctx.mode === 'climb' ? 0.45 : 0.40)) { push = 0.2; rec = 0.2; }         // placing the pad (guess)
+  else if (ctx.mode === 'climb' && t < 0.60) { push = 1; rec = tone; }                  // the stretch (guess)
+  else { push = 0.35; rec = tone; }                                                      // stance, holding the load (guess)
+  const a = def.id === 'IFB' ? 0.5 * (push + rec) : def.drive === 'push' ? push : rec;
+  return tone + amp * (a - tone);
+}
 export const MOTOR = { tone: 0.05, src: 'none yet', tag: 'guess' };
+// The longissimus on one side (ctx.side -1 left / +1 right) from the trunk's own channels (stroke.trunk, degrees: yaw > 0 turns the head to the
+// right, pitch > 0 tips the nose down): it fires with the trunk's bend toward its side (up to the spine's 25 deg) and with the back's
+// extension (nose up, up to 20 deg), both guesses; at rest a low tone.
+export function trunkExcitation(ctx) {
+  const side = ctx.side ?? 1, lat = Math.min(1, Math.max(0, side * (ctx.yaw ?? 0)) / 25), ext = Math.min(1, Math.max(0, -(ctx.pitch ?? 0)) / 20);
+  return Math.min(1, MOTOR.tone + 0.8 * lat + 0.5 * ext);
+}
 export function excitation(def, ctx) {
+  if (def.drive === 'trunk') return trunkExcitation(ctx);
   const push = def.drive === 'push', t = ctx.t ?? 0, tone = MOTOR.tone;
   switch (ctx.mode) {
     case 'hop': case 'leap':
@@ -378,12 +425,14 @@ export function excitation(def, ctx) {
       if (t < 0.6) return tone;                          // the glide
       return push ? tone : 0.5;                          // drawing the legs up
     case 'walk': return 0.2;
+    case 'step': case 'climb': case 'turn': return moveExcitation(def, ctx);
     default: return tone;
   }
 }
 
 // The joints a muscle crosses, from the bones its path runs over (hip: pelvis to thigh; knee: thigh to shin; ankle: shin to the tarsus).
 export function crossedJoints(m, skel) {
+  if (m.def.trunk) return [];                       // (it crosses the spine's joints, not a limb's: tests/trunk-muscles.test.mjs)
   const names = m.pts.map((q) => skel.bones[q.bone].name.replace(/[LR]$/, ''));
   const order = ['pelvis', 'thigh', 'shin', 'foot', 'toes'];
   const lo = Math.min(...names.map((n) => order.indexOf(n))), hi = Math.max(...names.map((n) => order.indexOf(n)));
