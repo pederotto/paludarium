@@ -54,7 +54,7 @@ export function createRadar(game) {
       if (sp.kind === 'egg' || a.dead) continue;
       let s = states.get(a);
       if (!s) states.set(a, (s = newState()));
-      const found = check(s, a, { dt: dtA, t, size: sp.size, swim: sp.kind === 'swim' || !!a.swimming, air: sp.kind === 'fly', ground: T.heightAt(a.pos.x, a.pos.z), bounds, tol: tolFor(sp), tableSpeed: sp.speed });
+      const found = check(s, a, { dt: dtA, t, size: sp.size, swim: sp.kind === 'swim' || !!a.swimming, air: sp.kind === 'fly', sideways: sp.kind === 'crab', ground: T.heightAt(a.pos.x, a.pos.z), bounds, tol: tolFor(sp), tableSpeed: sp.speed });
       for (const f of found) flag(a, f.kind, f.msg, f.sev);
       if (a.lastStuck != null && a.lastStuck !== s.lastStuck) { if (s.lastStuck !== undefined) flag(a, 'unstuck', 'the engine had to unstick it: no headway for 3.5 s', 'warn'); s.lastStuck = a.lastStuck; }
     }

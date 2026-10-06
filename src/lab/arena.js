@@ -5,6 +5,7 @@
 import { TANKS } from '../content/tanks.js';
 import { TANK } from '../sim/tank.js';
 import { smooth } from '../util/math.js';
+import { heightAfter } from '../sim/labshapes.js';
 import { L } from './state.js';
 
 // The grounds the arena comes with. Flat: the whole floor at FLOOR cm. Shore: dry land at LAND cm on the left, a ramp of a bank
@@ -33,16 +34,21 @@ export async function buildArena(game, { tank = 'standard', ground = 'flat', dep
   return W;
 }
 
-// Reshape the ground (the soil layer's base height) and tell the world, as sculpting does. Water is set after (setDepth).
-export function shapeGround(game, kind) {
+// The ground's base height at x on the arena's own ground (before any obstacle).
+export function baseHeight(kind, x) {
+  if (kind !== 'shore') return FLOOR;
+  const x0 = TANK.w * 0.02, ramp = TANK.w * 0.16;
+  return LAND + (POOL - LAND) * smooth(0, 1, (x - x0) / ramp);
+}
+
+// Reshape the ground (the soil layer's base height) and tell the world, as sculpting does: the arena's ground with the exact-size
+// obstacles (sim/labshapes.js) cut into it. Water is set after (setDepth).
+export function shapeGround(game, kind, shapes = []) {
   const W = game.world, F = W.terrain.field;
-  if (kind === 'shore') {
-    const x0 = TANK.w * 0.02, ramp = TANK.w * 0.16;
-    for (let j = 0; j < F.rows; j++) for (let i = 0; i < F.cols; i++) {
-      const [x] = F.toWorld(i, j);
-      F.base[F.idx(i, j)] = LAND + (POOL - LAND) * smooth(0, 1, (x - x0) / ramp);
-    }
-  } else F.base.fill(FLOOR);
+  for (let j = 0; j < F.rows; j++) for (let i = 0; i < F.cols; i++) {
+    const [x, z] = F.toWorld(i, j), g = baseHeight(kind, x);
+    F.base[F.idx(i, j)] = shapes.length ? heightAfter(g, shapes, x, z) : g;
+  }
   F.dirty = true;
   W.groundChanged();
   L.ground.value = kind === 'shore' ? 'shore' : 'flat';
