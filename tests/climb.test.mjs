@@ -84,3 +84,42 @@ test('the muscles follow the limbs: a hind leg in its stretch fires the push gro
   assert.equal(L, 1, 'the stretching leg'); assert.ok(R < 0.2, `the swinging leg ${R}`);
   assert.equal(climbMove({ hL: 0.5, hR: 0.5, act: 0 }).ampL, 0);        // held: tone only
 });
+
+// --- the crawl: the arboreal frog's gait (clip 3, a green tree frog up a wall: a continuous lateral-sequence walk, not the dart frog's pulse) ---
+const crawler = () => { const st = climbState(rnd, 'crawl'); return st; };
+test('crawl: the four limbs cycle in a lateral sequence, the hand of one side reaching while the hind leg of the other pushes', () => {
+  const st = crawler(); const swing = { hR: [], fR: [], hL: [], fL: [] }; let prev = null;
+  for (let i = 0; i < 400; i++) {
+    climbStep(st, { go: 1, bodyLen: 4, urgency: 0, rnd }, dt);
+    for (const k of Object.keys(swing)) { const sw = st[k] > 0 && st[k] < 0.25; if (sw && !(prev?.[k])) swing[k].push(st.clock); }
+    prev = { hR: st.hR > 0 && st.hR < 0.25, fR: st.fR > 0 && st.fR < 0.25, hL: st.hL > 0 && st.hL < 0.25, fL: st.fL > 0 && st.fL < 0.25 };
+  }
+  // the order inside a cycle: hind right, fore right, hind left, fore left, a quarter of a cycle apart
+  const at = (k, n) => swing[k][n] - Math.floor(swing[k][n]);
+  const q = (k) => +at(k, 1).toFixed(1);
+  assert.ok(swing.hR.length >= 3 && swing.fR.length >= 3 && swing.hL.length >= 3 && swing.fL.length >= 3);
+  assert.deepEqual([q('hR'), q('fR'), q('hL'), q('fL')].map((v) => (v + 0.1) % 1 < 0.15 ? 0 : v), [0, 0.3, 0.5, 0.8].map((v) => v), `swing starts ${[q('hR'), q('fR'), q('hL'), q('fL')]}`);
+  // never more than one limb in its swing at a time: three on the wall (duty 0.75)
+  const s2 = crawler(); let maxSwing = 0;
+  for (let i = 0; i < 600; i++) { climbStep(s2, { go: 1, bodyLen: 4, rnd }, dt); maxSwing = Math.max(maxSwing, ['hR', 'fR', 'hL', 'fL'].filter((k) => s2[k] > 0 && s2[k] < 0.25).length); }
+  assert.ok(maxSwing <= 2, `${maxSwing} limbs in their swing at once`);
+});
+test('crawl: the body advances its stride a cycle from the limbs\' stance, turns with the steer, and nothing moves once asked to stop', () => {
+  const a = crawler(); let adv = 0, dyaw = 0; const T = 1.6;                    // (urgency 0: a cycle lasts 1.6 s)
+  for (let i = 0; i < 4 * T / dt; i++) { const m = climbStep(a, { go: 1, steer: 1, bodyLen: 4, urgency: 0, rnd }, dt); adv += m.adv; dyaw += m.dyaw; }
+  assert.ok(Math.abs(adv - 4 * 4 * 0.5) < 0.1 * 4 * 4 * 0.5, `advanced ${adv.toFixed(2)} cm in 4 cycles`);
+  assert.ok(dyaw > 0.8 * 4 * 40 * Math.PI / 180, `turned ${dyaw}`);
+  // asked to stop: it finishes the swing it is in and stands, no foot left in the air, nothing moves after
+  let still = 0, moved = 0;
+  for (let i = 0; i < 400; i++) { const m = climbStep(a, { go: 0, bodyLen: 4, rnd }, dt); if (i > 100) { if (m.adv || m.dyaw) moved++; else still++; } }
+  assert.equal(moved, 0); assert.ok(still > 200);
+  assert.ok(['hR', 'fR', 'hL', 'fL'].every((k) => !(a[k] > 1e-6 && a[k] < 0.25 - 1e-6)), `a limb left in its swing: ${['hR', 'fR', 'hL', 'fL'].map((k) => a[k].toFixed(3))}`);
+});
+test('crawl: the pose hangs the hind legs stretched at the lift-off and folds them up and out in the swing; the torso sways with the steps', () => {
+  const st = crawler(); st.hR = 0; st.hL = 0.12; climbPose(st); const P = climbPose(st);
+  assert.ok(P.legA[9] < 40 && P.legA[0] > 110, `right leg ${P.legA[9]}, left leg ${P.legA[0]}: one stretched, one folded forward`);
+  let yawMax = 0, yawMin = 0; const s3 = crawler();
+  for (let i = 0; i < 100; i++) { climbStep(s3, { go: 1, rnd }, dt); yawMax = Math.max(yawMax, s3.trunk[0]); yawMin = Math.min(yawMin, s3.trunk[0]); }
+  assert.ok(yawMax > 8 && yawMin < -8, `sway ${yawMin} ... ${yawMax}`);
+  assert.equal(climbMove(st).mode, 'climb');
+});

@@ -69,7 +69,7 @@ const GLASS_GAP = 0.12;
 const PIECE_GAP = 0.12;
 // Frogs without toe pads (the bumblebee toad, the fire-bellied toad): out of the water they climb rough faces only up to about 70
 // degrees, and not the glass (Animals.exitClimb, exitGlass).
-const PADLESS = new Set(['bumblebee', 'toad']);
+const PADLESS = new Set(['bumblebee', 'toad', 'ediblefrog', 'commonfrog']);   // (the last two are the European frogs, not in the game yet: no toe pads either; the owner, 6 Oct 2026: toads and common frogs do not climb)
 const EXIT_LOOK = 160;      // how far across the water a frog in it looks for a way out (cm: past the far side of any tank)
 const _gf = new Array(9);
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
@@ -2117,10 +2117,10 @@ export class Animals {
         const dx = goal.x - a.pos.x, dy = goal.y - a.pos.y, dz = goal.z - a.pos.z, dist = Math.hypot(dx, dy, dz), dh = Math.hypot(dx, dz);
         // Belly to a surface (the pane, a piece's side) the climb is the limbs' (util/climb.js): pulses of the four limbs, and the advance and the yaw come
         // out of them (owner's Movement rule); a stem, the ground and the water as before.
-        const surf = P.exit === 'glass' ? (P.i >= 2 && P.i <= P.glassTo ? P.glassN : null) : P.glassN ? (Math.abs(dy) > dh * 1.5 ? P.glassN : null) : goal.n ?? null;
+        const surf = PADLESS.has(a.sp) ? null : P.exit === 'glass' ? (P.i >= 2 && P.i <= P.glassTo ? P.glassN : null) : P.glassN ? (Math.abs(dy) > dh * 1.5 ? P.glassN : null) : goal.n ?? null;
         let step = 0;
         if (surf) {
-          const cl = a.climb ??= climbState(), bb = this.bodyBox(a, sp), want = dist > 0.05 ? this.glassYawTo(surf, dx, dy, dz) : (a.yaw ?? 0);
+          const cl = a.climb ??= climbState(undefined, sp.perch ? 'crawl' : 'pulse'), bb = this.bodyBox(a, sp), want = dist > 0.05 ? this.glassYawTo(surf, dx, dy, dz) : (a.yaw ?? 0);
           if (!a._climbPrev) { a.yaw = want; cl.t = -1; cl.hold = 0.15; }       // (it takes hold of the surface heading the way it climbs: the mount, as before)
           const err = angDiff(want, a.yaw ?? 0);
           const m = climbStep(cl, { go: dist > 0.3 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.6, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
@@ -2375,6 +2375,10 @@ export class Animals {
             const q = V(sh.point.x + N.x * PIECE_GAP, sh.point.y + N.y * PIECE_GAP, sh.point.z + N.z * PIECE_GAP); q.n = N;
             if (Math.abs(N.y) < 0.85) side.push(q);                       // (a wall, not the top: that is the ray from above's)
           }
+          // (a bark's or a pole's faces point every which way: the normals are averaged over the neighbours, so the frame the heading is read in does not
+          // jump from one point of the climb to the next)
+          const sm = side.map((q, k) => { const n = V(0, 0, 0); for (let j = Math.max(0, k - 2); j <= Math.min(side.length - 1, k + 2); j++) n.add(side[j].n); return n.normalize(); });
+          side.forEach((q, k) => { q.n = sm[k]; });
           if (side.length >= 2) path.push(...side); else path.push(V(x, g, z));
         }
         path.push(V(x, y, z));
