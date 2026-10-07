@@ -19,8 +19,9 @@ import { hopPlan, hopAt, hopPitch, hopFrame, svlOf } from '../util/hop.js';
 import { buccalState, buccalStep, pumpThroat, pumpBreath, swallowDrive, eyeStep } from '../content/anuranheadmuscles.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
-import { driveStep, crossTrack } from './labdrive.js';
-import { Occupancy } from './occupancy.js';
+import { driveStep, skipWaypoint, crossTrack } from './labdrive.js';
+import { Grid, planRoute } from './labroute.js';
+import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
 import { herpSpot, depthCap, depthOk, deepWithin } from './placement.js';
@@ -72,6 +73,8 @@ const PADLESS = new Set(['bumblebee', 'toad']);
 const EXIT_LOOK = 160;      // how far across the water a frog in it looks for a way out (cm: past the far side of any tank)
 const _gf = new Array(9);
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
+const HOP_RISE = 4;       // cm: the tallest rise of the ground a hop is planned onto (labGrid): a 3 cm step is hopped up, a 6 cm wall is not
+const TURN_GO = 0.5;      // rad: a frog sets off on a walk or a hop once its body is within this of the way it is going (it finishes the turn as it goes)
 const RADIUS = { skink: 0.6, swim: 0.38, crawlWater: 0.4, crawlLand: 0.3, crab: 0.6, fly: 0.2, frog: 0.85, toad: 0.8, newt: 0.7, axolotl: 0.75, gecko: 0.7 };
 const STRENGTH = { skink: 1, swim: 1, frog: 1, toad: 1, newt: 1, axolotl: 1, gecko: 1, crab: 1, crawlWater: 0.85, crawlLand: 0.85, fly: 0.3 };
 const GROUPS = { water: 1, land: 1, wall: 3, air: 4 };     // land and water share a grid: a newt on the pool's bottom meets the shrimp there
@@ -1110,7 +1113,24 @@ export class Animals {
     }
     // (at its feet and at the top of its back: the relief is not flat, and a small walker hugs it at either height)
     const y0 = swim ? y - (a.bh ?? 0.5) * 0.5 : Math.max(y, T.heightAt(x, z)) + 0.1, y1 = y0 + Math.max(0.3, a.bh ?? 1);
-    return Math.max(Wl.zAt(wx, y0), Wl.zAt(wx, y1)) + Math.max(0.3, r * 0.9) - zmin;
+    let need = Math.max(Wl.zAt(wx, y0), Wl.zAt(wx, y1)) + Math.max(0.3, r * 0.9) - zmin;
+    // A walker's drawn body as well, once it is measured: its nose, tail and sides where they really are (a crocodile skink's nose is further
+    // out than its capsule's end plus a radius and stood 0.2 cm in the relief, a crab's sprawled legs 1.6 cm), not only the middle.
+    if (!swim && this.bodyOf(a.sp)) {
+      const bx = this.bodyBox(a, SPECIES[a.sp]), fx = Math.sin(yaw ?? 0), fz = Math.cos(yaw ?? 0), zm = (bx.z0 + bx.z1) / 2;
+      const at = (l, w) => { const px = x + fx * l + fz * w, pz = z + fz * l - fx * w; need = Math.max(need, Math.max(Wl.zAt(px, y0), Wl.zAt(px, y1)) + 0.2 - pz); };
+      at(bx.z1, 0); at(bx.z0, 0); at(zm, bx.X); at(zm, -bx.X);
+    }
+    return need;
+  }
+
+  // Would a step to (nx, nz) push the body further into the background relief than it is (and than it may be)? The walkers refuse it as they
+  // refuse a step into a piece, and go round (along the wall) instead of walking into the clamp (clearOfWall) and standing there, legs
+  // stepping, with the head against the relief.
+  wallBlocks(a, nx, nz) {
+    if (!this.avoid) return false;
+    const y = a.pos.y, n1 = this.wallNeed(a, nx, y, nz, a.yaw, false);
+    return n1 > 0.05 && n1 > this.wallNeed(a, a.pos.x, y, a.pos.z, a.yaw, false) + 1e-3;
   }
 
   // The drawn body's box at its size (util/contain.js): half its width with the legs out, its tail and snout ends along its heading,
@@ -1434,7 +1454,7 @@ export class Animals {
     const from = a.pos.clone();
     this.stuckStats.relocated++;
     a.relocT = this.t;                                                         // (offCliff must not put it back this tick)
-    a.stillT = 0; a.anchor = null; a.target = null; a.shore = null; a.hop = null; a.hopFail = 0;
+    a.stillT = 0; a.anchor = null; a.target = null; a.shore = null; a.hop = null; a.hopFail = 0; a.gx = null; a.rt = null;
     a.timer = 0; a.state = 'idle'; a.vel.set(0, 0, 0); a.fs = null; this.dropStrike(a); a.crouch = 0; a.chain = 0;
     const swimmer = sp.kind === 'swim' || (a.swimming && sp.kind !== 'frog' && sp.kind !== 'toad');
     if (!swimmer) a.swimming = false;
@@ -2486,6 +2506,7 @@ export class Animals {
     let goal = it.goal, speed = it.speed;
     if (it.mode === 'hunt' && a.target) { goal = { x: a.target.x, z: a.target.z }; speed = SKINK.speed * 0.7; }
     if (a.lab?.drive) { goal = a.lab.goal; speed = goal ? SKINK.speed * a.lab.k : 0; }          // (the test lab)
+    else if (goal && speed > 0) goal = this.steerGoal(a, sp, goal, dt);                          // (round what is in the way)
     a.state = goal && speed > 0 ? 'walk' : 'rest';
     a.speedNow = 0;
     if (goal && speed > 0) {
@@ -2494,12 +2515,12 @@ export class Animals {
         const step = Math.min(dist, speed * dt);
         let ux = dx / dist, uz = dz / dist;
         const maxD = it.mode === 'flee' && depth > SKINK.maxDepth ? 99 : SKINK.maxDepth;
-        if (!this.okFor('any', x + ux * step, z + uz * step, maxD, a.rad) || this.bumps(a, x + ux * step, z + uz * step)) {
+        if (!this.okFor('any', x + ux * step, z + uz * step, maxD, a.rad) || this.bumps(a, x + ux * step, z + uz * step) || this.wallBlocks(a, x + ux * step, z + uz * step)) {
           const sd = a.side ?? 1, base = Math.atan2(ux, uz);
           let ok = false;
           for (const da of [0.7 * sd, -0.7 * sd, 1.4 * sd, -1.4 * sd, 2.1 * sd]) {
             const sx = Math.sin(base + da), sz = Math.cos(base + da);
-            if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad) && !this.bumps(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
+            if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
           }
           if (!ok) { ux = 0; uz = 0; m.goal = null; if (a.order) a.target = null; }
         }
@@ -2593,6 +2614,7 @@ export class Animals {
     };
     const it = (a.ci = crabThink(m, sense, Math.random, P));
     if (a.lab?.drive) this.labCrab(a, P, it);
+    else if (it.goal && it.speed > 0) it.goal = this.steerGoal(a, sp, it.goal, dt);              // (round what is in the way)
     if (it.say) W.log(it.say, 'warn');
     if (it.eat && food) {
       if (isItem(food.pid)) { food.p.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE[food.pid]); }
@@ -2614,13 +2636,13 @@ export class Animals {
         const step = Math.min(dist, it.speed * dt);
         const maxD = m.mode === 'exit' ? 99 : m.mode === 'soak' ? P.soakDepth[1] + 0.5 : P.safeDepth;
         let ux = dx / dist, uz = dz / dist;
-        if (!this.okFor('any', x + ux * step, z + uz * step, maxD, a.rad) || this.bumps(a, x + ux * step, z + uz * step)) {
+        if (!this.okFor('any', x + ux * step, z + uz * step, maxD, a.rad) || this.bumps(a, x + ux * step, z + uz * step) || this.wallBlocks(a, x + ux * step, z + uz * step)) {
           // Blocked: slide round it, trying the side that worked last time first.
           const sd = a.side ?? 1, base = Math.atan2(ux, uz);
           let ok = false;
           for (const da of [0.7 * sd, -0.7 * sd, 1.4 * sd, -1.4 * sd, 2.1 * sd]) {
             const sx = Math.sin(base + da), sz = Math.cos(base + da);
-            if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad) && !this.bumps(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
+            if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
           }
           if (!ok) { ux = 0; uz = 0; m.goal = null; }
         }
@@ -2815,7 +2837,7 @@ export class Animals {
     a.dryT = (a.dryT ?? 0) + dtS;
     a.pos.y = g;
     a.normal = T.normalAt(a.pos.x, a.pos.z);
-    if (!a.fs) { a.fs = 'sit'; a.fsT = this.pickSit(a, sp) * Math.random(); a.chain = 0; a.crouch = 0; }
+    if (!a.fs) { a.fs = 'sit'; a.fsT = this.pickSit(a, sp) * Math.random(); a.chain = 0; a.crouch = 0; if (a.lab) a.lab.kicked = false; }   // (a driven frog put back to its start, by an unstick or a relocation, does not sit out the rest it was dealt)
     switch (a.fs) {
       case 'sit': {
         a.fsT -= dt * (a.order || a.lab?.goal ? 1 : this.warp);
@@ -2826,13 +2848,14 @@ export class Animals {
         break;
       }
       case 'turn': {
-        // Face the way first (a deliberate turn on the spot, stepping round about the hips: turnTo), then crouch or walk.
+        // Face the way first (stepping round about the hips: turnTo), then crouch or walk. A walk or a hop sets off once the body is most of the
+        // way round (TURN_GO) and the rest of the turn is made as it goes (in the crouch, in the take-off's twist, along the walk): it used to
+        // turn through the whole angle on the spot first, 98% of all a frog's turning (the test lab's measure), then go straight.
         this.turnTo(a, sp, a.faceTo, dtS, 10);
-        if (Math.abs(angDiff(a.faceTo, a.yaw)) < 0.02) {
-          a.yaw = a.faceTo;
-          // (turning about the hips carried the body's middle round: the planned leap or walk goes with it, so it still runs straight ahead)
-          const p = a.plan;
-          if (p?.x0 != null) { p.to.x += a.pos.x - p.x0; p.to.z += a.pos.z - p.z0; p.x0 = a.pos.x; p.z0 = a.pos.z; }
+        const left = Math.abs(angDiff(a.faceTo, a.yaw));
+        if (left < (a.afterTurn === 'crouch' || a.afterTurn === 'walk' ? TURN_GO : 0.02)) {
+          if (left < 0.02) a.yaw = a.faceTo;
+          this.planFollowsPivot(a);
           a.fs = a.afterTurn ?? 'sit';
           a.walkT = 0;
           if (a.fs === 'crouch') a.fsT = 0.22 + Math.random() * 0.25;
@@ -2844,6 +2867,7 @@ export class Animals {
         // Anticipation: sink onto the hind legs, then spring.
         a.crouch = Math.min(1, (a.crouch ?? 0) + dtS * 5);
         a.fsT -= dtS;
+        if (a.faceTo != null && Math.abs(angDiff(a.faceTo, a.yaw)) > 0.02) { this.turnTo(a, sp, a.faceTo, dtS, 10); this.planFollowsPivot(a); }      // (the rest of the turn: the take-off twists the last of it)
         if (a.fsT <= 0) {
           const p = a.plan;
           a.crouch = 0;
@@ -2853,6 +2877,12 @@ export class Animals {
       }
       case 'walk': this.frogWalk(a, sp, dtS); break;
     }
+  }
+
+  // (turning about the hips carried the body's middle round: the planned leap or walk goes with it, so it still runs straight ahead)
+  planFollowsPivot(a) {
+    const p = a.plan;
+    if (p?.x0 != null) { p.to.x += a.pos.x - p.x0; p.to.z += a.pos.z - p.z0; p.x0 = a.pos.x; p.z0 = a.pos.z; }
   }
 
   // Back to sitting after a hop or a walk: the next segment of the burst soon, else a long sit.
@@ -2960,12 +2990,15 @@ export class Animals {
     // No headway for 0.6 s (each step undone: a cliff under the snout, offCliff; a neighbour; a bank): it stops instead of treading on the spot.
     if (!(d > (p.best ?? Infinity) - 0.05)) { p.best = d; p.bestT = a.walkT; } else if (a.walkT - p.bestT > 0.6) ok = false;
     if (ok) {
-      const v = sp.speed * 2.0 * p.v * Math.min(1, 0.35 + d * 0.5);       // about 2 cm/s, easing in to the stop
-      const step = Math.min(d, v * dtS);
-      const nx = a.pos.x + dx / d * step, nz = a.pos.z + dz / d * step;
+      // It goes the way its body points, which turns toward the target as it goes (an arc), slower the further round it still has to come;
+      // well off the heading (more than TURN_GO: it was told to walk before the turn was made) it only turns.
+      const err = Math.abs(angDiff(Math.atan2(dx, dz), a.yaw ?? 0)), fwd = err < 1.2 ? Math.max(0, Math.cos(err)) : 0;
+      const v = sp.speed * 2.0 * p.v * Math.min(1, 0.35 + d * 0.5) * fwd;       // about 2 cm/s, easing in to the stop
+      const step = Math.min(d, v * dtS), ux = err < 0.05 ? dx / d : Math.sin(a.yaw ?? 0), uz = err < 0.05 ? dz / d : Math.cos(a.yaw ?? 0);
+      const nx = a.pos.x + ux * step, nz = a.pos.z + uz * step;
       if (this.okFor(this.mediumOf(sp), nx, nz) && !this.crowded(a, sp, nx, nz) && !this.walkBlocked(a, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.pos.y = this.world.terrain.heightAt(nx, nz); a.hopFail = 0; }
       else ok = false;
-      this.turnTo(a, sp, Math.atan2(dx, dz), dtS, 6);
+      this.turnTo(a, sp, Math.atan2(dx, dz), dtS, 10);
     }
     if (!ok) this.frogEnd(a, sp, false);
   }
@@ -3436,7 +3469,27 @@ export class Animals {
   labDrive(a, dt) {
     const L = a.lab;
     if (!L.drive) { L.goal = null; return; }
-    const r = driveStep(L.drive, a.pos, this.labDots ?? {}, dt, !!(a.onWall || a.wallMode));
+    const D = L.drive, sp = SPECIES[a.sp], onWall = !!(a.onWall || a.wallMode);
+    let r = driveStep(D, a.pos, this.labDots ?? {}, dt, onWall);
+    // A floor goal: round what is in the way (labSteer), and past a waypoint that cannot be stood on (it lies inside an obstacle).
+    if (r.goal && !r.goal.wall && !onWall && sp.kind !== 'swim') {
+      if (D.reached !== L.reachedAt) { L.reachedAt = D.reached; L.grow = 0; }
+      const m = this.labGrid(a, sp, L.grow ?? 0);
+      // A path waypoint that cannot be stood on, or cannot be reached from here (a pocket of the figure behind the logs), is skipped: on to the
+      // next, counted as skipped. (A whole lap of skips means not one waypoint can be had: it stays put, the laps and skips not counted, and
+      // the readout says so. A go-to goes as near as it can instead, labSteer.)
+      const path = D.type === 'path', lap = [D.laps, D.skipped ?? 0, D.i, D.dir];
+      let skips = 0, goal = null;
+      while (r.goal) {
+        goal = path && m.blockedAt(r.goal.x, r.goal.z) ? null : this.labSteer(a, sp, m, r.goal, dt);
+        if (goal || !path) break;
+        if (++skips > D.pts.length) { [D.laps, D.skipped, D.i, D.dir] = lap; r = { goal: null, done: false }; break; }
+        skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall);
+      }
+      D.stranded = path && skips > D.pts.length;
+      L.target = r.goal;
+      if (r.goal) r = { ...r, goal };
+    } else { L.target = r.goal; L.route = null; }
     if (!r.goal && L.goal) L.kicked = false;
     L.goal = r.goal;
     L.k = L.pace * (r.pace ?? 1);                    // (the drive's pace times what the waypoint asks)
@@ -3444,8 +3497,110 @@ export class Animals {
     S.t += dt;
     S.dist += Math.hypot(a.pos.x - S.last.x, a.pos.z - S.last.z);
     S.last.copy(a.pos);
-    const D = L.drive;
     if (D.type === 'path' && D.reached > 0) { const e = crossTrack(D.pts, a.pos, D.closed); S.xteSum += e; S.xteN++; if (e > S.xteMax) S.xteMax = e; }
+  }
+
+  // Where this kind of body walks: [medium for okFor, deepest water it wades].
+  labMedium(a, sp) {
+    switch (sp.kind) {
+      case 'skink': return ['any', SKINK.maxDepth];
+      case 'newt': return a.sp === 'firesal' ? ['land', 0.6] : ['any', 99];
+      case 'axolotl': return ['water', 99];
+      case 'crab': return ['any', (sp.crabProfile ?? CRAB).safeDepth];
+      default: return ['land', 5];                           // frogs, toads and geckos on the floor
+    }
+  }
+
+  // The floor as a body of this size sees it, for routing: a grid of 1.5 cm cells, each open (it can stand there) or blocked. Blocked is
+  // what the movers themselves refuse (okFor: the glass, a piece under its belly, the background relief, the wrong medium; a cliff of the
+  // ground; a plant's stems) plus room for the body round a piece (its radius, part of its length) and a long body's reach from the
+  // relief, which it cannot be nearer than facing it. `grow` (cm) widens all that when a route keeps failing. Kept for a second and a half
+  // (and until the pieces change), one per body size.
+  labGrid(a, sp, grow = 0, ttl = 1500) {
+    const W = this.world, T = W.terrain, Wl = W.wall, bx = this.bodyBox(a, sp);
+    const rad = a.rad ?? this.radiusOf(a, sp), ext = Math.max(Math.abs(bx.z0), Math.abs(bx.z1));
+    const key = `${a.sp}|${rad.toFixed(2)}|${ext.toFixed(1)}|${grow}`, cache = (this._labGrids ??= new Map()), now = performance.now();
+    const hit = cache.get(key);
+    if (hit && hit.v === this.occ.version && hit.gv === W.groundVer && now - hit.at < ttl) return hit.g;
+    const [medium, maxD] = this.labMedium(a, sp), steep = sp.kind === 'newt' || sp.kind === 'axolotl', hops = sp.kind === 'frog' || sp.kind === 'toad';
+    // (a hop is refused when its nose or back goes through a piece on the way, so a hopper keeps its nose's reach off one, not only its radius)
+    const gap = Math.max(Math.min(3.5, rad + (a.cap ? a.cap.hl * 0.4 : 0)), hops ? Math.min(ext + 0.4, 4) : 0) + grow, wallGap = ext * 0.75 + 0.3 + grow, side = Math.max(rad, bx.X) + 0.4 + grow;
+    const g = new Grid(-TANK.w / 2, -TANK.d / 2, OCC_CELL, Math.ceil(TANK.w / OCC_CELL), Math.ceil(TANK.d / OCC_CELL));
+    g.fill((x, z) => {
+      if (!this.okFor(medium, x, z, maxD, rad)) return true;
+      // (its drawn width off the side glass, its reach off the front glass and the relief: a landing or a step there is refused otherwise)
+      if (Math.abs(x) > TANK.w / 2 - side || z > TANK.d / 2 - wallGap) return true;
+      const gy = T.heightAt(x, z);
+      if (z < Wl.zAt(x, gy + 1) + wallGap) return true;
+      // Steep ground: the newt, salamander and axolotl walker is refused a steep face by walkBlocked (a gecko climbs it, and the skink's and the
+      // crab's movers never look: they cross a low step or wall, as the lab's obstacle courses show). A hopper hops up a rise within what a hop
+      // lands on and clears (the courses: a 3 cm step is hopped, a 6 cm wall is not), so a raised cell more than HOP_RISE over its neighbours is shut.
+      if (hops) { const lo = Math.min(T.heightAt(x - 1.5, z), T.heightAt(x + 1.5, z), T.heightAt(x, z - 1.5), T.heightAt(x, z + 1.5)); if (gy - lo > Math.min(5 * sp.size, HOP_RISE)) return true; }
+      else if (steep && this.cliffAt(x, z)) return true;
+      if (this.occ.count) for (let k = 0; k < 8; k++) if (this.occ.solidAt(x + Math.sin(k * 0.785) * gap, gy + 0.5, z + Math.cos(k * 0.785) * gap)) return true;
+      return this.stemDepth(a, x, gy, z, 0) > 0.02;
+    });
+    cache.set(key, { g, v: this.occ.version, gv: W.groundVer, at: now });
+    return g;
+  }
+
+  // The point to hand the body for the floor goal G: G itself when the way is clear, else the next point of a route round what is in the
+  // way (labroute.js). A goal that cannot be stood on (inside a piece, too near the relief) is made for the nearest place that can, and
+  // arriving there counts as arriving (a go-to is done). A path waypoint that cannot be reached returns null (it is skipped). A route that gets nowhere for 4 s is made
+  // again with more room, and, at the most room, given up on (the waypoint is skipped).
+  labSteer(a, sp, m, G, dt) {
+    const L = a.lab, D = L.drive, hx = a.pos.x, hz = a.pos.z;
+    if (!m.blockedAt(G.x, G.z) && m.lineFree(hx, hz, G.x, G.z, 1.2)) { L.route = null; L.prog = null; return G; }
+    let R = L.route;
+    if (!R || R.m !== m || Math.hypot(R.gx - G.x, R.gz - G.z) > 0.01) {
+      const p = planRoute(m, hx, hz, G.x, G.z);
+      if (!p) { L.route = null; return G; }
+      if (p.clipped && D.type === 'path') { L.route = null; return null; }      // (cannot be reached from here: the caller skips it)
+      R = L.route = { gx: G.x, gz: G.z, pts: p.pts, i: 0, clipped: p.clipped, m };
+    }
+    const tol = Math.max(1, (D.tol ?? 1.5) * 0.6), last = R.pts.length - 1;
+    while (R.i < last && Math.hypot(R.pts[R.i].x - hx, R.pts[R.i].z - hz) < tol) R.i++;
+    const via = R.pts[R.i], d = Math.hypot(via.x - hx, via.z - hz);
+    if (R.i === last && R.clipped && d < Math.max(tol, D.tol ?? 1.5)) {
+      // (as near as it can get: that is there)
+      L.route = null; L.prog = null;
+      if (D.type === 'goto') { D.done = true; D.reached++; D.clipped = true; } else skipWaypoint(D);
+      return via;
+    }
+    const P = L.prog && L.prog.x === via.x && L.prog.z === via.z ? L.prog : (L.prog = { x: via.x, z: via.z, d, t: 0 });
+    // (hops that keep being refused tell it at once: no need to wait out the 4 s, and the engine unsticks a body that has not moved in 3.5 s)
+    if (d < P.d - 0.4) { P.d = d; P.t = 0; } else if ((P.t += dt) > 4 || (a.hopFail ?? 0) >= 2) {
+      P.t = 0; P.d = d; L.route = null;
+      if ((L.grow ?? 0) < 2.4) L.grow = (L.grow ?? 0) + 0.8;
+      else { L.grow = 0; if (D.type === 'path') skipWaypoint(D); }
+    }
+    return via;
+  }
+
+  // The same routing for a walker's OWN mind (a lab drive has labSteer): the goal it is making for, or the next point of a route round what is in
+  // the way when the straight line is shut. Where the line is clear it returns the goal itself, so nothing changes on open ground. A goal that
+  // cannot be reached is made for the nearest place that can; a route that gets nowhere for 4 s is made again with more room, and, at the
+  // most room, given up (the goal itself: the mind has its own way of giving up a goal it cannot walk to). The grid is kept until a piece or
+  // the ground changes (20 s at the most: the water moves).
+  steerGoal(a, sp, G, dt) {
+    if (!this.avoid || sp.kind === 'swim' || a.onWall || a.wallMode || a.swimming || a.lab?.drive) return G;
+    const S = (a.rt ??= { grow: 0 }), hx = a.pos.x, hz = a.pos.z, m = this.labGrid(a, sp, S.grow, 20000);
+    if (!m.blockedAt(G.x, G.z) && m.lineFree(hx, hz, G.x, G.z, 1.2)) { S.route = null; S.prog = null; return G; }
+    let R = S.route;
+    if (!R || R.m !== m || Math.hypot(R.gx - G.x, R.gz - G.z) > 0.6) {
+      const p = planRoute(m, hx, hz, G.x, G.z);
+      if (!p) { S.route = null; return G; }
+      R = S.route = { gx: G.x, gz: G.z, pts: p.pts, i: 0, m };
+    }
+    const last = R.pts.length - 1;
+    while (R.i < last && Math.hypot(R.pts[R.i].x - hx, R.pts[R.i].z - hz) < 1) R.i++;
+    const via = R.pts[R.i], d = Math.hypot(via.x - hx, via.z - hz);
+    const P = S.prog && S.prog.x === via.x && S.prog.z === via.z ? S.prog : (S.prog = { x: via.x, z: via.z, d, t: 0 });
+    if (d < P.d - 0.4) { P.d = d; P.t = 0; } else if ((P.t += dt) > 4) {
+      P.t = 0; P.d = d; S.route = null;
+      if (S.grow < 2.4) S.grow += 0.8; else { S.grow = 0; return G; }
+    }
+    return via;
   }
 
   // A fish told where to go: swim's own control input (the same one the herps use in the water).
@@ -3465,6 +3620,14 @@ export class Animals {
       const len = (walk ? Math.min(d, 3) : Math.min(d, 5.5 * sp.size * (toad ? 1.2 : 1))) * f;
       const plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len), ang, false);
       if (plan) { if (walk) plan.v = L.k; return plan; }
+    }
+    // The line is shut (a piece it can neither hop nor step over, a plant, the relief): a little to one side, then the other, the side it
+    // took last first. (The route round a piece, labSteer, is what takes it far round; this is the last short way past a corner.)
+    const sd = a.side ?? 1;
+    for (const da of [0.5 * sd, -0.5 * sd, 1 * sd, -1 * sd]) for (const f of [1, 0.6]) {
+      const an = ang + da, len = (walk ? Math.min(d, 3) : Math.min(d, 5.5 * sp.size * (toad ? 1.2 : 1))) * f;
+      const plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(an) * len, 0, a.pos.z + Math.cos(an) * len), an, false);
+      if (plan) { a.side = Math.sign(da); if (walk) plan.v = L.k; return plan; }
     }
     return null;
   }
@@ -4205,6 +4368,7 @@ export class Animals {
     a.stranded = false;
     const it = herpThink(m, sense);
     if (a.lab?.drive) this.labHerp(a, P, it, depth);
+    else if (it.goal && !it.goal.wall && it.speed > 0.1 && !wall && !(depth > 1.3)) it.goal = this.steerGoal(a, sp, it.goal, dt);      // (round what is in the way)
     // An escape the mind aimed at blindly (straight away from the danger) may be out of the water or behind a rock: swap it for one
     // it can reach, or none (it freezes where it is). Checked once per flight.
     if (m.mode === 'flee' && m.goal && !m.goalOk && !gecko) {
@@ -4287,7 +4451,7 @@ export class Animals {
     const solid = (nx, nz) => this.avoid && this.occ.count && this.occ.solidAt(nx, this.world.terrain.heightAt(nx, nz) + 0.5, nz);
     // (and nothing solid between here and there: a long step at the fast speeds walked through thin wood, B4b)
     const swept = (nx, nz) => !this.avoid || this.occ.walkFree(a, x, a.pos.y, z, nx, this.world.terrain.heightAt(nx, nz), nz) === 1;
-    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz) && swept(nx, nz) && this.depthOkFor(a, sp, nx, nz);
+    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz) && !this.wallBlocks(a, nx, nz) && swept(nx, nz) && this.depthOkFor(a, sp, nx, nz);
     const probe = Math.max(step, 0.15);       // (the first step of a start has no length yet)
     if (!free(x + ux * probe, z + uz * probe)) {
       const sd = a.side ?? 1, base = Math.atan2(ux, uz);
@@ -4304,6 +4468,7 @@ export class Animals {
   // The gecko moves in the plane it is on; getting between the wall and the ground is a step at the foot of the wall.
   geckoMove(a, sp, P, it, wall, dt) {
     const W = this.world, T = W.terrain, Wl = W.wall;
+    if (a.gx) { this.geckoCross(a, sp, P, dt); return; }
     const goal = it.goal, hx = TANK.w / 2 - 2;
     const lo = W.water.level + 2, hi = TANK.h - 3;
     // On the wall it may not go lower than the soil that meets the wall there, by its own length: where the land rises against
@@ -4338,13 +4503,8 @@ export class Animals {
       if (it.face && !goal) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(it.face.x - a.pos.x, -(-it.face.z - a.pos.y)), Math.min(1, dt * 6));
       this.wallFrame(a, sp, dt);
       a.wallMode = true;
-      // Off the wall at its lowest point: it steps down onto the ground in front.
-      if (!it.wantWall && a.pos.y < low + 0.3) {
-        a.onWall = false; a.wallMode = false; a.target = null; a._wn = null;
-        let fz = Wl.zAt(a.pos.x, ground + 1) + Math.max(1.5, (a.rad ?? 0.5) + 0.6);
-        for (let k = 0; k < 4 && this.crowded(a, sp, a.pos.x, fz); k++) fz += (a.rad ?? 0.5) * 1.2;      // not onto a frog sitting at the foot of the wall
-        a.pos.set(a.pos.x, T.heightAt(a.pos.x, fz), fz);
-      }
+      // Down at its lowest point: it goes over the foot of the wall onto the ground in front (one movement, geckoCross).
+      if (!it.wantWall && a.pos.y < low + 0.3) this.geckoCrossStart(a, sp, P, 'down', ground);
       return;
     }
     // On the ground.
@@ -4354,13 +4514,55 @@ export class Animals {
       // (Close enough: within 2.6 cm of the relief, or as close as its long body is let come. clearOfWall keeps both ends of the capsule in front
       // of the relief, so a gecko facing the wall cannot bring its middle nearer than about 3 cm: with the first test alone, a gecko on the
       // floor of a tank with a flat or low background never reached the wall. Found by the test lab's go-to a point on the wall.)
-      if (a.pos.z < wz + 2.6 || this.wallNeed(a, a.pos.x, a.pos.y, a.pos.z, a.yaw, false) > -0.8) { a.onWall = true; a.pos.y += 1; a.hsp = 0; return; }
+      if (a.pos.z < wz + 2.6 || this.wallNeed(a, a.pos.x, a.pos.y, a.pos.z, a.yaw, false) > -0.8) { this.geckoCrossStart(a, sp, P, 'up', 0, Math.min(loAt(a.pos.x, a.pos.y), hi)); return; }
       this.herpStep(a, sp, P, { x: a.pos.x, z: wz + 1.5 }, goal ? it.speed : P.walk, dt, 'land', 5);
     } else if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, 'land', 0.3);
     else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - a.pos.x, it.face.z - a.pos.z), dt, 5); }
     a.pos.y = T.heightAt(a.pos.x, a.pos.z);
     a.normal = T.normalAt(a.pos.x, a.pos.z);
     a.wallMode = false; a._wn = null;
+  }
+
+  // The way between the background and the floor is one movement, not a swap of surfaces: the body turns over the foot of the wall, its middle
+  // going along a quarter circle (down and out, or up and in) with the belly turning from the relief to the ground (or back), and the legs
+  // stepping all the way. The head leads: on the wall it points down (or up) the relief, on the floor away from (or at) it. It used to be
+  // put on the floor 4 cm out in one step (the radar's teleport), and drawn lying flat the next frame.
+  // a.gx = { dir, t, dur, zA, yA, zB, yB }: A is where it is on the wall (phi 0), B where it is on the floor (phi pi/2).
+  geckoCrossStart(a, sp, P, dir, ground, low) {
+    const W = this.world, T = W.terrain, Wl = W.wall, x = a.pos.x, rad = a.rad ?? 0.5;
+    let zA, yA, zB, yB;
+    if (dir === 'down') {
+      zA = a.pos.z; yA = a.pos.y;
+      zB = Wl.zAt(x, ground + 1) + 0.12;
+      // (the whole body clear of the relief where it lies, as clearOfWall will have it, and not onto a frog sitting at the foot of the wall)
+      zB += Math.max(0, this.wallNeed(a, x, T.heightAt(x, zB), zB, a.yaw, false));
+      for (let k = 0; k < 4 && this.crowded(a, sp, x, zB); k++) zB += rad * 1.2;
+      yB = T.heightAt(x, zB);
+    } else {
+      zB = a.pos.z; yB = a.pos.y;
+      yA = low; zA = Wl.zAt(x, yA) + 0.12;
+    }
+    const along = Math.abs(yA - yB) + Math.abs(zB - zA), speed = Math.max(P.walk ?? 3, 2) * 1.5;
+    a.gx = { dir, t: 0, dur: clamp(along * 0.9 / speed, 0.8, 2.5), zA, yA, zB, yB };
+    a.onWall = true; a.wallMode = true; a.target = null;
+    this.geckoCross(a, sp, P, 0);
+  }
+
+  geckoCross(a, sp, P, dt) {
+    const X = a.gx, T = this.world.terrain;
+    X.t = Math.min(1, X.t + dt / X.dur);
+    const e = X.t * X.t * (3 - 2 * X.t), phi = (X.dir === 'down' ? e : 1 - e) * Math.PI / 2, sn = Math.sin(phi), cs = Math.cos(phi);
+    a.pos.z = X.zA + (X.zB - X.zA) * sn;
+    a.pos.y = X.yB + (X.yA - X.yB) * cs;
+    a.normal = V(0, sn, cs);                                   // (the belly: to the relief at phi 0, to the floor at pi/2)
+    a._wn = { n: [0, sn, cs], target: [0, sn, cs] };
+    a.hsp = P.walk ?? 3; a.onWall = true; a.wallMode = true;
+    if (X.t < 1) return;
+    a.gx = null; a._wn = null;
+    if (X.dir === 'down') {
+      a.onWall = false; a.wallMode = false; a.target = null;
+      a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.normal = T.normalAt(a.pos.x, a.pos.z);
+    }
   }
 
   // --- What they sense ---

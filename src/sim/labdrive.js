@@ -115,6 +115,28 @@ export function makeDrive(spec) {
   return d;
 }
 
+// On from waypoint `idx` of a path to the one after it: a lap counted at the end of a loop, a turn round at the end of a ping-pong,
+// done at the end of a pass.
+function advance(d, idx) {
+  const n = d.pts.length;
+  let nx = idx + d.dir;
+  if (d.closed) { if (nx >= n) { nx = 0; d.laps++; } else if (nx < 0) { nx = n - 1; d.laps++; } }
+  else if (nx >= n || nx < 0) {
+    if (d.mode === 'pingpong') { d.dir = -d.dir; nx = idx + d.dir; d.laps++; }
+    else { d.done = true; d.laps++; return; }
+  }
+  d.i = nx;
+}
+
+// The waypoint it is heading for cannot be stood on (it lies inside an obstacle): on to the next, counted as skipped, not reached.
+export function skipWaypoint(d) {
+  if (d.type !== 'path' || d.done || !d.pts.length) return;
+  const n = d.pts.length;
+  d.skipped = (d.skipped ?? 0) + 1;
+  d.hold = 0;
+  advance(d, d.closed ? ((d.i % n) + n) % n : clamp(d.i, 0, n - 1));
+}
+
 // One step of a drive from position p: returns { goal: { x, z } | null, done, pace }. `dots`: { [id]: { x, z } }. `dt`: seconds since
 // the last step, for a waypoint that makes the animal wait (a stop in a random path). `pace`: what the goal waypoint asks of the walking
 // pace (1 = the drive's own).
@@ -146,13 +168,8 @@ export function driveStep(d, p, dots = {}, dt = 0, onWall = false) {
         if (idx < 0 || idx >= n || dist2(p, pts[idx]) > d.tol) continue;
         d.reached++;
         if (pts[idx].wait > 0) d.hold = pts[idx].wait;
-        let nx = idx + d.dir;
-        if (d.closed) { if (nx >= n) { nx = 0; d.laps++; } else if (nx < 0) { nx = n - 1; d.laps++; } }
-        else if (nx >= n || nx < 0) {
-          if (d.mode === 'pingpong') { d.dir = -d.dir; nx = idx + d.dir; d.laps++; }
-          else { d.done = true; d.laps++; return { goal: null, done: true }; }
-        }
-        d.i = nx;
+        advance(d, idx);
+        if (d.done) return { goal: null, done: true };
         break;
       }
       if (d.hold > 0) return { goal: null, done: false };
