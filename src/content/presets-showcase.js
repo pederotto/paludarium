@@ -8,10 +8,10 @@
 
 export const SHOWCASE_LAYOUTS = {
   canyon: {
-    id: 'canyon', name: 'Gorge river', biotope: 'liwu',
-    blurb: 'A river runs the whole length of the tank between a banded marble cliff and a low bank: a riffle, a fall into a plunge pool, a narrow chute, a side eddy, then a quiet pool.',
-    tiers: ['long', 'show'], tags: ['river', 'long flow', 'waterfall', 'showpiece', 'rapids', 'cool water'],
-    adjectives: ['Marble', 'Turquoise', 'Rushing', 'Narrow', 'Misty', 'Cliffside', 'Tumbling'],
+    id: 'canyon', name: 'Rock gorge', biotope: 'liwu',
+    blurb: 'A gorge of layered rock: two planted massifs with a valley between them, a waterfall out of the back wall onto a shelf, a stream across the shelf and one more fall into a deep clear lagoon.',
+    tiers: ['long', 'show'], tags: ['gorge', 'waterfall', 'lagoon', 'layered rock', 'showpiece', 'cool water'],
+    adjectives: ['Layered', 'Misty', 'Cliffside', 'Mossy', 'Shaded', 'Cascading', 'Deep'],
     noun: 'Gorge',
   },
 };
@@ -26,12 +26,12 @@ SHOWCASE_LAYOUTS.highland = {
 
 export const SHOWCASE_SETS = {
   canyon: {
-    featured: ['hillloach', 'zacco'], place: 'Liwu River, Taroko Gorge, Taiwan', ref: 'long', water: 0.28, climate: { temp: [18, 26], rh: [70, 95] }, env: { setpoint: 22, air: 0.8 }, gear: ['airpump'],
-    // BUILDERS.canyon knobs (run "sets", measured: 6 of 6 three-day checks clean, 85 L on long, 329 L on show): a deep downstream pool over half the width,
-    // a river that keeps 40 % of its head for one last fall into it, a canister filter and an air pump for oxygen, animals capped by tank size
-    level: 0.66, head: 0.3, headMax: 27, poolU: 0.0, poolBed: 2.2, cliffZ: 0.12, canister: true, endFall: 0.4, hillDepth: 40, hillX: 30,
+    featured: ['hillloach', 'zacco'], place: 'Liwu River, Taroko Gorge, Taiwan', ref: 'long', water: 0.55, climate: { temp: [18, 26], rh: [70, 95] }, env: { setpoint: 22, air: 0.8 }, gear: ['airpump'],
+    // BUILDERS.canyon knobs (7 Oct, after the owner's picture): the lagoon level (share of the height), pump rate, a canister filter and an air pump
+    // for oxygen, animals capped by tank size
+    level: 0.48, rate: 320, canister: true, hillDepth: 40,
     caps: { zacco: [6, 12], shrimp: 14, hillloach: 3 },
-    plants: ['fern', 'grass', 'miscanthus', 'nidus', 'pothos', 'begonia', 'javafern', 'javamoss'],
+    plants: ['fern', 'grass', 'miscanthus', 'nidus', 'hartstongue', 'crypt', 'pothos', 'begonia', 'javafern', 'javamoss'],
     animals: ['shrimp', 'hillloach', 'zacco', 'isopod', 'springtail'],
   },
   highland: {
@@ -44,7 +44,7 @@ export const SHOWCASE_SETS = {
 export const SHOWCASE_BIOTOPES = {
   liwu: {
     id: 'liwu', name: 'Liwu River, Taroko Gorge', country: 'Taiwan', level: 6,
-    animals: ['shrimp', 'hillloach', 'zacco', 'isopod', 'springtail'], plants: ['fern', 'grass', 'miscanthus', 'nidus', 'pothos', 'begonia', 'javafern', 'javamoss'],
+    animals: ['shrimp', 'hillloach', 'zacco', 'isopod', 'springtail'], plants: ['fern', 'grass', 'miscanthus', 'nidus', 'hartstongue', 'crypt', 'pothos', 'begonia', 'javafern', 'javamoss'],
     climate: { temp: [18, 26], humidity: [70, 95] },
     features: ['stream', 'stones', 'moss15', 'rapids'],
     blurb: 'A turquoise river that cut a gorge through banded marble on the east coast of Taiwan. Cold, fast, clear water over boulders; ferns and silvergrass on the banks.',
