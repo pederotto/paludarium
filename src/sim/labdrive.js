@@ -102,11 +102,27 @@ export function dotStep(d, dt, b) {
   }
 }
 
+// --- Glass panes --------------------------------------------------------------------------------------------------------------
+// The panes a climbing frog can be sent up by the lab: the front glass and the two sides (the back is the relief). `panePoint` is the top of the climb on a pane, as the sim's own
+// perch candidates make them (animals.js perchSpot): a point GLASS_OFF (the sim's GLASS_GAP, 0.12 cm) off the glass, level with the frog's place across the pane (clamped `edge` cm in
+// from the corners), `top` cm up, and the pane's inward normal and the heading a frog sits at on it. x across, z front to back, as everywhere in the sim.
+export const PANES = ['front', 'left', 'right'];
+export const GLASS_OFF = 0.12;
+export function panePoint(pane, p, hx, hz, top = 28, edge = 10) {
+  switch (pane) {
+    case 'left': return { top: { x: -hx + GLASS_OFF, y: top, z: clamp(p.z, -hz + edge, hz - edge) }, N: { x: 1, y: 0, z: 0 }, yaw: -Math.PI / 2 };
+    case 'right': return { top: { x: hx - GLASS_OFF, y: top, z: clamp(p.z, -hz + edge, hz - edge) }, N: { x: -1, y: 0, z: 0 }, yaw: Math.PI / 2 };
+    default: return { top: { x: clamp(p.x, -hx + edge, hx - edge), y: top, z: hz - GLASS_OFF }, N: { x: 0, y: 0, z: -1 }, yaw: 0 };
+  }
+}
+
 // --- Drives ------------------------------------------------------------------------------------------------------------------
 // { type: 'goto', x, z, tol }                      go there and stop
 // { type: 'goto', wall: true, x, y, z, tol }       a point on the background wall (a climber: x across, y up): there when it is on the wall within tol
 // { type: 'path', pts, closed, mode, tol }         mode 'loop' (round and round), 'once', 'pingpong'
 // { type: 'follow', dot, keep, tol }               chase a dot; stop `keep` cm from it
+// { type: 'climb', pane, top }                     a climbing frog up the front, left or right glass (PANES): the lab only picks the pane, the frog's own perch mission does the rest
+//                                                  (Animals.labClimb); done when it sits on the glass, `failed` (a sentence) when there is no way or it gives up
 export function makeDrive(spec) {
   const d = { ...spec, done: false, laps: 0, i: 0, dir: 1, reached: 0 };
   d.tol = spec.tol ?? 1.5;

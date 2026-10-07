@@ -24,7 +24,7 @@ export function newState() {
   return { x: null, y: 0, z: 0, yaw: 0, flips: [], lastSign: 0, win: null, notArriving: false };
 }
 
-// a: { pos: {x,y,z}, yaw, pitch, hop, swimming, onWall, wallMode, stranded, lab: { drive, goal, stats } }
+// a: { pos: {x,y,z}, yaw, pitch, hop, swimming, onWall, wallMode, perch ({ ph }: a frog's climb mission), stranded, lab: { drive, goal, stats } }
 // c: { dt, t, size, swim (a fish or a swimming animal), sideways (a crab), air, ground: height under it, bounds: { hw, hd, h }, tol }
 export function check(s, a, c) {
   const out = [];
@@ -39,7 +39,10 @@ export function check(s, a, c) {
   const grounded = !c.swim && !c.air && !a.onWall && !a.wallMode && !a.hop;
   if (grounded && y < c.ground - T.under) out.push({ kind: 'underground', msg: `${(c.ground - y).toFixed(1)} cm under the ground`, sev: 'bad' });
   else if (c.swim && y < c.ground - 0.3) out.push({ kind: 'underground', msg: `${(c.ground - y).toFixed(1)} cm under the floor`, sev: 'bad' });
-  if (!c.swim && !a.hop && !a.onWall && !a.wallMode && Math.abs(a.pitch ?? 0) > T.flip) out.push({ kind: 'flip', msg: `tipped ${(((a.pitch ?? 0) * 180) / Math.PI).toFixed(0)}° nose up or down`, sev: 'warn' });
+  // (a frog on its way up or down a stem, a pole or a piece of wood is drawn nose up the climb by its pitch: tipped by design, as a gecko on the wall is; `perch`, its mission, is set from
+  // the walk to the foot of the climb until it is down again)
+  const climbing = !!(a.perch && a.perch.ph !== 'go');
+  if (!c.swim && !a.hop && !a.onWall && !a.wallMode && !climbing && Math.abs(a.pitch ?? 0) > T.flip) out.push({ kind: 'flip', msg: `tipped ${(((a.pitch ?? 0) * 180) / Math.PI).toFixed(0)}° nose up or down`, sev: 'warn' });
   if (a.stranded) out.push({ kind: 'stranded', msg: 'stranded: not enough water to swim in', sev: 'warn' });
 
   if (s.x != null && c.dt > 0) {

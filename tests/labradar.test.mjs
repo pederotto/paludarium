@@ -98,3 +98,11 @@ test('a wall goal is judged across and up: a gecko climbing is not stuck, one th
   const stuck = run(() => mk({ pos: { x: 0, y: 12, z: -20 }, onWall: true, lab }), 160, 0.05);
   assert.ok(kinds(stuck).includes('stuck'));
 });
+
+test('a frog climbing wood or a stem is not tipped by design; the same pitch on the ground is', () => {
+  const tipped = (o) => kinds(run(() => mk({ pitch: -1.22, ...o }), 4)).includes('flip');
+  assert.equal(tipped({}), true, 'nose up 70 deg on the ground is a fault');
+  assert.equal(tipped({ perch: { ph: 'up' } }), false, 'on its way up a pole it is how it is drawn');
+  assert.equal(tipped({ perch: { ph: 'sit' } }), false);
+  assert.equal(tipped({ perch: { ph: 'go' } }), true, 'still walking to the foot of the climb: a fault as on any ground');
+});

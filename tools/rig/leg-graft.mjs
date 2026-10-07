@@ -2,7 +2,7 @@
 // mirror image is not, the fused one is removed and the other mirrored into its place: the faces that touch the source limb (the limb's own vertices and the ring of body skin
 // around them) are copied with x -> 2 mirrorX - x and their winding reversed, the faces that touch the fused limb are removed, and the two rims (the copy's, the hole's) are
 // stitched with a band of triangles. Vertices are appended; none is moved.
-//   graftMirror({ pos, idx, isFrom, isTo, mirrorX, normals? }) -> { pos, idx, src (new vertex -> the vertex it copies, or -1 for an old one), shift, stats }
+//   graftMirror({ pos, idx, isFrom, isTo, mirrorX, shift? }) -> { pos, idx, src (new vertex -> the vertex it copies, or -1 for an old one), shift, stats }
 //   isFrom(i), isTo(i): the vertices of the source limb, of the limb replaced.
 import { vertexNormals } from './skeleton.mjs';
 
@@ -22,7 +22,7 @@ function loopsOf(faces, keepEdge = null) {
   return loops.sort((a, b) => b.length - a.length);
 }
 
-export function graftMirror({ pos, idx, isFrom, isTo, mirrorX = 0 }) {
+export function graftMirror({ pos, idx, isFrom, isTo, mirrorX = 0, shift: shiftIn = null }) {
   const n = pos.length / 3, nF = idx.length / 3, inFrom = new Uint8Array(n), inTo = new Uint8Array(n);
   for (let i = 0; i < n; i++) { if (isFrom(i)) inFrom[i] = 1; if (isTo(i)) inTo[i] = 1; }
   const keep = [], patch = [], removed = [];
@@ -43,7 +43,8 @@ export function graftMirror({ pos, idx, isFrom, isTo, mirrorX = 0 }) {
   // the copy's rim, in the copy's own indices
   const A = Pl.map((v) => map.get(v)), cen = (L, get) => [0, 1, 2].map((k) => L.reduce((s, v) => s + get(v, k), 0) / L.length);
   const getN = (v, k) => (v >= n ? newPos[(v - n) * 3 + k] : pos[v * 3 + k]);
-  const cA = cen(A, getN), cH = cen(H, getN), shift = [cH[0] - cA[0], cH[1] - cA[1], cH[2] - cA[2]];
+  // (the copy is moved by `shift` if it is given, as the joint of the limb replaced wants it; else so that the centres of the two rims meet)
+  const cA = cen(A, getN), cH = cen(H, getN), shift = shiftIn ?? [cH[0] - cA[0], cH[1] - cA[1], cH[2] - cA[2]];
   for (let i = 0; i < newPos.length; i += 3) { newPos[i] += shift[0]; newPos[i + 1] += shift[1]; newPos[i + 2] += shift[2]; }
   // normals (outward) of the old mesh; the copy's are the mirror of its source's
   const N0 = vertexNormals(pos, idx), nrm = (v) => (v >= n ? [-N0[src[v - n] * 3], N0[src[v - n] * 3 + 1], N0[src[v - n] * 3 + 2]] : [N0[v * 3], N0[v * 3 + 1], N0[v * 3 + 2]]);

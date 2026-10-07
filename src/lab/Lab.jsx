@@ -5,6 +5,8 @@ import { L, RATES } from './state.js';
 import { tankChoices, GROUNDS, maxDepth } from './arena.js';
 import { speciesList } from './spawn.js';
 import { SHAPES, DRIVABLE, CLIMBERS } from './driver.js';
+import { SPECIES as SIM_SPECIES, PERCH_PIECES } from '../sim/animals.js';
+import { PANES } from '../sim/labdrive.js';
 import { SHAPE_KINDS, PIECE_KINDS, isPiece, DEFAULTS } from './obstacles.js';
 import { STYLES } from '../sim/labrandom.js';
 
@@ -138,7 +140,8 @@ function Drive({ lab, info }) {
   const dr = lab.driver, tab = L.dtab.value, pick = L.pick.value, frogish = info.kind === 'frog' || info.kind === 'toad';
   const n = L.census.value.find((c) => c.id === info.sp)?.n ?? 1;
   if (!DRIVABLE.has(info.kind)) return <p class="dim">The lab cannot drive this kind of animal yet: it keeps its own mind.</p>;
-  const tabs = [['free', 'Free'], ['goto', 'Go to'], ['path', 'Path'], ['follow', 'Follow']];
+  const glassClimber = !!SIM_SPECIES[info.sp]?.perch;     // (the red-eyed tree frog, the reed frog: a frog that climbs the glass)
+  const tabs = [['free', 'Free'], ['goto', 'Go to'], ['path', 'Path'], ['follow', 'Follow'], ...(glassClimber ? [['climb', 'Climb']] : [])];
   return (
     <div class="drive">
       <h3>Drive</h3>
@@ -170,6 +173,21 @@ function Drive({ lab, info }) {
             {L.draft.value.length > 1 ? <button class="go" onClick={() => lab.driver.drawn()}>Go</button> : null}
             {L.draft.value.length ? <button class="mini" onClick={() => { L.draft.value = []; }}>Clear</button> : null}
           </div>
+        </>
+      ) : null}
+      {tab === 'climb' ? (
+        <>
+          <div class="gname">A wall: the glass</div>
+          <div class="seg">{PANES.map((id) => <button key={id} class={L.pane.value === id ? 'on' : ''} onClick={() => { L.pane.value = id; }}>{id[0].toUpperCase() + id.slice(1)}</button>)}</div>
+          <button class="go" onClick={() => lab.driver.climb(L.pane.value)}>Send it up the {L.pane.value} glass</button>
+          <div class="gname">An object in the arena</div>
+          {(() => { const objs = L.obstacles.value.filter((o) => PERCH_PIECES.has(o.kind)); return objs.length ? (
+            <>
+              {objs.map((o) => <div key={o.id} class="dotrow"><span>{PIECE_KINDS[o.kind]} · #{o.id}</span><button class="mini" onClick={() => lab.driver.climbObject(o.id)}>Climb it</button></div>)}
+              <button class={pick === 'climb' ? 'on' : ''} onClick={() => { L.pick.value = pick === 'climb' ? null : 'climb'; }}>{pick === 'climb' ? 'Tap an object…' : 'Or tap an object'}</button>
+            </>
+          ) : <p class="dim">Put a log, roots, a stump, a piece of cork or a bamboo pole in the arena (the Obstacles tab) first; it can then be climbed.</p>; })()}
+          <p class="dim">It walks to the foot of the climb in its crawl and climbs by its own limbs, belly to the glass or the wood. The readout shows its phase and how it ended (no way, something in the way, gave up). Turn the camera to see it from outside.</p>
         </>
       ) : null}
       {tab === 'follow' ? (

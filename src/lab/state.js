@@ -22,7 +22,8 @@ export const L = {
   fps: signal(0),
   backend: signal(''),
   // driving (driver.js)
-  dtab: signal('free'),           // the open Drive tab: 'free' | 'goto' | 'path' | 'follow'
+  dtab: signal('free'),           // the open Drive tab: 'free' | 'goto' | 'path' | 'follow' | 'climb'
+  pane: signal('front'),          // the glass pane a climbing frog is sent up: 'front' | 'left' | 'right' (labdrive.js PANES)
   pick: signal(null),             // what the next tap on the floor does: null | 'goto' | 'draw' | 'place'
   draft: signal([]),              // waypoints tapped so far in draw mode
   dots: signal([]),               // [{ id, kind, x, z }]

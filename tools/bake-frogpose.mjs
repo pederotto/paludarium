@@ -54,7 +54,7 @@ const JOBS = {
   // (the scan is off the axis). `headRoll`: the scan's head is rolled about the body axis; the head bone is turned back through its skeleton (tools/rig/neutral.mjs,
   // tools/rig/neutral-check.mjs: the roll fitted from the eye bumps, -10.2 deg). `neutral: [hind, arm]` (not set: tried 6 Oct, see reports/REDEYE-plan.md) poses the whole scan into a point of the
   // crawl cycle through its skeleton first. `eye`: the bump, scan units after the roll (right eye; the shader mirrors it).
-  'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.129, 0.09, 0.725], r: 0.12 }, split: true,   // (c.x was 0.14 on the scan's own head; the symmetrized head's bumps sit 0.011 nearer the midline)
+  'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', neutral: [0.45, 0.12, 'redeye'], vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.129, 0.09, 0.725], r: 0.12 }, split: true,   // (c.x was 0.14 on the scan's own head; the symmetrized head's bumps sit 0.011 nearer the midline)
     // (the walking scan's hind legs lie against each other and the left one runs across the midline: no x-sign rule, distances in radii, a bone does not take skin that faces into its axis, and the diffused weights may only join a bone to its parent and children; the joints and per-side radii fitted to the skin, tools/rig/fit-chain.mjs)
     bind: { side: false, norm: false, sigma: 0.03, facing: 0.15, mask: 1 }, cut: true, graft: true, symHead: true },
 };
@@ -367,9 +367,15 @@ for (const [id, job] of Object.entries(JOBS)) {
     // The fused right hind leg replaced by the mirror of the clean left one (`graft`, tools/rig/leg-graft.mjs); the right leg's bones the left's mirrored (the skeleton must be the skin's)
     if (job.graft && process.env.GRAFT !== '0') {
       const reL = /^(thigh|shin|foot|toes)L$/, reR = /^(thigh|shin|foot|toes)R$/;
-      const g = graftMirror({ pos: res.pos, idx: src.idx, isFrom: (i) => reL.test(nameOf(dom0(i))), isTo: (i) => reR.test(nameOf(dom0(i))), mirrorX: 0 });
+      // (the copy is anchored at the right hip joint the scan measured: the mirrored left hip moved onto it. The rims' centres differ with how each side's leg set was cut, and the first version
+      // followed them: the right hip came out 0.11 forward of where it is, and the hip muscle 3.7 % longer than the left one's)
+      const tL = res.bones.find((b) => b.name === 'thighL'), tR = res.bones.find((b) => b.name === 'thighR'), jointShift = [tR.head[0] + tL.head[0], tR.head[1] - tL.head[1], tR.head[2] - tL.head[2]];
+      const g = graftMirror({ pos: res.pos, idx: src.idx, isFrom: (i) => reL.test(nameOf(dom0(i))), isTo: (i) => reR.test(nameOf(dom0(i))), mirrorX: 0, shift: process.env.GRAFTALIGN === 'rim' ? null : jointShift.map((v) => v * +(process.env.GRAFTK ?? 1)) });
       takeGraft(g, +(process.env.SEAMRINGS ?? 7)); console.log('  mesh after the leg graft:', JSON.stringify(meshCheck(src.idx)));
-      for (const nm of ['thigh', 'shin', 'foot', 'toes']) { const L = res.bones.find((b) => b.name === nm + 'L'), R = res.bones.find((b) => b.name === nm + 'R'); R.head = [-L.head[0] + g.shift[0], L.head[1] + g.shift[1], L.head[2] + g.shift[2]]; R.tail = [-L.tail[0] + g.shift[0], L.tail[1] + g.shift[1], L.tail[2] + g.shift[2]]; }
+      // (the right leg's bones are the left's EXACT mirror, so the skeleton and the muscles on it are symmetric; the skin copy sits `g.shift` from there, 1.4 mm at the hip, because a copy at the exact
+      // mirror position pinches the thigh root into a neck: BONES=skin puts the bones where the skin is, which leaves the hip muscle 4-7 % different)
+      const bs = process.env.GRAFTBONES === 'skin' ? g.shift : [0, 0, 0];
+      for (const nm of ['thigh', 'shin', 'foot', 'toes']) { const L = res.bones.find((b) => b.name === nm + 'L'), R = res.bones.find((b) => b.name === nm + 'R'); R.head = [-L.head[0] + bs[0], L.head[1] + bs[1], L.head[2] + bs[2]]; R.tail = [-L.tail[0] + bs[0], L.tail[1] + bs[1], L.tail[2] + bs[2]]; }
       console.log(`  leg graft: ${g.stats.removedFaces} faces of the right leg removed, ${g.stats.copiedFaces} copied from the left, ${g.stats.bridgeFaces} stitched (rims ${g.stats.holeRim} / ${g.stats.patchRim}), shifted ${g.stats.shift}`);
     }
     // The head made symmetric (`symHead`): the scan's head midline is off the trunk's axis (a line x = a + b z over the head: measured from the head's extents slice by slice) and its two eyes

@@ -16,6 +16,13 @@ function driveRows(a) {
   const L = a.lab, D = L?.drive;
   if (!D) return [];
   const S = L.stats, g = L.target ?? L.goal;      // (the goal itself, not the point of its route it is making for)
+  if (D.type === 'climb') {
+    // (the frog's own perch mission climbs: what the lab can say is the pane, the phase it is in and how it ended)
+    const rows = [['drive', D.piece || D.obj != null ? `climb the ${D.kind ?? 'object'} #${D.obj}` : `climb the ${D.pane} glass`], ['phase', D.failed ? `ended: ${D.failed}` : D.done ? (D.piece ? 'on top of it' : 'on the glass') : ({ go: 'walking to the foot of the climb', up: 'climbing', sit: 'sitting on the glass', down: 'coming down' }[D.phase] ?? D.phase ?? 'starting')]];
+    if (a.climb) rows.push(['gait', `crawl, ${a.climb.set === 'redeye' ? "the red-eye's own key set" : 'the shared key set'} · cycle at ${f1(a.climb.clock)}`]);
+    if (S?.t > 1) rows.push(['walked', `${f1(S.dist)} cm in ${f1(S.t)} s  =  ${f1(S.dist / S.t)} cm/s`]);
+    return rows;
+  }
   const rows = [['drive', D.type === 'path' ? (D.shape === 'random' ? `random ${D.style} · seed ${D.seed} · ${D.mode}` : `${D.shape} · ${D.mode}`) : D.type === 'follow' ? `follow ${D.dot} (keep ${D.keep} cm)` : D.type]];
   if (g?.wall) rows.push(['goal', `on the wall: ${f1(g.x)} across, ${f1(g.y)} up  (${f1(Math.hypot(g.x - a.pos.x, g.y - a.pos.y))} cm away)`]);
   else if (g) rows.push(['goal', `${f1(g.x)}, ${f1(g.z)}  (${f1(Math.hypot(g.x - a.pos.x, g.z - a.pos.z))} cm away)`]);
