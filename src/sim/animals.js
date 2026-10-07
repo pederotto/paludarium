@@ -3784,7 +3784,7 @@ export class Animals {
         // (a long body cannot face a waypoint nearer the side glass than its nose reaches: the waypoint is moved in to where the nose fits, and
         // counts as reached there; R3. Short bodies: the clamp is outside the grid's own margin, so nothing changes.)
         const cg = path ? this.noseClamp(a, sp, r.goal) : r.goal;
-        if (path && cg !== r.goal && Math.hypot(cg.x - a.pos.x, cg.z - a.pos.z) < 1.2) { skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall); if (++skips > D.pts.length) break; continue; }
+        if (path && cg !== r.goal && Math.hypot(cg.x - a.pos.x, cg.z - a.pos.z) < 2.5) { skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall); if (++skips > D.pts.length) break; continue; }
         goal = path && m.blockedAt(cg.x, cg.z) ? null : this.labSteer(a, sp, m, cg, dt);
         if (goal || !path) break;
         if (++skips > D.pts.length) { [D.laps, D.skipped, D.i, D.dir] = lap; r = { goal: null, done: false }; break; }
