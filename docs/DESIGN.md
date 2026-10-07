@@ -73,6 +73,8 @@ Animals are **signed-distance-field bodies** meshed by an adaptive surface-nets 
 
 The world runs at a fixed step scaled by the speed setting. Environment is **spatial**: `Climate` keeps humidity, temperature, light and soil maps that plants, moss and animals sample and that the lens overlays draw. Equipment feeds the maps; an automation controller evaluates the player's rules. Animals choose where to be by comfort at each point of the tank.
 
+How walking animals deal with what is in the tank (the route planner and layered surface map, the gecko's wall-to-floor movement, wall clearance, turning while walking, fear and escape): `docs/ANIMALS_OBJECTS.md`.
+
 ## Game
 
 `Career` holds funds, reputation, rank, unlocks and stats; `market` prices animals and plants and pays for sales; `commissions` are goals with a hold-time; `curator` scores a tank against a real biotope; `tutorial` is a scripted guide; `events` are random incidents; `vacation` fast-forwards the tank unattended. Saves go to IndexedDB (slots, portfolio of tanks).

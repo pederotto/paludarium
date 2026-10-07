@@ -10,6 +10,7 @@
 
 import * as THREE from 'three/webgpu';
 import { TANK } from './tank.js';
+import { SurfaceMap, layersOf } from './surfaces.js';
 
 export const CELL = 1.5;
 
@@ -214,6 +215,42 @@ export class Occupancy {
       }
     }
     proxy.material.dispose();
+  }
+
+  // The layers a body can stand on, per cell (sim/surfaces.js), baked from the pieces as they are now: each column's solid stretches give the
+  // tops of the pieces, and the exact top and its normal come from a ray down onto the piece's mesh (the voxels are CELL thick and thickened
+  // by a cell, so a log's top read from them alone is up to 1.5 cm too high). `groundAt(x, z)` is the ground's height. One map, kept and
+  // refilled; a column with nothing solid in it costs one height lookup, so a tank with few pieces bakes in a few milliseconds.
+  bakeSurfaces(groundAt) {
+    const sm = this.surf && this.surf.nx === this.nx && this.surf.nz === this.nz ? this.surf : (this.surf = new SurfaceMap(-TANK.w / 2, -TANK.d / 2, CELL, this.nx, this.nz));
+    const down = new THREE.Vector3(0, -1, 0), o = new THREE.Vector3(), nrm = new THREE.Vector3(), shells = this.shells ?? [];
+    for (let k = 0; k < this.nz; k++) for (let i = 0; i < this.nx; i++) {
+      const x = this.worldX(i), z = this.worldZ(k), runs = [];
+      if (this.count) {
+        for (let j = 0, j0 = -1; j <= this.ny; j++) {
+          const solid = j < this.ny && this.data[this.idx(i, j, k)] !== 0;
+          if (solid && j0 < 0) j0 = j;
+          else if (!solid && j0 >= 0) { runs.push([j0 * CELL, j * CELL]); j0 = -1; }
+        }
+      }
+      const topAt = (run) => {
+        // the highest hit of a ray down the column that lies within a cell of the run (a piece's top; not another piece's, nor the underside)
+        let best = null;
+        for (const sh of shells) {
+          if (!sh.proxy || x < sh.box.min.x || x > sh.box.max.x || z < sh.box.min.z || z > sh.box.max.z) continue;
+          RAY.set(o.set(x, run[1] + 1, z), down); RAY.near = 0; RAY.far = run[1] - run[0] + 3;
+          for (const h of RAY.intersectObject(sh.proxy, false)) {
+            if (h.point.y > run[1] + CELL || h.point.y < run[0] - CELL || (best && h.point.y <= best.y)) continue;
+            nrm.copy(h.face.normal).transformDirection(sh.proxy.matrixWorld);
+            if (nrm.y < 0) nrm.negate();
+            best = { y: h.point.y, n: [nrm.x, nrm.y, nrm.z] };
+          }
+        }
+        return best ?? { y: run[1] - CELL * 0.5, n: [0, 1, 0] };
+      };
+      sm.set(i, k, layersOf(groundAt(x, z), runs, TANK.h, topAt));
+    }
+    return sm;
   }
 
   // The nearest cell centre (within `maxR` cells) that is free and accepted by `ok(x, y, z)`; null if none.
