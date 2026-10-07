@@ -40,11 +40,14 @@ export const CLIMB = {
   period: [2.4, 1.0],                // s between the starts of two pulses, at urgency 0 and 1 (guess: the clips hold 3 s; a game frog climbs to a perch)
 };
 const PULSE_LEN = CLIMB.stagger.hindOther + CLIMB.limbDur;
-// The crawl (clip 3): a lateral-sequence walk, each limb its own phase 0 ... 1 a cycle (swing 0-0.25, placing to 0.45, the stretch 0.45-0.60, then the leg
-// hangs stretched), the hind leg first and the fore leg of its side a quarter later: the hand of one side reaches while the hind leg of the other pushes.
+// The crawl (clip 3): a DIAGONAL-sequence walk, each limb its own phase 0 ... 1 a cycle (swing 0-0.25, placing to 0.45, the stretch 0.45-0.60, then the leg
+// hangs stretched), a hind leg first and the fore leg of the OTHER side a quarter later (right hind, left fore, left hind, right fore): the hand of one side
+// reaches while the hind leg of the other pushes (clip 3, reports/W2.md). The order is the arboreal frogs' (Manzano, Abdala & Herrel 2008, J Anat 213: Phyllomedusa
+// bicolor, the red-eye's own subfamily, and Litoria caerulea "use a diagonal sequence gait typical of primates and other arboreal mammals"); the first version here was a
+// lateral sequence (hind, then the fore of its own side), a guess the clip's blur could not settle (6 Oct 2026).
 export const CRAWL = {
   cycle: [1.6, 0.9],                 // s a cycle lasts at urgency 0 and 1 (clip 3: 1.15)
-  offset: { hR: 0, fR: 0.25, hL: 0.5, fL: 0.75 },
+  offset: { hR: 0, fL: 0.25, hL: 0.5, fR: 0.75 },
   stride: 0.5,                       // body lengths a cycle advances (guess: the clip pans, 2 cycles)
   share: { fore: 0.15, hind: 0.35 },
   drive: [0.30, 0.80],               // the part of a limb's own cycle that moves the body: its stance, the leg extending and the hand drawing it up
@@ -121,8 +124,8 @@ function crawlStep(st, out, { go, steer, urgency, bodyLen }, dt) {
   st.steer = steer; st.pulses = Math.floor(st.clock);
   out.adv = f * CRAWL.stride * bodyLen;
   out.dyaw = steer * CRAWL.yawCycle * f;
-  // the torso bends toward the reaching hand (the right fore swings at 0.25-0.5 of the cycle, the left at 0.75-1.0) and rolls with the steps; the head leads it
-  const c = st.clock, w = 2 * Math.PI, bend = Math.sin(w * (c - 0.125)), roll = Math.sin(w * (c - 0.375));
+  // the torso bends toward the reaching hand (the left fore swings at 0.25-0.5 of the cycle, the right at 0.75-1.0) and rolls with the steps; the head leads it
+  const c = st.clock, w = 2 * Math.PI, bend = -Math.sin(w * (c - 0.125)), roll = -Math.sin(w * (c - 0.375));
   const yaw = CRAWL.sway * bend + steer * 20;
   st.trunk[0] = yaw; st.trunk[2] = CRAWL.roll * roll; st.trunk[3] = yaw * CLIMB.headLead; st.trunk[5] = 0;
   return out;

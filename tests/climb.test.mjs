@@ -85,20 +85,20 @@ test('the muscles follow the limbs: a hind leg in its stretch fires the push gro
   assert.equal(climbMove({ hL: 0.5, hR: 0.5, act: 0 }).ampL, 0);        // held: tone only
 });
 
-// --- the crawl: the arboreal frog's gait (clip 3, a green tree frog up a wall: a continuous lateral-sequence walk, not the dart frog's pulse) ---
+// --- the crawl: the arboreal frog's gait (clip 3, a green tree frog up a wall: a continuous diagonal-sequence walk, not the dart frog's pulse) ---
 const crawler = () => { const st = climbState(rnd, 'crawl'); return st; };
-test('crawl: the four limbs cycle in a lateral sequence, the hand of one side reaching while the hind leg of the other pushes', () => {
+test('crawl: the four limbs cycle in a diagonal sequence (Manzano et al. 2008), the hand of one side reaching while the hind leg of the other pushes', () => {
   const st = crawler(); const swing = { hR: [], fR: [], hL: [], fL: [] }; let prev = null;
   for (let i = 0; i < 400; i++) {
     climbStep(st, { go: 1, bodyLen: 4, urgency: 0, rnd }, dt);
     for (const k of Object.keys(swing)) { const sw = st[k] > 0 && st[k] < 0.25; if (sw && !(prev?.[k])) swing[k].push(st.clock); }
     prev = { hR: st.hR > 0 && st.hR < 0.25, fR: st.fR > 0 && st.fR < 0.25, hL: st.hL > 0 && st.hL < 0.25, fL: st.fL > 0 && st.fL < 0.25 };
   }
-  // the order inside a cycle: hind right, fore right, hind left, fore left, a quarter of a cycle apart
+  // the order inside a cycle: hind right, fore LEFT, hind left, fore RIGHT, a quarter of a cycle apart (diagonal: each fore leg follows the hind leg of the other side)
   const at = (k, n) => swing[k][n] - Math.floor(swing[k][n]);
   const q = (k) => +at(k, 1).toFixed(1);
   assert.ok(swing.hR.length >= 3 && swing.fR.length >= 3 && swing.hL.length >= 3 && swing.fL.length >= 3);
-  assert.deepEqual([q('hR'), q('fR'), q('hL'), q('fL')].map((v) => (v + 0.1) % 1 < 0.15 ? 0 : v), [0, 0.3, 0.5, 0.8].map((v) => v), `swing starts ${[q('hR'), q('fR'), q('hL'), q('fL')]}`);
+  assert.deepEqual([q('hR'), q('fL'), q('hL'), q('fR')].map((v) => (v + 0.1) % 1 < 0.15 ? 0 : v), [0, 0.3, 0.5, 0.8].map((v) => v), `swing starts ${[q('hR'), q('fL'), q('hL'), q('fR')]}`);
   // never more than one limb in its swing at a time: three on the wall (duty 0.75)
   const s2 = crawler(); let maxSwing = 0;
   for (let i = 0; i < 600; i++) { climbStep(s2, { go: 1, bodyLen: 4, rnd }, dt); maxSwing = Math.max(maxSwing, ['hR', 'fR', 'hL', 'fL'].filter((k) => s2[k] > 0 && s2[k] < 0.25).length); }
