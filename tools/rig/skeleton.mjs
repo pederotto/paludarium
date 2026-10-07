@@ -49,6 +49,27 @@ export function bindSkin(pos, bones, rig, { sigma = 0.05, attachT = 0.12 } = {})
   return { idx, w };
 }
 
+// How much the skin at p (outward unit normal n[i]) looks away from the axis h-t: the normal's component along the radial direction from the axis (1: straight out, as a
+// tube's own skin; 0 or less: sideways or inward, as the skin of a neighbouring tube pressed against this one), 1 where p is on the axis.
+function facingIn(p, nrm, i, h, t) {
+  const ux = t[0] - h[0], uy = t[1] - h[1], uz = t[2] - h[2], L2 = ux * ux + uy * uy + uz * uz || 1e-12, k = Math.max(0, Math.min(1, ((p[0] - h[0]) * ux + (p[1] - h[1]) * uy + (p[2] - h[2]) * uz) / L2));
+  const rx = p[0] - h[0] - ux * k, ry = p[1] - h[1] - uy * k, rz = p[2] - h[2] - uz * k, rl = Math.hypot(rx, ry, rz);
+  return rl < 1e-6 ? 1 : (rx * nrm[i * 3] + ry * nrm[i * 3 + 1] + rz * nrm[i * 3 + 2]) / rl;
+}
+// Area-weighted vertex normals of a mesh, turned outward (the mean of normal . (vertex - centroid) is positive).
+export function vertexNormals(pos, idx) {
+  const n = pos.length / 3, N = new Float32Array(n * 3);
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t], b = idx[t + 1], c = idx[t + 2], ux = pos[b * 3] - pos[a * 3], uy = pos[b * 3 + 1] - pos[a * 3 + 1], uz = pos[b * 3 + 2] - pos[a * 3 + 2], vx = pos[c * 3] - pos[a * 3], vy = pos[c * 3 + 1] - pos[a * 3 + 1], vz = pos[c * 3 + 2] - pos[a * 3 + 2];
+    const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+    for (const i of [a, b, c]) { N[i * 3] += fx; N[i * 3 + 1] += fy; N[i * 3 + 2] += fz; }
+  }
+  let cx = 0, cy = 0, cz = 0; for (let i = 0; i < n; i++) { cx += pos[i * 3]; cy += pos[i * 3 + 1]; cz += pos[i * 3 + 2]; } cx /= n; cy /= n; cz /= n;
+  let sgn = 0; for (let i = 0; i < n; i++) { const l = Math.hypot(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]) || 1; N[i * 3] /= l; N[i * 3 + 1] /= l; N[i * 3 + 2] /= l; sgn += N[i * 3] * (pos[i * 3] - cx) + N[i * 3 + 1] * (pos[i * 3 + 1] - cy) + N[i * 3 + 2] * (pos[i * 3 + 2] - cz); }
+  if (sgn < 0) for (let i = 0; i < N.length; i++) N[i] = -N[i];
+  return N;
+}
+
 // The binding the game skins with at run time (render/creatures/skin.js): TWO bones a vertex (enough for limbs, half the shader
 // cost of four), each bone a capsule of radius `r` (scan units, `radius` by bone name without the side suffix): a vertex goes to the
 // bones whose surface it is nearest (distance to the bone less its radius), blended over `sigma` across a joint. A limb bone only
@@ -62,10 +83,12 @@ export function bindSkin(pos, bones, rig, { sigma = 0.05, attachT = 0.12 } = {})
 // `side: false` (the red-eye's walking scan, whose left hind leg runs across the midline behind the vent: a left bone may not take only x < 0 skin) and `norm: true` (the
 // distance is taken in radii of the bone, `sigma` then in radii too: a wide thigh no longer wins every vertex of the thin shin and foot folded against it) are for a scan
 // whose limbs lie against each other; off, the binding is as it was for every other body.
+// `normals` (vertexNormals): a bone does not take a vertex whose skin looks into its axis (facing < `facing`: +1.5 radii of distance): where two tubes are pressed together, the
+// skin of one that faces the other is at the same distance in radii from both axes, and only its normal tells whose it is.
 // `tris` + `smooth` (iterations): the weights are then smoothed over the mesh's edges, so where the scan's folds fuse parts that move
 // apart (the frog's heel against its vent), the skin between them stretches over a band instead of tearing along one row of
 // triangles.
-export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.025, distalT = 0.3, mid = 0.02, tris = null, smooth = 0, side: sideRule = true, norm = false } = {}) {
+export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.025, distalT = 0.3, mid = 0.02, tris = null, smooth = 0, side: sideRule = true, norm = false, normals = null, facing = 0.15 } = {}) {
   const n = pos.length / 3, idx = new Uint8Array(n * 2), w = new Float32Array(n);
   const side = bones.map((b) => (!b.limb ? 0 : /L$/.test(b.name) ? -1 : 1));
   const rad = bones.map((b) => radius[b.name] ?? radius[b.name.replace(/[LR]$/, '')] ?? 0.05);
@@ -89,6 +112,7 @@ export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.02
       d[b] = Infinity;
       if (sure ? bones[b].limb !== l || byLimb[l].indexOf(b) < far : sideRule && side[b] && side[b] !== s) continue;
       d[b] = norm ? segDist(p, bones[b].head, bones[b].tail) / rad[b] : segDist(p, bones[b].head, bones[b].tail) - rad[b];
+      if (normals && facingIn(p, normals, i, bones[b].head, bones[b].tail) < facing) d[b] += norm ? 1.5 : 0.15;
       if (b0 < 0 || d[b] < d[b0]) b0 = b;
     }
     for (let b = 0; b < bones.length; b++) if (d[b] < Infinity && adj(b, b0) && (b1 < 0 || d[b] < d[b1])) b1 = b;
@@ -137,7 +161,13 @@ export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.02
 // resting body 0.8 mm)
 // The swimming bodies too (bake-frogpose.mjs): their gliding pose is far from the bind pose and moved 1.6-6 mm with four bones.
 export const SKIN_PASSES = { anuran: 120, lizard: 40, skink: 0, swim: 0 };
-export function skinFour(pos, tris, sk, passes) {
+// (`par` also carries `par.extra`, a Set of "a,b" pairs of bones that may share skin though neither is the other's parent: an arm and the trunk its scapula hangs from)
+function maskRow(W, o, NB, par) {
+  let d = 0; for (let b = 1; b < NB; b++) if (W[o + b] > W[o + d]) d = b;
+  const ex = par.extra; let s = 0; for (let b = 0; b < NB; b++) { if (b !== d && b !== par[d] && par[b] !== d && !(ex && (ex.has(`${d},${b}`) || ex.has(`${b},${d}`)))) W[o + b] = 0; s += W[o + b]; }
+  if (s > 0) for (let b = 0; b < NB; b++) W[o + b] /= s;
+}
+export function skinFour(pos, tris, sk, passes, par = null) {
   const n = pos.length / 3, NB = 32;
   let W = new Float32Array(n * NB), W2 = new Float32Array(n * NB);
   for (let i = 0; i < n; i++) { const w = sk[i * 4 + 2]; W[i * NB + Math.round(sk[i * 4] * 32)] += w; W[i * NB + Math.round(sk[i * 4 + 1] * 32)] += 1 - w; }
@@ -155,6 +185,9 @@ export function skinFour(pos, tris, sk, passes) {
     for (let i = 0; i < n; i++) if (weld[i] !== i) W2.set(W2.subarray(weld[i] * NB, weld[i] * NB + NB), i * NB);
     [W, W2] = [W2, W];
   }
+  // `par` (the bones' parent indices, -1 for a root): a limb mask. A vertex may share its weight only with the bone it mostly follows and that bone's parent and children (one joint
+  // either side); the diffusion carries a bone's weight over the mesh to wherever its skin touches (the toes lying against the knee), and a bone two joints away must not move it.
+  if (par) for (let i = 0; i < n; i++) maskRow(W, i * NB, NB, par);
   const skin = new Float32Array(n * 4), skinx = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
     const o = i * NB, top = [...Array(NB).keys()].sort((a, b) => W[o + b] - W[o + a] || a - b).slice(0, 4);

@@ -68,7 +68,14 @@ export function poseToStroke(pos, f4, bones, stroke, tris = null) {
     let o13 = 0, o2 = 0, worst = 1, edges = 0; const seen = new Set();
     for (let t = 0; t < tris.length; t += 3) for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) { const u = tris[t + a], v = tris[t + b], k = u < v ? u * n + v : v * n + u; if (seen.has(k)) continue; seen.add(k); edges++;
       const d0 = Math.hypot(pos[u * 3] - pos[v * 3], pos[u * 3 + 1] - pos[v * 3 + 1], pos[u * 3 + 2] - pos[v * 3 + 2]), d1 = Math.hypot(out[u * 3] - out[v * 3], out[u * 3 + 1] - out[v * 3 + 1], out[u * 3 + 2] - out[v * 3 + 2]), r = d1 / Math.max(d0, 1e-9); if (d0 < 0.004) continue; edges--; edges++; if (r > 1.3) o13++; if (r > 2) o2++; worst = Math.max(worst, r); }
-    stretch = { edges, over13: o13, over2: o2, worst };
+    // which pairs of bones the edges that grew past 2x join (the first bone of each end by its largest weight): a fused fold shows as one pair
+    const dom = new Int16Array(n); for (let i = 0; i < n; i++) { let bw = -1, bb = 0; for (const [arr, o] of [[f4.skin, 0], [f4.skinx, 0]]) for (const q of [0, 1]) { const w = arr[i * 4 + 2 + q]; if (w > bw) { bw = w; bb = Math.round(arr[i * 4 + q] * 32); } } dom[i] = bb; }
+    const pairs = new Map(), bad = [], samples = []; seen.clear();
+    const wv = (i) => [[f4.skin[i * 4], f4.skin[i * 4 + 2]], [f4.skin[i * 4 + 1], f4.skin[i * 4 + 3]], [f4.skinx[i * 4], f4.skinx[i * 4 + 2]], [f4.skinx[i * 4 + 1], f4.skinx[i * 4 + 3]]].filter(([, w]) => w > 0.02).map(([b, w]) => `${bones[Math.round(b * 32)]?.name}:${w.toFixed(2)}`).join(' ');
+    for (let t = 0; t < tris.length; t += 3) for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) { const u = tris[t + a], v = tris[t + b], k = u < v ? u * n + v : v * n + u; if (seen.has(k)) continue; seen.add(k);
+      const d0 = Math.hypot(pos[u * 3] - pos[v * 3], pos[u * 3 + 1] - pos[v * 3 + 1], pos[u * 3 + 2] - pos[v * 3 + 2]); if (d0 < 0.004) continue;
+      const r2 = Math.hypot(out[u * 3] - out[v * 3], out[u * 3 + 1] - out[v * 3 + 1], out[u * 3 + 2] - out[v * 3 + 2]) / d0; if (r2 > 2) { if (samples.length < 400 && bad.length % 37 === 0) samples.push(`${r2.toFixed(1)}x  [${(pos[u * 3]).toFixed(2)},${pos[u * 3 + 1].toFixed(2)},${pos[u * 3 + 2].toFixed(2)}] d0 ${d0.toFixed(3)}  u: ${wv(u)}   |   v: ${wv(v)}`); if (bad.length < 40000) bad.push([(pos[u * 3] + pos[v * 3]) / 2, (pos[u * 3 + 1] + pos[v * 3 + 1]) / 2, (pos[u * 3 + 2] + pos[v * 3 + 2]) / 2, +r2.toFixed(1)]); const [x, y] = dom[u] < dom[v] ? [dom[u], dom[v]] : [dom[v], dom[u]], pk = `${bones[x]?.name}-${bones[y]?.name}`; pairs.set(pk, (pairs.get(pk) ?? 0) + 1); } }
+    stretch = { edges, over13: o13, over2: o2, worst, bad, samples, pairs: [...pairs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6) };
   }
   return { pos: out, bones: nb, stretch };
 }
