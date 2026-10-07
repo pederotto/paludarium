@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { ANURAN_MUSCLES, anuranMuscleSet, anuranFrames, musclePathLength, visibleSlots, excitation, PAIR_SLOT } from '../src/content/anuranmuscles.js';
-import { skeletonRig, poseStroke, applyBone, ROW_FLOATS, MUSCLE_TEXEL0, MUSCLE_PAIR } from '../src/render/creatures/skeleton.js';
+import { skeletonRig, poseStroke, applyBone, ROW_FLOATS, ROW_TEXELS, MUSCLE_TEXEL0, MUSCLE_PAIR } from '../src/render/creatures/skeleton.js';
 import { motionOf, bellyRig, writeBellies, bellyTexel, bellyChannel } from '../src/render/creatures/muscles.js';
 
 const manifest = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8'));
@@ -27,7 +27,7 @@ test('the longissimus is one visible pair, in the slots the row has: 20 limb bel
   assert.equal(slots[PAIR_SLOT], 'LGDL'); assert.equal(slots[PAIR_SLOT + 1], 'LGDR');
   assert.equal(MUSCLE_PAIR, PAIR_SLOT);
   assert.ok(LGD.visible && LGD.trunk && LGD.drive === 'trunk');
-  assert.ok(MUSCLE_TEXEL0 + PAIR_SLOT < 75, 'the pair must fit the row');
+  assert.ok(MUSCLE_TEXEL0 + PAIR_SLOT < ROW_TEXELS, 'the pair must fit the row');
   // the limb bellies keep the slots they had before the pair (the models bound at 766f73e carry them)
   assert.deepEqual(slots.slice(0, 3), ['TRIL', 'SML', 'GRL']);
   // a slot's place in the row: one texel a limb belly, the pair sharing the last

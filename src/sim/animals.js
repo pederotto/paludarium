@@ -2144,7 +2144,7 @@ export class Animals {
     const W = this.world, T = W.terrain;
     const want = W.env.bright() > 0.25 && a.hunger < 0.6 && !a.swimming && !a.order && !a.hop;
     const P = a.perch;
-    a._climbPrev = a.climbOn; a.climbOn = false;
+    a._surfPrev = a._surfOn; a._surfOn = false; a.climbOn = false;
     if (P && !P.path) a.perch = null;                                    // (a perch from an older version: start again)
     else if (P) {
       const gone = (P.plant && !W.plants.list.includes(P.plant)) || (P.piece && !W.decor.pieces.includes(P.piece));
@@ -2162,8 +2162,20 @@ export class Animals {
         if (dist < P.near - 0.25) { P.near = dist; P.stuck = 0; } else P.stuck += dt;
         // Held off the foot by a neighbour's stems or a body in the way, but nearly there: it starts the climb from where it is.
         if (P.stuck > 1 && dist < 1.5) { P.path[0] = a.pos.clone(); P.base = P.path[0]; P.ph = 'up'; P.i = 1; a.swimming = false; return true; }
-        const step = Math.min(dist, sp.speed * 2.2 * dt);
-        const nx = a.pos.x + (dx / (dist || 1)) * step, nz = a.pos.z + (dz / (dist || 1)) * step;
+        // An arboreal frog on foot to the foot of its climb crawls (util/climb.js, as on the climb itself): the step and the turn out of its limbs.
+        const crawl = sp.perch && !PADLESS.has(a.sp) && !a.swimming;
+        let step, nx, nz;
+        if (crawl) {
+          const cl = a.climb ??= climbState(undefined, 'crawl'), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
+          const m = climbStep(cl, { go: dist > 0.1 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.7, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
+          a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
+          step = Math.min(dist, m.adv * Math.max(0, Math.cos(err)));
+          nx = a.pos.x + Math.sin(a.yaw) * step; nz = a.pos.z + Math.cos(a.yaw) * step;
+          a.climbOn = true; a.stepping = cl.act ? 0.18 : 0;
+        } else {
+          step = Math.min(dist, sp.speed * 2.2 * dt);
+          nx = a.pos.x + (dx / (dist || 1)) * step; nz = a.pos.z + (dz / (dist || 1)) * step;
+        }
         if (P.stuck > 3 || (step > 1e-4 && !this.okFor(sp.perchSwim ? 'any' : 'land', nx, nz, 99, (a.rad ?? 0.5) * 0.9))) { this.perchQuit(a, P); return false; }
         a.pos.x = nx; a.pos.z = nz;
         const g = T.heightAt(nx, nz), s = W.water.surfaceAt(nx, nz, 0.2);
@@ -2172,9 +2184,9 @@ export class Animals {
           a.pos.y = s - this.swimDepth(a, sp); a.normal = null; a.pitch = 0;
           this.swimClock(a, sp, 0.9, dt);
         } else { a.pos.y = g; a.normal = T.normalAt(nx, nz); }
-        if (dist > 0.05) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
+        if (dist > 0.05 && !crawl) a.yaw = angLerp(a.yaw ?? 0, Math.atan2(dx, dz), Math.min(1, dt * 6));
         a.speedNow = step / Math.max(1e-4, dt); a.state = 'walk';
-        if (dist - step < 0.05) { P.ph = 'up'; P.i = 1; a.swimming = false; a.normal ??= T.normalAt(a.pos.x, a.pos.z); }
+        if (crawl ? dist < 0.3 : dist - step < 0.05) { P.ph = 'up'; P.i = 1; a.swimming = false; a.normal ??= T.normalAt(a.pos.x, a.pos.z); }
         return true;
       }
       if (P.ph === 'up' || P.ph === 'down') {
@@ -2186,14 +2198,14 @@ export class Animals {
         let step = 0;
         if (surf) {
           const cl = a.climb ??= climbState(undefined, sp.perch ? 'crawl' : 'pulse'), bb = this.bodyBox(a, sp), want = dist > 0.05 ? this.glassYawTo(surf, dx, dy, dz) : (a.yaw ?? 0);
-          if (!a._climbPrev) { a.yaw = want; cl.t = -1; cl.hold = 0.15; }       // (it takes hold of the surface heading the way it climbs: the mount, as before)
+          if (!a._surfPrev) { a.yaw = want; cl.t = -1; cl.hold = 0.15; }       // (it takes hold of the surface heading the way it climbs: the mount, as before)
           const err = angDiff(want, a.yaw ?? 0);
           const m = climbStep(cl, { go: dist > 0.3 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.6, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
           a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
           const adv = Math.min(dist, m.adv * Math.max(0, Math.cos(err)));
           surfaceFrame(surf.x, surf.y, surf.z, a.yaw, _gf);
           a.pos.x += _gf[0] * adv; a.pos.y += _gf[1] * adv; a.pos.z += _gf[2] * adv;
-          step = adv; a.climbOn = true; a.stepping = cl.act ? 0.18 : 0;
+          step = adv; a.climbOn = true; a._surfOn = true; a.stepping = cl.act ? 0.18 : 0;
         } else {
           step = Math.min(dist, sp.speed * 1.4 * dt);
           if (dist > 1e-3) { a.pos.x += (dx / dist) * step; a.pos.y += (dy / dist) * step; a.pos.z += (dz / dist) * step; }
@@ -2869,6 +2881,7 @@ export class Animals {
   // nearest bank and climbs out; toads like the water and float at the surface, kicking along.
   // Hunting: see hunter() (an order from the sim, or an ambush when very hungry) and strikes().
   frog(a, sp, dt) {
+    a.climbOn = false;                                                  // (frogWalk sets it for an arboreal frog's crawl)
     const W = this.world, T = W.terrain;
     const toad = sp.kind === 'toad';
     const dtS = dt / this.tf;
@@ -3129,7 +3142,17 @@ export class Animals {
     let ok = d > 0.2 && a.walkT < 14;
     // No headway for 0.6 s (each step undone: a cliff under the snout, offCliff; a neighbour; a bank): it stops instead of treading on the spot.
     if (!(d > (p.best ?? Infinity) - 0.05)) { p.best = d; p.bestT = a.walkT; } else if (a.walkT - p.bestT > 0.6) ok = false;
-    if (ok) {
+    if (ok && sp.perch && !PADLESS.has(a.sp)) {
+      // An arboreal frog walks as the green tree frog of the owner's clip does (util/climb.js 'crawl': a four-beat walk, three limbs down, the legs
+      // hanging stretched, the hand reaching): the step and the turn come out of its limbs, drawn on the climbing body; the old walk below is for the others.
+      const cl = a.climb ??= climbState(undefined, 'crawl'), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
+      const m = climbStep(cl, { go: d > 0.2 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: clamp(p.v ?? 0.5, 0, 1), bodyLen: Math.max(1, bb.z1 - bb.z0) }, dtS);
+      a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
+      const adv = Math.min(d, m.adv * Math.max(0, Math.cos(err))), nx = a.pos.x + Math.sin(a.yaw) * adv, nz = a.pos.z + Math.cos(a.yaw) * adv;
+      if (adv < 1e-6 || (this.okFor(this.mediumOf(sp), nx, nz) && !this.crowded(a, sp, nx, nz) && !this.walkBlocked(a, nx, nz))) { a.pos.x = nx; a.pos.z = nz; a.pos.y = this.world.terrain.heightAt(nx, nz); a.normal = this.world.terrain.normalAt(nx, nz); a.hopFail = 0; }
+      else ok = false;
+      a.climbOn = true; a.stepping = cl.act ? 0.18 : 0; a.speedNow = adv / Math.max(1e-4, dtS);
+    } else if (ok) {
       // It goes the way its body points, which turns toward the target as it goes (an arc), slower the further round it still has to come;
       // well off the heading (more than TURN_GO: it was told to walk before the turn was made) it only turns.
       const err = Math.abs(angDiff(Math.atan2(dx, dz), a.yaw ?? 0)), fwd = err < 1.2 ? Math.max(0, Math.cos(err)) : 0;
@@ -5135,7 +5158,7 @@ export class Animals {
         const swimMesh = frogish && a.swimming && !a.hop ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
         // A frog climbing belly to a surface is drawn on its swimming body (limbs apart, against the wall) posed by its climb (util/climb.js: each limb its own
         // phase in the pulse, the torso bent toward the reaching hand); the sitting body walks when the swimming one has not loaded (or on Low).
-        const climbMesh = frogish && a.climbOn && a.climb && (a.perch?.ph === 'up' || a.perch?.ph === 'down') && !a.swimming && !a.hop ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
+        const climbMesh = frogish && a.climbOn && a.climb && !a.swimming && !a.hop ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
         const sw = frogish && a.swimming && !a.hop ? swimPose(a.sw ??= swimState(), swimProfile(id), { t: this.t + a.phase, ...(swimMesh ? { level: 0 } : {}) }) : null;
         // At the surface it rides the water: up and down with the ripples under it and tipped with their slope (ride).
         const rd = a.swimming && !a.hop && (frogish || sp.kind === 'newt' || sp.kind === 'axolotl') ? this.ride(a, sp, sc, dt / this.tf) : null;

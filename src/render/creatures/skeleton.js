@@ -29,7 +29,7 @@ import { lizardRig } from './lizardpose.js';
 import { bellyRig, writeBellies, MUSCLE_TEXEL0, MUSCLE_PAIR } from './muscles.js';
 export { MUSCLE_TEXEL0, MUSCLE_PAIR };
 
-export const ROW_TEXELS = 75;                  // (25 bones: a lizard's) texels in an instance's row of the bone texture (RGBA float each)
+export const ROW_TEXELS = 94;                  // texels in an instance's row of the bone texture (RGBA float each): 24 frog bones (72 texels: 17 to 22, the red-eyed tree frog's fingers and shoulder girdle, 23 with its jaw) then 22 belly texels; a lizard's 25 bones fit too
 export const BONE_TEXELS = 3;                  // a bone is an affine 3 x 4 matrix: three rows of [m0, m1, m2, t]
 export const MAX_BONES = Math.floor(ROW_TEXELS / BONE_TEXELS);
 export const ROW_FLOATS = ROW_TEXELS * 4;
@@ -59,6 +59,7 @@ function frameRot(a0, b0, a1, b1) {
   return o;
 }
 const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, s, 0, 1, 0, -s, 0, c]; };     // x' = x c + z s, z' = -x s + z c
+const rotZ = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, -s, 0, s, c, 0, 0, 0, 1]; };     // x' = x c - y s, y' = x s + y c
 const rotX = (a) => { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, c, -s, 0, s, c]; };     // y' = y c - z s, z' = y s + z c
 // the shortest-arc rotation turning unit a onto unit b (Rodrigues)
 function arc(a, b) {
@@ -99,10 +100,11 @@ export function skeletonRig(skel, { legLift = 0.25, legStride = 0.35, limb = 1, 
     // it was scanned (a bone keeps that side up as the stroke points it elsewhere, so a leg swings without twisting).
     const limbs = [];
     for (const [s, side] of [['L', -1], ['R', 1]]) {
-      for (const [hind, names] of [[true, ['thigh', 'shin', 'foot', 'toes']], [false, ['arm', 'forearm', 'hand']]]) {
+      for (const [hind, names] of [[true, ['thigh', 'shin', 'foot', 'toes']], [false, ['arm', 'forearm', 'hand', ...(byName['fingers' + s] != null ? ['fingers'] : [])]]]) {
         const bones = names.map((k) => byName[k + s]);
         if (bones.some((i) => i == null)) return null;
-        limbs.push({ side, hind, limb: B[bones[0]].limb, bones, u0: bones.map((b) => across(dir[b], UP)) });
+        // (`sc`: the scapula a 22-bone frog's arm hangs from; `fingers` is the last bone of an arm that has them)
+        limbs.push({ side, hind, limb: B[bones[0]].limb, bones, sc: hind ? null : byName['scapula' + s] ?? null, u0: bones.map((b) => across(dir[b], UP)) });
       }
     }
     // (with a muscle binding the bellies replace the bones' radial swell: render/creatures/muscles.js)
@@ -285,7 +287,7 @@ function segDir(th, ph, side) {
   const c = Math.cos(ph * RAD);
   return [side * Math.sin(th * RAD) * c, Math.sin(ph * RAD), -Math.cos(th * RAD) * c];
 }
-const _hind = new Float32Array(9), _fore = new Float32Array(6), _hind2 = new Float32Array(9), _fore2 = new Float32Array(6);
+const _hind = new Float32Array(9), _fore = new Float32Array(6), _hind2 = new Float32Array(9), _fore2 = new Float32Array(6), _fore4 = new Float32Array(8);
 // A frog between strokes, for a swimming body drawn without one: legs trailing, forelegs half out.
 export const GLIDING = { pL: 0.45, pR: 0.45, ampL: 1, ampR: 1, float: 0, scull: 0, arms: 0.35, push: 0 };
 
@@ -362,7 +364,16 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
     if (s.blend && s.bw > 0) { const B = limbAngles(c, left, s.blend, _hind2, _fore2), k = Math.min(1, s.bw); for (let i = 0; i < A.length; i++) A[i] += (B[i] - A[i]) * k; }
     // (sitting on the bottom: the legs folded and the hands down, as it sits on land)
     if (s.sit > 0 && !s.legA) { const to = c.hind ? HIND.fold : FORE.stand; for (let i = 0; i < to.length; i++) A[i] += (to[i] - A[i]) * s.sit; }
+    // (a 22-bone frog's fingers continue the hand: bent toward the belly by the stroke's `fcurl` [left, right], in degrees: the pad peeling or pressed, the
+    // fingers curled; and its scapula turns about the back's point by `scap` [protraction left, elevation left, protraction right, elevation right], which lifts
+    // and swings the shoulder the arm hangs from: the reach overhead)
+    if (!c.hind && k === 4) { const F = _fore4; for (let i = 0; i < 3; i++) { F[i] = A[i]; F[4 + i] = A[3 + i]; } F[3] = A[2]; F[7] = A[5] - (s.fcurl ? s.fcurl[left ? 0 : 1] : 0); A = F; }
     let J = head[c.bones[0]], dPrev = null;
+    if (c.sc != null) {
+      const sc = c.sc, pr = s.scap ? s.scap[left ? 0 : 2] : 0, el = s.scap ? s.scap[left ? 1 : 3] : 0;
+      R[sc] = mm(rotZ(c.side * el * RAD), rotY(-c.side * pr * RAD)); H[sc] = head[sc];
+      J = addv(head[sc], mv(R[sc], sub(head[c.bones[0]], head[sc])));
+    }
     // (a hind leg still pushing in a hop's launch: its toes stay where they were planted; util/gait.js leapPose, util/hop.js hopFrame)
     const P = c.hind ? plantDirs(rig, c, A, s) : null;
     for (let i = 0; i < k; i++) {
@@ -388,6 +399,7 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
     // (an arm hangs from the spine: it turns with it, about the spine's joint)
     if (tq && !c.hind) {
       for (const b of c.bones) { R[b] = mm(tq.Qs, R[b]); H[b] = tq.at(H[b]); }
+      if (c.sc != null) { R[c.sc] = mm(tq.Qs, R[c.sc]); H[c.sc] = tq.at(H[c.sc]); }
       J = tq.at(J);
       if (info) for (let h = hull0; h < info.hull.length; h++) { const q = tq.at(info.hull[h]); info.hull[h][0] = q[0]; info.hull[h][1] = q[1]; info.hull[h][2] = q[2]; }
     }

@@ -19,7 +19,11 @@ import { ALL_EXTENSIONS, EXTTextureWebP } from '@gltf-transform/extensions';
 import sharp from 'sharp';
 import { weld, quantize, meshopt } from '@gltf-transform/functions';
 import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
-import { bindCapsules, frogBones, skinFour, SKIN_PASSES, spineRamp } from './rig/skeleton.mjs';
+import { bindCapsules, frogBones, skinFour, SKIN_PASSES, spineRamp, vertexNormals } from './rig/skeleton.mjs';
+import { headWeight, rollHead, poseToStroke, scanStroke } from './rig/neutral.mjs';
+import { cutSeams } from './rig/seam-cut.mjs';
+import { graftMirror, relaxRings, meshCheck } from './rig/leg-graft.mjs';
+import { neutralStroke } from '../src/util/climb.js';
 
 const OUT = process.env.T4_OUT || 'public/assets/creatures';
 // cmPerUnit: the scan's trunk (snout to vent, 1.33 units) has to be the 4.5 cm of the sitting leucomelas; strawberry is 0.511 of that.
@@ -44,7 +48,15 @@ const JOBS = {
   'toad.swim': { conform: 'toad', src: 'toad_swim_mesh', rotY: -90, cmPerUnit: 3.285, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'bombina', eyes: 'toad', skel: 'TOAD', vent: -0.40, trunkZ: [-0.2, 0.4], sHalf: 0.2, eye: { c: [0.086, 0.0, 0.76], r: 0.065 }, eyeCm: { c: [0.50, 1.63, 1.30], r: 0.27, axis: [0.62, 0.55, 0.56], dome: true }, split: true },
   // The red-eyed tree frog does not swim, but it leaps, and its own scan sits with its hind legs folded in one lump: in the air it is
   // drawn in this body (Animals.draw, util/gait.js leapStroke), painted as itself.
-  'redeye.swim': SWIM(6.4, 'callidryas', 'redeye'),
+  // The red-eyed tree frog does not swim: this is its CLIMBING and WALKING body (the stroke-posed, limbs-apart variant the game loads as `<id>.swim`), made from the
+  // owner's walking scan (art-src/raw/redeye_walk_mesh.glb, 6 Oct 2026: a slender red-eye mid-step, limbs unfolded) as it is, no conform. 22 bones: the toad swimmer's 18
+  // + a scapula and a fingers bone a side. `skel`: the joints in tools/rig/redeye-walk-joints.json (measured with tools/rig/limb-axes.mjs). `center`: the trunk's x to 0
+  // (the scan is off the axis). `headRoll`: the scan's head is rolled about the body axis; the head bone is turned back through its skeleton (tools/rig/neutral.mjs,
+  // tools/rig/neutral-check.mjs: the roll fitted from the eye bumps, -10.2 deg). `neutral: [hind, arm]` (not set: tried 6 Oct, see reports/REDEYE-plan.md) poses the whole scan into a point of the
+  // crawl cycle through its skeleton first. `eye`: the bump, scan units after the roll (right eye; the shader mirrors it).
+  'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.129, 0.09, 0.725], r: 0.12 }, split: true,   // (c.x was 0.14 on the scan's own head; the symmetrized head's bumps sit 0.011 nearer the midline)
+    // (the walking scan's hind legs lie against each other and the left one runs across the midline: no x-sign rule, distances in radii, a bone does not take skin that faces into its axis, and the diffused weights may only join a bone to its parent and children; the joints and per-side radii fitted to the skin, tools/rig/fit-chain.mjs)
+    bind: { side: false, norm: false, sigma: 0.03, facing: 0.15, mask: 1 }, cut: true, graft: true, symHead: true },
 };
 // The swimming scan's skeleton (tools/rig/skeleton.mjs frogBones): joints measured on the leveled scan (scan units, head +z, about 2
 // long: analyse() below) from its top, side and front views, each at the middle of the limb where the mesh bends. The hind leg is
@@ -67,7 +79,11 @@ const TOAD_SWIM_SKELETON = {
   { vent: [0, -0.10, -0.40], mid: [0, -0.12, -0.02], chest: [0, -0.13, 0.40], neck: [0, -0.12, 0.55], snout: [0, -0.04, 0.97] }),
   radius: { pelvis: 0.2, spine: 0.2, head: 0.17, thigh: 0.09, shin: 0.07, foot: 0.05, toes: 0.03, arm: 0.06, forearm: 0.05, hand: 0.035 },
 };
-const SKELS = { TOAD: TOAD_SWIM_SKELETON };
+// (PASSES=<n>: the red-eye's four-bone diffusion passes, for trying how far the weights may spread over its fused folds)
+const REDEYE_JOINTS = JSON.parse(fs.readFileSync(new URL('./rig/redeye-walk-joints.json', import.meta.url), 'utf8'));
+const { mid2: _mid2, ...REDEYE_J } = REDEYE_JOINTS.joints;       // (the split's mid2 is the middle of mid and chest, as for the toad)
+const SKELS = { TOAD: TOAD_SWIM_SKELETON, REDEYE: { joints: REDEYE_J, radius: REDEYE_JOINTS.radius } };
+if (process.env.PASSES) JOBS['redeye.swim'].skinPasses = +process.env.PASSES;
 const { EYES } = await import('./paint/eyes.mjs');
 await MeshoptSimplifier.ready; await MeshoptEncoder.ready; await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder, 'meshopt.encoder': MeshoptEncoder });
@@ -111,6 +127,8 @@ function analyse(src, job = {}) {
   const pos = Float32Array.from(src.pos), n = pos.length / 3;
   // 0. a scan that does not face +z: turned about y (as bake-creature's rotY)
   if (job.rotY) { const a = job.rotY * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a); for (let i = 0; i < n; i++) { const x = pos[i * 3], z = pos[i * 3 + 2]; pos[i * 3] = x * ca + z * sa; pos[i * 3 + 2] = -x * sa + z * ca; } }
+  // 0b. a scan placed off the axis (the red-eyed tree frog's walking scan): its trunk's x (`job.center`, scan units after rotY) taken to 0 first, so the trunk windows below find the trunk
+  if (job.center) for (let i = 0; i < n; i++) pos[i * 3] -= job.center;
   // 1. level: a least-squares line y = a + b z through the trunk, rotated about x until it is flat.
   let sz = 0, sy = 0, szz = 0, szy = 0, m = 0;
   for (let i = 0; i < n; i++) { const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]; if (Math.abs(x) < 0.2 && z > -0.2 && z < 0.6) { sz += z; sy += y; szz += z * z; szy += z * y; m++; } }
@@ -248,9 +266,9 @@ async function writeGlb(id, level, pos, nor, col, idx, rig, skin, split = null) 
 
 // The same body with UVs and a base-colour texture (a job with `texture`): `g` { pos, nor, uv, idx } on the unwrapped vertices, `rig` and `skin` per
 // vertex as writeGlb takes them. `image`: the WebP on the detailed level, none on the coarse one (the game draws both with the detailed file's material).
-async function writeTextured(id, level, g, rig, skin, image, split = null, passes = SKIN_PASSES.swim) {
+async function writeTextured(id, level, g, rig, skin, image, split = null, passes = SKIN_PASSES.swim, par = null) {
   const doc = new Document(), buf = doc.createBuffer();
-  let f4 = skinFour(g.pos, g.idx, skin, passes);
+  let f4 = skinFour(g.pos, g.idx, skin, passes, par);
   if (split) f4 = splitSpine(f4, g.pos, split);
   const mat = doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.6).setMetallicFactor(0);
   if (image) { doc.createExtension(EXTTextureWebP).setRequired(true); mat.setBaseColorTexture(doc.createTexture(`${id}_color`).setImage(image).setMimeType('image/webp')); }
@@ -291,16 +309,125 @@ for (const [id, job] of Object.entries(JOBS)) {
   // the skeleton and the skin's binding, on the full scan (scan units): every level of detail takes its vertices' binding from it
   // (bound as 17 bones; a split trunk shares the old spine's weight after the smoothing, writeGlb)
   const bones = frogBones(SKL.joints);
-  A.bind ??= bindCapsules(A.pos, bones, { radius: SKL.radius, tris: src.idx, smooth: 6 });
+  const maskPar = (process.env.BIND ? JSON.parse(process.env.BIND) : job.bind ?? {}).mask ? bones.map((b) => bones.findIndex((x) => x.name === b.parent)) : null;
+  if (maskPar) maskPar.extra = new Set(bones.flatMap((b, i) => (/^arm/.test(b.name) && maskPar[i] >= 0 && /^scapula/.test(bones[maskPar[i]].name) ? [`${i},${maskPar[maskPar[i]]}`] : [])));
+  {
+    const bo = process.env.BIND ? JSON.parse(process.env.BIND) : job.bind ?? {};
+    A.bind ??= bindCapsules(A.pos, bones, { radius: SKL.radius, tris: src.idx, smooth: 6, ...bo, ...(bo.facing ? { normals: vertexNormals(A.pos, src.idx) } : {}) });
+  }
   const k = job.cmPerUnit / 100;
+  // The fused contacts of the scan cut and capped (`cut`, tools/rig/seam-cut.mjs): done once on the binding's dominant bones, the rim vertices then follow their own bone alone
+  if (job.cut && process.env.CUT !== '0') {
+    if (!A.cutIdx) {
+      const dom = new Int16Array(A.n); for (let i = 0; i < A.n; i++) dom[i] = A.bind.w[i] >= 0.5 ? A.bind.idx[i * 2] : A.bind.idx[i * 2 + 1];
+      const r = cutSeams({ pos: A.pos, idx: src.idx, dom, bones, radius: SKL.radius, pairs: new Set((process.env.CUTPAIRS ?? 'thigh,shin;shin,foot;foot,toes').split(';')) });
+      for (const [v, b] of r.pure) { A.bind.idx[v * 2] = b; A.bind.idx[v * 2 + 1] = b; A.bind.w[v] = 1; }
+      A.cutIdx = r.idx; console.log(`  seam cut: ${r.stats.facesRemoved} bridging faces removed, ${r.stats.loops} rims, ${r.stats.caps} caps (${r.stats.capTris} triangles), ${r.pure.size} rim vertices pure; `);
+      console.log('  pieces before:', r.stats.before.join(' | ')); console.log('  pieces after: ', r.stats.pieces.join(' | '));
+    }
+    src.idx = A.cutIdx;
+  }
+  // A scan whose head is rolled (the red-eye's): taken back to neutral through the skeleton, the head bone turned about its own axis by `headRoll` deg, each vertex by its (smoothed) weight on it
+  if (job.headRoll && !A.rolled) {
+    const hb = bones.find((b) => b.name === 'head'), w = headWeight(bones, A.bind, A.n, src.idx, 40);
+    A.pos = rollHead(A.pos, w, hb.head, hb.tail.map((v, i) => v - hb.head[i]), job.headRoll); A.rolled = true;
+  }
+  // The body posed ONCE into the gait's neutral pose through its skeleton (`neutral: [hind, arm]`, util/climb.js neutralStroke), so it rests in a pose the runtime's poses are
+  // small turns from; the transition's own stretch is printed (tools/rig/neutral.mjs: it says whether bones, weights and keys make sense together).
+  if ((job.neutral || process.env.NEUTRAL) && !A.neutralised) {
+    const J = { ...SKL.joints, mid2: SKL.joints.mid.map((v, i) => (v + SKL.joints.chest[i]) / 2) };
+    const b22 = frogBones(J).map((b) => ({ ...b, r: SKL.radius[b.name.replace(/[LR]$/, '').replace('spineB', 'spine')] ?? 0.05 }));
+    const sk2 = new Float32Array(A.n * 4); for (let i = 0; i < A.n; i++) { sk2[i * 4] = A.bind.idx[i * 2] / 32; sk2[i * 4 + 1] = A.bind.idx[i * 2 + 1] / 32; sk2[i * 4 + 2] = A.bind.w[i]; }
+    let f4 = skinFour(A.pos, src.idx, sk2, job.skinPasses ?? SKIN_PASSES.swim, maskPar);
+    const sh = (a) => { const o = Float32Array.from(a); for (let i = 0; i < o.length; i += 4) for (const q of [0, 1]) { const b = Math.round(o[i + q] * 32); o[i + q] = (b >= 2 ? b + 1 : b) / 32; } return o; };
+    let scanPos = Float32Array.from(A.pos);
+    const res = poseToStroke(A.pos, { skin: sh(f4.skin), skinx: sh(f4.skinx) }, b22, (process.env.NEUTRAL === 'scan' ? scanStroke(SKL.joints) : /^redeye:/.test(process.env.NEUTRAL ?? '') ? neutralStroke(...process.env.NEUTRAL.split(':').slice(1).map(Number), 'redeye') : neutralStroke(...(process.env.NEUTRAL ? process.env.NEUTRAL.split(',').map(Number) : job.neutral))), src.idx);
+    { let md = 0, mi = 0; for (let i = 0; i < A.pos.length; i++) { const d = Math.abs(res.pos[i] - A.pos[i]); if (d > md) { md = d; mi = i; } } console.log(`  neutral pose moved a vertex by up to ${md.toFixed(3)} scan units`);
+      if (process.env.NEUTRAL === 'scan') { const sh0 = sh(f4.skin), per = {}; for (let i = 0; i < A.n; i++) { const b = Math.round(sh0[i * 4] * 32), d = Math.hypot(res.pos[i * 3] - A.pos[i * 3], res.pos[i * 3 + 1] - A.pos[i * 3 + 1], res.pos[i * 3 + 2] - A.pos[i * 3 + 2]); per[b] = Math.max(per[b] ?? 0, d); } console.log('  by first bone (max move):', b22.map((bb, ix) => `${bb.name} ${(per[ix >= 2 ? ix + 1 : ix] ?? 0).toFixed(3)}`).join(', ')); } }
+    // The fused right hind leg replaced by the mirror of the clean left one (`graft`, tools/rig/leg-graft.mjs): the copy's vertices appended, bound to the right bones, the right leg's
+    // bones the left's mirrored (the skeleton must be the skin's): the per-vertex arrays follow
+    // One graft taken into the bake's arrays: the copy's vertices appended (bound to the mirrored bones: `swap`), the per-vertex arrays grown, the shape relaxed over `rings` round the
+    // stitch band, the four-bone weights again on the grown mesh (a vertex without weights does not move)
+    const nameOf = (b) => bones[b]?.name ?? '', dom0 = (i) => (A.bind.w[i] >= 0.5 ? A.bind.idx[i * 2] : A.bind.idx[i * 2 + 1]);
+    const swapLR = (b) => { const nm = nameOf(b), o = nm.replace(/L$/, '#').replace(/R$/, 'L').replace(/#$/, 'R'); const k = bones.findIndex((x) => x.name === o); return k >= 0 ? k : b; };
+    const takeGraft = (g, rings) => {
+      const n0 = A.n, n1 = g.pos.length / 3, bi = new Uint8Array(n1 * 2), bw = new Float32Array(n1); bi.set(A.bind.idx.subarray(0, n0 * 2)); bw.set(A.bind.w.subarray(0, n0));
+      for (let k = n0; k < n1; k++) { const o = g.src[k]; bi[k * 2] = swapLR(A.bind.idx[o * 2]); bi[k * 2 + 1] = swapLR(A.bind.idx[o * 2 + 1]); bw[k] = A.bind.w[o]; }
+      A.bind = { idx: bi, w: bw };
+      const grow = (arr, C) => { const o = new C(n1); o.set(arr.subarray(0, n0)); return o; };
+      A.U = grow(A.U, Float32Array); A.H = grow(A.H, Float32Array); A.S = grow(A.S, Float32Array); A.LEG = grow(A.LEG, Uint8Array); A.LEGT = grow(A.LEGT, Float32Array);
+      const clamp = (v) => Math.max(0, Math.min(1, v));
+      if (rings > 0) relaxRings(g.pos, g.idx, g.band, rings, 10, 0.6);
+      for (let k = n0; k < n1; k++) { const x = g.pos[k * 3], y = g.pos[k * 3 + 1], z = g.pos[k * 3 + 2]; A.U[k] = clamp((A.zs - z) / (A.zs - A.zv)); A.H[k] = clamp((y - A.yb) / (A.yt - A.yb)); A.S[k] = clamp(Math.abs(x) / (job.sHalf ?? 0.3)); }
+      const sc2 = new Float32Array(g.pos.length); sc2.set(scanPos); sc2.set(g.pos.subarray(n0 * 3), n0 * 3); scanPos = sc2;
+      res.pos = g.pos; src.idx = g.idx; A.n = n1; A.cutIdx = g.idx;
+      const sk3 = new Float32Array(n1 * 4); for (let i = 0; i < n1; i++) { sk3[i * 4] = bi[i * 2] / 32; sk3[i * 4 + 1] = bi[i * 2 + 1] / 32; sk3[i * 4 + 2] = bw[i]; }
+      f4 = skinFour(g.pos, g.idx, sk3, job.skinPasses ?? SKIN_PASSES.swim, maskPar);
+    };
+    // The fused right hind leg replaced by the mirror of the clean left one (`graft`, tools/rig/leg-graft.mjs); the right leg's bones the left's mirrored (the skeleton must be the skin's)
+    if (job.graft && process.env.GRAFT !== '0') {
+      const reL = /^(thigh|shin|foot|toes)L$/, reR = /^(thigh|shin|foot|toes)R$/;
+      const g = graftMirror({ pos: res.pos, idx: src.idx, isFrom: (i) => reL.test(nameOf(dom0(i))), isTo: (i) => reR.test(nameOf(dom0(i))), mirrorX: 0 });
+      takeGraft(g, +(process.env.SEAMRINGS ?? 7)); console.log('  mesh after the leg graft:', JSON.stringify(meshCheck(src.idx)));
+      for (const nm of ['thigh', 'shin', 'foot', 'toes']) { const L = res.bones.find((b) => b.name === nm + 'L'), R = res.bones.find((b) => b.name === nm + 'R'); R.head = [-L.head[0] + g.shift[0], L.head[1] + g.shift[1], L.head[2] + g.shift[2]]; R.tail = [-L.tail[0] + g.shift[0], L.tail[1] + g.shift[1], L.tail[2] + g.shift[2]]; }
+      console.log(`  leg graft: ${g.stats.removedFaces} faces of the right leg removed, ${g.stats.copiedFaces} copied from the left, ${g.stats.bridgeFaces} stitched (rims ${g.stats.holeRim} / ${g.stats.patchRim}), shifted ${g.stats.shift}`);
+    }
+    // The head made symmetric (`symHead`): the scan's head midline is off the trunk's axis (a line x = a + b z over the head: measured from the head's extents slice by slice) and its two eyes
+    // differ (the right bump is the larger, the one the eye fit is of). The head's smoothed weight shears it onto x = 0 (the bisect plane), the left half is removed and the right half
+    // mirrored into its place, the seam stitched and relaxed; the bone weights go with the copies.
+    if (job.symHead && process.env.SYMHEAD !== '0') {
+      const hbI = bones.findIndex((b) => b.name === 'head'), isHead = (i) => dom0(i) === hbI, zS = [], cS = [];
+      for (let z0 = 0.62; z0 < 1.0; z0 += 0.04) { let lo = 9, hi = -9; for (let i = 0; i < A.n; i++) if (isHead(i) && res.pos[i * 3 + 2] >= z0 && res.pos[i * 3 + 2] < z0 + 0.04) { lo = Math.min(lo, res.pos[i * 3]); hi = Math.max(hi, res.pos[i * 3]); } if (hi > lo) { zS.push(z0 + 0.02); cS.push((lo + hi) / 2); } }
+      const mz = zS.reduce((a, v) => a + v, 0) / zS.length, mc = cS.reduce((a, v) => a + v, 0) / cS.length;
+      let sxz = 0, szz = 0; for (let i = 0; i < zS.length; i++) { sxz += (zS[i] - mz) * (cS[i] - mc); szz += (zS[i] - mz) ** 2; }
+      const slope = sxz / szz, off = mc - slope * mz, hw = headWeight(bones, A.bind, A.n, src.idx, 30);
+      for (let i = 0; i < A.n; i++) res.pos[i * 3] -= hw[i] * (off + slope * res.pos[i * 3 + 2]);
+      const g = graftMirror({ pos: res.pos, idx: src.idx, isFrom: (i) => isHead(i) && res.pos[i * 3] >= 0, isTo: (i) => isHead(i) && res.pos[i * 3] < 0, mirrorX: 0 });
+      takeGraft(g, +(process.env.HEADRINGS ?? 6)); console.log('  mesh after the head graft:', JSON.stringify(meshCheck(src.idx)));
+      console.log(`  head symmetrized: midline x = ${off.toFixed(3)} + ${slope.toFixed(3)} z over z ${zS[0].toFixed(2)}..${zS[zS.length - 1].toFixed(2)}, ${g.stats.removedFaces} faces of the left half removed, ${g.stats.copiedFaces} copied from the right, ${g.stats.bridgeFaces} stitched (rims ${g.stats.holeRim} / ${g.stats.patchRim})`);
+    }
+    A.pos = res.pos; A.neutralBones = res.bones; A.neutralised = true;
+    // The scan's fused folds, pulled apart by the posing, are sheets now: every face whose edge grew more than `TEAR` times (default 3) is cut, the holes capped, the flaps dropped
+    // (tools/rig/seam-cut.mjs, `force`); the baked body keeps no torn skin
+    if (job.cut && process.env.CUT !== '0' && process.env.TEAR !== '0') {
+      const TEAR = +(process.env.TEAR ?? 3), P0 = A.posRest ?? (A.posRest = null), I = src.idx, nF = I.length / 3, force = new Uint8Array(nF), rest = scanPos;
+      for (let f = 0; f < nF; f++) for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) { const u = I[f * 3 + a], v = I[f * 3 + b], d0 = Math.hypot(rest[u * 3] - rest[v * 3], rest[u * 3 + 1] - rest[v * 3 + 1], rest[u * 3 + 2] - rest[v * 3 + 2]); if (d0 < 0.004) continue; if (Math.hypot(res.pos[u * 3] - res.pos[v * 3], res.pos[u * 3 + 1] - res.pos[v * 3 + 1], res.pos[u * 3 + 2] - res.pos[v * 3 + 2]) / d0 > TEAR) { force[f] = 1; break; } }
+      const dom2 = new Int16Array(A.n); for (let i = 0; i < A.n; i++) dom2[i] = A.bind.w[i] >= 0.5 ? A.bind.idx[i * 2] : A.bind.idx[i * 2 + 1];
+      const r2 = cutSeams({ pos: res.pos, idx: I, dom: dom2, bones, radius: SKL.radius, force, skipRule: true });
+      for (const [v, b] of r2.pure) { A.bind.idx[v * 2] = b; A.bind.idx[v * 2 + 1] = b; A.bind.w[v] = 1; }
+      src.idx = r2.idx; A.cutIdx = r2.idx; void P0;
+      console.log(`  torn skin: ${r2.stats.facesRemoved} faces stretched more than ${TEAR}x cut, ${r2.stats.caps} caps, ${r2.stats.dropped} faces of flaps dropped; pieces: ${r2.stats.pieces.join(' | ')}`);
+      console.log('  open rims after the tear cut:', r2.stats.openRims.join(' | '));
+    }
+    console.log(`  neutral pose ${process.env.NEUTRAL ?? job.neutral.join('/')}: ${res.stretch.edges} edges, > 1.3x ${(100 * res.stretch.over13 / res.stretch.edges).toFixed(2)} %, > 2x ${(100 * res.stretch.over2 / res.stretch.edges).toFixed(2)} %, worst ${res.stretch.worst.toFixed(2)}x; pairs ${res.stretch.pairs.map(([k, c]) => k + ' ' + c).join(', ')}`);
+    // SWEEP=<file.json>: [{ name, legA?, armA?, fcurl?, scap?, trunk? }] poses tried from the scan's pose (the fields not given stay the scan's own), each one's stretch printed with the pairs of bones the stretched edges join; nothing is written
+    if (process.env.SWEEP) {
+      const scan = scanStroke(SKL.joints), list = JSON.parse(fs.readFileSync(process.env.SWEEP, 'utf8'));
+      for (const P of list) {
+        const st = { legA: Float32Array.from(P.legA ?? scan.legA), armA: Float32Array.from(P.armA ?? scan.armA), fcurl: P.fcurl ?? scan.fcurl, scap: P.scap ?? [0, 0, 0, 0], trunk: Float32Array.from(P.trunk ?? [0, 0, 0, 0, 0, 0]) };
+        const r = poseToStroke(res.pos, { skin: sh(f4.skin), skinx: sh(f4.skinx) }, res.bones.map((bb, ix) => ({ ...bb, r: b22[ix].r })), st, src.idx), e = r.stretch;
+        if (process.env.DUMPPOSE && process.env.DUMPPOSE.split(',').includes(P.name)) fs.writeFileSync(`/tmp/pose-${P.name.replace(/[^a-z0-9.=]+/gi, '_')}.json`, JSON.stringify({ pos: [...r.pos].map((v) => +v.toFixed(4)), idx: [...src.idx] }));
+        if (process.env.DUMPBAD && P.name === process.env.DUMPNAME) { fs.writeFileSync(process.env.DUMPBAD, JSON.stringify(e.bad)); console.log(e.samples.slice(0, 14).join('\n')); }
+        console.log(`  ${String(P.name).padEnd(28)} >1.3x ${(100 * e.over13 / e.edges).toFixed(2).padStart(5)} %  >2x ${(100 * e.over2 / e.edges).toFixed(2).padStart(5)} %  worst ${e.worst.toFixed(1).padStart(5)}x   ${e.pairs.map(([k, c]) => `${k} ${c}`).join(', ')}`);
+      }
+      process.exit(0);
+    }
+
+    console.log(`  neutral pose ${process.env.NEUTRAL ?? job.neutral.join('/')}: ${res.stretch.edges} edges, > 1.3x ${(100 * res.stretch.over13 / res.stretch.edges).toFixed(2)} %, > 2x ${(100 * res.stretch.over2 / res.stretch.edges).toFixed(2)} %, worst ${res.stretch.worst.toFixed(2)}x`);
+  }
   if (job.conform && !A.conformed) { await conformTo(A, bones, A.bind, src.idx, job, k); A.conformed = true; }
   if (job.skel && !A.legged) { legsFromBones(A, bones, A.bind); A.legged = true; }
   const zc = (A.zs + A.zv) / 2;
   const cm0 = (j) => [+(j[0] * k * 100).toFixed(3), +((j[1] - A.yb) * k * 100).toFixed(3), +((j[2] - zc) * k * 100).toFixed(3)];
   if (job.eye) { const ec = A.conform ? A.conform.point(job.eye.c) : job.eye.c; eyeC = cm0(ec); eyeR = (job.eyeCmR ?? job.eye.r * (A.conform ? A.conform.mean(job.eye.c) : 1) * k * 100); }
   // the trunk split in two (T4): joint mid2 half way along the old spine, the old spine's place in the baked frame for the weights' ramp
-  const J18 = job.split ? { ...SKL.joints, mid2: SKL.joints.mid.map((v, i) => (v + SKL.joints.chest[i]) / 2) } : SKL.joints;
-  const split = job.split ? { head: cm0(SKL.joints.mid).map((v) => v / 100), ax: SKL.joints.chest.map((v, i) => (v - SKL.joints.mid[i]) * k) } : null;
+  // (a posed body's joints are where the pose put them: read back from the posed bones)
+  const JN = (() => { if (!A.neutralBones) return SKL.joints; const B = Object.fromEntries(A.neutralBones.map((b) => [b.name, b])), j = { vent: B.pelvis.head, mid: B.pelvis.tail, chest: B.spineB ? B.spineB.tail : B.spine.tail, neck: B.head.head, snout: B.head.tail };
+    for (const sd of ['L', 'R']) Object.assign(j, { ['hip' + sd]: B['thigh' + sd].head, ['knee' + sd]: B['thigh' + sd].tail, ['heel' + sd]: B['shin' + sd].tail, ['ankle' + sd]: B['foot' + sd].tail, ['toe' + sd]: B['toes' + sd].tail,
+      ['shoulder' + sd]: B['arm' + sd].head, ['elbow' + sd]: B['arm' + sd].tail, ['wrist' + sd]: B['hand' + sd].head, ['finger' + sd]: B['hand' + sd].tail, ...(B['scapula' + sd] ? { ['scap' + sd]: B['scapula' + sd].head } : {}), ...(B['fingers' + sd] ? { ['fingertip' + sd]: B['fingers' + sd].tail } : {}) });
+    return j; })();
+  const J18 = job.split ? { ...JN, mid2: JN.mid.map((v, i) => (v + JN.chest[i]) / 2) } : JN;
+  const split = job.split ? { head: cm0(JN.mid).map((v) => v / 100), ax: JN.chest.map((v, i) => (v - JN.mid[i]) * k) } : null;
   // Baked frame, metres: origin at the middle of the trunk, belly on y = 0, head towards +z.
   const pos = new Float32Array(A.n * 3);
   for (let i = 0; i < A.n; i++) { pos[i * 3] = A.pos[i * 3] * k; pos[i * 3 + 1] = (A.pos[i * 3 + 1] - A.yb) * k; pos[i * 3 + 2] = (A.pos[i * 3 + 2] - zc) * k; }
@@ -357,7 +484,7 @@ for (const [id, job] of Object.entries(JOBS)) {
     const level = async (lv, G, from, image) => {
       const m = G.pos.length / 3, rig = new Float32Array(m * 4), sk = new Float32Array(m * 4);
       for (let i = 0; i < m; i++) { const o = from[i]; rig[i * 4] = A.U[o]; rig[i * 4 + 1] = A.LEG[o] / 8; rig[i * 4 + 2] = A.LEGT[o]; sk[i * 4] = A.bind.idx[o * 2] / 32; sk[i * 4 + 1] = A.bind.idx[o * 2 + 1] / 32; sk[i * 4 + 2] = A.bind.w[o]; }
-      const w = await writeTextured(id, lv, G, rig, sk, image, split, job.skinPasses ?? SKIN_PASSES.swim);
+      const w = await writeTextured(id, lv, G, rig, sk, image, split, job.skinPasses ?? SKIN_PASSES.swim, maskPar);
       return { ...w, tris: G.idx.length / 3 };
     };
     const hi = await level('hi', { pos: P, nor: N, uv: U.uv, idx: U.idx }, O, webp);

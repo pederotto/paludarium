@@ -13,7 +13,7 @@ export const MUSCLES = { on: typeof location === 'undefined' || !/[?&]nomuscle\b
 if (typeof window !== 'undefined') window.__muscles = MUSCLES;
 
 export const MUSCLE_PAIR = PAIR_SLOT;          // the limb bellies take a texel each (slots 0 … 19); the trunk pair shares texel 20 (slot 20 in .xy, slot 21 in .zw)
-export const MUSCLE_TEXEL0 = 54;               // a frog's bones fill texels 0 … 53 of its row (17 bones use 0 … 50; an 18-bone swim body with spineB 0 … 53); the bellies follow (21 free)
+export const MUSCLE_TEXEL0 = 72;               // a frog's bones fill texels 0 … 71 of its row (up to 24 bones: 17 on a sitting frog, 18 with the trunk split, 22 with fingers and a shoulder girdle, 23 with a jaw); the bellies follow (22 texels)
 
 // The bellies of a baked frog skeleton, or null when the template does not fit it.
 export function bellyRig(skel) {

@@ -4,6 +4,7 @@
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { weld } from '@gltf-transform/functions';
+import fs from 'node:fs';
 import sharp from 'sharp';
 import { MeshoptSimplifier } from 'meshoptimizer';
 await MeshoptSimplifier.ready;
@@ -22,6 +23,7 @@ if (PRE && idx.length / 3 > PRE) {
 const a = ROT * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
 for (let i = 0; i < pos.length; i += 3) { const x = pos[i], z = pos[i + 2]; pos[i] = x * ca + z * sa; pos[i + 2] = -x * sa + z * ca; }
 
+if (process.env.CENTER) { const cx = +process.env.CENTER; for (let i = 0; i < pos.length; i += 3) pos[i] -= cx; }   // (as the bake's job.center)
 // LEVEL=1: the bake's own levelling (tools/bake-frogpose.mjs analyse step 1): a least-squares line through the trunk, rotated about x until flat
 if (process.env.LEVEL) {
   let sz = 0, sy = 0, szz = 0, szy = 0, m = 0;
@@ -34,6 +36,8 @@ const n = pos.length / 3;
 let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
 for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], pos[i * 3 + k]); mx[k] = Math.max(mx[k], pos[i * 3 + k]); }
 console.log('verts', n, 'bbox', mn.map((v) => v.toFixed(3)), mx.map((v) => v.toFixed(3)));
+// DUMP=<file.json>: the framed mesh as { pos, idx } (for a look in Blender), nothing else
+if (process.env.DUMP) { fs.writeFileSync(process.env.DUMP, JSON.stringify({ pos: [...pos].map((v) => +v.toFixed(4)), idx: [...idx] })); console.log('dumped', process.env.DUMP); process.exit(0); }
 let rig = null;
 if (RIG !== 'none') { const M = await import(`./${RIG}.mjs`); rig = M[`${RIG}Rig`](pos, idx, JSON.parse(process.env.RIGOPT ?? '{}')); }
 else { const { segment } = await import('./appendages.mjs'); const seg = segment(pos, idx, JSON.parse(process.env.SEG ?? '{"thin":0.24,"eyeMax":30,"distal":0.08,"minLimb":30}')); rig = { leg: Uint8Array.from(seg.limb, (l) => l + 1), legT: new Float32Array(n) }; for (const L of seg.limbs) console.log('limb', L.k, 'n', L.n, 'c', L.c.map((v) => +v.toFixed(2)), 'reach', +L.reach.toFixed(2)); }

@@ -40,11 +40,14 @@ export const CLIMB = {
   period: [2.4, 1.0],                // s between the starts of two pulses, at urgency 0 and 1 (guess: the clips hold 3 s; a game frog climbs to a perch)
 };
 const PULSE_LEN = CLIMB.stagger.hindOther + CLIMB.limbDur;
-// The crawl (clip 3): a lateral-sequence walk, each limb its own phase 0 ... 1 a cycle (swing 0-0.25, placing to 0.45, the stretch 0.45-0.60, then the leg
-// hangs stretched), the hind leg first and the fore leg of its side a quarter later: the hand of one side reaches while the hind leg of the other pushes.
+// The crawl (clip 3): a DIAGONAL-sequence walk, each limb its own phase 0 ... 1 a cycle (swing 0-0.25, placing to 0.45, the stretch 0.45-0.60, then the leg
+// hangs stretched), a hind leg first and the fore leg of the OTHER side a quarter later (right hind, left fore, left hind, right fore): the hand of one side
+// reaches while the hind leg of the other pushes (clip 3, reports/W2.md). The order is the arboreal frogs' (Manzano, Abdala & Herrel 2008, J Anat 213: Phyllomedusa
+// bicolor, the red-eye's own subfamily, and Litoria caerulea "use a diagonal sequence gait typical of primates and other arboreal mammals"); the first version here was a
+// lateral sequence (hind, then the fore of its own side), a guess the clip's blur could not settle (6 Oct 2026).
 export const CRAWL = {
   cycle: [1.6, 0.9],                 // s a cycle lasts at urgency 0 and 1 (clip 3: 1.15)
-  offset: { hR: 0, fR: 0.25, hL: 0.5, fL: 0.75 },
+  offset: { hR: 0, fL: 0.25, hL: 0.5, fR: 0.75 },
   stride: 0.5,                       // body lengths a cycle advances (guess: the clip pans, 2 cycles)
   share: { fore: 0.15, hind: 0.35 },
   drive: [0.30, 0.80],               // the part of a limb's own cycle that moves the body: its stance, the leg extending and the hand drawing it up
@@ -52,8 +55,8 @@ export const CRAWL = {
   sway: 10, roll: 10,                // deg the torso bends toward the reaching hand and rolls about its length with the steps (clip 3: it turns side to dorsal view; guess)
 };
 
-export const climbState = (rnd = Math.random, gait = 'pulse') => ({
-  gait,                              // 'pulse' (a dart frog: bursts and holds) | 'crawl' (an arboreal frog: a continuous four-beat walk)
+export const climbState = (rnd = Math.random, gait = 'pulse', set = 'default') => ({
+  gait, set,                         // gait: 'pulse' (a dart frog: bursts and holds) | 'crawl' (an arboreal frog: a continuous four-beat walk); set: the crawl's key tables (CRAWL_SETS)
   clock: 0,                          // the crawl's cycle clock (cycles)
   t: -1,                             // the pulse clock (s); < 0 between pulses
   hold: 0.3 + rnd() * 0.5,           // s until the next pulse
@@ -121,8 +124,8 @@ function crawlStep(st, out, { go, steer, urgency, bodyLen }, dt) {
   st.steer = steer; st.pulses = Math.floor(st.clock);
   out.adv = f * CRAWL.stride * bodyLen;
   out.dyaw = steer * CRAWL.yawCycle * f;
-  // the torso bends toward the reaching hand (the right fore swings at 0.25-0.5 of the cycle, the left at 0.75-1.0) and rolls with the steps; the head leads it
-  const c = st.clock, w = 2 * Math.PI, bend = Math.sin(w * (c - 0.125)), roll = Math.sin(w * (c - 0.375));
+  // the torso bends toward the reaching hand (the left fore swings at 0.25-0.5 of the cycle, the right at 0.75-1.0) and rolls with the steps; the head leads it
+  const c = st.clock, w = 2 * Math.PI, bend = -Math.sin(w * (c - 0.125)), roll = -Math.sin(w * (c - 0.375));
   const yaw = CRAWL.sway * bend + steer * 20;
   st.trunk[0] = yaw; st.trunk[2] = CRAWL.roll * roll; st.trunk[3] = yaw * CLIMB.headLead; st.trunk[5] = 0;
   return out;
@@ -144,6 +147,22 @@ const HIND_CRAWL = [[0, [30, 4, 10, 14, -4, 2, -2, -2, 60]], [0.12, [128, -34, 7
 // (the crawl's hand: it reaches a body length above the head, higher than the pulse's)
 const FORE_CRAWL = [[0, [96, 120, 126, 6, -8, -2]], [0.12, [124, 150, 160, 22, -4, -4]], [0.25, [158, 172, 176, -34, -44, -10]], [0.45, [150, 165, 172, -38, -48, -12]],
   [0.80, [96, 120, 126, 6, -8, -2]], [1, [96, 120, 126, 6, -8, -2]]];
+// The red-eyed tree frog's own crawl (its walking scan, owner 6 Oct 2026; tools/rig/redeye-walk-joints.json read by tools/rig/neutral.mjs scanStroke): the keys are built around the
+// angles measured on the scan, which is a frog mid-step. Its right hind leg is the GATHERED pose (thigh forward-out 122 deg, shin back, the tarsus forward again: the Z a swinging
+// frog folds its leg into), its right arm the SUPPORT (the elbow out, the forearm down onto the wall) and its left arm the REACH (forward, the hand ahead); the leg's other end is the
+// stretch of clip 3 (thigh, shin and foot in line, hanging). tests/redeye-bones.test.mjs keeps the anchors equal to the scan's own angles.
+const RE_GATHER = [122, -32, 135, 108, -23, 27, -32, -17, 0];          // the scan's right hind leg: the gathered Z, the foot under the belly
+const RE_HANG = [30, 4, 10, 14, -4, -30, -12, -8, 20];                // lift-off: the leg trailing, the knee still flexed (the shin 34 deg below the thigh: the owner's walking clip never locks the knee straight)
+const RE_SWING = [100, -20, 90, 80, 38, -45, -20, -12, 0];            // the swing's top: the knee up over the back, the shin hanging from it (walking clip, rows 3-5)
+const RE_PLACE = [96, -18, 96, 86, -18, 16, -26, -14, 0];             // reaching ahead to place the foot
+const RE_PUSH = [60, 6, 40, 44, -10, -22, -12, -8, 10];               // planted, the leg extending: the body is baked in this pose (bake `neutral`), so every pose is a half turn from it
+const RE_OPEN = [36, 24, 34, 40, 5, -28, -10, -6, 20];                // the stance's end: the leg open behind, still flexed about 145 deg
+const HIND_REDEYE = [[0, RE_HANG], [0.10, RE_SWING], [0.20, RE_GATHER], [0.30, RE_PLACE], [0.45, RE_PUSH], [0.60, RE_OPEN], [0.80, [14, -4, 0, 2, -2, -30, -10, -6, 20]], [1, RE_HANG]];
+const RE_SUPPORT = [55, 0, 199, 14, -80, -18];                        // the scan's right arm (its hand -161 deg, written 199 so the blend to the reach turns the short way)
+const RE_REACH = [103, 173, 170, -9, -30, -14];                       // the scan's left arm
+const RE_FAR = [118, 176, 172, -6, -22, -10];                         // the reach in the walking clip: the hand far ahead of the snout, the digits fanned
+const FORE_REDEYE = [[0, RE_SUPPORT], [0.12, RE_SUPPORT.map((v, i) => v + (RE_REACH[i] - v) * 0.4)], [0.25, RE_FAR], [0.45, RE_REACH.map((v, i) => v + (i === 4 ? -10 : 0))], [0.80, RE_SUPPORT], [1, RE_SUPPORT]];
+export const CRAWL_SETS = { default: { hind: HIND_CRAWL, fore: FORE_CRAWL }, redeye: { hind: HIND_REDEYE, fore: FORE_REDEYE } };
 function keyed(keys, p, out, o) {
   let i = 1; while (i < keys.length - 1 && p > keys[i][0]) i++;
   const [p0, A] = keys[i - 1], [p1, B] = keys[i], k = smooth((p - p0) / (p1 - p0 || 1));
@@ -154,11 +173,17 @@ function keyed(keys, p, out, o) {
 // { legA (18: left hind then right), armA (12: left then right), trunk (6), move (the muscles' mode and each hind leg's own phase) }
 export function climbPose(st, out = {}) {
   out.legA ??= new Float32Array(18); out.armA ??= new Float32Array(12);
-  const crawl = st.gait === 'crawl', HK = crawl ? HIND_CRAWL : HIND_KEYS, FK = crawl ? FORE_CRAWL : FORE_KEYS;
+  const crawl = st.gait === 'crawl', K = CRAWL_SETS[st.set] ?? CRAWL_SETS.default, HK = crawl ? K.hind : HIND_KEYS, FK = crawl ? K.fore : FORE_KEYS;
   keyed(HK, st.hL, out.legA, 0); keyed(HK, st.hR, out.legA, 9);
   // (the fore keys are [th x3, ph x3] a side)
   keyed(FK, st.fL, out.armA, 0); keyed(FK, st.fR, out.armA, 6);
   out.trunk = st.trunk;
+  // the girdle and the fingers (a 22-bone frog; ignored by the others): the reaching side's shoulder lifts and swings forward through the fore leg's swing and
+  // placing and settles as the body is drawn up; the fingers peel (curl) as the hand lifts off and lie flat, the discs pressed, once it is placed
+  const reach = (p) => smooth(win(p, [0, 0.25])) * (1 - smooth(win(p, [0.45, 0.8]))), peel = (p) => Math.sin(Math.PI * clamp01(p / 0.3));
+  const rL = reach(st.fL), rR = reach(st.fR), sc = out.scap ??= [0, 0, 0, 0], fc = out.fcurl ??= [0, 0];
+  sc[0] = 12 * rL; sc[1] = 22 * rL; sc[2] = 12 * rR; sc[3] = 22 * rR;
+  fc[0] = 30 * peel(st.fL); fc[1] = 30 * peel(st.fR);
   out.move = climbMove(st, out.move);
   return out;
 }
@@ -166,5 +191,13 @@ export function climbPose(st, out = {}) {
 // What the muscle layer reads (render/creatures/muscles.js motionOf): the mode, each hind leg's own phase and its strength.
 export function climbMove(st, out = {}) {
   out.mode = 'climb'; out.pL = st.hL; out.pR = st.hR; out.ampL = st.act ? 1 : 0; out.ampR = st.act ? 1 : 0;
+  return out;
+}
+
+// The pose a baked body rests in (tools/bake-frogpose.mjs `neutral`: the scan is posed into it through its skeleton once, so the runtime's poses are small turns from it): each hind
+// leg and each arm at a point of the crawl's own cycle (`hind`, `arm`: 0 ... 1), the trunk straight, no scapula or finger channel.
+export function neutralStroke(hind = 0.45, arm = 0.3, set = 'default') {
+  const out = { legA: new Float32Array(18), armA: new Float32Array(12), trunk: new Float32Array(6), scap: [0, 0, 0, 0], fcurl: [0, 0] }, K = CRAWL_SETS[set] ?? CRAWL_SETS.default;
+  keyed(K.hind, hind, out.legA, 0); keyed(K.hind, hind, out.legA, 9); keyed(K.fore, arm, out.armA, 0); keyed(K.fore, arm, out.armA, 6);
   return out;
 }

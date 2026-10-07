@@ -3,6 +3,7 @@
 // 95th percentile and the worst one. A fused fold of the scan (a sitting frog's shin pressed on its foot) shows up here as a web. The same poses drawn by
 // the vertex rig (render/creatures/instanced.js: the leg's vertices shifted by legT x the foot's offset) for comparison.
 //
+//   CRAWLSET=redeye: the crawl poses from the red-eye's own key set (util/climb.js CRAWL_SETS)
 //   node tools/rig/skin-stretch.mjs [id ...]        (default: every manifest model with a skeleton)
 //   --muscles: a model with a muscle binding (_MUSC/_MUSU, tools/rig/muscles.mjs) is also measured with its bellies, as the shader
 //   moves them (render/creatures/skin.js skinVertex), at the motion's activations (render/creatures/muscles.js)
@@ -10,13 +11,14 @@ import fs from 'node:fs';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { MeshoptDecoder } from 'meshoptimizer';
+import { climbState, climbPose, CRAWL } from '../../src/util/climb.js';
 import { skeletonRig, poseBones, poseStroke, footOffset, ROW_FLOATS, MUSCLE_TEXEL0 } from '../../src/render/creatures/skeleton.js';
 import { leapPose, hopLegs } from '../../src/util/gait.js';
 import { hopPlan, hopFrame, svlOf } from '../../src/util/hop.js';
 
 await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
-const DIR = 'public/assets/creatures/';
+const DIR = process.env.CREATURES ?? 'public/assets/creatures/';          // (CREATURES=<folder with manifest.json and the glb>/ measures a bake made elsewhere)
 const man = JSON.parse(fs.readFileSync(DIR + 'manifest.json', 'utf8'));
 const ids = process.argv.slice(2).filter((a) => !a.startsWith('--')), MUSC = process.argv.includes('--muscles');
 const list = (ids.length ? ids : Object.keys(man).filter((k) => man[k].skeleton && !k.includes(':'))).filter((k) => man[k]?.skeleton);
@@ -45,7 +47,9 @@ for (const id of list) {
     return ts.map((t) => { const fr = hopFrame(t, hop, 1.4, 1, pivot), st = leapPose(hop.plan, fr.at); st.frames = { f0: hopFrame(0, hop, 1.4, 1, pivot), ft: fr }; return st; });
   };
   const poses = rig.stroke ? { swim: [0, 0.08, 0.16, 0.3, 0.6, 0.8].map((p) => ({ pL: p, pR: p, ampL: 1, ampR: 1, float: 0, scull: 0, arms: 0.5 })),
-    launch: drawnHop([0.05, 0.1, 0.15, 0.2, 0.25, 0.3]), flight: drawnHop([0.4, 0.55, 0.7]) } : POSES;
+    launch: drawnHop([0.05, 0.1, 0.15, 0.2, 0.25, 0.3]), flight: drawnHop([0.4, 0.55, 0.7]),
+    // (the climbing frogs' own gait: the crawl at eight points of its cycle, util/climb.js; the pulse's key poses are in it too)
+    crawl: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875].map((c) => { const st = climbState(() => 0.5, 'crawl', process.env.CRAWLSET ?? 'default'); for (const k of ['hR', 'fR', 'hL', 'fL']) st[k] = (((c - CRAWL.offset[k]) % 1) + 1) % 1; st.act = 1; return climbPose(st, {}); }) } : POSES;
   // the normals as the bake stored them, in the same frame as the positions (rotation only)
   if (NR) for (let i = 0; i < NR.length; i += 3) { const [x, y, z] = [NR[i], NR[i + 1], NR[i + 2]]; const l = Math.hypot(x, y, z) || 1; NR[i] = x / l; NR[i + 1] = y / l; NR[i + 2] = z / l; }
   const prof = (u) => { const v = Math.sin(Math.PI * Math.min(1, Math.max(0, u))); return v * v; };
@@ -102,7 +106,7 @@ for (const id of list) {
           const l1 = Math.hypot(Q[a * 3] - Q[b * 3], Q[a * 3 + 1] - Q[b * 3 + 1], Q[a * 3 + 2] - Q[b * 3 + 2]);
           g = Math.max(g, l1 / l0); c = Math.min(c, l1 / l0);
         }
-        if (g > 1.5) s15++; if (g > 2) s20++; worst = Math.max(worst, g); G.push(g);
+        if (g > 1.5) s15++; if (g > 2) { s20++; if (process.env.BYBONE && mode === 'skin') { const nm = B[Math.round(S[idx[t] * 4] * 32)]?.name ?? '?'; (global.__byBone ??= {})[name + ' ' + nm] = (global.__byBone[name + ' ' + nm] ?? 0) + 1; } } worst = Math.max(worst, g); G.push(g);
         if (hipV[idx[t]] || hipV[idx[t + 1]] || hipV[idx[t + 2]]) { hT++; if (g > 1.5) h15++; if (c < 0.5) hPinch++; hWorst = Math.max(hWorst, g); }
       }
     }
@@ -110,5 +114,6 @@ for (const id of list) {
     G.sort((a, b) => a - b);
     out.push(`${mode} ${name}: >1.5x ${((100 * s15) / T).toFixed(2)} %, >2x ${((100 * s20) / T).toFixed(2)} %, p95 ${G[Math.floor(G.length * 0.95)].toFixed(2)}x, worst ${worst.toFixed(1)}x | hip: >1.5x ${hT ? ((100 * h15) / hT).toFixed(2) : '-'} %, pinched <0.5x ${hT ? ((100 * hPinch) / hT).toFixed(2) : '-'} %, worst ${hWorst.toFixed(1)}x`);
   }
+  if (process.env.BYBONE && global.__byBone) { const t = Object.entries(global.__byBone).filter(([k]) => k.startsWith(process.env.BYBONE)).sort((a, b) => b[1] - a[1]).slice(0, 12); console.log('  triangles past 2x by dominant bone:', t.map(([k, v]) => `${k.slice(process.env.BYBONE.length + 1)} ${v}`).join(', ')); }
   console.log(`${id} (${n} verts, ${SX ? 4 : 2} bones a vertex)\n  ${out.join('\n  ')}`);
 }
