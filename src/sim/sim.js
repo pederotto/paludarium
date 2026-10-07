@@ -201,6 +201,7 @@ export class Sim {
       else if (sp.gh && gh > sp.gh[1] + 3) { st += (gh - sp.gh[1] - 3) * 0.015 + 0.02; why.push('water too hard'); }
       const fl = B.flow ?? E.flow;
       if (sp.flow != null && fl > sp.flow + 0.12) { st += (fl - sp.flow - 0.12) * 0.5 + 0.02; why.push('current too strong'); }
+      if (sp.flowMin != null && fl < sp.flowMin - 0.1) { st += (sp.flowMin - 0.1 - fl) * 0.25 + 0.02; why.push('needs a current'); }   // (sets) a stream fish in still water
     }
     // Without UVB the trouble (soft bones) builds over weeks; without a warm spot, digestion slows over days.
     // Both are what the animal itself gets where it sits, averaged over days: UVB under the tube and out of the leaves' shade

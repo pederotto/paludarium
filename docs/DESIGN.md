@@ -75,6 +75,8 @@ The world runs at a fixed step scaled by the speed setting. Environment is **spa
 
 How walking animals deal with what is in the tank (the route planner and layered surface map, the gecko's wall-to-floor movement, wall clearance, turning while walking, fear and escape): `docs/ANIMALS_OBJECTS.md`.
 
+The premade terrariums (what a set is, the audit and its tests, the knobs of the layouts, the new species and plants, the canyon and the highland, what is not measured): `docs/PREMADE_SETS.md`.
+
 ## Game
 
 `Career` holds funds, reputation, rank, unlocks and stats; `market` prices animals and plants and pays for sales; `commissions` are goals with a hold-time; `curator` scores a tank against a real biotope; `tutorial` is a scripted guide; `events` are random incidents; `vacation` fast-forwards the tank unattended. Saves go to IndexedDB (slots, portfolio of tanks).

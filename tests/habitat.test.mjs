@@ -27,7 +27,7 @@ test('every species has a habitat rule, and every rule belongs to a species', ()
 });
 
 test('fish and other water animals need water deep enough, and only that', () => {
-  for (const id of ['neon', 'cardinal', 'ember', 'guppy', 'betta', 'cory', 'loach', 'oto', 'tadpole']) {
+  for (const id of ['neon', 'cardinal', 'ember', 'guppy', 'betta', 'cory', 'loach', 'oto', 'tadpole', 'tanichthys', 'zacco', 'hillloach', 'bullhead', 'bedotia']) {
     assert.ok(habitatCheck(id, pool).ok, id);
     assert.ok(!habitatCheck(id, bank).ok, `${id} on land`);
     assert.ok(!habitatCheck(id, { ...pool, depth: 2 }).ok, `${id} in 2 cm`);

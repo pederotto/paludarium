@@ -101,6 +101,11 @@ const SHRIMP_MORPHS = {
 // Blue dream (a Neocaridina line bred for a deep blue): a separate species in the game, so it is not in SHRIMP_MORPHS (genes).
 const BLUE_DREAM = { base: 0x1a3fb8, dark: 0x0c2070, light: 0x3f78ee, pink: 0x8fb0e8, clear: 0xc8d8f4, clearAmt: 0.35, speck: null };
 
+// Lake Matano's Caridina (red-line type, ~2.5 cm: a glassy body with red-orange lines) and the Mexican dwarf crayfish
+// (Cambarellus montezumae, ~3.5 cm, olive-brown with the two big claws): not genes, so not in SHRIMP_MORPHS.
+const MATANO = { base: 0xa80c08, dark: 0x5a0805, light: 0xb83a2c, pink: 0xc07a70, clear: 0xe6e4e6, clearAmt: 0.05, speck: 0xf4f4f4 };
+const CRAY = { base: 0xc23a04, dark: 0x8a2a06, light: 0xe0641c, pink: 0xd0500e, clear: 0xe8b078, clearAmt: 0.03, speck: 0xf2c898 };
+
 // A line without its own entry above: from its palette (content/morphs.js).
 function paletteMorph(morph) {
   const P = shrimpPalette(morph), mixHex = (a, b, t) => [16, 8, 0].reduce((o, sh) => o | Math.round(((a >> sh) & 255) * (1 - t) + ((b >> sh) & 255) * t) << sh, 0);
@@ -108,7 +113,8 @@ function paletteMorph(morph) {
 }
 
 function shrimp(morph = 'red') {
-  const PAL = morph === 'blue' ? BLUE_DREAM : SHRIMP_MORPHS[morph] ?? (MORPHS.shrimp[morph] ? paletteMorph(morph) : SHRIMP_MORPHS.red);
+  const CRAYF = morph === 'cray';
+  const PAL = morph === 'blue' ? BLUE_DREAM : morph === 'matano' ? MATANO : CRAYF ? CRAY : SHRIMP_MORPHS[morph] ?? (MORPHS.shrimp[morph] ? paletteMorph(morph) : SHRIMP_MORPHS.red);
   // Body axis: a planar curve in the yz plane, rows [z, y, half width, half height, segment, fraction].
   // Every abdominal segment starts a little smaller (hidden under the one before) and grows to its rim, then
   // steps down again: that is what makes the overlapping plates.
@@ -203,6 +209,8 @@ function shrimp(morph = 'red') {
   const legs = LEGP.map((P) => mkChain(P, [0.055, 0.045, 0.038, 0.034]));
   const claws = [[0.155, 0.06, 1.14, 0.13, 0.035, 1.28], [0.155, 0.078, 1.14, 0.19, 0.06, 1.28], [0.175, 0.05, 0.92, 0.155, 0.03, 1.05], [0.175, 0.068, 0.92, 0.215, 0.055, 1.04]]
     .map((P) => mkChain(P, [0.036, 0.02]));
+  // The crayfish's two big claws: arm, a thick palm and a long fixed finger, with the moving finger beside it.
+  const bigClaws = CRAYF ? [mkChain([0.14, 0.34, 0.7, 0.28, 0.3, 1.1, 0.3, 0.2, 1.45, 0.22, 0.14, 1.9], [0.07, 0.085, 0.14, 0.05]), mkChain([0.3, 0.26, 1.4, 0.4, 0.14, 1.85], [0.075, 0.03])] : [];
 
   const sdf = (x, y, z) => {
     const ax = abs(x);
@@ -215,6 +223,7 @@ function shrimp(morph = 'red') {
     add(exopod(ax, y, z), 4, 0.03);
     for (let i = 0; i < 5; i++) add(legs[i](ax, y, z), 10 + i, 0.05, TT);
     for (let i = 0; i < 4; i++) add(claws[i](ax, y, z), 10 + (i >> 1), 0.03, 1);
+    for (const bc of bigClaws) add(bc(ax, y, z), 10, 0.04, 1);
     add(antenna(ax, y, z), 20, 0.05, TT);
     add(antennule(ax, y, z), 21, 0.04, TT);
     add(antFork(ax, y, z), 21, 0.03, TT);
@@ -537,7 +546,7 @@ function isopod(pal = 'white') {
 // BODIES.shrimp (no morph given) stays the familiar red cherry shrimp; 'shrimp:<morph>' are the colour variants.
 export const CRUSTACEANS = {
   shrimp: () => shrimp('red'), crab: () => crab(), isopod: () => isopod(),
-  blueshrimp: () => shrimp('blue'), panther: () => crab('panther'), purpleiso: () => isopod('purple'), pandaking: () => isopod('panda'),
+  blueshrimp: () => shrimp('blue'), matanoshrimp: () => shrimp('matano'), cambarellus: () => shrimp('cray'), panther: () => crab('panther'), purpleiso: () => isopod('purple'), pandaking: () => isopod('panda'),
 };
 for (const k of Object.keys(SHRIMP_MORPHS)) CRUSTACEANS[`shrimp:${k}`] = () => shrimp(k);
 // Every other colour line of the genetics (content/morphs.js) stands in with the procedural body in its line's colours until the
