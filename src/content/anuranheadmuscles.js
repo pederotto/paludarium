@@ -23,10 +23,16 @@ export const HEAD_MUSCLES = [
     note: 'the paper says retracts and expands; "lowers the floor" is read from it (C1b round 5, A1 item 19)' },
   { id: 'FLOOR', members: ['IM', 'IH', 'GH', 'PHA', 'PHP'], from: 'mandible rami, hyoid horns, otic capsule', to: 'midline raphe, hyoid plate',
     drives: 'throat', acts: 'raise the throat floor: air pushed out, or into the lungs with the nostrils shut', src: `${K21} 4.4; ${K22}`, tag: 'measured' },
-  { id: 'DM', members: ['DM'], from: 'epaxial fascia behind the otic capsule', to: 'posterior end of the mandible', drives: 'mouth (not drawn)',
+  { id: 'DM', members: ['DM'], from: 'epaxial fascia behind the otic capsule', to: 'posterior end of the mandible', drives: 'mouth (the jaw bone of a one-body frog: util/frogstrike.js strikeMuscles)',
     acts: 'opens the mouth, before the tongue goes out', src: `${K21} 3.2, 4.4`, tag: 'measured' },
-  { id: 'AM', members: ['AM_LAT', 'AM_EXT', 'AM_POST', 'AM_LONG_INT'], from: 'squamosal and skull', to: 'mandible', drives: 'mouth (not drawn)',
+  { id: 'AM', members: ['AM_LAT', 'AM_EXT', 'AM_POST', 'AM_LONG_INT'], from: 'squamosal and skull', to: 'mandible', drives: 'mouth (the jaw bone of a one-body frog)',
     acts: 'close the jaw', src: `${K21} 3.2`, tag: 'measured' },
+  // the tongue (gate 4, 7 Oct 2026: a one-body frog's four tongue bones, util/frogstrike.js): in Rana the jaw's fast drop flings the soft tongue out over the jaw tip (inertial
+  // elongation), the genioglossus helping it up and forward; the hyoglossus, from the hyoid, draws it back in (Hu lab review 2018; Nishikawa's kinematic work on Rana)
+  { id: 'GG', members: ['genioglossus'], from: 'mandible, behind the symphysis', to: 'the tongue', drives: 'tongue (one-body frog)',
+    acts: 'stiffens and lifts the tongue as the jaw drops: it flips over the jaw tip', src: 'Hu lab tongue review 2018 (Georgia Tech); Nishikawa kinematics, Rana', tag: 'guess', note: 'the timing is the strike timeline\'s, not measured' },
+  { id: 'HG', members: ['hyoglossus'], from: 'hyoid plate', to: 'the tongue', drives: 'tongue (one-body frog)',
+    acts: 'draws the tongue back into the mouth with the prey', src: 'Hu lab tongue review 2018', tag: 'guess' },
   { id: 'RB', members: ['retractor bulbi'], from: 'braincase', to: 'eyeball', drives: 'eye',
     acts: 'pulls the eyes down into the mouth: blinking, and pushing a swallowed prey back (with it denervated, swallowing needed 74 % more swallows a cricket)',
     src: 'Levine, Monroy & Brainerd 2004, J Exp Biol 207:1361 (abstract; A1 item 21)', tag: 'measured' },

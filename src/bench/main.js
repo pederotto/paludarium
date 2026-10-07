@@ -18,10 +18,11 @@ import { SKIN } from '../render/creatures/skin.js';
 import { FINISH } from '../render/creatures/material.js';
 import { BODIES } from '../render/creatures/bodies/index.js';
 import { packAnim } from '../render/creatures/instanced.js';
-import { frogSwimPose, salamanderSwimPose, hopLegs, swimPose, TAU, leapPose } from '../util/gait.js';
+import { frogSwimPose, salamanderSwimPose, hopLegs, swimPose, TAU, leapPose, HIND, FORE } from '../util/gait.js';
 import { hopPlan, hopFrame, svlOf } from '../util/hop.js';
 import { swimProfile } from '../util/bodyplan.js';
 import { strikeGape } from '../util/lizardgait.js';
+import { FROG_LUNGE, lungePose } from '../util/frogstrike.js';
 
 const q = new URLSearchParams(location.search);
 if (q.has('noskin')) SKIN.on = SKIN.swim = false;              // (the near mesh drawn by the vertex rig, as before runtime skinning)
@@ -144,6 +145,11 @@ const POSES = {
     return { calm: 1, hop: 0, pose: 0, gait: 0, x: f.pos[0], y: f.pos[1], z: f.pos[2] - hop.d / 2, pitch: f.pitch, roll: f.roll, stroke: st };
   },   // the game's leg timing (util/gait.js hopLegs) on a 1.2 cm arc
   claw: (t) => ({ calm: 1, pose: 1, phase: t * TAU * 3, gait: 0 }),
+  // (&body=swim, a one-body frog: the common frog) sitting in its own body (the stroke's sit) and striking with its own jaw, hyoid and tongue bones: the strip is the
+  // strike's timeline (util/frogstrike.js), drawn as the game draws a one-body frog on land (sim/animals.js oneMesh)
+  // (a one-body frog sitting, then striking with its lunge: util/frogstrike.js lungePose at the tools' default dip and slide)
+  fstrike: (t) => { const st = lungePose(sp.sit, t, FROG_LUNGE.dipDeg, FROG_LUNGE.slideCm, HIND, FORE, {}), R = st.root;
+    return { calm: 1, hop: 0, pose: 0, gait: 0, pitch: R.pitch, y: R.off[1], z: R.off[2], stroke: st }; },
   // the mouth through a tongue strike (util/lizardgait.js strikeGape): aim 0-0.4 of the strip, out 0.4-0.6, back 0.6-0.85, then shut
   strike: (t) => ({ calm: 1, gape: t < 0.4 ? strikeGape('aim', (t / 0.4) * 0.3, 0.3) : t < 0.6 ? strikeGape('out', ((t - 0.4) / 0.2) * 0.075, 0.075) : t < 0.85 ? strikeGape('back', ((t - 0.6) / 0.25) * 0.09, 0.09) : 0 }),
   // rig2: head sweeps (yaw over a cycle), head up/down, a C-curve, a tail swing

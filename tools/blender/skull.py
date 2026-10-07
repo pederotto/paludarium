@@ -177,6 +177,13 @@ if mouth:
             if nm in mdata.attributes: mdata.attributes.remove(mdata.attributes[nm])
         sstep = lambda t: 0 if t < 0 else 1 if t > 1 else t * t * (3 - 2 * t)
         moved = 0
+        # The mouth comes back from a GLB, where neighbouring faces use duplicate vertices (one per normal or attribute split): the smoothing below moves each duplicate by ITS OWN
+        # neighbours and cracks the lining open (the European frog's lab head, 6 Oct: 451 coincident groups pulled apart up to 1.2 mm, 1,108 open edges). Vertices that coincide
+        # before the fit are put back together after the smoothing.
+        _grp = {}
+        for i in flagged:
+            c0 = mdata.vertices[i].co; _grp.setdefault((round(c0.x * 1e7), round(c0.y * 1e7), round(c0.z * 1e7)), []).append(i)
+        _grp = [g for g in _grp.values() if len(g) > 1]
         for i in flagged:
             v = mdata.vertices[i]; co = v.co; z_b, y_b = -co.y * 100, co.z * 100; dy = y_b - lipY(z_b)
             if dy < 0.02 or z_b < ZMIN: continue
@@ -190,6 +197,10 @@ if mouth:
         inner = [bm2.verts[i] for i in flagged if abs(-bm2.verts[i].co.z * 0 + (bm2.verts[i].co.z * 100 - lipY(-bm2.verts[i].co.y * 100))) > 0.02 and -bm2.verts[i].co.y * 100 > ZMIN]
         for _ in range(3): _bm.ops.smooth_vert(bm2, verts=inner, factor=0.3, use_axis_x=False, use_axis_y=False, use_axis_z=True)
         bm2.to_mesh(mdata); bm2.free(); mdata.update()
+        for g_ in _grp:
+            m_ = sum((mdata.vertices[i].co for i in g_), Vector()) / len(g_)
+            for i in g_: mdata.vertices[i].co = m_
+        mdata.update(); print('fit: %d coincident vertex groups kept together' % len(_grp))
         for it in range(3):                                                   # whatever is still inside a bone is pushed out to its surface plus a hair
             for i in flagged:
                 co = mdata.vertices[i].co; z_b, y_b = -co.y * 100, co.z * 100; dy = y_b - lipY(z_b)

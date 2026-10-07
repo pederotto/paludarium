@@ -89,3 +89,37 @@ test('a frog climbing a stem, the background or bare ground moves and turns by t
 test('every moving frog has its muscles active', { todo: 'the hind-limb and the trunk (longissimus) bellies are tied to the stroke (tests/anuran-muscles.test.mjs, tests/trunk-muscles.test.mjs); the forelimbs and the flank wall have no belly yet: write the test with them' }, () => {
   assert.fail('not written');
 });
+
+test('a one-body frog turns on land with its legs', { todo: 'the common frog (sp.oneBody) turns on the spot to face prey or a hop\'s heading with its body held in the sit stance: its yaw is written while the legs stay in the crouch (needs a sitting turn stroke: the hind feet stepping round, util/gait.js)' }, () => {
+  assert.fail('not written');
+});
+
+// The common frog's strike lunge (util/frogstrike.js lungePose, 7 Oct 2026): its root motion (the body tipped down about the vent and slid forward) comes with
+// the hind legs opening over feet that stay planted (poseStroke's planted-leg solver, as in a hop's launch), and with no strike playing the body is the stance.
+test('the strike lunge: the body moves over planted hind feet, and only while the strike plays', async () => {
+  const fs = await import('node:fs');
+  const { skeletonRig, poseStroke, ROW_FLOATS } = await import('../src/render/creatures/skeleton.js');
+  const { lungePose, FROG_LUNGE } = await import('../src/util/frogstrike.js');
+  const { HIND, FORE } = await import('../src/util/gait.js');
+  const man = JSON.parse(fs.readFileSync('public/assets/creatures/manifest.json', 'utf8'))['commonfrog.swim'];
+  const sit = { pitchDeg: 34, offsetCm: [0, 1.698, 0.237], pivotCm: [0, 0.792, -3.801], legKey: 'crouch', armDeg: [0, 0], armA: [179, -6, 120, -59, -51, 10, 179, -20, 120, -78, -58, -5], roll: [-46, 17, 48, 30, 0, 0], legA: [147, -25, 125, 131, -11, 2, -24, -33, -30] };   // (SPECIES.commonfrog.sit: checked against it below)
+  const src = fs.readFileSync('src/sim/animals.js', 'utf8');
+  assert.ok(src.includes("sit: { pitchDeg: 34, offsetCm: [0, 1.698, 0.237], pivotCm: [0, 0.792, -3.801], legKey: 'crouch', armDeg: [0, 0], armA: [179, -6, 120, -59, -51, 10, 179, -20, 120, -78, -58, -5], roll: [-46, 17, 48, 30, 0, 0], legA: [147, -25, 125, 131, -11, 2, -24, -33, -30]"), 'this test\'s stance is the species\'');
+  const rig = skeletonRig(man.skeleton, {}), out = new Float32Array(ROW_FLOATS), N = rig.byName;
+  const toes = (dip, slide, t) => { const st = lungePose(sit, t, dip, slide, HIND, FORE, {}); poseStroke(rig, st, out); const R = st.root, c = Math.cos(R.pitch), s = Math.sin(R.pitch);
+    return { R, P: ['toesL', 'toesR'].map((k) => { const b = N[k], m = b * 12, p = rig.tail[b], x = out[m] * p[0] + out[m + 1] * p[1] + out[m + 2] * p[2] + out[m + 3], y = out[m + 4] * p[0] + out[m + 5] * p[1] + out[m + 6] * p[2] + out[m + 7], z = out[m + 8] * p[0] + out[m + 9] * p[1] + out[m + 10] * p[2] + out[m + 11];
+      return [x + R.off[0], c * y - s * z + R.off[1], s * y + c * z + R.off[2]]; }) }; };
+  const rest = toes(0, 0, 0);
+  for (const [dip, slide] of [[0, 0.5], [10, 1.0], [20, 1.4], [FROG_LUNGE.maxDipDeg, FROG_LUNGE.maxSlideCm]]) {
+    let moved = 0;
+    for (let t = 0; t <= 1.0001; t += 0.02) {
+      const { R, P } = toes(dip, slide, t);
+      const slip = Math.max(...P.map((p, k) => Math.hypot(p[0] - rest.P[k][0], p[2] - rest.P[k][2])));
+      assert.ok(slip < 0.3, `dip ${dip} slide ${slide} t ${t.toFixed(2)}: the toes slid ${slip.toFixed(2)} cm`);
+      moved = Math.max(moved, Math.abs(R.off[2] - rest.R.off[2]) + Math.abs(R.pitch - rest.R.pitch));
+    }
+    if (dip || slide) assert.ok(moved > 0.1, 'the lunge moved the body');
+  }
+  // no strike playing (strikeT 0, or past the gulp): the stance itself, whatever the lunge was fitted to
+  for (const t of [0, 0.9, 1]) { const a = toes(30, 1.2, t).R; assert.ok(Math.abs(a.pitch - rest.R.pitch) < 1e-6 && Math.abs(a.off[2] - rest.R.off[2]) < 1e-6 && Math.abs(a.off[1] - rest.R.off[1]) < 1e-6, `t ${t}`); }
+});

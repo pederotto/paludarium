@@ -6,6 +6,7 @@ import * as THREE from 'three/webgpu';
 import { Builder, PRIM } from '../render/geo.js';
 import { hash3, clamp, lerp, rng, closestOnSegments } from '../util/math.js';
 import { strikeGape } from '../util/lizardgait.js';
+import { strikeTime, strikeMuscles, strikeCurves, FROG_LUNGE, lungePose, lungePoint } from '../util/frogstrike.js';
 import { bodyFootprint } from '../util/body.js';
 import { surfaceFrame, pitchFrame, glassPush, feetPlane, steadyNormal, easeAngle } from '../util/contain.js';
 import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells } from '../render/creatures.js';
@@ -14,7 +15,7 @@ import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, kickHeave, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
 import { limbFrame, turnFrame, turnStep, pivotShift, turnSteps, turnPose, steerLimit } from '../util/turn.js';
 import { PLANS, planOf, limitRig, swimProfile } from '../util/bodyplan.js';
-import { swimState, swimStep, swimPose, leapPose } from '../util/gait.js';
+import { swimState, swimStep, swimPose, leapPose, HIND, FORE } from '../util/gait.js';
 import { climbState, climbStep, climbPose, CLIMB } from '../util/climb.js';
 import { swimMotion, spinHz, queuePush, pushPending } from '../util/swimturn.js';
 import { hopPlan, hopAt, hopPitch, hopFrame, svlOf } from '../util/hop.js';
@@ -73,6 +74,8 @@ const GLASS_GAP = 0.12;
 const PIECE_GAP = 0.12;
 // Frogs without toe pads (the bumblebee toad, the fire-bellied toad): out of the water they climb rough faces only up to about 70
 // degrees, and not the glass (Animals.exitClimb, exitGlass).
+const _qs = new THREE.Quaternion(), _qx = new THREE.Quaternion(), _ax = new THREE.Vector3(1, 0, 0), _ps = new THREE.Vector3(), _lp = [0, 0, 0], _lr = {};
+const _lfit = { ok: false, dip: 0, slide: 0, err: 0, fwd: 0, side: 0 };
 const PADLESS = new Set(['bumblebee', 'toad', 'ediblefrog', 'commonfrog']);   // (the last two are the European frogs, not in the game yet: no toe pads either; the owner, 6 Oct 2026: toads and common frogs do not climb)
 const EXIT_LOOK = 160;      // how far across the water a frog in it looks for a way out (cm: past the far side of any tank)
 const _gf = new Array(9);
@@ -324,6 +327,29 @@ export const SPECIES = {
     ph: [6.8, 7.6], land: 0.5, flock: [3, 6],
     body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
     note: 'Semi-aquatic: needs both land and open water. Spawns in the water.',
+  },
+  // The European common frog (Rana temporaria, owner, 7 Oct 2026): IN PROGRESS on feat/commonfrog, not in the shop. ONE body for every pose (commonfrog.swim: the owner's
+  // drop, corrected to the proportion table; skeleton in tools/rig/commonfrog-swim-joints.json). SVL 7 cm. A ground frog of damp places that swims well and spawns in water.
+  commonfrog: {
+    name: 'Common frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 2.2, speed: 1.3, wip: true,
+    // oneBody: drawn from its one skinned body in every state (on land the stroke's sit pose; the strike on its own jaw, hyoid and tongue bones);
+    // noWalk: it travels by hops (a sitting pose that slid would break the movement rule; walking on this body is not built yet)
+    oneBody: true, noWalk: true,
+    // entersWater: it hops into water when it means to (a dry spell on land, or driven there), as the fire-bellied toad does: a strong swimmer of ponds and ditches
+    entersWater: true,
+    // sitting in its one body (fitted on the skin through the game's own pose code, tools/rig/lunge-check.mjs --fit-limbs, 7 Oct, after the owner's "the front limbs
+    // are floating": the hands flat on the ground, the elbows against the flanks, the forearms near upright, the knees beside the flanks below the back, the heels
+    // by the vent, the feet flat with the toes forward, the hips, shins and feet carrying it; the first fit, on bone tips, had the skin 0.7-1.2 cm under the ground
+    // and the arms out to the sides): the body tilted nose up by pitchDeg about its origin, then moved by offsetCm (model frame); the legs in legA and the arms in
+    // armA (util/gait.js angles, both sides alike). Its front sits high: this body's arms are long (about 5.8 cm shoulder to fingertip on a 7 cm frog; not yet
+    // corrected to the species). pivotCm: the vent where the stance puts it, the point the strike's lunge tips about (util/frogstrike.js lungeRoot).
+    // mouthCm: the jaw's tip at rest; tipCm: the tongue's tip at the strike's contact (both in the body's own frame, from the shipped rig: tests/frogstrike.test.mjs);
+    // insideCm: inside the mouth, over the tongue's bed (where a catch is drawn to and swallowed); jawOpenCm: the lower jaw's tip at contact (wide open). (A shorter
+    // throw for prey under the chin was tried, 7 Oct: any throw short of 0.9 put the tongue into the upper jaw, tools/rig/strike-check.mjs; such prey is left until it moves.)
+    sit: { pitchDeg: 34, offsetCm: [0, 1.698, 0.237], pivotCm: [0, 0.792, -3.801], legKey: 'crouch', armDeg: [0, 0], armA: [179, -6, 120, -59, -51, 10, 179, -20, 120, -78, -58, -5], roll: [-46, 17, 48, 30, 0, 0], legA: [147, -25, 125, 131, -11, 2, -24, -33, -30], mouthCm: [0.028, 1.078, 3.076], tipCm: [0.028, -0.54, 3.87], insideCm: [0.028, 1.25, 2.4], jawOpenCm: [0.028, -0.2, 2.299] },
+    minL: 80, temp: [8, 22], humidity: 70, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'flylarva', 'cricket', 'earthworm', 'waxworm'], cap: 4, breed: 0, adultDays: 40,
+    land: 0.6, body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
+    note: 'Work in progress (feat/commonfrog): body, skeleton and mouth being built to the realism gates.',
   },
   newt: {
     name: 'Paddle-tail newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.6, speed: 2,
@@ -2975,7 +3001,7 @@ export class Animals {
     if (!inWater && a.swimming) { a.dryT = 0; a.dive = null; a.diveP = 0; }
     a.swimming = inWater;
     a.timer -= dt;
-    if (inWater) { a.fear = null; a.wetT = (a.wetT ?? 0) + dtS; this.frogSwim(a, sp, dt, s, toad); a.fs = null; return; }
+    if (inWater) { a.fear = null; a.wetT = (a.wetT ?? 0) + dtS; this.frogSwim(a, sp, dt, s, toad || !!sp.entersWater); a.fs = null; return; }      // (a pond frog, sp.entersWater, is at home in the water as a toad is)
     a.dryT = (a.dryT ?? 0) + dtS;
     a.pos.y = g;
     a.normal = T.normalAt(a.pos.x, a.pos.z);
@@ -3138,7 +3164,7 @@ export class Animals {
       const p = o.target.pos, dx = p.x - a.pos.x, dz = p.z - a.pos.z, d = Math.hypot(dx, dz);
       const reach = this.reachOf(a, sp), gap = d - reach * 0.6, ang = Math.atan2(dx, dz);
       if (gap < 0.4) { a.fsT = 0.25; return; }                 // close enough: hunter() will aim and strike
-      const walk = !toad && d < 9 + 3 * Math.random();
+      const walk = !toad && !sp.noWalk && d < 9 + 3 * Math.random();
       for (const f of [1, 0.7, 0.45]) {
         const len = walk ? Math.min(gap, 1.4 + Math.random() * 1.8) * f : clamp(gap, 1.5, 5.5 * sp.size) * f;
         plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len), ang, false);
@@ -3148,7 +3174,8 @@ export class Animals {
       const E = W.env, light = clamp(E.bright(), 0, 1);
       const uneasy = (a.why?.length ?? 0) > 0, cont = !!a.chainNext;
       // (a fire-bellied toad spends much of its day in the water: after a while on land it makes for the nearest it can find)
-      const wantWater = toad && !cont && a.hunger < 0.6 && Math.random() < ((a.dryT ?? 0) > 25 ? 0.7 : 0.15);
+      // (the common frog too, less often: a land frog by day that goes back to the water now and then; sp.entersWater)
+      const wantWater = (toad || sp.entersWater) && !cont && a.hunger < 0.6 && Math.random() < ((a.dryT ?? 0) > 25 ? 0.7 : 0.15) * (toad ? 1 : 0.4);
       const pond = wantWater ? this.crabFind(a.pos.x, a.pos.z, 30, (px, pz, d) => d > 1.2 * sp.size) : null;
       const hd0 = pond ? Math.atan2(pond.x - a.pos.x, pond.z - a.pos.z) : a.hd ?? a.yaw;
       const mid = (sp.temp[0] + sp.temp[1]) / 2;
@@ -3157,7 +3184,7 @@ export class Animals {
         let ang = hd0 + gauss() * (cont ? 0.3 : pond ? 0.25 : 0.6);
         if (k >= 5 || (uneasy && k >= 3)) ang = Math.random() * Math.PI * 2;                       // now and then somewhere else entirely
         else if (!cont && !pond && k === 4) ang = hd0 + Math.PI * (0.7 + 0.6 * Math.random());    // turn back
-        const walk = cont && a.plan ? a.plan.type === 'walk' : toad ? Math.random() < (pond ? 0 : 0.2) : Math.random() < 0.68;
+        const walk = !sp.noWalk && (cont && a.plan ? a.plan.type === 'walk' : toad ? Math.random() < (pond ? 0 : 0.2) : Math.random() < 0.68);
         const len = pond && k < 4 ? Math.min(pond.d + 1.5, (2.2 + Math.random() * 2.4) * 1.7) : (walk ? 2 + Math.random() * 5 : (1.4 + Math.random() * 2.6) * (toad ? 1.7 : 1)) * (uneasy ? 1.8 : 1);
         const to = V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len);
         const g = T.heightAt(to.x, to.z);
@@ -3245,14 +3272,18 @@ export class Animals {
     if (a.dive && this.frogDive(a, sp, dt, s, top, ground)) return;
     a.diveP = (a.diveP ?? 0) * Math.max(0, 1 - dt * 4);
     a.pos.y = Math.max(top, ground);
+    // (the test lab names a goal: in the water it swims for it, on land it makes for the way out at once)
+    const lg = a.lab?.goal, lgWet = !!lg && W.water.surfaceAt(lg.x, lg.z, 0.2) > T.heightAt(lg.x, lg.z) + 1;
+    if (lgWet) { if (!a.shore || a.shore.x !== lg.x || a.shore.z !== lg.z) a.shore = V(lg.x, 0, lg.z); a.roam = true; a.floating = false; a.exit = null; a.shoreLand = null; a.timer = 1; }
+    else if (lg && a.roam) a.timer = 0;
     if (!a.shore || a.timer <= 0) {
       a.timer = 4 + Math.random() * 4;
       // (the way out it was making for, if any: kept below when a new look finds none nearer)
       const prev = a.shore && !a.roam && (a.shoreLand || a.exit) ? { shore: a.shore, land: a.shoreLand, exit: a.exit } : null;
       a.shore = null; a.shoreLand = null; a.roam = false; a.toBank = null;
-      // A frog that has no business in the water makes for the way out at once. One at home in it (a toad) stays: it rests at the
+      // A frog that has no business in the water makes for the way out at once. One at home in it (a toad, a pond frog) stays: it rests at the
       // surface, potters about, dives, and leaves when it has had its time in the water (or is hungry: it hunts on land).
-      const leave = !toad || Math.random() < ((a.wetT ?? 0) > (a.wetStay ?? 120) || a.hunger > 0.6 ? 0.5 : 0.04);
+      const leave = !toad || (!!lg && !lgWet) || Math.random() < ((a.wetT ?? 0) > (a.wetStay ?? 120) || a.hunger > 0.6 ? 0.5 : 0.04);
       if (leave) {
         a.floating = false;
         // The way out: along each of 32 lines the first dry ground (the bank it would swim into: land beyond a bank is not reached by
@@ -3577,8 +3608,8 @@ export class Animals {
     const g = T.heightAt(to.x, to.z);
     const s = W.water.surfaceAt(to.x, to.z, 0.3);
     const wet = s > g + 0.2;
-    // Dart frogs never hop into water; toads only when they mean to.
-    if (wet && !(sp.kind === 'toad' && intoWater)) return null;
+    // Dart frogs never hop into water; toads and the frogs of ponds (sp.entersWater: the common frog) only when they mean to.
+    if (wet && !((sp.kind === 'toad' || sp.entersWater) && intoWater)) return null;
     if (!wet && T.normalAt(to.x, to.z).y < 0.6) return null;       // too steep to land on
     if (this.avoid && this.wallNeed(a, to.x, g, to.z, hd, false) > 0.05) return null;     // (nor where the relief would push it off)
     if (!wet && W.water.nearestFall(V(to.x, g, to.z), 1.5)) return null;
@@ -3649,6 +3680,7 @@ export class Animals {
   // deadline (which shrinks with the simulation speed, so fast-forward and the vacation test stay statistical) it
   // eats one at once, exactly as before. Very hungry animals also snap up prey that wanders into reach.
   reachOf(a, sp) {
+    if (sp.oneBody) return drawScale(a, sp) * (sp.sit.tipCm[2] + FROG_LUNGE.maxSlideCm);    // (from its body's origin: the tongue's tip at contact, the lunge slid all the way)
     if (sp.kind === 'frog' || sp.kind === 'toad') return 2.6 * sp.size + 0.4;
     if (a.sp === 'firesal') return 1.6 * sp.size + 0.4;
     if (sp.kind === 'gecko') return 1.2 * sp.size;
@@ -3982,10 +4014,12 @@ export class Animals {
     const toad = sp.kind === 'toad', L = a.lab;
     const dx = g.x - a.pos.x, dz = g.z - a.pos.z, d = Math.hypot(dx, dz), ang = Math.atan2(dx, dz);
     if (d < 0.4) return 'wait';
-    const walk = L.gait === 'walk' || (L.gait !== 'hop' && (toad ? d < 3 : d < 9));
+    // (a goal in the water: its hops may land in it, as a frog makes for a pool; 7 Oct 2026, the owner: water to land and back)
+    const W = this.world, wet = W.water.surfaceAt(g.x, g.z, 0.2) > W.terrain.heightAt(g.x, g.z) + 1;
+    const walk = !sp.noWalk && !wet && (L.gait === 'walk' || (L.gait !== 'hop' && (toad ? d < 3 : d < 9)));
     for (const f of [1, 0.7, 0.45]) {
       const len = (walk ? Math.min(d, 3) : Math.min(d, 5.5 * sp.size * (toad ? 1.2 : 1))) * f;
-      const plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len), ang, false);
+      const plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len), ang, wet && !walk);
       if (plan) { if (walk) plan.v = L.k; return plan; }
     }
     // The line is shut (a piece it can neither hop nor step over, a plant, the relief): a little to one side, then the other, the side it
@@ -3993,7 +4027,7 @@ export class Animals {
     const sd = a.side ?? 1;
     for (const da of [0.5 * sd, -0.5 * sd, 1 * sd, -1 * sd]) for (const f of [1, 0.6]) {
       const an = ang + da, len = (walk ? Math.min(d, 3) : Math.min(d, 5.5 * sp.size * (toad ? 1.2 : 1))) * f;
-      const plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(an) * len, 0, a.pos.z + Math.cos(an) * len), an, false);
+      const plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(an) * len, 0, a.pos.z + Math.cos(an) * len), an, wet && !walk);
       if (plan) { a.side = Math.sign(da); if (walk) plan.v = L.k; return plan; }
     }
     return null;
@@ -4055,10 +4089,51 @@ export class Animals {
 
   // Where the mouth is (including the lunge of a strike in progress).
   mouth(a, sp, out) {
+    if (sp.oneBody && !a.swimming && !a.wallMode) return this.bodyPoint(a, sp, sp.sit.mouthCm, out);
     this.fwdOf(a, _f);
     out.copy(a.pos).addScaledVector(_f, sp.size * 0.9 + (a.lunge ?? 0));
     if (a.wallMode) out.z += 0.3; else if (!a.swimming && sp.kind !== 'axolotl') out.y += sp.size * (sp.kind === 'frog' || sp.kind === 'toad' ? 1.35 : a.sp === 'firesal' ? 0.9 : 0.45);   // the mouth sits at head height
     return out;
+  }
+
+  // A point of a one-body frog's sitting body (model cm, its own frame) in the tank, where its strike's lunge has put it now (a.strikeT, the strike's dip and slide).
+  bodyPoint(a, sp, p, out) {
+    const st = a.st, sc = drawScale(a, sp);
+    lungePoint(sp.sit, a.strikeT ?? 0, st?.dip ?? 0, st?.slide ?? 0, p, _lp, _lr);
+    const cy = Math.cos(a.yaw), sy = Math.sin(a.yaw);
+    return out.set(a.pos.x + (_lp[0] * cy + _lp[2] * sy) * sc, a.pos.y + _lp[1] * sc, a.pos.z + (-_lp[0] * sy + _lp[2] * cy) * sc);
+  }
+
+  // Where a one-body frog's lunge has to go to put its tongue's tip on the prey (util/frogstrike.js: the tip at contact is the body's sit.tipCm carried by the
+  // lunge): the dip that brings the tip down to the prey's height, with the open jaw kept off the ground, then the slide that brings it out to the prey's
+  // distance; ok when the tip lands within the tongue pad's reach of the prey and the prey is in front. In the frog's ground frame, model cm (the tank's cm over
+  // the draw scale). (Prey nearer than the shortest lunge, under its chin, is out of reach: the frog waits for it to move.)
+  lungeFit(a, sp, p, out = _lfit) {
+    const sc = drawScale(a, sp), dx = p.pos.x - a.pos.x, dz = p.pos.z - a.pos.z, cy = Math.cos(a.yaw), sy = Math.sin(a.yaw), L = FROG_LUNGE, S = sp.sit;
+    const fwd = (dx * sy + dz * cy) / sc, side = (dx * cy - dz * sy) / sc, up = (p.pos.y + 0.1 - a.pos.y) / sc;
+    let best = 1e9; out.dip = 0; out.slide = 0; out.err = 1e9;
+    for (let dip = 0; dip <= L.maxDipDeg + 1e-6; dip += 2) {
+      if (lungePoint(S, L.contactT, dip, 0, S.jawOpenCm, _lp, _lr)[1] < 0.12) break;       // (the open jaw would hit the ground: no deeper)
+      lungePoint(S, L.contactT, dip, 0, S.tipCm, _lp, _lr);
+      const slide = clamp(fwd - _lp[2], 0, L.maxSlideCm), e = Math.hypot(_lp[1] - up, _lp[2] + slide - fwd);
+      if (e < best) { best = e; out.err = e; out.dip = dip; out.slide = slide; }
+    }
+    out.fwd = fwd; out.side = side;
+    out.ok = out.err < 0.45 && Math.abs(side) < 0.6 && fwd > 0 && this.strikeClear(a, sp, p);
+    return out;
+  }
+
+  // Nothing in the way of a one-body frog's strike: from its mouth to the prey the ground (the height field: the bank, a step, a wall) and the hardscape that is not
+  // in it (the occupancy grid: roots, wood) stay under the line the tongue flies along, so it never strikes through a wall or into a rock. (The last stretch, where the
+  // line comes down to prey on the ground, may touch it.)
+  strikeClear(a, sp, p) {
+    const W = this.world, T = W.terrain; this.bodyPoint(a, sp, sp.sit.mouthCm, _d);
+    for (let i = 1; i <= 8; i++) {
+      const k = i / 9, x = _d.x + (p.pos.x - _d.x) * k, y = _d.y + (p.pos.y + 0.15 - _d.y) * k, z = _d.z + (p.pos.z - _d.z) * k;
+      if (k < 0.8 && T.heightAt(x, z) > y - 0.1) return false;
+      if (this.occ.solidAt?.(x, y, z)) return false;
+    }
+    return true;
   }
 
   hunter(a, sp, dt) {
@@ -4091,6 +4166,7 @@ export class Animals {
     if (frog) {
       if (a.swimming || a.hop) return;
       if (d < reach * 2.5 && sp.kind === 'frog') a.tapT = 0.4;     // watching it: the hind toes twitch (dart frogs do this)
+      if (sp.oneBody) { this.oneBodyHunt(a, sp, o); return; }
       if (d > reach) return;
       const diff = angDiff(Math.atan2(tp.x - a.pos.x, tp.z - a.pos.z), a.yaw);
       if (Math.abs(diff) < 0.6 && (a.fs === 'sit' || a.fs === 'turn' || a.fs === 'walk')) this.beginStrike(a, sp, o);
@@ -4105,9 +4181,27 @@ export class Animals {
     else if (!a.swimming) { a.state = 'walk'; a.target = V(tp.x, 0, tp.z); a.timer = Math.max(a.timer, 1.5); }
   }
 
-  beginStrike(a, sp, o) {
+  // A frog with a true-to-size tongue (sp.oneBody: the common frog, 1.27 cm, its strike carried by a lunge: util/frogstrike.js) strikes when its lunge can put the
+  // tongue's tip on the prey (lungeFit); otherwise it closes in first, as a common frog does: it turns to the prey and makes a short hop toward it, stopping
+  // with the prey where a middling lunge reaches; then it strikes. (The other frogs' drawn tongues reach 3-6 cm and they wait.)
+  oneBodyHunt(a, sp, o) {
+    const tp = o.target.pos, f = this.lungeFit(a, sp, o.target), sc = drawScale(a, sp);
+    const diff = angDiff(Math.atan2(tp.x - a.pos.x, tp.z - a.pos.z), a.yaw);
+    if (f.ok && (a.fs === 'sit' || a.fs === 'turn')) { this.beginStrike(a, sp, o, f); return; }
+    if (a.fs !== 'sit' || a.plan) return;
+    const dist = Math.hypot(tp.x - a.pos.x, tp.z - a.pos.z), want = (sp.sit.tipCm[2] + FROG_LUNGE.maxSlideCm * 0.7) * sc, stop = dist - want;
+    if (stop > 0.8 && dist < 16 * sc / 2.2) {
+      const ang = Math.atan2(tp.x - a.pos.x, tp.z - a.pos.z);
+      const plan = this.checkPlan(a, sp, 'hop', V(a.pos.x + Math.sin(ang) * stop, 0, a.pos.z + Math.cos(ang) * stop), ang, false);
+      if (plan) { a.plan = plan; a.hd = ang; a.faceTo = ang; a.afterTurn = 'crouch'; a.fs = 'turn'; a.crouch = 0; a.chain = 0; plan.x0 = a.pos.x; plan.z0 = a.pos.z; return; }
+    }
+    if (Math.abs(diff) > 0.12 && dist < 16 * sc / 2.2) { a.faceTo = a.yaw + diff; a.afterTurn = 'sit'; a.fs = 'turn'; }
+  }
+
+  beginStrike(a, sp, o, fit = null) {
     const tongue = sp.kind === 'frog' || sp.kind === 'toad' || a.sp === 'firesal';
-    a.st = { prey: o.target, pid: o.pid, kind: tongue ? 'tongue' : 'snap', ph: 'aim', t: 0, dur: tongue ? 0.32 + Math.random() * 0.35 : 0.2 + Math.random() * 0.25, got: false, miss: Math.random() < 0.15, lunge: 0, lmax: 0, pitch: 0, cap: V(0, 0, 0) };
+    a.st = { prey: o.target, pid: o.pid, kind: tongue ? 'tongue' : 'snap', ph: 'aim', t: 0, dur: tongue ? 0.32 + Math.random() * 0.35 : 0.2 + Math.random() * 0.25, got: false, miss: Math.random() < 0.15, lunge: 0, lmax: 0, pitch: 0, cap: V(0, 0, 0),
+      dip: fit?.dip ?? 0, slide: fit?.slide ?? 0 };      // (a one-body frog's lunge, fitted to where the prey is: lungeFit)
     a.speedNow = 0; a.vel.multiplyScalar(0.2);
     this.striking.add(a);
   }
@@ -4117,12 +4211,12 @@ export class Animals {
   dropStrike(a) {
     const p = a.st?.prey;
     if (p && p.takenBy === a) { p.taken = false; p.takenBy = null; }
-    a.st = null; a.lunge = 0;
+    a.st = null; a.lunge = 0; a.strikeT = 0;
     this.striking?.delete(a);
   }
 
   endStrike(a, sp, ok) {
-    a.st = null; a.lunge = 0; a.crouch = 0; a.gape = 0;
+    a.st = null; a.lunge = 0; a.crouch = 0; a.gape = 0; a.strikeT = 0;
     this.striking.delete(a);
     if (sp.kind === 'frog' || sp.kind === 'toad') { a.fs = 'sit'; a.fsT = ok ? 2.5 + Math.random() * 4 : 1.2 + Math.random() * 2; a.chain = 0; a.chainNext = false; }
     else { a.timer = ok ? 1.5 + Math.random() * 2 : 1 + Math.random(); a.state = 'rest'; a.target = null; }
@@ -4139,7 +4233,7 @@ export class Animals {
       const st = a.st;
       if (!st || a.dead) { a.lunge = 0; a.gape = 0; a.st = null; this.striking.delete(a); continue; }
       const sp = SPECIES[a.sp], p = st.prey, tongue = st.kind === 'tongue';
-      if (st.ph !== 'gulp' && (st.got ? p.dead || p.eaten : !this.validPrey(p, a))) { this.endStrike(a, sp, false); continue; }
+      if (st.ph !== 'gulp' && !st.inMouth && (st.got ? p.dead || p.eaten : !this.validPrey(p, a))) { this.endStrike(a, sp, false); continue; }
       st.t += dtS;
       switch (st.ph) {
         case 'aim': {
@@ -4150,7 +4244,8 @@ export class Animals {
           if (st.t >= st.dur) {
             this.mouth(a, sp, _m);
             st.up = p.pos.y > _m.y + 0.4;
-            st.lmax = tongue ? 0.5 : Math.min(1.1, 0.45 * sp.size);
+            st.lmax = sp.oneBody ? 0 : tongue ? 0.5 : Math.min(1.1, 0.45 * sp.size);     // (a one-body frog lunges in its own body: st.dip, st.slide)
+            if (sp.oneBody) { const f = this.lungeFit(a, sp, p); if (f.ok) { st.dip = f.dip; st.slide = f.slide; } else st.miss = true; }    // (re-aimed after the turn; moved out of reach: a miss)
             st.ph = 'out'; st.t = 0; st.dur = tongue ? 0.075 : 0.1;
           }
           break;
@@ -4160,7 +4255,7 @@ export class Animals {
           st.lunge = k * st.lmax;
           st.pitch = k * (tongue ? (st.up ? -0.28 : 0.2) : (st.up ? -0.2 : 0.3));
           a.crouch = 0.8 * (1 - k);
-          if (tongue) { this.mouth(a, sp, _m); _t.copy(p.pos); _t.y += 0.1; tg.show(_m, _t, k * (st.miss ? 0.8 : 1), sp.size > 1.5 ? 1.3 : 1); }
+          if (tongue && !sp.oneBody) { this.mouth(a, sp, _m); _t.copy(p.pos); _t.y += 0.1; tg.show(_m, _t, k * (st.miss ? 0.8 : 1), sp.size > 1.5 ? 1.3 : 1); }
           if (st.t >= st.dur) {
             if (!st.miss) { st.got = true; st.cap.copy(p.pos); p.taken = true; p.takenBy = a; }
             st.ph = 'back'; st.t = 0; st.dur = tongue ? 0.09 : 0.13;
@@ -4172,8 +4267,11 @@ export class Animals {
           st.lunge = (1 - k) * st.lmax;
           st.pitch *= 0.85;
           this.mouth(a, sp, _m);
-          if (st.got) p.pos.lerpVectors(st.cap, _m, k);
-          if (tongue) { _t.copy(st.got ? p.pos : p.pos); tg.show(_m, _t, st.got ? 1 : (1 - k) * 0.8, sp.size > 1.5 ? 1.3 : 1); }
+          // (a one-body frog's catch rides its tongue's tip back in, as far out as the tongue still is (util/frogstrike.js strikeCurves p), and is gone into the
+          // mouth as the tongue passes the lips, before the jaws close on it; the other frogs' drawn tongues carry it to the mouth)
+          if (st.got && sp.oneBody) { if (!st.inMouth) { const tl = strikeTime('back', st.t, st.dur), c = strikeCurves(tl); this.bodyPoint(a, sp, sp.sit.insideCm, _t); p.pos.lerpVectors(_t, st.cap, c.p); if (c.p < 0.12 || st.t >= st.dur) { st.inMouth = tl; this.consume(a, sp, st.pid, p); } } }
+          else if (st.got) p.pos.lerpVectors(st.cap, _m, k);
+          if (tongue && !sp.oneBody) { _t.copy(st.got ? p.pos : p.pos); tg.show(_m, _t, st.got ? 1 : (1 - k) * 0.8, sp.size > 1.5 ? 1.3 : 1); }
           if (st.t >= st.dur) {
             if (st.got) {
               this.consume(a, sp, st.pid, p);
@@ -4190,6 +4288,7 @@ export class Animals {
       // The mouth (the fire salamander's jaw bone, render/creatures/lizardpose.js openJaw): it opens a little as the animal locks on (aim), wide as the
       // tongue flicks out, and shuts on the catch (back); a body with no jaw bone ignores it. 0 shut ... 1 the widest.
       a.gape = tongue ? strikeGape(st.ph, st.t, st.dur) : 0;
+      a.strikeT = sp.oneBody ? strikeTime(st.ph, st.t, st.dur) : 0;      // (a body with its own jaw and tongue bones: util/frogstrike.js, render/creatures/skeleton.js poseHead)
       a.lunge = st.lunge;
     }
     tg.end();
@@ -5284,6 +5383,9 @@ export class Animals {
         // A frog climbing belly to a surface is drawn on its swimming body (limbs apart, against the wall) posed by its climb (util/climb.js: each limb its own
         // phase in the pulse, the torso bent toward the reaching hand); the sitting body walks when the swimming one has not loaded (or on Low).
         const climbMesh = frogish && a.climbOn && a.climb && !a.swimming && !a.hop ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
+        // A one-body frog (sp.oneBody: the common frog) is drawn on land in that same body too: the stroke's sit pose (hind legs folded, hands down, render/creatures/skeleton.js
+        // poseStroke `sit`) and the strike on its own jaw, hyoid and tongue bones (`strikeT`, set by strikes()). Until the body has loaded, the procedural stand-in.
+        const oneMesh = frogish && sp.oneBody && !a.swimming && !a.hop && !climbMesh ? this.meshFor(id, null, 'swim') : null;
         const sw = frogish && a.swimming && !a.hop ? swimPose(a.sw ??= swimState(), swimProfile(id), { t: this.t + a.phase, ...(swimMesh ? { level: 0 } : {}) }) : null;
         // At the surface it rides the water: up and down with the ripples under it and tipped with their slope (ride).
         const rd = a.swimming && !a.hop && (frogish || sp.kind === 'newt' || sp.kind === 'axolotl') ? this.ride(a, sp, sc, dt / this.tf) : null;
@@ -5331,6 +5433,7 @@ export class Animals {
             a.sleepEye = (a.sleepEye ?? 0) + ((a.perch?.ph === 'sit' ? 0.85 : 0) - (a.sleepEye ?? 0)) * Math.min(1, dt / this.tf * 2);
             if (a.sleepEye > 0.01) v.eye = Math.max(v.eye, a.sleepEye);
             packed = packAnim(hop, v.breath, v.throat, v.eye, 0, a.legCalm);
+            a.visBTE = [v.breath, v.throat, v.eye];          // (a one-body frog draws them on its own body: the breathing pump, the throat, the eyes)
             if (!a.hop) pos = _p.copy(a.pos).add(v.off); pos.y += v.y;
           } else if (VIS.has(sp.kind)) {
             // A swimming frog or toad is in the stroke pose; a swimming newt or axolotl folds its legs back along the body and drives
@@ -5389,12 +5492,24 @@ export class Animals {
           _p.set(hp.from.x + hf.pos[0] * ch + hf.pos[2] * sh, hp.from.y + hf.pos[1], hp.from.z - hf.pos[0] * sh + hf.pos[2] * ch);
           q.setFromEuler(e.set(hf.pitch, a.yaw, hf.roll, 'YXZ'));
           leapMesh.put(_p, q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, st);
+          if (sp.oneBody) (a.drawnAt ??= V(0, 0, 0)).copy(_p);      // (where its one body was drawn: the lab's probes look for jumps between its poses)
         } else if (climbMesh?.strokes) {
           climbMesh.put(pos, q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, a.climbSt = climbPose(a.climb, a.climbSt ?? {}));
+        } else if (oneMesh?.strokes && !leapMesh) {
+          // the sitting stance and the strike's lunge (util/frogstrike.js lungePose): the hind feet planted, the arms, the head on the strike's timeline, and the
+          // body where they put it (root: nose up about the model's origin by the stance, tipped down about the vent and slid by the lunge; in the body's frame, scaled)
+          const ls = lungePose(sp.sit, a.strikeT ?? 0, a.st?.dip ?? 0, a.st?.slide ?? 0, HIND, FORE, a.landSt ??= {}), R = ls.root;
+          _qs.copy(q).multiply(_qx.setFromAxisAngle(_ax, R.pitch));
+          _ps.set(R.off[0], R.off[1], R.off[2]).multiplyScalar(sc).applyQuaternion(q).add(pos);
+          // the strike's own muscles on the rig's channels (util/frogstrike.js strikeMuscles): the sternohyoid drops the throat floor, the retractor bulbi presses the eyes down in the gulp
+          const mu = strikeMuscles(ls.strikeT, undefined, a._mu ??= {}), bte = a.visBTE ?? [0, 0, 0];
+          oneMesh.put(_ps, _qs, sc, 0, 0, 0, packAnim(0, bte[0], Math.max(bte[1], mu.SH), Math.max(bte[2], mu.RB), 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, ls);
+          (a.drawnAt ??= V(0, 0, 0)).copy(_ps);
         } else if (sleepMesh) sleepMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (breathing, eyes shut)
         else if (swimMesh) {
           sw.stroke.info = a.swTips ??= {};
           swimMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, sw.stroke);
+          if (sp.oneBody) (a.drawnAt ??= V(0, 0, 0)).copy(pos);
           // its body in the water as the stroke posed it (the trunk and every joint of its limbs: skeleton.js poseStroke `hull`), for
           // the ripples: the knees sweeping out, the feet driving back and the hands each move their own water
           // (where it would be on still water: riding the ripples moves no water, and counted as moving it the frog would feed its

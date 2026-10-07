@@ -37,6 +37,10 @@ export const CONFIG = {
   // The globes are sunk 0.19 cm into the orbits (the scan had them at up 3.27).
   frog: { plan: 'anuran', snoutZ: 7.97, hingeZ: 5.0, lip: { y0: 2.85 - 0.232 * 7.4, slope: 0.232 }, skinCm: 0.08, softCm: 0.16, xr: [-1.62, 1.62], yBand: 1.0, roofDrop: 0.85, eyeZone: 1.15,
     eyes: [{ c: [-0.672, 3.080, 6.069], r: 0.481 }, { c: [0.672, 3.080, 6.069], r: 0.477 }] },
+  // the European common frog's game body (owner's drop, gate-3 corrected; feat/commonfrog, 7 Oct 2026): the lip line and the jaw angle measured on mm grids of the
+  // corrected mesh and carried into the baked frame of commonfrog.swim (SVL 7 cm); the eyeballs as spheres of ED 0.66 cm under the eye domes
+  commonfrog: { plan: 'anuran', snoutZ: 3.226, hingeZ: 1.145, lip: { y0: 1.4893, slope: -0.1012 }, skinCm: 0.06, softCm: 0.24, dyScale: 0.7, xr: [-1.4, 1.4], yBand: 0.4, roofDrop: 0.85, eyeZone: 1.15,
+    eyes: [{ c: [-0.612, 1.98, 1.993], r: 0.33 }, { c: [0.612, 1.98, 1.993], r: 0.33 }] },
   firesal: { plan: 'caudate', snoutZ: 8.0, hingeZ: 5.8, lip: { y0: 2.178 - 0.0595 * 5.8, slope: 0.0595 }, skinCm: 0.08, softCm: 0.16, xr: [-2.2, 1.4], yBand: 0.9,
     eyes: [{ c: [-1.19, 2.94, 6.61], r: 0.42 }, { c: [0.19, 2.88, 6.76], r: 0.42 }],
     // what goes into the mouth on top of the skull (tools/blender/skull.py --fit-cavity): a tongue pad on the floor (a share of the skull's length and of its width,
@@ -185,7 +189,10 @@ export function fitSkull(P, id = 'firesal') {
   const mid = (z) => sample('mid', z), half = (z) => Math.max(0.3, sample('half', z) - cfg.softCm), top = (z) => sample('top', z) - cfg.skinCm;
   const slope = (z) => (top(z + 0.1) - top(z - 0.1)) / 0.2;                      // d roof / d z
   const bottom = (z) => sample('bottom', z);
-  const yOf = (z, v, u = 0) => (typeof v === 'number' ? lipY(z) + v : v.roof !== undefined ? top(z) + v.roof - (cfg.roofDrop ?? 0) * Math.max(0, top(z) - lipY(z) + 0.3) * u * u : bottom(z) + v.floor);
+  // `dyScale` (a smaller head, e.g. the 7 cm common frog's): the plan's heights above or below the lip, roof and floor are absolute cm, set on the lab frog's head; they and the
+  // bones' radii scale by this factor (default 1, the plan as written)
+  const ks = cfg.dyScale ?? 1;
+  const yOf = (z, v, u = 0) => (typeof v === 'number' ? lipY(z) + v * ks : v.roof !== undefined ? top(z) + v.roof * ks - (cfg.roofDrop ?? 0) * Math.max(0, top(z) - lipY(z) + 0.3 * ks) * u * u : bottom(z) + v.floor * ks);
   const T = (t) => (t === 'H' ? hingeT : t), r3 = (v) => +v.toFixed(3);
   // a point from (u, t, dy): across (fraction of the half width), along (fraction of the skull), up (cm from the lip plane, or below the roof)
   const pt = (u, t, dy) => { const z = z0 - T(t) * L; return [mid(z) + u * half(z), yOf(z, dy, u), z]; };
@@ -194,7 +201,7 @@ export function fitSkull(P, id = 'firesal') {
     const parts = [];
     for (const p of b.parts) {
       if (p.k === 'rod') {
-        const mk = (sgn) => p.pts.map((q) => { const r = p.tooth ? q[2] : q[3], dy = p.tooth ? (p.tooth === 'upper' ? r : -r) : q[2]; return [...pt(q[0] * sgn, q[1], dy).map(r3), r3(r)]; });
+        const mk = (sgn) => p.pts.map((q) => { const r = (p.tooth ? q[2] : q[3]) * ks, dy = p.tooth ? (p.tooth === 'upper' ? r / ks : -r / ks) : q[2]; return [...pt(q[0] * sgn, q[1], dy).map(r3), r3(r)]; });
         const pts = mk(sx);
         parts.push({ k: 'rod', pts, ...(p.tooth ? { tooth: p.tooth } : {}), ...(p.joint ? { joint: p.joint } : {}) });
         if (p.joint) joints.push({ side: tag, kind: 'quadrate', at: pts[pts.length - 1].slice(0, 3), r: pts[pts.length - 1][3] });
@@ -207,10 +214,10 @@ export function fitSkull(P, id = 'firesal') {
           if (p.n === 'side') { lat = [0, 1, 0]; lo = [0, 0, 1]; nn = unit([sx, 0.15, 0]); }
           else if (p.n === 'floor') { lat = [1, 0, 0]; lo = [0, 0, 1]; nn = [0, -1, 0]; }
           if (p.roll) { lat = rot(lat, lo, -sx * p.roll); nn = rot(nn, lo, -sx * p.roll); }
-          parts.push({ k: 'ell', c: c.map(r3), r: [r3(p.fa * half(z)), r3(p.fb * L), p.th], ax: [lat, lo, nn].map((v) => v.map((x) => +x.toFixed(4))), ...(p.teeth ? { teeth: p.teeth } : {}) });
+          parts.push({ k: 'ell', c: c.map(r3), r: [r3(p.fa * half(z)), r3(p.fb * L), r3(p.th * ks)], ax: [lat, lo, nn].map((v) => v.map((x) => +x.toFixed(4))), ...(p.teeth ? { teeth: p.teeth } : {}) });
         } else {
-          parts.push({ k: 'ell', c: c.map(r3), r: [r3(p.fa * half(z)), r3(p.fb * L), p.ry], ax: [[1, 0, 0], [0, 0, 1], [0, 1, 0]], ...(p.joint ? { joint: p.joint } : {}) });
-          if (p.joint) joints.push({ side: tag, kind: 'articular', at: c.map(r3), r: p.ry });
+          parts.push({ k: 'ell', c: c.map(r3), r: [r3(p.fa * half(z)), r3(p.fb * L), r3(p.ry * ks)], ax: [[1, 0, 0], [0, 0, 1], [0, 1, 0]], ...(p.joint ? { joint: p.joint } : {}) });
+          if (p.joint) joints.push({ side: tag, kind: 'articular', at: c.map(r3), r: r3(p.ry * ks) });
         }
       }
     }
