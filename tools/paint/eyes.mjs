@@ -37,7 +37,14 @@ export const EYES = {
   // Red-eyed tree frog: big bulging eyes (a sphere fitted to the scan's eye, 0.4 cm), an orange-red iris going darker at the rim and a
   // narrow vertical slit pupil (shape 'slit'); moist, satiny, finely granular skin (a lacquered coat read as plastic).
   redeye: { finish: { eyes: [eye([0.7, 2.21, 1.8], 0.4, [0.74, 0.36, 0.57], { shape: 'slit', pupil: [0.15, 0.6], inner: lin([1.0, 0.34, 0.08]), outer: lin([0.88, 0.14, 0.03]), limb: lin([0.32, 0.03, 0.01]), rim: lin([0.01, 0.006, 0.004]), cap: 0.9, seed: 9 })], rough: 0.52, coat: 0.3, coatRough: 0.34, grain: 9, grainAmt: 0.22 } },
-  firesal: { finish: { eyes: [eye([1.05, 3.7, 7.5], 0.5, [0.65, 0.5, 0.55], { pupil: [0.78, 0.76], inner: lin([0.06, 0.04, 0.02]), outer: lin([0.03, 0.02, 0.012]) })], rough: 0.52, coat: 0.34, coatRough: 0.34, grain: 9, grainAmt: 0.2 } },
+  // Fire salamander (6 Oct, the owner's photos: glossy black domes with a sharp wet highlight, a dark bronze ring, a pupil that is not seen): two explicit eyes (`mirror: false`)
+  // because the AI scan's head is not centred on x = 0 (its middle is at -0.43 cm), the sphere centres under the two dome tops measured on the baked mesh
+  // (left top (-1.40, 3.28, 6.75), right (0.40, 3.22, 6.90) cm), r 0.42 cm, looking out, up and a little forward. The finish keeps the black wet:
+  // `matteBlack` overrides the toad's rule that dark texels are dry; `grainAmt` 0 because the relief is the baked normal map.
+  firesal: { finish: { eyes: [
+    eye([-1.19, 2.94, 6.61], 0.42, [-0.5, 0.8, 0.33], { mirror: false, pupil: [0.8, 0.78], inner: lin([0.10, 0.065, 0.03]), outer: lin([0.025, 0.017, 0.01]), limb: lin([0.012, 0.009, 0.006]), seed: 5 }),
+    eye([0.19, 2.88, 6.76], 0.42, [0.5, 0.8, 0.33], { mirror: false, pupil: [0.8, 0.78], inner: lin([0.10, 0.065, 0.03]), outer: lin([0.025, 0.017, 0.01]), limb: lin([0.012, 0.009, 0.006]), seed: 8 })],
+    rough: 0.34, coat: 0.5, coatRough: 0.1, grain: 9, grainAmt: 0, bump: 0, matteBlack: { rough: 0.3, coat: 0.55 } } },
   // Vampire crab: glossy yellow eyes with a small dark pupil. The ball's centre, radius and stalk direction come from the
   // baked rig (tools/rig/crab.mjs), so `eyes` is a function of them. Hard shell: no skin grain (the scan has its own relief,
   // and grainAmt 0 skips the per-fragment noise).

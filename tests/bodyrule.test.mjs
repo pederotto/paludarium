@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { swimState, swimStep, strokeAngles, KICK } from '../src/util/gait.js';
 import { swimProfile } from '../src/util/bodyplan.js';
 import { swimMotion, queuePush, DRIFT_MAX } from '../src/util/swimturn.js';
+import { climbState, climbStep } from '../src/util/climb.js';
 
 const prof = swimProfile('toad'), dt = 0.05;
 let seed = 11; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
@@ -67,6 +68,20 @@ test('spin on the spot turns only with a stroke playing', () => {
     }
     assert.ok(any > 0 && out === 0, `${style}: ${any} turning ticks, ${out} outside a thrust`);
   }
+});
+// The climb (util/climb.js; sim/animals.js perchFrog, belly to the pane or a piece's side): advance and yaw come only out of a pulse of the limbs, the frog is
+// drawn on its swimming body posed by the same phases, the muscles read them (tests/climb.test.mjs has the rest). Known violations: a stem, the background
+// and the bare ground still step toward their goal and write yaw and pitch (the old climb), see the todo below.
+test('a climbing frog moves and turns only while a pulse of its limbs plays', () => {
+  const st = climbState(rnd); let moved = 0;
+  for (let i = 0; i < 4000; i++) {
+    const wasIn = st.t >= 0, p0 = st.pulses, m = climbStep(st, { go: i % 700 < 500 ? 1 : 0, steer: Math.sin(i / 90), urgency: rnd(), rnd }, dt);
+    if (m.adv || m.dyaw) { moved++; assert.ok(wasIn || st.pulses > p0, 'moved with no pulse playing'); }
+  }
+  assert.ok(moved > 100);
+});
+test('a frog climbing a stem, the background or bare ground moves and turns by the sim, not by its limbs', { todo: 'perchFrog still steps toward the goal and writes yaw and pitch there (no belly-to-surface contact to pose it on): needs the stem and background climbs on the pulse gait' }, () => {
+  assert.fail('not written');
 });
 // (owner, 6 Oct 2026, the trunk muscles go in once the skinning pilot was judged: the longissimus dorsi pair, one belly a side from the sacrum to the skull,
 // in the row's last belly texel (slot 20 in .xy, slot 21 in .zw; skin.js belly()), bound into the two toad bodies only so far; its activation comes from the

@@ -32,6 +32,27 @@ export const GAIT = {
     sprawl: { fore: [0.7, 0.35], hind: [0.75, 0] },   // knuckle from shoulder (hip), lateral and forward, in limb reaches :24 E
     restFeet: true,                    // stand where the baked rest pose has its feet (its tips already 0.88-0.94 reach out: G4a)
   },
+  // The fire salamander (6 Oct, the owner's clips in .agents/refs/firesal-1006; E = estimated from the 4 fps frames of the Bulgaria walk,
+  // G a guess, none of it published yet). A slow lateral-sequence walk: one foot in swing at a time, a foot lifts about every 0.75 s, so a
+  // cycle is about 3 s at the game's walk of 1.5 cm/s (herp.js PROFILES.firesal) and the stride about 0.4 SVL (E). The hind stride of a
+  // salamander is 5-7 cm (R2's literature figure, not verified): 0.65 SVL at a dash. The trunk bends toward the swinging foreleg (E) in a
+  // wider S than the gecko's, the tail trails nearly straight (E), the belly rides low (E), the fingers spread without peeling.
+  firesal: {
+    svl: 8.86,                         // cm snout to vent (16 cm in all: tools/rig/lizard-firesal.mjs, the owner's size check of 6 Oct)
+    strideMin: 0.5, strideMax: 0.65,   // stride in SVL: walk 0.5 (4.4 cm: a 3 s cycle at the game's walk of 1.5 cm/s, the Bulgaria clip: E), dash 0.65 (5-7 cm at 18 cm) G
+    fMax: 0.5,                         // Hz at a dash: 3.2 cm/s over 6.4 cm: G; the walk keeps the shortest stride (cycle 2.8 s: E)
+    duty: [0.8, 0.6], vSlow: 1.5, vFast: 3.2,    // a slow walk is mostly stance (0.7-0.8: general knowledge), 0.6 at a dash: G
+    off: { 3: 0, 1: 0.25, 4: 0.5, 2: 0.75 },    // lateral sequence: hind left, fore left, hind right, fore right a quarter cycle apart: E (frames)
+    wave: { spine: 20 * RAD, neck: 12 * RAD },   // trunk S-bend, wider than the gecko's 10/7: E
+    tailGain: 0.6, tailMax: 18 * RAD, tailLag: 0.06, tailBones: 5,   // trails almost straight (E), a passive sway: G
+    lift: 0.05,                        // swing height in SVL (0.5 cm): G
+    belly: { ground: 0.15, wall: 0.01 },          // cm: the belly rides low, nearly touching: E
+    attach: 0.13, peel: 0.36,          // the gecko's: the fingers and toes uncurl onto the ground and curl as the foot lifts: G
+    settle: 0.5, vMin: 0.05,           // s for the wave to die out, cm/s below which it stands: G
+    sprawl: { fore: [0.62, 0.2], hind: [0.66, -0.1] },   // knuckle from shoulder (hip), lateral and forward, in limb reaches: the foot swings about the shoulder, so in a walk it is nearer the body than at full sprawl (E: the clip's top views)
+    restFeet: false,                   // (the baked rest pose has the legs at 0.8-0.96 of full reach out sideways: kept for standing, but a walk steps from the sprawl above, which leaves the leg room to swing fore and aft)
+    gape: 38 * RAD,                    // the jaw's widest opening (rad): a guess, 30-40 degrees in salamandrids; render/creatures/lizardpose.js openJaw
+  },
 };
 
 // The gait for speed v (cm/s), turn rate w (rad/s) and the feet's mean distance from the body's middle `reach` (cm): turning on
@@ -241,3 +262,11 @@ export function lgFeet(s, P, pose, scale = 1, out = {}) {
 // How far (cm) the body comes down along its normal from its rest belly height to the sheet's clearance ('ground' or 'wall';
 // glass and bark are walls).
 export const bellyDrop = (P, surface, restBelly) => Math.max(0, restBelly - (surface === 'ground' ? P.belly.ground : P.belly.wall));
+
+// The mouth during a tongue strike (animals.js strikes(); render/creatures/lizardpose.js openJaw turns the jaw bone by it): 0 shut ... 1 the widest.
+// aim (the animal locks on, `t` s): the jaw opens to 0.35 over 0.25 s; out (the tongue flicks, `dur` s): on to 1; back (the catch is drawn in, `dur` s): shut again; any
+// other phase (gulp, none): shut. The shape is a guess from how salamandrids feed (the mouth opens first, the tongue follows, the jaw closes on the prey).
+export function strikeGape(phase, t, dur) {
+  const k = clamp(t / (dur || 1), 0, 1);
+  return phase === 'aim' ? clamp(t / 0.25, 0, 1) * 0.35 : phase === 'out' ? 0.35 + 0.65 * k : phase === 'back' ? 1 - k : 0;
+}

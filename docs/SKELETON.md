@@ -17,7 +17,7 @@ load (`glb.js addRig`); **skeleton** = bones measured on the scan, skinned by `t
 | dart frogs (4 morphs), strawberry, leucomelas, auratus, bumblebee, reed frog, toad | anuran | scan GLB, baked vertex rig (far); **skeleton (17 bones) measured on the scan, skinned near the camera (runtime)**; swim-pose GLB | near: the legs turn at hip and shoulder, the knee, heel and elbow bend (skeleton); far: diagonal legs sweep (shear) | pivot on the hips, legs swing round the pivot (turnSweep, tau in anim.y); the swim body's trunk bends through the pose channels (stroke.trunk: spine and head yaw, pitch, twist; stroke.roll; 12-number armA), only when a caller passes them | near: hip, knee and heel extend until the leg trails behind; far: vertex shift (`hopLegs`) | pose model + kick cycle | reed frog: body on the stem/glass normal + gait | throat as a normal bulge; near: thigh, calf and shoulder swell with their joints |
 | red-eyed tree frog | anuran | scan GLB, baked rig with hind-leg skeleton chain; **skeleton (17 bones)** for the baked `sleep` pose (not skinned at run time yet, see below) | far-style shear at every distance | as above | vertex shift | pose model | perch route, body on the leaf/glass | throat; **the sleep pose baked with muscles** (thighs, calves, shoulders); joint limits checked on it |
 | paddle-tail newt, marbled newt, axolotl | caudate | SDF body, vertex rig + rig2 | trot + S-wave + head counter-swing | pivot on the hips, legs round the pivot (tau in rig2 A), C-bend into the turn, head leads, tail lags | none | legs swung back about shoulder and hip onto the flanks (75 / 85 degrees, length kept, feet at flank height) and one travelling wave along the whole body (wavelength 0.9 body, amplitude from 0 at the snout to the tail tip): `swimmer` in render/creatures/instanced.js (2026-10-04; before, the legs stuck out sideways and only the tail wagged); turns by the C-bend | none | throat pumping |
-| fire salamander | caudate | scan GLB, addRig + rig2 | as newt | as newt | none | as newt | none | throat |
+| fire salamander (rebuilt 6 Oct 2026) | caudate | scan GLB, **baked lizard rig: 21 bones + a `jaw` (22), four-bone skin, measured on the scan** (`tools/bake-lizard.mjs firesal`); a skull and mandible scheme under its mouth (see "Skulls and mandibles") | lateral sequence (`GAIT.firesal`: 2.95 s cycle, stride 0.5 body lengths, stance slip 0.05 cm a frame) | as the lizards | none | still the newt's whole-body wave (the real one is tail-led: open) | none | generic lizard layer + guesses; throat |
 | mourning gecko | lizard | SDF body, vertex rig + rig2 (tail drop, stump) | trot + wave | as newt (lizard limits: more neck, faster stepping) | none | none | on the background: body on the wall normal, gait; yaw in the wall plane (no pivot shift there) | none |
 | crocodile skink | lizard | SDF body, vertex rig + **rig2 (new)** | wave + legs | pivot on the hips, legs round it, C-bend, head leads (its look-round is now the head, not the body) | none | none | none | none |
 | neon, cardinal, ember, guppy, betta, cory, oto, celestial pearl danio, tadpole; pygmy sunfish, clown loach (GLB, addRig) | fish | SDF (or GLB + addRig), vertex rig + **rig2 bend (new)** | body wave | swings round an arc (`steerLimit`), yaw rate capped (5 rad/s, 9 darting), C-bend from the yaw rate | none | body wave | none | none |
@@ -254,11 +254,52 @@ tank) and `tools/steps/frog-water.mjs` (time in the water, exits). A frog with a
 needs its own swimming scan and `SWIM_SKELETON` for a body true to its proportions; the red-eyed tree frog, which does not swim, has
 the shared body painted as itself (`redeye.swim`) to leap in.
 
+## Skulls and mandibles: the mouth rule (owner, 6 Oct 2026)
+
+The owner, with a labelled plate of an amphibian skull (dorsal, ventral, side, back and front views of the cranium, and the lower jaw's dentary, prearticular and
+articular): "skull and mandible should schematically and conceptually follow this to have some realism ... generalise the rule and approach for future mouths."
+It is the skeleton-first rule (the rule at the top of this file) applied to the head: **a mouth is built on a skull and a mandible, not cut into a smooth head.**
+
+The rule, for every animal with a mouth:
+- The animal gets a SKULL and a MANDIBLE first: schematic, but the real bones in their real places and relations, fitted inside its own head surface.
+- The **lip line is the tooth line**: premaxilla and maxilla above, dentary below, their tooth rows meeting on one surface (the lip surface).
+- The **jaw hinge is the quadrate-articular joint**, one each side, on one transverse axis: the jaw bone's pivot is that axis, nothing else.
+- The **lower jaw is one rigid piece of bones** (dentary, angular/prearticular, articular with its retroarticular process, the symphysis); it turns about the hinge.
+- The **roof of the mouth is the palate bones** (vomer, pterygoid, parasphenoid) and the **cavity is the space between that roof and the mandible's rami**.
+- The **eyes sit in the orbits** (open between prefrontal, frontal, squamosal and maxilla), the braincase (otic-occipital) is the back wall; no bone in an eyeball.
+- Every bone lies **inside the skin with a margin**, and so does the mouth's cavity (a red patch once came through the neck; it turned out to be a texture flip, but the check stays).
+- Muscles come next and attach to these bones (the depressor mandibulae to the retroarticular process, the adductors from the squamosal and parietal to the dentary), then skin.
+
+How (tools): `tools/rig/skull.mjs` holds the class plans as FRACTIONS (along the skull, across it, up it) so one plan fits every species of the class: `caudate`
+(salamanders and newts: fused premaxilla, nasals, prefrontals, paired frontals and parietals, a short maxilla ending under the orbit, squamosal-quadrate suspension, pterygoid,
+vomer with the tooth rows, no palatine, a stout hyobranchial skeleton) and `anuran` (the plate's own frog skull, listed, not fitted yet). `node tools/rig/skull.mjs <id> <head.glb>`
+measures the head (lip-level outline, roof and underside along the middle, despiked), fits the plan and writes `art-src/skull/<id>.skull.json` (cm, baked frame: bones as rods and
+ellipsoids, the hinge pair, tooth rows, the checks). `Blender -b -P tools/blender/skull.py -- <json> <head-without-mouth.glb> <prefix> --mouth <head-with-mouth.glb>` builds the
+meshes with the lower jaw on a pivot at the hinge, checks every bone against the skin (closest-point sign test), the eyeballs and the mouth cavity, writes the result back as
+`verified`, and renders x-rays (`python3 tools/skull-label.py` lays them out with the plate's codes: `docs/firesal-skull.jpg`). `tests/skull.test.mjs` keeps the plan complete
+(the plate's codes), the tooth rows on the lip surface, the hinge on one axis and equal to the mouth script's and the jaw bone's, and the Blender check green.
+For a NEW animal the order is: measure the head, fit the skull, check it in Blender, THEN cut the mouth from it (lip surface and hinge read from the skull JSON), then the
+muscles. (For the fire salamander the mouth was cut first from the scan's head, so the skull was fitted to its lip surface and hinge, and the test makes them agree.)
+
+Fire salamander (16 cm animal), 6 Oct: 30 bones in 15 kinds, skull 2.25 cm long and 1.68 cm wide at the quadrates (ratio 0.75; a broad salamander skull), the hinge on the
+lip surface 5.8 cm behind the middle of the length, 7 tooth rows (premaxilla and maxillae above, dentaries below, a row on each vomer), the hyobranchial rods under the
+floor. Blender check: all bones inside the skin (smallest margin 0.045 cm), none in the eyes, the 1,415 cavity vertices inside. The mouth was cut first, so the cavity was then FITTED to the
+skull (`skull.py --fit-cavity`, positions only): before, 16 roof and 52 floor vertices lay inside palate bones, rami or the hyoid (up to 0.36 cm); after, the roof follows the palate
+bones' underside where it runs under one (0.04 cm of mucosa), the hyoid sits lower, and 1 and 14 vertices graze a bone by at most 0.03 cm. The skin got a fine lip line (a groove
+along the lip surface in the normal map, tools/skin/firesal-skin.py). The proportions are SCHEMATIC (a guess to the plate and the literature, tagged in the JSON), not measured on a
+specimen; a CT of the species would replace them. The mouth is dressed on the skull (`skull.py --fit-cavity`, then `sh tools/rig/firesal-skin-chain.sh`): 113 tiny teeth (53 upper, 46 lower, 14 vomerine; 0.04-0.08 cm cones standing on
+the cavity sheets, new vertices carrying the weights of their own sheet so the lower teeth turn with the jaw), a trough in the floor and a tongue pad of its own (81 vertices, an
+ellipse on the floor), and a skin cover: gum pink at the tooth roots turning to ivory enamel (all teeth share one strip of the atlas), a pink-red palate, a darker floor, a paler tongue with
+papillae in the normal map. The low level of detail has no teeth. Open: the muscles are not attached to the bones, the hyoid does not drive the throat pump yet, the tongue does not project. Next animals: frogs (plate's anuran plan, maxillary teeth, no dentary teeth, a long
+maxilla to the quadratojugal), lizards (kinetic skulls: a mesokinetic hinge in the roof), fishes (the opercular series and the premaxillary protrusion).
+
+![the fire salamander's skull and mandible, schematic](firesal-skull.jpg)
+
 ## Phased plan
 
 1. **Done (this pass)**: body plans with joint limits and muscles; limits enforced at bake (`poseMatrices`) and at runtime
    (`limitRig`); turning by the legs about the pivot with the spine bending, for every walker and swimmer; probes and tests.
-2. **Skeletons for every vertebrate scan** (dart-frog scan and red-eye done; fire salamander, fish open): measure joints on each scan the way the red-eyed frog was (`.tmp-re/joints.mjs`,
+2. **Skeletons for every vertebrate scan** (dart-frog scan, red-eye and fire salamander done; fish open): measure joints on each scan the way the red-eyed frog was (`.tmp-re/joints.mjs`,
    posepreview), store them in the bake jobs, bind with `bindSkin`; bake the pose library from joint angles (sleep, swim, crouch,
    turn-lean, call) with `{ plan }` limits and `applyMuscles`, checked in the bench. No runtime cost.
 3. **Runtime skinning for the near LOD** (done for the dart-frog scan's frogs, 2026-10-04, above; the plan as written: bake bone ids/weights into the GLB as a per-vertex texture,
