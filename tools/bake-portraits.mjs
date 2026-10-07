@@ -25,7 +25,7 @@ const ids = await page.evaluate(async () => {
   const { PLANTS } = await import('/src/sim/plants.js');
   return { animal: Object.keys(SPECIES), plant: Object.keys(PLANTS) };
 });
-await page.evaluate(async () => { const m = await import('/src/sim/orchid-leaves.js'); await m.orchidMapsReady(); });   // (orchids2) an unloaded leaf map reads as transparent
+await page.evaluate(async () => { const m = await import('/src/sim/orchid-leaves.js'); await m.orchidMapsReady(); const q = await import('/src/sim/plant-leaves.js'); await q.plantMapsReady(); });   // (orchids2) an unloaded leaf map reads as transparent
 let n = 0;
 for (const kind of ['animal', 'plant']) {
   for (const id of ids[kind]) {

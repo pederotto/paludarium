@@ -3,10 +3,12 @@
 // game has), and which features make it recognisable. The Curator scores a
 // tank against its chosen biotope; commissions ask for them by name.
 
+import { SHOWCASE_BIOTOPES } from './presets-showcase.js';
+
 export const BIOTOPES = {
   newguinea: {
     id: 'newguinea', name: 'New Guinea stream bank', country: 'Papua New Guinea', level: 7,
-    animals: ['skink', 'purpleiso', 'isopod', 'springtail'], plants: ['fern', 'cattail', 'grass'],
+    animals: ['skink', 'purpleiso', 'isopod', 'springtail'], plants: ['fern', 'cattail', 'grass', 'pothos', 'nidus', 'sago', 'pandanus'],
     climate: { temp: [23, 28], humidity: [80, 98] },
     features: ['leaflitter', 'shallowpool', 'basking', 'uvb'],
     blurb: 'Humid lowland forest floor beside a creek: deep leaf litter, rotting logs and the roots of sago palms. The red-eyed crocodile skink lives here, hidden by day and out at dusk to hunt insects and worms along the water.',
@@ -15,7 +17,7 @@ export const BIOTOPES = {
   },
   madagascar: {
     id: 'madagascar', name: 'Madagascar reed marsh', country: 'Madagascar', level: 6,
-    animals: ['reedfrog', 'springtail', 'fly'], plants: ['cattail', 'bamboo', 'grass', 'lily'],
+    animals: ['reedfrog', 'springtail', 'fly', 'bedotia'], plants: ['cattail', 'bamboo', 'grass', 'lily', 'fern', 'vallisneria', 'aponogeton', 'pandanus'],
     climate: { temp: [24, 29], humidity: [70, 90] },
     features: ['deep', 'tall4'],
     blurb: 'Reeds and shrubs around marshes and paddies in southern and eastern Madagascar. Starry night reed frogs sit high on stems and leaves above the water by day and call in chorus from them in the rainy season.',
@@ -24,7 +26,7 @@ export const BIOTOPES = {
   },
   matano: {
     id: 'matano', name: 'Lake Matano shore', country: 'Indonesia', level: 7,
-    animals: ['panther', 'snail'], plants: ['vallisneria', 'grass'],
+    animals: ['panther', 'snail', 'matanoshrimp', 'tylomelania'], plants: ['vallisneria', 'grass', 'javafern', 'pothos'],
     climate: { temp: [24, 28], humidity: [70, 100] },
     features: ['deep', 'hardwater', 'stones', 'wood'],
     blurb: 'An ancient, very deep lake in the mountains of Sulawesi with clear, warm, alkaline water. Panther crabs live among the rocks and sunken wood of its shore, beside snails and shrimp found nowhere else.',
@@ -33,7 +35,7 @@ export const BIOTOPES = {
   },
   everglades: {
     id: 'everglades', name: 'Everglades swamp margin', country: 'United States', level: 5,
-    animals: ['pygmy', 'springtail', 'isopod'], plants: ['cattail', 'grass', 'fern', 'lily', 'fissidens'],
+    animals: ['pygmy', 'springtail', 'isopod'], plants: ['cattail', 'grass', 'fern', 'lily', 'fissidens', 'limnobium'],
     climate: { temp: [18, 26], humidity: [65, 95] },
     features: ['stillwater', 'shallowpool', 'moss15'],
     blurb: 'Weedy, still margins of the Florida swamps, thick with stems, floating plants and mats of vegetation. The Everglades pygmy sunfish hangs among the stems waiting for tiny crustaceans to drift by.',
@@ -42,7 +44,7 @@ export const BIOTOPES = {
   },
   suriname: {
     id: 'suriname', name: 'Suriname forest island', country: 'Suriname', level: 4,
-    animals: ['dartfrog', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'guzmania', 'fern', 'grass', 'monstera'],
+    animals: ['dartfrog', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'guzmania', 'fern', 'grass', 'monstera', 'tillandsia'],
     climate: { temp: [23, 28], humidity: [80, 97] },
     features: ['bromeliad2', 'leaflitter', 'shallowpool'],
     blurb: 'Islands of forest in open savanna. Days are warm and humid, nights cooler, and there is a clear wet and dry season. The blue poison frog lives among the roots and leaf litter of these islands and its tadpoles grow in bromeliad cups.',
@@ -51,7 +53,7 @@ export const BIOTOPES = {
   },
   bocas: {
     id: 'bocas', name: 'Bocas del Toro lowland forest', country: 'Panama', level: 5,
-    animals: ['strawberry', 'springtail', 'isopod', 'fly'], plants: ['guzmania', 'bromeliad', 'columnea', 'pleurothallis', 'lepanthes', 'fern', 'grass', 'monstera'],
+    animals: ['strawberry', 'springtail', 'isopod', 'fly'], plants: ['guzmania', 'bromeliad', 'columnea', 'pleurothallis', 'lepanthes', 'fern', 'grass', 'monstera', 'tillandsia'],
     climate: { temp: [24, 29], humidity: [85, 100] },
     features: ['bromeliad3', 'moss15', 'stream'],
     blurb: 'Rain falls on more than 200 days a year on the Caribbean coast of Panama. Strawberry poison frogs live in leaf litter and low bromeliads. Each island has its own colour, from red with blue legs to green, orange and white.',
@@ -69,7 +71,7 @@ export const BIOTOPES = {
   },
   korea: {
     id: 'korea', name: 'Korean mountain stream', country: 'South Korea', level: 6,
-    animals: ['toad', 'shrimp', 'springtail', 'isopod', 'fly'], plants: ['fernph', 'grass', 'vallisneria'],
+    animals: ['toad', 'shrimp', 'springtail', 'isopod', 'fly', 'zacco'], plants: ['fernph', 'grass', 'vallisneria', 'cattail', 'javamoss', 'miscanthus'],
     climate: { temp: [16, 24], humidity: [60, 90] },
     features: ['stream', 'shallowpool', 'moss15'],
     blurb: 'Cool hills with slow streams and rice paddies. The fire-bellied toad lives in ponds and stream margins where the water is shallow and the temperature rarely rises above the low twenties.',
@@ -78,7 +80,7 @@ export const BIOTOPES = {
   },
   china: {
     id: 'china', name: 'Chinese mountain torrent', country: 'China', level: 7,
-    animals: ['newt', 'shrimp', 'springtail', 'isopod'], plants: ['javafern', 'fernph', 'fern', 'grass', 'vallisneria', 'pothos', 'javamoss'],
+    animals: ['newt', 'shrimp', 'springtail', 'isopod', 'tanichthys', 'hillloach'], plants: ['javafern', 'fernph', 'fern', 'grass', 'vallisneria', 'pothos', 'javamoss', 'cattail', 'bamboo', 'crypt', 'nidus', 'miscanthus'],
     climate: { temp: [14, 23], humidity: [70, 95] },
     features: ['falls', 'oxygen', 'stones'],
     blurb: 'Cool, shaded, fast streams under mixed forest. The paddle-tailed newt clings to the bottom under stones in fast, well-oxygenated water.',
@@ -87,7 +89,7 @@ export const BIOTOPES = {
   },
   java: {
     id: 'java', name: 'Javan stream bank', country: 'Indonesia', level: 5,
-    animals: ['crab', 'isopod', 'springtail'], plants: ['fern', 'cattail', 'grass', 'javamoss'],
+    animals: ['crab', 'isopod', 'springtail'], plants: ['fern', 'cattail', 'grass', 'javamoss', 'pothos', 'javafern', 'vallisneria', 'bamboo', 'nidus'],
     climate: { temp: [24, 29], humidity: [80, 98] },
     features: ['shallowpool', 'moss15', 'stones'],
     blurb: 'On the forest floor of Java, small streams run over volcanic rock. Vampire crabs live on the banks: half on land, half in water, and breed on land.',
@@ -96,7 +98,7 @@ export const BIOTOPES = {
   },
   xochimilco: {
     id: 'xochimilco', name: 'Xochimilco canals', country: 'Mexico', level: 8,
-    animals: ['axolotl'], plants: ['vallisneria', 'frogbit', 'lily', 'grass'],
+    animals: ['axolotl', 'cambarellus'], plants: ['vallisneria', 'frogbit', 'lily', 'grass', 'cattail'],
     climate: { temp: [14, 20], humidity: [50, 95] },
     features: ['deep', 'cycled', 'cool'],
     blurb: 'A network of canals in the south of Mexico City: the last home of the axolotl. Cool, shallow water beside floating gardens, at 2,200 metres above sea level.',
@@ -105,7 +107,7 @@ export const BIOTOPES = {
   },
   pacific: {
     id: 'pacific', name: 'Pacific palm grove', country: 'Fiji', level: 5,
-    animals: ['gecko', 'fly', 'springtail', 'isopod'], plants: ['cattail', 'grass', 'fern'],
+    animals: ['gecko', 'fly', 'springtail', 'isopod'], plants: ['cattail', 'grass', 'fern', 'pothos', 'nidus'],
     climate: { temp: [23, 30], humidity: [55, 85] },
     features: ['tall4', 'basking'],
     blurb: 'On Pacific islands mourning geckos live in palms, on walls and roofs, and hunt around lamps at night. They favour warm, humid but airy places, with plenty to climb.',
@@ -115,7 +117,7 @@ export const BIOTOPES = {
   // N15 batch 2: places of the new premade sets (not in BIOTOPE_ORDER, so commissions are unchanged).
   costarica: {
     id: 'costarica', name: 'Tortuguero lowland rainforest', country: 'Costa Rica', level: 5,
-    animals: ['redeye', 'springtail', 'isopod', 'fly'], plants: ['monstera', 'columnea', 'guzmania', 'tillandsia', 'bromeliad', 'fern', 'grass', 'frogbit', 'sword'],
+    animals: ['redeye', 'springtail', 'isopod', 'fly'], plants: ['monstera', 'columnea', 'guzmania', 'tillandsia', 'bromeliad', 'fern', 'grass', 'frogbit', 'sword', 'heliconia'],
     climate: { temp: [24, 28], humidity: [80, 90] },
     features: ['deep', 'tall4', 'bromeliad2'],
     blurb: 'Wet lowland forest on the Caribbean coast of Costa Rica, cut by canals and pools. Red-eyed tree frogs sleep by day on the underside of leaves and lay their eggs on leaves over the water.',
@@ -133,7 +135,7 @@ export const BIOTOPES = {
   },
   bolivar: {
     id: 'bolivar', name: 'Guiana Shield boulder forest', country: 'Venezuela', level: 5,
-    animals: ['leucomelas', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'guzmania', 'fern', 'grass'],
+    animals: ['leucomelas', 'springtail', 'isopod', 'fly'], plants: ['bromeliad', 'guzmania', 'fern', 'grass', 'tillandsia'],
     climate: { temp: [22, 27], humidity: [70, 95] },
     features: ['leaflitter', 'stones'],
     blurb: 'Forest among granite boulders on the Guiana Shield of southern Venezuela, with a wet and a dry season. The yellow-banded poison frog is active in the open and rests in moist crevices in the dry months.',
@@ -142,7 +144,7 @@ export const BIOTOPES = {
   },
   cordoba: {
     id: 'cordoba', name: 'Sierras de Córdoba grassland', country: 'Argentina', level: 5,
-    animals: ['bumblebee', 'springtail', 'isopod'], plants: ['grass'],
+    animals: ['bumblebee', 'springtail', 'isopod'], plants: ['grass', 'bromeliad', 'tillandsia', 'fern', 'tussock'],
     climate: { temp: [20, 24], humidity: [60, 85] },
     features: ['shallowpool', 'stones'],
     blurb: 'Rocky grassland in the hills of central Argentina, with warm rainy summers and cool dry winters. The bumblebee toad walks rather than hops among the tussocks and breeds in rain pools.',
@@ -151,7 +153,7 @@ export const BIOTOPES = {
   },
   teutoburg: {
     id: 'teutoburg', name: 'Central European beech wood', country: 'Germany', level: 5,
-    animals: ['firesal', 'springtail', 'isopod'], plants: ['fernph', 'weed', 'bilberry', 'grass'],
+    animals: ['firesal', 'springtail', 'isopod'], plants: ['fernph', 'weed', 'bilberry', 'grass', 'hartstongue'],
     climate: { temp: [12, 18], humidity: [75, 95] },
     features: ['leaflitter', 'cool', 'stream'],
     blurb: 'Old beech woods with springs and small streams, cool and damp all year. The fire salamander hides under logs and leaves by day and comes out on rainy nights; females put their larvae into clear springs.',
@@ -169,7 +171,7 @@ export const BIOTOPES = {
   },
   sumatra: {
     id: 'sumatra', name: 'Sumatran lowland river', country: 'Indonesia', level: 5,
-    animals: ['loach'], plants: ['javafern', 'javamoss', 'fern', 'grass'],
+    animals: ['loach'], plants: ['javafern', 'javamoss', 'fern', 'grass', 'pothos', 'rotala', 'vallisneria', 'crypt'],
     climate: { temp: [24, 30], humidity: [70, 100] },
     features: ['deep', 'wood', 'oxygen'],
     blurb: 'Large lowland rivers of Sumatra and Borneo, brown with silt in the rains. Clown loaches live in groups among roots and sunken wood and move into flooded areas to spawn.',
@@ -178,7 +180,7 @@ export const BIOTOPES = {
   },
   thai: {
     id: 'thai', name: 'Central Thai klong', country: 'Thailand', level: 5,
-    animals: ['betta'], plants: ['lily', 'cattail', 'rotala', 'grass', 'javafern', 'fern'],
+    animals: ['betta'], plants: ['lily', 'cattail', 'rotala', 'grass', 'javafern', 'fern', 'pothos', 'vallisneria', 'javamoss', 'crypt'],
     climate: { temp: [24, 30], humidity: [70, 90] },
     features: ['stillwater', 'deep'],
     blurb: 'Canals, marshes and paddies of the central plain of Thailand: shallow, warm, still and thick with plants. Wild bettas live at the edges and breathe air at the surface.',
@@ -187,7 +189,7 @@ export const BIOTOPES = {
   },
   shan: {
     id: 'shan', name: 'Shan Plateau spring pond', country: 'Myanmar', level: 5,
-    animals: ['cpd'], plants: ['grass', 'rotala'],
+    animals: ['cpd'], plants: ['grass', 'rotala', 'javamoss', 'vallisneria', 'crypt'],
     climate: { temp: [22, 26], humidity: [60, 90] },
     features: ['stillwater', 'cycled'],
     blurb: 'Small, shallow spring-fed ponds on the Shan Plateau about 1,000 m up, thick with grass and stems. The celestial pearl danio was described only in 2007.',
@@ -196,7 +198,7 @@ export const BIOTOPES = {
   },
   taiwan: {
     id: 'taiwan', name: 'Taiwan hill stream', country: 'Taiwan', level: 5,
-    animals: ['blueshrimp', 'shrimp', 'springtail', 'isopod'], plants: ['javafern', 'javamoss', 'fern', 'grass', 'pothos', 'vallisneria'],
+    animals: ['blueshrimp', 'shrimp', 'springtail', 'isopod'], plants: ['javafern', 'javamoss', 'fern', 'grass', 'pothos', 'vallisneria', 'nidus', 'miscanthus', 'crypt'],
     climate: { temp: [18, 26], humidity: [70, 95] },
     features: ['stream', 'stones', 'moss15'],
     blurb: 'Streams and lakes in the hills of Taiwan, home of the wild Neocaridina shrimp from which cherry and blue dream shrimp were bred. Wild ones are brown and clear.',
@@ -214,7 +216,7 @@ export const BIOTOPES = {
   },
   araguaia: {
     id: 'araguaia', name: 'Araguaia basin backwater', country: 'Brazil', level: 5,
-    animals: ['ember'], plants: ['sword', 'frogbit', 'lily', 'grass'],
+    animals: ['ember'], plants: ['sword', 'frogbit', 'lily', 'grass', 'vallisneria', 'fern'],
     climate: { temp: [23, 29], humidity: [65, 95] },
     features: ['stillwater', 'deep'],
     blurb: 'Warm, still backwaters of the Rio das Mortes in the Araguaia basin of central Brazil, rich in plants. The ember tetra lives here in schools.',
@@ -223,7 +225,7 @@ export const BIOTOPES = {
   },
   trinidad: {
     id: 'trinidad', name: 'Trinidad hill stream', country: 'Trinidad and Tobago', level: 5,
-    animals: ['guppy', 'springtail', 'isopod'], plants: ['grass', 'fern', 'bromeliad', 'guzmania'],
+    animals: ['guppy', 'springtail', 'isopod'], plants: ['grass', 'fern', 'bromeliad', 'guzmania', 'monstera', 'tillandsia', 'heliconia'],
     climate: { temp: [22, 28], humidity: [70, 95] },
     features: ['stream', 'stones'],
     blurb: 'Clear streams of the Northern Range of Trinidad, where waterfalls divide them into stretches with and without big predators. Guppies here are a classic case of evolution in the wild.',
@@ -232,7 +234,7 @@ export const BIOTOPES = {
   },
   tapajos: {
     id: 'tapajos', name: 'Tapajós clear-water sandbank', country: 'Brazil', level: 5,
-    animals: ['cory'], plants: ['sword', 'vallisneria', 'grass', 'fern'],
+    animals: ['cory'], plants: ['sword', 'vallisneria', 'grass', 'fern', 'frogbit'],
     climate: { temp: [24, 29], humidity: [65, 95] },
     features: ['wood', 'deep', 'cycled'],
     blurb: 'The Rio Tapajós carries clear, blue-green water over white sand. In the dry season wide sandbanks appear, and corydoras sift the sand at their edges for worms and insect larvae.',
@@ -241,7 +243,7 @@ export const BIOTOPES = {
   },
   mataatlantica: {
     id: 'mataatlantica', name: 'Atlantic rainforest creek', country: 'Brazil', level: 5,
-    animals: ['oto'], plants: ['sword', 'sinningia', 'neoregelia', 'fern', 'grass'],
+    animals: ['oto'], plants: ['sword', 'sinningia', 'neoregelia', 'fern', 'grass', 'tillandsia', 'columnea'],
     climate: { temp: [22, 27], humidity: [75, 100] },
     features: ['stream', 'bromeliad2'],
     blurb: 'The Atlantic rainforest along the coast of south-eastern Brazil, much of it cleared, is rich in species found nowhere else. Otocinclus graze algae off leaves and wood in its small creeks.',
@@ -250,7 +252,7 @@ export const BIOTOPES = {
   },
   kerala: {
     id: 'kerala', name: 'Kerala paddy pool', country: 'India', level: 5,
-    animals: ['snail'], plants: ['rotala', 'lily', 'grass'],
+    animals: ['snail'], plants: ['rotala', 'lily', 'grass', 'cattail', 'vallisneria', 'crypt'],
     climate: { temp: [22, 30], humidity: [70, 95] },
     features: ['stillwater', 'shallowpool'],
     blurb: 'Paddies and pools on the red laterite soils of Kerala fill with the monsoon. The trumpet snail is native here and burrows in the mud by day.',
@@ -259,7 +261,7 @@ export const BIOTOPES = {
   },
   thaicave: {
     id: 'thaicave', name: 'Thai limestone cave mouth', country: 'Thailand', level: 5,
-    animals: ['pandaking', 'springsea'], plants: ['javamoss', 'javafern', 'fern'],
+    animals: ['pandaking', 'springsea'], plants: ['javamoss', 'javafern', 'fern', 'pothos', 'nidus'],
     climate: { temp: [24, 28], humidity: [80, 95] },
     features: ['stones', 'moss15', 'shallowpool'],
     blurb: 'Tower karst covers much of southern Thailand. At cave mouths, seeps keep the rock wet and mossy, and many isopods found nowhere else live in the leaf litter and on the limestone.',
@@ -268,7 +270,7 @@ export const BIOTOPES = {
   },
   litterjar: {
     id: 'litterjar', name: 'Forest-floor litter (hobby cultures)', country: 'origin not verified', level: 5,
-    animals: ['purpleiso', 'springpink'], plants: ['fern', 'grass', 'javamoss'],
+    animals: ['purpleiso', 'springpink', 'isopod', 'springtail'], plants: ['fern', 'grass', 'javamoss'],
     climate: { temp: [22, 26], humidity: [85, 100] },
     features: ['leaflitter'],
     blurb: 'A crew culture: the wild origin of these isopods and springtails is not known. They live in damp litter and break down dead plant matter.',
@@ -276,5 +278,7 @@ export const BIOTOPES = {
     hint: 'Damp litter, rotting wood and moss.',
   },
 };
+
+Object.assign(BIOTOPES, SHOWCASE_BIOTOPES);   // run "sets": the canyon's and the highland's real places
 
 export const BIOTOPE_ORDER = ['suriname', 'blackwater', 'bocas', 'java', 'pacific', 'korea', 'china', 'xochimilco'];

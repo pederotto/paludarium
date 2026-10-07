@@ -6,6 +6,7 @@ import * as THREE from 'three/webgpu';
 import { Builder, PRIM } from '../render/geo.js';
 import { rng, lerp, clamp } from '../util/math.js';
 import { plantMaterial } from '../render/shaders.js';
+import { plantLeafMap, hartstongueEnv, plantMaps } from './plant-leaves.js';
 import { MAT, TANK } from './tank.js';
 import { plantFit } from './placement.js';
 import { waterCondition, emergentBoost } from './plantpond.js';
@@ -386,6 +387,275 @@ export const PLANTS = {
     material: { amp: 0.2, underwaterAmp: 1.0, speed: 0.7, veins: { kind: 'pinnate', n: 9, slope: 1.3, rib: 0.07, k: 1.2 } },
   },
   // ---- From the keeper's care sheets (2026-10) ----
+  // ---- Run "sets": plants the premade sets lacked (procedural leaf builders, no scan) ----
+  nidus: {
+    name: "Bird's-nest fern", habitat: 'land', humidity: [55, 100], light: 0.3, size: 16,
+    note: 'Asplenium nidus: a rosette of broad, wavy, undivided fronds round a dark brown nest. Tropical forest floor, rocks and tree forks; needs warm, humid air.',
+    build() {
+      const b = new Builder();
+      const r = rng(61);
+      const strap = (wav, ph) => (t) => 0.5 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.02 + t * 0.98)), 0.5) * (t < 0.15 ? 0.45 + t * 3.6 : 1) * (1 - 0.22 * t) * (1 + 0.07 * Math.sin(t * wav * 6.28 + ph));
+      // The nest: a crinkled brown crown of old stalk bases and unrolling fiddleheads.
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + r() * 0.5;
+        const top = V(Math.cos(a) * 0.35, 1.3 + r() * 0.9, Math.sin(a) * 0.35);
+        b.ribbon([V(Math.cos(a) * 0.15, 0, Math.sin(a) * 0.15), top], [0.35, 0.12], V(-Math.sin(a), 0, Math.cos(a)), { color: 0x3a2814 });
+      }
+      const N = 14;
+      for (let k = 0; k < N; k++) {
+        const age = k / (N - 1);                                  // 0 the youngest (upright, middle) … 1 the oldest (outside, low)
+        const a = k * 2.399 + r() * 0.25;
+        const out = 0.35 + age * 0.95, up = 1.05 - age * 0.55;
+        const dir = V(Math.cos(a) * out, up, Math.sin(a) * out).normalize();
+        const len = (6.5 + age * 6.5) * (0.85 + r() * 0.3), base = V(Math.cos(a) * 0.2, 0.2, Math.sin(a) * 0.2);
+        const g = 0.85 + r() * 0.25;
+        shapedLeaf(b, { base, dir, len, width: 2.2 + age * 1.1 + r() * 0.3, droop: 0.12 + age * 0.4, outline: strap(2 + Math.floor(r() * 3), r() * 6), color: new THREE.Color(0x4a7a0c).multiplyScalar(g), tip: new THREE.Color(0xa4be5a).multiplyScalar(g), rib: 0x1a2008, n: 16, cup: 0.18 });
+      }
+      return b.build();
+    },
+    material: { amp: 0.2, speed: 0.7, rough: 0.8, wax: [0.38, 0.82, 0.42], ...plantMaps('nidus'), leafPale: [0.5, 0.62, 0.3], leafBack: [1.0, 0.95, 0.8] },
+  },
+  crypt: {
+    name: 'Cryptocoryne', habitat: 'aquatic', light: 0.25, nutrients: 0.8, size: 10,
+    note: 'Cryptocoryne wendtii: a low bunch of crinkled, bronze-green leaves on stalks. Slow, shade-tolerant, for streams and the aquarium floor; it melts when the water changes suddenly.',
+    build() {
+      const b = new Builder();
+      const r = rng(73);
+      const oval = (wav, ph) => (t) => 0.5 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.04 + t * 0.96)), 0.8) * (1 - 0.2 * t) * (1 + 0.14 * Math.sin(t * wav * 6.28 + ph));
+      const N = 13;
+      for (let k = 0; k < N; k++) {
+        const age = k / (N - 1);
+        const a = k * 2.399 + r() * 0.3;
+        const out = 0.22 + age * 0.75, up = 1.0 - age * 0.3;
+        const dir = V(Math.cos(a) * out, up, Math.sin(a) * out).normalize();
+        const stalk = (1.8 + age * 2.4) * (0.85 + r() * 0.3);
+        const p0 = V(Math.cos(a) * 0.12, 0, Math.sin(a) * 0.12), p1 = p0.clone().addScaledVector(dir, stalk);
+        b.ribbon([p0, p0.clone().lerp(p1, 0.5), p1], [0.14, 0.11, 0.09], V(-Math.sin(a), 0, Math.cos(a)), { color: 0x5a4a2c });
+        const dark = 0.85 + r() * 0.3;
+        shapedLeaf(b, { base: p1, dir: V(dir.x, dir.y * 0.7, dir.z), len: (3.6 + age * 2.6) * (0.85 + r() * 0.3), width: 1.3 + age * 0.4 + r() * 0.2, droop: 0.2 + age * 0.25, outline: oval(4 + Math.floor(r() * 3), r() * 6), color: new THREE.Color(0x5a301b).multiplyScalar(dark), tip: new THREE.Color(0x7c4a34).multiplyScalar(dark), rib: 0x3d2416, n: 16, cup: 0.12 });
+      }
+      return b.build();
+    },
+    material: { amp: 0.25, underwaterAmp: 1.0, speed: 0.8, rough: 0.85, wax: [0.5, 0.85, 0.5], ...plantMaps('crypt'), leafPale: [0.55, 0.3, 0.2], leafBack: [1.5, 1.55, 1.6] },
+  },
+  hartstongue: {
+    name: "Hart's-tongue fern", habitat: 'land', humidity: [60, 100], light: 0.25, size: 14,
+    note: "Asplenium scolopendrium: an evergreen rosette of glossy, undivided, strap-shaped fronds with a heart-shaped base. Cool, damp, shady rock and stream banks of Europe; likes lime.",
+    build() {
+      const b = new Builder();
+      const r = rng(83);
+      const tongue = (t) => 0.5 * (t < 0.1 ? 0.55 + t * 3.2 : 1) * Math.pow(Math.sin(Math.PI * Math.min(1, 0.04 + t * 0.96)), 0.35) * (1 - 0.28 * t) * (1 + 0.05 * Math.sin(t * 17));
+      const N = 12;
+      for (let k = 0; k < N; k++) {
+        const age = k / (N - 1);
+        const a = k * 2.399 + r() * 0.3;
+        const out = 0.3 + age * 0.85, up = 1.0 - age * 0.45;
+        const dir = V(Math.cos(a) * out, up, Math.sin(a) * out).normalize();
+        const p0 = V(Math.cos(a) * 0.15, 0, Math.sin(a) * 0.15), p1 = p0.clone().addScaledVector(dir, 1.2 + age * 1.2);
+        b.ribbon([p0, p1], [0.2, 0.15], V(-Math.sin(a), 0, Math.cos(a)), { color: 0x4a3a1c });
+        const g = 0.85 + r() * 0.3;
+        shapedLeaf(b, { base: p1, dir, len: (6 + age * 5.5) * (0.85 + r() * 0.3), width: 1.5 + age * 0.5 + r() * 0.2, droop: 0.15 + age * 0.45, outline: hartstongueEnv, color: new THREE.Color(0x2f4c0a).multiplyScalar(g), tip: new THREE.Color(0x6b9622).multiplyScalar(g), rib: 0xb8cf7a, n: 16, cup: 0.12 });
+      }
+      return b.build();
+    },
+    // Textured fronds (S3 pilot): painted maps in public/assets/plants (art-src/plants/hartstongue_bake.py): leaf (veins, pale midrib, sori on the
+    // underside, true outline as alpha), relief (midrib groove, vein ridges), tint (the owner's reference leaf, resampled), waxy gloss.
+    material: { amp: 0.18, speed: 0.7, rough: 0.8, wax: [0.36, 0.82, 0.42], leafMap: plantLeafMap('hartstongue', 'leaf'), leafHue: plantLeafMap('hartstongue', 'tint'), leafRelief: plantLeafMap('hartstongue', 'relief'),
+      leafPale: [0.62, 0.78, 0.42], leafBack: [1.0, 0.9, 0.72] },
+  },
+  miscanthus: {
+    name: 'Silvergrass', habitat: 'land|emergent', humidity: [30, 100], light: 0.7, size: 16,
+    note: 'Miscanthus sinensis: a tall clump of arching, white-midribbed blades with silver plumes. Sunny stream banks and slopes of China, Taiwan and Japan.',
+    build() {
+      const b = new Builder();
+      const r = rng(97);
+      for (let k = 0; k < 34; k++) {
+        const a = r() * Math.PI * 2, rad = r() * 0.9, tall = r();
+        blade(b, { dir: V(Math.cos(a) * (0.35 + 0.5 * r()), 1, Math.sin(a) * (0.35 + 0.5 * r())), len: 10 + tall * 7, width: 0.6 + r() * 0.25, droop: 0.6 + r() * 0.5, segs: 6, color: new THREE.Color(0x5a4a1c).multiplyScalar(0.8 + r() * 0.3), tip: 0x97855e, base: V(Math.cos(a) * rad, 0, Math.sin(a) * rad), twist: (r() - 0.5) * 0.8 });
+      }
+      // Plumes: a thin stem and a fan of silver, feathery spikelets.
+      for (let k = 0; k < 5; k++) {
+        const a = r() * Math.PI * 2, rad = 0.2 + r() * 0.6, h = 17 + r() * 4;
+        const x = Math.cos(a) * rad, z = Math.sin(a) * rad, lean = V((r() - 0.5) * 6, 0, (r() - 0.5) * 6);
+        const top = V(x + lean.x, h, z + lean.z), mid = V(x + lean.x * 0.4, h * 0.55, z + lean.z * 0.4);
+        b.ribbon([V(x, 0, z), mid, top], [0.14, 0.1, 0.07], V(1, 0, 0), { color: 0x9a9a58 });
+        b.ribbon([V(x, 0, z), mid, top], [0.14, 0.1, 0.07], V(0, 0, 1), { color: 0x9a9a58 });
+        for (let q = 0; q < 8; q++) {
+          const qa = (q / 8) * Math.PI * 2, sp = 0.5 + r() * 0.5;
+          const tip = top.clone().add(V(Math.cos(qa) * sp, 2.4 + r() * 1.0, Math.sin(qa) * sp));
+          const pale = new THREE.Color(0xc9c0a4).multiplyScalar(0.85 + r() * 0.2);
+          b.ribbon([top.clone(), top.clone().lerp(tip, 0.55).add(V(0, 0.2, 0)), tip], [0.2, 0.17, 0.05], V(Math.cos(qa + 1.57), 0, Math.sin(qa + 1.57)), { color: pale });
+        }
+      }
+      return b.build();
+    },
+    material: { amp: 0.4, speed: 0.9 },
+  },
+  heliconia: {
+    name: 'Lobster-claw', habitat: 'land', humidity: [60, 100], light: 0.5, size: 22,
+    note: 'Heliconia rostrata: banana-like paddle leaves and hanging chains of boat-shaped red bracts tipped yellow and green. Rainforest margins and clearings; needs warm, humid air.',
+    build() {
+      const b = new Builder();
+      const r = rng(103);
+      const paddle = (t) => 0.5 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.03 + t * 0.97)), 0.6) * (1 - 0.18 * t);
+      for (let s = 0; s < 4; s++) {
+        const a0 = s * 1.7 + r(), cx = Math.cos(a0) * 0.9, cz = Math.sin(a0) * 0.9, hh = 9 + r() * 4;
+        b.ribbon([V(cx, 0, cz), V(cx, hh * 0.5, cz), V(cx, hh, cz)], [0.34, 0.26, 0.2], V(1, 0, 0), { color: 0x8a9a3e });
+        b.ribbon([V(cx, 0, cz), V(cx, hh * 0.5, cz), V(cx, hh, cz)], [0.34, 0.26, 0.2], V(0, 0, 1), { color: 0x7a8a36 });
+        for (let k = 0; k < 4; k++) {
+          const a = a0 + k * 1.57 + r() * 0.4, dir = V(Math.cos(a) * 0.8, 0.55 + r() * 0.3, Math.sin(a) * 0.8).normalize();
+          const g = 0.85 + r() * 0.25, h = (hh * (0.55 + k * 0.1));
+          shapedLeaf(b, { base: V(cx, Math.min(h, hh), cz), dir, len: 6.5 + r() * 2.5, width: 2.6 + r() * 0.6, droop: 0.35 + r() * 0.25, outline: paddle, color: new THREE.Color(0x2c3618).multiplyScalar(g * 1.3), tip: new THREE.Color(0x686e31).multiplyScalar(g), rib: 0xb8c868, n: 14, cup: 0.12 });
+        }
+      }
+      // One inflorescence: a zig-zag chain of boat-shaped bracts (red, yellow tip) hanging from a stalk.
+      const top = V(0.4, 15, 0.2), n = 6;
+      b.ribbon([V(0.3, 9, 0.2), V(0.5, 13, 0.3), top], [0.12, 0.1, 0.08], V(1, 0, 0), { color: 0xe0306a });
+      for (let k = 0; k < n; k++) {
+        const f = k / (n - 1), side = k % 2 ? 1 : -1, y = 14.6 - k * 1.4;
+        const bract = (t) => 0.5 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + t * 0.9)), 0.8) * (1 - 0.1 * t);
+        shapedLeaf(b, { base: V(0.4 + side * 0.15 + f * 0.9, y, 0.2 + f * 0.4), dir: V(side * 0.9, -0.3, 0.2), len: 2.8 - f * 0.5, width: 1.2 - f * 0.2, droop: 0.4, outline: bract, color: 0xe0206a, tip: k % 2 ? 0xa8b040 : 0xc8a830, rib: 0xb41139, n: 10, cup: 0.4 });
+      }
+      return b.build();
+    },
+    material: { amp: 0.25, speed: 0.8 },
+  },
+  aponogeton: {
+    name: 'Lace plant', habitat: 'aquatic', light: 0.35, nutrients: 0.7, size: 10,
+    note: 'Aponogeton madagascariensis: leaves that are nearly all open lattice, like green lace. Clear, flowing, soft water of Madagascar; a rest period in winter.',
+    build() {
+      const b = new Builder();
+      const r = rng(113);
+      const blade2 = (t) => 0.5 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + t * 0.95)), 0.7) * (1 - 0.1 * t);
+      const N = 8;
+      for (let k = 0; k < N; k++) {
+        const age = k / (N - 1), a = k * 2.399 + r() * 0.3;
+        const dir = V(Math.cos(a) * (0.3 + age * 0.7), 1 - age * 0.3, Math.sin(a) * (0.3 + age * 0.7)).normalize();
+        const stalk = 2 + age * 2.2, p0 = V(Math.cos(a) * 0.1, 0, Math.sin(a) * 0.1), p1 = p0.clone().addScaledVector(dir, stalk);
+        b.ribbon([p0, p1], [0.12, 0.09], V(-Math.sin(a), 0, Math.cos(a)), { color: 0x327654 });
+        const holes = [];
+        for (let i = 0; i < 8; i++) for (let j = -2; j <= 2; j++) holes.push([0.16 + i * 0.095 + (j % 2 ? 0.04 : 0), j * 0.17, 0.065, 0.1]);
+        const g = 0.85 + r() * 0.3;
+        shapedLeaf(b, { base: p1, dir: V(dir.x, dir.y * 0.5, dir.z), len: 5 + age * 3.5, width: 1.7 + r() * 0.3, droop: 0.18 + age * 0.2, outline: blade2, color: new THREE.Color(0x1f5d39).multiplyScalar(g), tip: new THREE.Color(0x4a9a80).multiplyScalar(g), rib: 0x5dac9a, n: 14, cup: 0.05 });
+      }
+      return b.build();
+    },
+    // the lace is the leaf map's alpha (a lattice of bars; art-src/plants/leafbake.py aponogeton), not geometry holes
+    material: { amp: 0.3, underwaterAmp: 1.2, speed: 0.8, rough: 0.7, ...plantMaps('aponogeton'), leafPale: [0.4, 0.62, 0.5], leafBack: [1.0, 1.0, 1.0] },
+  },
+  pandanus: {
+    name: 'Screw pine', habitat: 'land', humidity: [50, 100], light: 0.6, size: 20,
+    note: 'Pandanus (Madagascar screw pine): a spiral of long, stiff, saw-edged blades on a short trunk held up by prop roots. Coasts, river banks and humid forest; likes sun and warmth.',
+    build() {
+      const b = new Builder();
+      const r = rng(127);
+      b.ribbon([V(0, 0, 0), V(0, 3, 0), V(0, 6.4, 0)], [0.7, 0.55, 0.45], V(1, 0, 0), { color: 0x6a5a38 });
+      b.ribbon([V(0, 0, 0), V(0, 3, 0), V(0, 6.4, 0)], [0.7, 0.55, 0.45], V(0, 0, 1), { color: 0x5e4e30 });
+      for (let k = 0; k < 6; k++) {
+        const a = k * 1.05 + r() * 0.4;
+        b.ribbon([V(Math.cos(a) * 0.4, 5, Math.sin(a) * 0.4), V(Math.cos(a) * 1.8, 2.4, Math.sin(a) * 1.8), V(Math.cos(a) * 2.6, 0, Math.sin(a) * 2.6)], [0.18, 0.14, 0.1], V(-Math.sin(a), 0, Math.cos(a)), { color: 0x8a7a64, sway: () => 0 });
+      }
+      for (let k = 0; k < 26; k++) {
+        const age = k / 25, a = k * 2.399, up = 1.2 - age * 1.0;
+        blade(b, { dir: V(Math.cos(a), up, Math.sin(a)), len: 8 + (1 - age) * 3 + r() * 2, width: 0.55 + r() * 0.15, droop: 0.5 + age * 0.9, segs: 6, color: new THREE.Color(0x283511).multiplyScalar(1.4 + r() * 0.4), tip: 0x9ba87f, base: V(0, 6.2 + (1 - age) * 0.4, 0), twist: 0.6 });
+      }
+      return b.build();
+    },
+    material: { amp: 0.2, speed: 0.8 },
+  },
+  limnobium: {
+    name: 'Spongeplant', habitat: 'floating', light: 0.5, nutrients: 0.8, size: 4,
+    note: 'Limnobium spongia: a floating rosette of heart-shaped leaves with a spongy, air-filled underside and long dangling roots. Still and slow water of the Everglades and the south-east United States.',
+    build() {
+      const b = new Builder();
+      const r = rng(131);
+      for (let k = 0; k < 6; k++) {
+        const a = r() * Math.PI * 2, rr = 0.3 + r() * 2.4, s = 1.1 + r() * 0.6;
+        b.add(new THREE.CircleGeometry(1, 20), { p: [Math.cos(a) * rr, 0.07 + r() * 0.03, Math.sin(a) * rr], r: [-Math.PI / 2 + (r() - 0.5) * 0.7, (r() - 0.5) * 0.7, r() * 6], s: [s, s * 1.05, 1], color: r() > 0.5 ? 0x689513 : 0x9bc31f, sway: 0.4, j: 0.1,
+          leaf: (lv) => [Math.atan2(lv.y, lv.x) / Math.PI * 0.7, Math.min(1, Math.hypot(lv.x, lv.y))] });
+        b.ribbon([V(Math.cos(a) * rr, 0, Math.sin(a) * rr), V(Math.cos(a) * rr * 0.9, -3.5 - r() * 3, Math.sin(a) * rr * 0.9)], [0.1, 0.04], V(1, 0, 0), { color: 0xe6dcc0, sway: (t) => t });
+      }
+      return b.build();
+    },
+    material: { amp: 0.15, underwaterAmp: 0.4, speed: 0.6, rough: 0.7, wax: [0.32, 0.8, 0.42], ...plantMaps('limnobium'), leafPale: [0.72, 0.84, 0.4], leafBack: [1.25, 1.3, 1.05] },
+  },
+  sago: {
+    name: 'Sago palm', habitat: 'land', humidity: [40, 100], light: 0.6, size: 18,
+    note: 'A young cycad (Cycas) with a short woolly trunk and a crown of stiff, glossy, feather-shaped fronds. Slow-growing; coasts and open forest of the Pacific and Asia.',
+    build() {
+      const b = new Builder();
+      const r = rng(139);
+      b.ribbon([V(0, 0, 0), V(0, 1.6, 0), V(0, 3.2, 0)], [0.8, 0.7, 0.55], V(1, 0, 0), { color: 0x4a3a22 });
+      b.ribbon([V(0, 0, 0), V(0, 1.6, 0), V(0, 3.2, 0)], [0.8, 0.7, 0.55], V(0, 0, 1), { color: 0x4e3c28 });
+      const F = 9;
+      for (let k = 0; k < F; k++) {
+        const age = k / (F - 1), a = k * 2.399 + r() * 0.2, out = V(Math.cos(a), 0, Math.sin(a)), side = V(-Math.sin(a), 0, Math.cos(a));
+        const Lr = 8 + (1 - age) * 3, h0 = 3.2, lift = 1.1 - age * 0.7;
+        const pt = (t) => out.clone().multiplyScalar(Lr * t * (0.35 + age * 0.65)).add(V(0, h0 + Lr * (lift * t - (0.25 + age * 0.9) * t * t), 0));
+        b.ribbon([pt(0), pt(0.5), pt(1)], [0.14, 0.1, 0.05], side, { color: 0x5c5c1e });
+        const nL = 14;
+        for (let i = 1; i <= nL; i++) {
+          const t = 0.08 + (i / nL) * 0.9, p = pt(t), len = 2.6 * Math.sin(Math.PI * Math.min(1, 0.15 + (1 - t) * 0.9)) + 0.4;
+          for (const sd of [-1, 1]) {
+            const dir = side.clone().multiplyScalar(sd).add(out.clone().multiplyScalar(0.55)).add(V(0, 0.35, 0));
+            blade(b, { dir, len, width: 0.2, droop: 0.2, segs: 2, color: new THREE.Color(0x433f13).multiplyScalar(1.1 + r() * 0.3), tip: 0x8f902e, base: p });
+          }
+        }
+      }
+      return b.build();
+    },
+    material: { amp: 0.15, speed: 0.7 },
+  },
+  tussock: {
+    name: 'Bunchgrass', habitat: 'land', humidity: [20, 100], light: 0.8, size: 10,
+    note: 'A dense, fountain-shaped tussock of fine golden-green blades (Festuca and Nassella type). Dry, windy, sunny highland slopes and stony ground.',
+    build() {
+      const b = new Builder();
+      const r = rng(149);
+      for (let k = 0; k < 90; k++) {
+        const a = r() * Math.PI * 2, rad = Math.sqrt(r()) * 0.9, g = 0.8 + r() * 0.35;
+        blade(b, { dir: V(Math.cos(a) * (0.3 + r() * 0.5), 1, Math.sin(a) * (0.3 + r() * 0.5)), len: 7 + r() * 6, width: 0.2 + r() * 0.08, droop: 0.9 + r() * 0.8, segs: 5, color: new THREE.Color(0x655529).multiplyScalar(g), tip: new THREE.Color(0xd0b389).multiplyScalar(g), base: V(Math.cos(a) * rad, 0, Math.sin(a) * rad) });
+      }
+      return b.build();
+    },
+    material: { amp: 0.4, speed: 1.0 },
+  },
+  crowfoot: {
+    name: 'Water crowfoot', habitat: 'aquatic', light: 0.5, nutrients: 0.6, size: 12,
+    note: 'Ranunculus aquatilis: long stems of finely divided, thread-like leaves under the water and small rounded floating leaves with white, yellow-centred flowers at the surface. Clean, cool streams and ponds of Europe.',
+    build() {
+      const b = new Builder();
+      const r = rng(157);
+      for (let s = 0; s < 6; s++) {
+        const a0 = r() * Math.PI * 2, rr = r() * 0.8, H = 9 + r() * 4, sx = Math.cos(a0) * rr, sz = Math.sin(a0) * rr;
+        const lean = V((r() - 0.5) * 3, 0, (r() - 0.5) * 3);
+        b.ribbon([V(sx, 0, sz), V(sx + lean.x * 0.5, H * 0.5, sz + lean.z * 0.5), V(sx + lean.x, H, sz + lean.z)], [0.1, 0.08, 0.06], V(1, 0, 0), { color: 0x7a8a4a });
+        // Whorls of thread-like leaves: each leaf forks into thin hair-ribbons.
+        for (let k = 1; k < 8; k++) {
+          const t = k / 8, p = V(sx + lean.x * t, H * t, sz + lean.z * t);
+          for (let f = 0; f < 3; f++) {
+            const a = a0 + k * 1.3 + f * 2.1, base = p.clone();
+            for (let h = 0; h < 4; h++) {
+              const ha = a + (h - 1.5) * 0.35, tip = base.clone().add(V(Math.cos(ha) * (1.6 + r() * 0.8), 0.4 + r() * 0.5 - t * 0.2, Math.sin(ha) * (1.6 + r() * 0.8)));
+              b.ribbon([base, base.clone().lerp(tip, 0.55).add(V(0, 0.15, 0)), tip], [0.07, 0.05, 0.02], V(-Math.sin(ha), 0, Math.cos(ha)), { color: new THREE.Color(0x4a6a24).multiplyScalar(0.8 + r() * 0.3) });
+            }
+          }
+        }
+        // Floating leaves and flowers at the top.
+        const top = V(sx + lean.x, H, sz + lean.z), lf = (lv) => [Math.atan2(lv.y, lv.x) / Math.PI * 0.7, Math.min(1, Math.hypot(lv.x, lv.y))];
+        for (let k = 0; k < 3; k++) {
+          const a = r() * Math.PI * 2, d = 0.5 + r() * 0.9;
+          b.add(new THREE.CircleGeometry(1, 14), { p: [top.x + Math.cos(a) * d, top.y + 0.05, top.z + Math.sin(a) * d], r: [-Math.PI / 2, 0, r() * 6], s: [0.6 + r() * 0.2, 0.55, 1], color: 0x5a9e3c, sway: 0.3, j: 0.1, leaf: lf });
+        }
+        if (s < 4) {
+          b.add(new THREE.CircleGeometry(1, 12), { p: [top.x + 0.2, top.y + 0.1, top.z + 0.1], r: [-Math.PI / 2, 0, 0], s: [0.55, 0.55, 1], color: 0xf4f4f6, sway: 0.3, j: 0.05, leaf: lf });
+          b.add(new THREE.CircleGeometry(1, 8), { p: [top.x + 0.2, top.y + 0.13, top.z + 0.1], r: [-Math.PI / 2, 0, 0], s: [0.16, 0.16, 1], color: 0xd8d030, sway: 0.3, j: 0.05, leaf: lf });
+        }
+      }
+      return b.build();
+    },
+    material: { amp: 0.3, underwaterAmp: 1.1, speed: 0.8 },
+  },
   anubias: {
     name: 'Anubias', habitat: 'emergent', humidity: [60, 100], light: 0.15, nutrients: 0.4, size: 6,
     note: 'Tough, slow, dark-leaved: on wood or stone in the water or at the edge, where fire-bellied toads rest on its leaves.',
@@ -593,6 +863,8 @@ export const PLANTS = {
 const SPREAD = {
   weed: [0.15, 5, 30], grass: [0.08, 4, 30], fernph: [0.03, 8, 16], fern: [0.03, 7, 14], bilberry: [0.02, 6, 8],
   pothos: [0.08, 6, 20], bromeliad: [0.02, 6, 10], cattail: [0.04, 5, 10], bamboo: [0.03, 6, 8],
+  crowfoot: [0.1, 4, 24], heliconia: [0.02, 6, 6], aponogeton: [0.04, 4, 12], pandanus: [0.01, 5, 4], limnobium: [0.3, 5, 40], sago: [0.005, 6, 3], tussock: [0.03, 5, 14],
+  nidus: [0.01, 4, 6], crypt: [0.08, 4, 30], hartstongue: [0.015, 5, 8], miscanthus: [0.03, 6, 10],
   vallisneria: [0.12, 5, 40], sword: [0.02, 8, 6], javafern: [0.05, 4, 16], frogbit: [0.35, 5, 40], lily: [0.03, 9, 6],
   anubias: [0.02, 4, 10], javamoss: [0.12, 4, 40], monstera: [0.04, 8, 10], fissidens: [0.05, 3, 30], rotala: [0.1, 4, 24],
   // flowering plants: bromeliads pup, the sinningia seeds itself, orchids are divided slowly

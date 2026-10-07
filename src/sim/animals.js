@@ -230,7 +230,7 @@ function frogGeo({ back, belly, spots = null, eye = 0x111111, size = 1 }) {
 //   ph [lo, hi] and gh [lo, hi] (°dH) of the water it lives in or soaks in; flow: the most current it bears (0 still … 1 any,
 //   see WaterBodies flow); bask: °C it wants at its warm spot; uvb: the UV index it needs (0: none); land: the share of the
 //   tank that should be land (0 … 1, a hint only); flock: [fewest, most] of its kind that keep it well (lonely below, crowded
-//   above); territorial: males fight (two adult males in one tank stress each other); crew: how much it cleans as a
+//   above); flowMin: the least current it needs (stream fish stress in still water; the mirror of flow); territorial: males fight (two adult males in one tank stress each other); crew: how much it cleans as a
 //   bioactive crew member (1 = a dwarf isopod; mould and litter); drowns: it cannot swim and drowns in water deeper than its
 //   habitat maxDepth (content/habitats.js) with no way out; minL / minH: the smallest tank (litres) and height (cm) it is kept
 //   in (Sim.tankRules: a cramped animal is mildly stressed, and the Field guide shows it against this tank).
@@ -425,7 +425,7 @@ export const SPECIES = {
   },
   panther: {
     name: 'Panther crab', group: 'Crustaceans', kind: 'crab', crabProfile: PANTHER, size: 2.4, speed: 3,
-    minL: 100, temp: [24, 28], humidity: 70, hungerHours: 220, lifeDays: 1500, eats: ['detritus', 'flake', 'shrimp', 'snail', 'springtail'], cap: 4, breed: 0,
+    minL: 100, temp: [24, 28], humidity: 70, hungerHours: 220, lifeDays: 1500, eats: ['detritus', 'flake', 'shrimp', 'matanoshrimp', 'snail', 'springtail'], cap: 4, breed: 0,
     ph: [7.5, 8.5], gh: [8, 15], land: 0.2, territorial: true, flock: [1, 2],
     anim: { lift: 0.3, stride: 0.47, legAxis: 'x', limb: 1 },
     body: () => (BODIES.panther ?? BODIES.crab)(),
@@ -498,6 +498,63 @@ export const SPECIES = {
   // Feeders (2026-10): bought by the cup from the Care panel's Feeding tab (Care.feeders) for the animals that eat them. They
   // do not breed in the tank and live days to weeks; whatever is not eaten hides (crickets, roaches) or digs in (earthworms,
   // which work the soil like the crew). They never count as losses.
+  // ---- Stream fish (run "sets", S2): procedural bodies, bodies/streamfish.js. flow = the most current borne, flowMin = the least needed. ----
+  tanichthys: {
+    name: 'White Cloud Mountain minnow', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 3.5, speed: 4.5,
+    minL: 30, temp: [14, 24], hungerHours: 120, lifeDays: 1500, eats: ['flake'], cap: 50, breed: 0.01, adultDays: 40,
+    ph: [6, 8], gh: [5, 19], flow: 0.6, flock: [6, 40],
+    body: sdfBody('tanichthys'), anim: { amp: 0.22, wave: 1.6 },
+    note: 'A 4 cm minnow from the cool hill streams of Guangdong: gold flanks, a dark stripe with a blue-green shimmer and a red tail base. Hardy, happy at room temperature and in a gentle current. Keep six or more.',
+  },
+  zacco: {
+    name: 'Pale chub', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 11, speed: 6.5,
+    minL: 120, temp: [14, 26], hungerHours: 140, lifeDays: 2200, eats: ['flake', 'bloodworm'], cap: 20, breed: 0,
+    ph: [6.5, 7.8], gh: [4, 15], flow: 1, flowMin: 0.3, flock: [5, 20],
+    body: sdfBody('zacco'), anim: { amp: 0.3, wave: 1.5 },
+    note: 'A strong 10 to 15 cm schooling fish of the fast, clear hill streams of southern China, Taiwan and Korea: brassy flanks with blue-green bars, males with a long orange anal fin. It hunts insects and small crustaceans in the riffles and needs a current and room to swim.',
+  },
+  hillloach: {
+    name: 'Hillstream loach', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: false, size: 5.5, speed: 1.8,
+    minL: 60, temp: [15, 24], hungerHours: 130, lifeDays: 2200, eats: ['biofilm', 'detritus', 'flake'], cap: 8, breed: 0,
+    ph: [6.5, 7.8], gh: [4, 15], flow: 1, flowMin: 0.5, flock: [2, 8],
+    body: sdfBody('hillloach'), anim: { amp: 0.12, wave: 1.2 },
+    note: 'A flat little loach of fast mountain streams in southern China and Taiwan. Huge paired fins and a flat belly let it grip rock in the current while it scrapes off biofilm. It needs cool, clean, oxygen-rich, moving water and dies in still, warm water.',
+  },
+  bullhead: {
+    name: 'European bullhead', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: false, size: 9, speed: 2.2,
+    minL: 80, temp: [6, 17], hungerHours: 160, lifeDays: 2000, eats: ['bloodworm', 'shrimp'], cap: 4, breed: 0,
+    ph: [7, 8.3], gh: [8, 20], flow: 0.7, flowMin: 0.2, territorial: true, flock: [1, 3],
+    body: sdfBody('bullhead'), anim: { amp: 0.18, wave: 1.1 },
+    note: 'A 10 cm bottom fish of clear, cool European brooks, with a broad flat head and big fan fins. It hides under a stone by day, hunts insect larvae, small crustaceans and shrimp at dusk, and a male guards his cave from other males. It cannot stand warm water.',
+  },
+  bedotia: {
+    name: 'Madagascar rainbowfish', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 8, speed: 5,
+    minL: 100, temp: [20, 28], hungerHours: 140, lifeDays: 1800, eats: ['flake', 'bloodworm'], cap: 20, breed: 0,
+    ph: [6.5, 8], gh: [5, 15], flow: 0.7, flock: [6, 20],
+    body: sdfBody('bedotia'), anim: { amp: 0.26, wave: 1.5 },
+    note: 'A slim 8 to 10 cm rainbowfish from the clear streams and pools of eastern Madagascar: olive-gold with a soft blue sheen, two dorsal fins and yellow fins edged in black on the male. A school of six or more, a lid, and clean, well-oxygenated water; it is endangered at home.',
+  },
+  matanoshrimp: {
+    name: 'Matano shrimp', group: 'Crustaceans', kind: 'crawlWater', shrimp: true, swims: true, flicks: true, size: 1.0, speed: 1.0,
+    minL: 20, temp: [26, 30], hungerHours: 200, lifeDays: 700, eats: ['detritus', 'biofilm', 'flake'], cap: 60, breed: 0.02, adultDays: 60,
+    ph: [7.5, 8.5], gh: [5, 10], flow: 0.4, flock: [8, 60],
+    anim: { lift: 0.06, stride: 0.1 },
+    body: () => BODIES.matanoshrimp(), note: 'A glassy red-lined Caridina shrimp of Lake Matano, Sulawesi. It wants warm (27 to 30 C), hard, alkaline water and a colony of eight or more. Grazes biofilm on rock and wood; the panther crab hunts it.',
+  },
+  tylomelania: {
+    name: 'Matano rabbit snail', scale: 1, group: 'Molluscs', kind: 'crawlWater', size: 2.5, speed: 0.4,
+    minL: 60, temp: [24, 30], hungerHours: 220, lifeDays: 1800, eats: ['detritus', 'biofilm', 'flake'], cap: 12, breed: 0.01, adultDays: 120,
+    ph: [7.5, 8.5], gh: [8, 15], flow: 0.3, flock: [2, 8],
+    body: () => BODIES.tylomelania(), anim: { amp: 0, wave: 1 },
+    note: 'A 5 to 7 cm snail of the Sulawesi lakes, a tall dark spire over an orange foot and two long feelers like rabbit ears. Hard, warm, alkaline water; it bears single live young, so a colony grows slowly. Eats biofilm and soft algae and leaves plants alone.',
+  },
+  cambarellus: {
+    name: 'Mexican dwarf crayfish', scale: 1.5, group: 'Crustaceans', kind: 'crawlWater', shrimp: true, flicks: true, size: 1.5, speed: 0.9,
+    minL: 40, temp: [14, 26], hungerHours: 180, lifeDays: 900, eats: ['detritus', 'biofilm', 'flake', 'bloodworm'], cap: 20, breed: 0.01, adultDays: 90,
+    ph: [7, 8], gh: [8, 18], flow: 0.3, territorial: true, flock: [2, 10],
+    anim: { lift: 0.06, stride: 0.1 },
+    body: () => BODIES.cambarellus(), note: 'A 3 to 4 cm crayfish (Cambarellus montezumae) from the canals of Xochimilco in the Valley of Mexico. Cool water, hiding places and room: it pinches its neighbours but rarely harms plants. Keep a small group with many caves.',
+  },
   cricket: {
     name: 'Crickets', group: 'Insects', kind: 'crawlLand', feeder: true, hop: true, size: 1, speed: 2.4,
     crawlOpt: { restP: 0.55, rest: [2, 9], speed: 1 },

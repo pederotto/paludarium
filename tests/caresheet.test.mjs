@@ -15,7 +15,7 @@ import { PRESETS } from '../src/content/presets.js';
 import { BODIES } from '../src/render/creatures/bodies/index.js';
 
 const seq = (seed = 1) => () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-const NEW = ['cpd', 'pygmy', 'blueshrimp', 'panther', 'skink', 'bumblebee', 'reedfrog', 'marbled', 'purpleiso', 'pandaking', 'springpink', 'springsea', 'cricket', 'dubia', 'earthworm', 'waxworm'];
+const NEW = ['tanichthys', 'zacco', 'hillloach', 'bullhead', 'bedotia', 'matanoshrimp', 'tylomelania', 'cambarellus', 'cpd', 'pygmy', 'blueshrimp', 'panther', 'skink', 'bumblebee', 'reedfrog', 'marbled', 'purpleiso', 'pandaking', 'springpink', 'springsea', 'cricket', 'dubia', 'earthworm', 'waxworm'];
 
 // --- Crocodile skink ---------------------------------------------------------------------------------------------------
 const day = (o = {}) => ({ t: 0, dt: 0.2, dtMin: 0.2, x: 0, z: 0, depth: -1, wetGround: 0.5, light: 1, rain: 0, rh: 88, temp: 25, cover: 0.2, hunger: 0.2, threat: null, home: { x: 6, z: 0 }, shore: { x: -10, z: 0, d: 10 }, warm: { x: 0, z: 8, d: 8, temp: 29 }, ...o });
