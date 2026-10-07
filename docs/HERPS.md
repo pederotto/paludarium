@@ -69,7 +69,12 @@ leg cycle still follows the distance walked (`util/gait.js strideRate`), so plan
   deepest two thirds of the way back, rounded at the end. Smooth, slick skin (low grain and bump, a clear coat) instead of warts;
   chocolate brown above with fine black dots and a few orange-red flecks, orange-red below with black vermiculation (level lines of a
   noise field, not round spots), the orange running along the blade's lower edge. The marbled newt shares the frame.
-* **Fire salamander** (scan): unchanged.
+* **Fire salamander** (the owner's scan, rebuilt 6 Oct 2026, `tools/bake-lizard.mjs firesal`, the lizard rig's 21 bones plus a `jaw`, no digit fans): 16 cm and 41 cm3 (was 18.8 cm and
+  83 cm3: real adults are 14-25 cm and 16-26 g), the forelimb hand joints and the tail chain read off Blender views, a salamander gait profile on `util/lizardgait.js` (lateral sequence,
+  a 2.95 s cycle at the game's 1.5 cm/s, stride 0.5 body lengths), a mouth modelled in Blender (`tools/blender/firesal-mouth.py`) that opens 0-38 degrees on the `gape` channel and is
+  driven by the strike (`strikeGape`), and the textured skin: glossy near-neutral black, lemon-yellow blotches, pores, a throat crescent, limb bands, a fine lip line, relief (docs/SKIN.md,
+  `tools/skin/firesal-skin.py`). The mouth is built on a skull and mandible scheme (docs/SKELETON.md, "Skulls and mandibles") and dressed with 113 tiny teeth, a tongue pad and a lining.
+  Still the old behaviour mind (`sim/herp.js`); open: the tail-led swim, hip skin stretch, gular breathing and the warning gape, the tongue projecting, jaw muscles on the skull bones.
 
 ## Fixes (2026-10-03)
 

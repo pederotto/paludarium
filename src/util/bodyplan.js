@@ -54,7 +54,27 @@ export const PLANS = {
       spine: { min: 0, max: 60 }, head: { min: 0, max: 40 }, tail: { min: 0, max: 100 },
       thigh: { min: 20, max: 160 }, shin: { min: 0, max: 120 }, foot: { min: 0, max: 100 },
       arm: { min: 20, max: 160 }, forearm: { min: 0, max: 130 }, hand: { min: 0, max: 100 },
+      // R2 (fire salamander on the 25-bone lizard list): the bones the caudate plan lacked; additive, nothing above changes
+      neck: { min: 0, max: 30 }, fingers: { min: 0, max: 60 }, toes: { min: 0, max: 60 },
     },
+    // R2: digits of Salamandra salamandra (4 fingers, 5 toes) and its joint ranges on the lizard bone axes (the lizard plan's `rom`
+    // conventions). Estimates from general knowledge of sprawling salamander walks (humerus / femur swing ~90-110 deg fore-aft,
+    // elbow / knee flex up to ~120-130 deg; the trunk bends more and the neck less than a gecko's): guesses, to be checked on video.
+    digits: { fingers: 4, toes: 5 },
+    rom: {
+      spine: { yaw: [-30, 30], pitch: [-8, 10] }, neck: { yaw: [-20, 20], pitch: [-15, 20] }, head: { yaw: [-15, 15], pitch: [-20, 20] },
+      tail: { yaw: [-35, 35], pitch: [-10, 20] },
+      arm: { protract: [-50, 55], elevate: [-25, 35], twist: [-35, 35] }, forearm: { hinge: [0, 130] }, hand: { hinge: [0, 100], twist: [-30, 30] },
+      thigh: { protract: [-55, 55], elevate: [-25, 40], twist: [-45, 45] }, shin: { hinge: [0, 120] }, foot: { hinge: [0, 100], twist: [-30, 30] },
+      fingers: { hinge: [-20, 30] }, toes: { hinge: [-20, 30] },
+    },
+    // R2: limb and tail-base bellies for the skinned fire salamander only (kept out of `muscles`, which the newt's vertex rig reads)
+    limbMuscles: [
+      { name: 'forearm flexors', bone: 'forearm', joint: 'forearm', from: 0.1, to: 0.6, gain: 0.06 },
+      { name: 'humeroantebrachialis (elbow flexor)', bone: 'arm', joint: 'forearm', from: 0.3, to: 0.9, gain: 0.06 },
+      { name: 'shin (knee and ankle flexors)', bone: 'shin', joint: 'shin', from: 0.1, to: 0.6, gain: 0.06 },
+      { name: 'caudofemoralis (tail base, femur retractor)', bone: 'tail1', joint: 'thigh', from: 0.1, to: 0.8, gain: 0.05 },
+    ],
     rig: { head: deg(35), bend: 0.55, tail: 0.25 },
     muscles: [
       { name: 'thigh (puboischiofemoralis)', bone: 'thigh', joint: 'shin', from: 0.1, to: 0.7, gain: 0.08 },
@@ -114,6 +134,16 @@ export const PLANS = {
           wrist: 0.08, ankle: 0.08, fingers: 0.06, toes: 0.06, jaw: 0.06, throat: 0.08 },
         tailBase: { gain: 0.15, lag: 0.025 },
         throat: { hz: 2, base: 0.15, amp: 0.35 },
+      },
+      // The fire salamander (6 Oct; no measurement: G = a guess, none from a sheet). It walks at about a third of a hertz (a 3 s cycle, the owner's Bulgaria clip), so what the
+      // gecko's numbers tie to a 10 Hz gait is rescaled: the tail base follows the hind legs about 0.3 s behind (a quarter of a step cycle is 0.7 s: a slow, heavy tail trails
+      // less), the throat pumps (gular) at about 1.2 Hz at rest (G; amphibians pump faster warm). The caudofemoralis is the big muscle of a salamander's tail base and the trunk's
+      // myomeres do much of its walk (a wide S-bend), so those two a little stronger; no digit fans, so no fingers/toes. All under the frog's 0.2 cap.
+      firesal: {
+        gains: { trunk: 0.12, tailBase: 0.12, hipSwing: 0.1, hipPush: 0.09, shoulderSwing: 0.1, shoulderPush: 0.1, elbow: 0.1, knee: 0.1,
+          wrist: 0.08, ankle: 0.08, fingers: 0, toes: 0, jaw: 0.05, throat: 0.08 },
+        tailBase: { gain: 0.1, lag: 0.3 },
+        throat: { hz: 1.2, base: 0.12, amp: 0.3 },
       },
     },
     turn: { pivot: 'hips', stepHz: 4, bend: 0.7, head: 0.6, tail: 0.6 },

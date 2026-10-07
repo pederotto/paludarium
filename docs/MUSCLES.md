@@ -132,6 +132,8 @@ control agent, round 5).
 - **Swallow**: two pushes, each the eyes pulled down into the mouth (retractor bulbi: activation dynamics) with the floor raised.
 - **Mouth**: the depressor and adductor groups are in the data (gape 70 deg, open 227 ms in cane toads), but the models have no jaw: a
   visible gape needs a jaw mask in the bake (the owner's models: asked before any re-bake).
+  The fire salamander has had a jaw since 6 Oct, on a skull and mandible scheme (docs/SKELETON.md, "Skulls and mandibles"): its jaw muscles are to be attached to those bones
+  (the depressor mandibulae to the retroarticular process, the adductors from the squamosal and parietal to the dentary), not to the skin.
 - **Head turns**: the neck muscles were not found in the literature read; a frog turns its body to look (sim/animals.js), unchanged.
 
 ## The swim stroke (util/gait.js STROKE_KEYS, HIND, FORE; the owner's clips of 4 Oct, `.agents/muscles/refs/SWIM.md`)

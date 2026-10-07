@@ -21,6 +21,7 @@ import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, hopLegs, swimPose, TAU, leapPose } from '../util/gait.js';
 import { hopPlan, hopFrame, svlOf } from '../util/hop.js';
 import { swimProfile } from '../util/bodyplan.js';
+import { strikeGape } from '../util/lizardgait.js';
 
 const q = new URLSearchParams(location.search);
 if (q.has('noskin')) SKIN.on = SKIN.swim = false;              // (the near mesh drawn by the vertex rig, as before runtime skinning)
@@ -104,20 +105,21 @@ const center = bb.getCenter(new THREE.Vector3());
 center.z -= ext * +(q.get('back') ?? 0);           // (&back=0.2: look at a point further back, for legs stretched out behind)
 const VIEWS = {
   front: [0, 0.15, 1], side: [1, 0.12, 0], back: [0, 0.2, -1], top: [0.001, 1, 0.05], three: [0.75, 0.42, 0.8], low: [0.6, -0.35, 0.7],
-  closeup: [0.55, 0.22, 0.85],
+  closeup: [0.55, 0.22, 0.85], head: [0.9, 0.12, 0.55], headfront: [0.35, 0.1, 1],     // (head: the animal's head from the side, front a little; for the mouth)
 };
 function setView(name) {
   const v = new THREE.Vector3(...(VIEWS[name] ?? VIEWS.three)).normalize();
-  const r = name === 'closeup' ? R * 0.55 : R;
+  const r = name === 'closeup' ? R * 0.55 : name === 'head' || name === 'headfront' ? R * 0.22 : R;
   cam.position.copy(center).addScaledVector(v, r);
   cam.lookAt(center);
   if (name === 'closeup') { const h = new THREE.Vector3(0, 0, ext * 0.28); cam.lookAt(center.clone().add(h)); }
+  if (name === 'head' || name === 'headfront') { cam.position.add(new THREE.Vector3(0, 0, ext * 0.4)); cam.lookAt(center.clone().add(new THREE.Vector3(0, 0, ext * 0.4))); }
   cam.updateProjectionMatrix();
 }
 let animOn = q.get('anim') === '1', t0 = performance.now();
 const quat = new THREE.Quaternion(), euler = new THREE.Euler(0, 0, 0, 'YXZ');
 // The animal's state as the game would hand it to the rig: pose (hop, pose, calm …) plus body angles and height.
-const state = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, phase: 0, amp: 0, gait: 0, hop: 0, breath: 0, throat: 0, eye: 0, pose: 0, calm: 1, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0, turn: 0, stroke: null };   // turn: the legs' turning mix (util/turn.js); hy hp bend tail: the rig2 channel; tf dull piece: iAnim3 (tail length, skin dullness, tail piece)
+const state = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, phase: 0, amp: 0, gait: 0, hop: 0, breath: 0, throat: 0, eye: 0, pose: 0, calm: 1, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0, turn: 0, gape: 0, stroke: null };   // turn: the legs' turning mix (util/turn.js); hy hp bend tail: the rig2 channel; tf dull piece: iAnim3 (tail length, skin dullness, tail piece)
 // Named poses at phase t (0 … 1). `swim` is a frog kick (or a salamander's glide for kinds that undulate), `walk` a leg cycle.
 const POSES = {
   stand: () => ({ calm: 1 }),
@@ -142,6 +144,8 @@ const POSES = {
     return { calm: 1, hop: 0, pose: 0, gait: 0, x: f.pos[0], y: f.pos[1], z: f.pos[2] - hop.d / 2, pitch: f.pitch, roll: f.roll, stroke: st };
   },   // the game's leg timing (util/gait.js hopLegs) on a 1.2 cm arc
   claw: (t) => ({ calm: 1, pose: 1, phase: t * TAU * 3, gait: 0 }),
+  // the mouth through a tongue strike (util/lizardgait.js strikeGape): aim 0-0.4 of the strip, out 0.4-0.6, back 0.6-0.85, then shut
+  strike: (t) => ({ calm: 1, gape: t < 0.4 ? strikeGape('aim', (t / 0.4) * 0.3, 0.3) : t < 0.6 ? strikeGape('out', ((t - 0.4) / 0.2) * 0.075, 0.075) : t < 0.85 ? strikeGape('back', ((t - 0.6) / 0.25) * 0.09, 0.09) : 0 }),
   // rig2: head sweeps (yaw over a cycle), head up/down, a C-curve, a tail swing
   look: (t) => ({ calm: 1, hy: 0.55 * Math.sin(t * TAU), hp: 0 }),
   nod: (t) => ({ calm: 1, hp: 0.5 * Math.sin(t * TAU) }),
@@ -170,7 +174,7 @@ function frame() {
   const pos = new THREE.Vector3(state.x, state.y, state.z);
   const packed = packAnim(state.hop, state.breath, state.throat, state.eye, state.pose, state.calm);
   if (animOn) lod.put(pos, quat, scale, t * 8, a.amp ?? 0, t * 6, 0, 0);
-  else lod.put(pos, quat, scale, state.phase, lod._lo?.finish?.turnSweep?.inY ? state.turn : state.amp, state.gait, packed, 0, state.hy, state.hp, state.bend, state.tail, state.tf, state.dull, state.piece, 0, state.turn, state.stroke);
+  else lod.put(pos, quat, scale, state.phase, lod._lo?.finish?.turnSweep?.inY ? state.turn : state.amp, state.gait, packed, 0, state.hy, state.hp, state.bend, state.tail, state.tf, state.dull, state.piece, 0, state.turn, state.stroke ?? (state.gape ? { gape: state.gape } : null));
   lod.end();
   renderer.render(scene, cam);
 }
@@ -182,7 +186,7 @@ window.bench = {
   water: (on) => { U.waterLevel.value = on ? 1000 : -1000; },
   anim: (on) => { animOn = on; },
   state, setState: (o) => { Object.assign(state, o); animOn = false; },
-  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0, x: 0, z: 0, yaw: 0, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0, turn: 0, stroke: null }, POSES[name]?.(t, extra) ?? {}, extra); animOn = false; },
+  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0, x: 0, z: 0, yaw: 0, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0, turn: 0, gape: 0, stroke: null }, POSES[name]?.(t, extra) ?? {}, extra); animOn = false; },
   ready: true,
 };
 setView(q.get('view') ?? 'three');

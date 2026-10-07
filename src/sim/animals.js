@@ -5,6 +5,7 @@
 import * as THREE from 'three/webgpu';
 import { Builder, PRIM } from '../render/geo.js';
 import { hash3, clamp, lerp, rng, closestOnSegments } from '../util/math.js';
+import { strikeGape } from '../util/lizardgait.js';
 import { bodyFootprint } from '../util/body.js';
 import { surfaceFrame, pitchFrame, glassPush, feetPlane, steadyNormal, easeAngle } from '../util/contain.js';
 import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells } from '../render/creatures.js';
@@ -3636,7 +3637,7 @@ export class Animals {
   }
 
   endStrike(a, sp, ok) {
-    a.st = null; a.lunge = 0; a.crouch = 0;
+    a.st = null; a.lunge = 0; a.crouch = 0; a.gape = 0;
     this.striking.delete(a);
     if (sp.kind === 'frog' || sp.kind === 'toad') { a.fs = 'sit'; a.fsT = ok ? 2.5 + Math.random() * 4 : 1.2 + Math.random() * 2; a.chain = 0; a.chainNext = false; }
     else { a.timer = ok ? 1.5 + Math.random() * 2 : 1 + Math.random(); a.state = 'rest'; a.target = null; }
@@ -3651,7 +3652,7 @@ export class Animals {
     const dtS = dt / this.tf;
     for (const a of this.striking) {
       const st = a.st;
-      if (!st || a.dead) { a.lunge = 0; a.st = null; this.striking.delete(a); continue; }
+      if (!st || a.dead) { a.lunge = 0; a.gape = 0; a.st = null; this.striking.delete(a); continue; }
       const sp = SPECIES[a.sp], p = st.prey, tongue = st.kind === 'tongue';
       if (st.ph !== 'gulp' && (st.got ? p.dead || p.eaten : !this.validPrey(p, a))) { this.endStrike(a, sp, false); continue; }
       st.t += dtS;
@@ -3701,6 +3702,9 @@ export class Animals {
           if (st.t >= st.dur) { this.endStrike(a, sp, true); continue; }
           break;
       }
+      // The mouth (the fire salamander's jaw bone, render/creatures/lizardpose.js openJaw): it opens a little as the animal locks on (aim), wide as the
+      // tongue flicks out, and shuts on the catch (back); a body with no jaw bone ignores it. 0 shut ... 1 the widest.
+      a.gape = tongue ? strikeGape(st.ph, st.t, st.dur) : 0;
       a.lunge = st.lunge;
     }
     tg.end();
@@ -4886,7 +4890,8 @@ export class Animals {
           // A turn adds its own pose (turnPoseStep): the spine bends into it, the head leads, the tail follows; all of it inside the
           // body plan's joint limits (util/bodyplan.js), whatever the mind and the gait ask for on top.
           const tp = a.turnPose ?? NO_TURN, [hy2, bend2, tail2] = limitRig(planOf(sp), hy + tp[0] + (a.visYaw ?? 0), r[2] + tp[1], r[3] + tp[2]);
-          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy2, r[1] + a.hLift, bend2, tail2, a.hm?.tailF ?? 1, a.hm?.dull ?? 0, 0, a.tLift, a.turnMix ?? 0);
+          const rst = a._rst ??= { gape: 0 }; rst.gape = a.gape ?? 0;           // (the pose channels that are not packed: the jaw)
+          cm.put(pos, q, sc, a.wph, amp, a.gait ?? 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9, hy2, r[1] + a.hLift, bend2, tail2, a.hm?.tailF ?? 1, a.hm?.dull ?? 0, 0, a.tLift, a.turnMix ?? 0, rst);
           if (a.dropNow) {
             // The tail has just come off: a piece of it stays where it was, falls and thrashes.
             a.dropNow = false;
