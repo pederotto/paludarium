@@ -13,6 +13,7 @@ import { PLANS, planOf } from '../util/bodyplan.js';
 import { pivotShift } from '../util/turn.js';
 import { U } from '../render/uniforms.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
+import { guppyModel } from '../render/creatures/guppymodel.js';
 import { CreatureLOD } from '../render/creatures/instanced.js';
 import { SKIN } from '../render/creatures/skin.js';
 import { FINISH } from '../render/creatures/material.js';
@@ -75,7 +76,10 @@ if (q.get('src') === 'glb') {
   const man = await loadManifest();
   const key = q.has('body') ? `${id}.${q.get('body')}` : morph && man[`${id}:${morph}`] ? `${id}:${morph}` : id;      // &body=swim: a pose model ('<species>.swim' in the manifest)
   const pal = man[key]?.palette ? { palette: paletteFinish(morph ?? man[key].paletteMorph ?? 'red', man[key]) } : {};   // a palette model coloured as the line
-  const g = man[key] && await loadCreatureGLB(key, { legs: !q.has('body') && ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab'].includes(sp.kind), ...man[key] });
+  // (a guppy look: the owner's male or female model with the look's painted texture, as the game draws it)
+  const gup = id === 'guppy' && man.guppy?.guppy && morph ? await guppyModel(morph, man.guppy) : null;
+  const g = gup ?? (man[key] && await loadCreatureGLB(key, { legs: !q.has('body') && ['frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab'].includes(sp.kind), ...man[key] }));
+  if (gup) man[key] = { ...man.guppy, finish: { ...man.guppy.finish, ...gup.finish } };
   if (g) {
     lod.lo.mesh.removeFromParent();
     const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';

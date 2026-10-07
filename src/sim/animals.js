@@ -8,7 +8,7 @@ import { hash3, clamp, lerp, rng, closestOnSegments } from '../util/math.js';
 import { strikeGape } from '../util/lizardgait.js';
 import { bodyFootprint } from '../util/body.js';
 import { surfaceFrame, pitchFrame, glassPush, feetPlane, steadyNormal, easeAngle } from '../util/contain.js';
-import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells } from '../render/creatures.js';
+import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells, guppyModel } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, kickHeave, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
@@ -40,6 +40,7 @@ import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
 import { PLANTS } from './plants.js';
 import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf, morphList } from './genetics.js';
+import { initLivebearer } from './livebearer.js';
 import { shrimpPalette } from '../content/morphs.js';
 import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
 import { filterDrift, filterAvoid } from './filterflow.js';
@@ -246,9 +247,12 @@ export const SPECIES = {
   },
   guppy: {
     name: 'Guppy', scale: 1, group: 'Fish', kind: 'swim', band: 'top', school: false, size: 3.0, speed: 4.5,
-    temp: [22, 28], hungerHours: 120, lifeDays: 700, eats: ['flake'], cap: 40, breed: 0.05, adultDays: 8,
+    temp: [22, 28], hungerHours: 120, lifeDays: 700, eats: ['flake'], cap: 40, breed: 0.06, adultDays: 8,
+    // Livebearer (sim/livebearer.js): a female carries a brood for `gestDays` and drops `brood` fry; one mating fills her store
+    // for `store` more broods; fry are born at `growFrom` of the adult size; a young male grows to `maleK` of the female body.
+    livebearer: { gestDays: 3, brood: [3, 8], store: 3, growFrom: 0.2, maleK: 2.2 / 3.2 },
     body: sdfBody('guppy'), anim: { amp: 0.25, wave: 1.6 },
-    note: 'Livebearer: breeds on its own when well fed.',
+    note: 'Livebearer: the female gives birth to live fry and keeps a male\'s sperm for several broods (use a virgin female for a known father). Males show the colours; females carry the genes.',
   },
   cory: {
     name: 'Corydoras', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: true, size: 4.0, speed: 3,
@@ -660,9 +664,16 @@ export async function modelBuilder(id, meta = null) {
   meta ??= (await loadManifest())[id];
   const sp = SPECIES[id.split(':')[0]];                // 'dartfrog:sky_clean': a morph's own model, drawn like its species
   if (!sp || !meta || meta.disabled || meta.pose) return null;
-  const ck = meta.file ?? id;                          // (by file: a morph that is the species' default look shares its files)
-  if (!GLB_CACHE.has(ck)) GLB_CACHE.set(ck, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
-  const g = await GLB_CACHE.get(ck);
+  let g, extra = {};
+  if (meta.guppy && id.startsWith('guppy:')) {
+    const gm = await guppyModel(id.slice(6), meta);
+    if (!gm) return null;
+    g = gm; extra = gm.finish;
+  } else {
+    const ck = meta.file ?? id;                        // (by file: a morph that is the species' default look shares its files)
+    if (!GLB_CACHE.has(ck)) GLB_CACHE.set(ck, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
+    g = await GLB_CACHE.get(ck);
+  }
   if (!g) return null;
   const a = sp.anim ?? {};
   const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
@@ -671,7 +682,7 @@ export async function modelBuilder(id, meta = null) {
   const palette = meta.palette ? paletteFinish(id.includes(':') ? id.split(':')[1] : meta.paletteMorph ?? 'red', meta) : null;
   return (scene, cap = sp.cap + 20) => new CreatureLOD(scene, g.lo, {
     cap, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(palette ? { palette } : {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}), ...turnRigFinish(sp) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...extra, ...(palette ? { palette } : {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}), ...turnRigFinish(sp) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
   });
 }
 
@@ -744,6 +755,8 @@ export class Animals {
       if (meta.pose) { const [b, p] = id.split('.'); (this.poseMeta[b] ??= {})[p] = { key: id, meta }; if (this.meshes[b]) this.ensurePose(b, p); continue; }
       if (SPECIES[id.split(':')[0]] && !meta.disabled) (this.modelMeta ??= {})[id] = meta;
       if (this.meshes[id]) this.loadModel(id);
+      // The guppy's looks ('guppy:<look>') already drawn with their procedural stand-in switch to the owner's models.
+      if (meta.guppy) for (const k of Object.keys(this.meshes)) if (k.startsWith('guppy:')) this.loadModel(k);
       // A palette model serves every colour line of its species (the genetics' morphs) from the one file.
       if (meta.palette && !id.includes(':') && SPECIES[id] && hasGenetics(id)) for (const m of morphList(id)) {
         const k = `${id}:${m}`;
@@ -757,7 +770,8 @@ export class Animals {
   // together is over 1.5 MB and fetching them all held the loading screen 4 to 5 s on the live site. Once loaded (READY,
   // shared by every tank) a new tank builds the model directly; until then the procedural body stands in and is swapped.
   loadModel(id) {
-    const meta = this.modelMeta?.[id];
+    // (a guppy look, 'guppy:<look>', is drawn on the owner's male or female model with a texture painted for it: render/creatures/guppymodel.js)
+    const meta = this.modelMeta?.[id] ?? (id.startsWith('guppy:') && this.modelMeta?.guppy?.guppy ? this.modelMeta.guppy : null);
     if (!meta || this.models[id] || this._loadingModel?.has(id)) return;
     (this._loadingModel ??= new Set()).add(id);
     this.modelsLoading = (this.modelsLoading ?? 0) + 1;   // the loading veil waits for these (ui/Veil.jsx)
@@ -957,6 +971,7 @@ export class Animals {
     } else if (opt.genes && opt.gsp) {
       a.genes = [...opt.genes]; a.morph = opt.morph ?? morphOf(opt.gsp, a.genes); a.gsp = opt.gsp;
     }
+    if (sp.livebearer) initLivebearer(a, sp, opt, this.by[id]);
     // Territorial species (males fight) come as a sexed group, as a dealer sells them: one male, the rest females.
     if (sp.territorial) a.male = opt.male ?? !this.by[id].some((b) => b.male);
     this.by[id].push(a);
@@ -3769,7 +3784,7 @@ export class Animals {
         // (a long body cannot face a waypoint nearer the side glass than its nose reaches: the waypoint is moved in to where the nose fits, and
         // counts as reached there; R3. Short bodies: the clamp is outside the grid's own margin, so nothing changes.)
         const cg = path ? this.noseClamp(a, sp, r.goal) : r.goal;
-        if (path && cg !== r.goal && Math.hypot(cg.x - a.pos.x, cg.z - a.pos.z) < 1.2) { skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall); if (++skips > D.pts.length) break; continue; }
+        if (path && cg !== r.goal && Math.hypot(cg.x - a.pos.x, cg.z - a.pos.z) < 2.5) { skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall); if (++skips > D.pts.length) break; continue; }
         goal = path && m.blockedAt(cg.x, cg.z) ? null : this.labSteer(a, sp, m, cg, dt);
         if (goal || !path) break;
         if (++skips > D.pts.length) { [D.laps, D.skipped, D.i, D.dir] = lap; r = { goal: null, done: false }; break; }
@@ -4272,7 +4287,8 @@ export class Animals {
   }
 
   radiusOf(a, sp) {
-    const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
+    const g0 = sp.livebearer?.growFrom ?? 0.35;
+  const grow = clamp(g0 + (a.age / 1440) / (sp.adultDays ?? 10) * (1 - g0), g0, 1);
     return (RADIUS[sp.kind] ?? 0.4) * (sp.r ?? sp.size) * (0.5 + 0.5 * grow);
   }
 
@@ -5329,7 +5345,7 @@ export class Animals {
       const invRig = !!dm?.opts?.finish?.invert;          // insects, isopods and shrimp with antennae, wings, swimmerets … (invertPose)
       for (const k of this.keys[id]) this.meshes[k].begin();
       for (const a of arr) {
-        const cm = morphs && a.morph ? this.meshFor(id, a.morph) : dm;
+        const cm = morphs && a.morph ? this.meshFor(id, a.look ?? a.morph) : dm;     // (a livebearer: its sex and age's look)
         const sc = drawScale(a, sp);
         const swimming = sp.kind === 'swim' || a.swimming;
         // A swimming frog or toad is drawn in the breaststroke pose (forelegs along the flanks, hind legs kicking), level, bobbing on the water.
@@ -5587,7 +5603,7 @@ export class Animals {
   }
 
   serialize() {
-    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK', 'male']) }));
+    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK', 'male', 'gv', 'st', 'mated', 'sk0']) }));
   }
 }
 
@@ -5606,7 +5622,8 @@ export function drawScale(a, sp) {
   // drawn at `cm / cmAt1` (cmAt1: the drawn length of the body at scale 1, measured by tools/steps/amph-life-day.mjs AMPH_LARVA=1).
   const L = sp.sizeBy && (sp.sizeBy[a.parent] ?? sp.sizeBy.newt);
   if (L) return (L[0] + (L[1] - L[0]) * clamp(a.age / 1440 / sp.metamorphDays, 0, 1)) / sp.cmAt1;
-  const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
+  const g0 = sp.livebearer?.growFrom ?? 0.35;
+  const grow = clamp(g0 + (a.age / 1440) / (sp.adultDays ?? 10) * (1 - g0), g0, 1);
   return (sp.scale ?? sp.size) * grow * (a.sizeK ?? 1);
 }
 

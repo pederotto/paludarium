@@ -21,7 +21,8 @@ const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `=${d}`).spl
 const MORPHS = {      // morph ids per species (docs/GENETICS_SPEC.md; the bodies are registered in bodies/index.js)
   axolotl: ['wild', 'leucistic', 'golden', 'melanoid', 'white_albino'],
   dartfrog: ['cobalt_spotted', 'cobalt_clean', 'sky_spotted', 'sky_clean'],
-  guppy: ['red', 'purple', 'blue', 'gold'],
+  guppy: ['red', 'blue', 'purple', 'gold_red', 'albino_red', 'albino_blue', 'moscow_blue', 'tuxedo_red', 'platinum_red', 'red_mosaic', 'purple_snakeskin',
+    'blue_tiger', 'red_doublesword', 'blue_lyre', 'red_round', 'red_dumbo', 'female_red', 'female_tuxedo_blue_gravid', 'female_albino_red_fan', 'juv'],   // looks (content/guppy.js)
   betta: ['red', 'purple', 'blue', 'cellophane'],
   shrimp: ['wild', 'red', 'yellow', 'orange', 'blue', 'green', 'chocolate', 'black', 'red_rili', 'blue_rili', 'black_rili'],
 };

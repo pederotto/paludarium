@@ -2174,5 +2174,56 @@
     }
    ]
   }
+ },
+ "guppy": {
+  "file": "guppy.glb",
+  "lo": "guppy.lo.glb",
+  "rig": "baked",
+  "tris": {
+   "hi": 11999,
+   "lo": 3999
+  },
+  "sizeCm": [
+   0.59,
+   2.01,
+   3.32
+  ],
+  "finish": {
+   "rough": 0.38,
+   "coat": 0.3,
+   "coatRough": 0.25,
+   "grainAmt": 0.15,
+   "finOpacity": 0.85,
+   "finAlpha": 1,
+   "flutter": 0.03
+  },
+  "guppy": {
+   "male": {
+    "file": "guppy.glb",
+    "lo": "guppy.lo.glb",
+    "coords": "guppy/male-coords.png",
+    "parts": "guppy/male-parts.png",
+    "base": "guppy/male-base.webp",
+    "slCm": 2.2,
+    "totalCm": 3.321,
+    "eye": {
+     "c": [
+      0.1836,
+      0.0756,
+      1.3362
+     ],
+     "r": 0.0634
+    }
+   },
+   "female": {
+    "file": "guppy-female.glb",
+    "lo": "guppy-female.lo.glb",
+    "coords": "guppy/female-coords.png",
+    "parts": "guppy/female-parts.png",
+    "base": "guppy/female-base.webp",
+    "slCm": 3.2,
+    "totalCm": 4.129
+   }
+  }
  }
 }
