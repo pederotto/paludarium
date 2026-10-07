@@ -174,3 +174,11 @@ export function climbMove(st, out = {}) {
   out.mode = 'climb'; out.pL = st.hL; out.pR = st.hR; out.ampL = st.act ? 1 : 0; out.ampR = st.act ? 1 : 0;
   return out;
 }
+
+// The pose a baked body rests in (tools/bake-frogpose.mjs `neutral`: the scan is posed into it through its skeleton once, so the runtime's poses are small turns from it): each hind
+// leg and each arm at a point of the crawl's own cycle (`hind`, `arm`: 0 ... 1), the trunk straight, no scapula or finger channel.
+export function neutralStroke(hind = 0.45, arm = 0.3) {
+  const out = { legA: new Float32Array(18), armA: new Float32Array(12), trunk: new Float32Array(6), scap: [0, 0, 0, 0], fcurl: [0, 0] };
+  keyed(HIND_CRAWL, hind, out.legA, 0); keyed(HIND_CRAWL, hind, out.legA, 9); keyed(FORE_CRAWL, arm, out.armA, 0); keyed(FORE_CRAWL, arm, out.armA, 6);
+  return out;
+}

@@ -20,6 +20,8 @@ import sharp from 'sharp';
 import { weld, quantize, meshopt } from '@gltf-transform/functions';
 import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 import { bindCapsules, frogBones, skinFour, SKIN_PASSES, spineRamp } from './rig/skeleton.mjs';
+import { headWeight, rollHead, poseToStroke } from './rig/neutral.mjs';
+import { neutralStroke } from '../src/util/climb.js';
 
 const OUT = process.env.T4_OUT || 'public/assets/creatures';
 // cmPerUnit: the scan's trunk (snout to vent, 1.33 units) has to be the 4.5 cm of the sitting leucomelas; strawberry is 0.511 of that.
@@ -44,7 +46,13 @@ const JOBS = {
   'toad.swim': { conform: 'toad', src: 'toad_swim_mesh', rotY: -90, cmPerUnit: 3.285, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'bombina', eyes: 'toad', skel: 'TOAD', vent: -0.40, trunkZ: [-0.2, 0.4], sHalf: 0.2, eye: { c: [0.086, 0.0, 0.76], r: 0.065 }, eyeCm: { c: [0.50, 1.63, 1.30], r: 0.27, axis: [0.62, 0.55, 0.56], dome: true }, split: true },
   // The red-eyed tree frog does not swim, but it leaps, and its own scan sits with its hind legs folded in one lump: in the air it is
   // drawn in this body (Animals.draw, util/gait.js leapStroke), painted as itself.
-  'redeye.swim': SWIM(6.4, 'callidryas', 'redeye'),
+  // The red-eyed tree frog does not swim: this is its CLIMBING and WALKING body (the stroke-posed, limbs-apart variant the game loads as `<id>.swim`), made from the
+  // owner's walking scan (art-src/raw/redeye_walk_mesh.glb, 6 Oct 2026: a slender red-eye mid-step, limbs unfolded) as it is, no conform. 22 bones: the toad swimmer's 18
+  // + a scapula and a fingers bone a side. `skel`: the joints in tools/rig/redeye-walk-joints.json (measured with tools/rig/limb-axes.mjs). `center`: the trunk's x to 0
+  // (the scan is off the axis). `headRoll`: the scan's head is rolled about the body axis; the head bone is turned back through its skeleton (tools/rig/neutral.mjs,
+  // tools/rig/neutral-check.mjs: the roll fitted from the eye bumps, -10.2 deg). `neutral: [hind, arm]` (not set: tried 6 Oct, see reports/REDEYE-plan.md) poses the whole scan into a point of the
+  // crawl cycle through its skeleton first. `eye`: the bump, scan units after the roll (right eye; the shader mirrors it).
+  'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.14, 0.09, 0.725], r: 0.12 }, split: true },
 };
 // The swimming scan's skeleton (tools/rig/skeleton.mjs frogBones): joints measured on the leveled scan (scan units, head +z, about 2
 // long: analyse() below) from its top, side and front views, each at the middle of the limb where the mesh bends. The hind leg is
@@ -67,7 +75,9 @@ const TOAD_SWIM_SKELETON = {
   { vent: [0, -0.10, -0.40], mid: [0, -0.12, -0.02], chest: [0, -0.13, 0.40], neck: [0, -0.12, 0.55], snout: [0, -0.04, 0.97] }),
   radius: { pelvis: 0.2, spine: 0.2, head: 0.17, thigh: 0.09, shin: 0.07, foot: 0.05, toes: 0.03, arm: 0.06, forearm: 0.05, hand: 0.035 },
 };
-const SKELS = { TOAD: TOAD_SWIM_SKELETON };
+const REDEYE_JOINTS = JSON.parse(fs.readFileSync(new URL('./rig/redeye-walk-joints.json', import.meta.url), 'utf8'));
+const { mid2: _mid2, ...REDEYE_J } = REDEYE_JOINTS.joints;       // (the split's mid2 is the middle of mid and chest, as for the toad)
+const SKELS = { TOAD: TOAD_SWIM_SKELETON, REDEYE: { joints: REDEYE_J, radius: REDEYE_JOINTS.radius } };
 const { EYES } = await import('./paint/eyes.mjs');
 await MeshoptSimplifier.ready; await MeshoptEncoder.ready; await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder, 'meshopt.encoder': MeshoptEncoder });
@@ -295,14 +305,37 @@ for (const [id, job] of Object.entries(JOBS)) {
   const bones = frogBones(SKL.joints);
   A.bind ??= bindCapsules(A.pos, bones, { radius: SKL.radius, tris: src.idx, smooth: 6 });
   const k = job.cmPerUnit / 100;
+  // A scan whose head is rolled (the red-eye's): taken back to neutral through the skeleton, the head bone turned about its own axis by `headRoll` deg, each vertex by its (smoothed) weight on it
+  if (job.headRoll && !A.rolled) {
+    const hb = bones.find((b) => b.name === 'head'), w = headWeight(bones, A.bind, A.n, src.idx, 40);
+    A.pos = rollHead(A.pos, w, hb.head, hb.tail.map((v, i) => v - hb.head[i]), job.headRoll); A.rolled = true;
+  }
+  // The body posed ONCE into the gait's neutral pose through its skeleton (`neutral: [hind, arm]`, util/climb.js neutralStroke), so it rests in a pose the runtime's poses are
+  // small turns from; the transition's own stretch is printed (tools/rig/neutral.mjs: it says whether bones, weights and keys make sense together).
+  if (job.neutral && !A.neutralised) {
+    const J = { ...SKL.joints, mid2: SKL.joints.mid.map((v, i) => (v + SKL.joints.chest[i]) / 2) };
+    const b22 = frogBones(J).map((b) => ({ ...b, r: SKL.radius[b.name.replace(/[LR]$/, '').replace('spineB', 'spine')] ?? 0.05 }));
+    const sk2 = new Float32Array(A.n * 4); for (let i = 0; i < A.n; i++) { sk2[i * 4] = A.bind.idx[i * 2] / 32; sk2[i * 4 + 1] = A.bind.idx[i * 2 + 1] / 32; sk2[i * 4 + 2] = A.bind.w[i]; }
+    const f4 = skinFour(A.pos, src.idx, sk2, job.skinPasses ?? SKIN_PASSES.swim);
+    const sh = (a) => { const o = Float32Array.from(a); for (let i = 0; i < o.length; i += 4) for (const q of [0, 1]) { const b = Math.round(o[i + q] * 32); o[i + q] = (b >= 2 ? b + 1 : b) / 32; } return o; };
+    const res = poseToStroke(A.pos, { skin: sh(f4.skin), skinx: sh(f4.skinx) }, b22, neutralStroke(...(process.env.NEUTRAL ? process.env.NEUTRAL.split(',').map(Number) : job.neutral)), src.idx);
+    { let md = 0, mi = 0; for (let i = 0; i < A.pos.length; i++) { const d = Math.abs(res.pos[i] - A.pos[i]); if (d > md) { md = d; mi = i; } } console.log(`  neutral pose moved a vertex by up to ${md.toFixed(3)} scan units`); }
+    A.pos = res.pos; A.neutralBones = res.bones; A.neutralised = true;
+    console.log(`  neutral pose ${job.neutral.join('/')}: ${res.stretch.edges} edges, > 1.3x ${(100 * res.stretch.over13 / res.stretch.edges).toFixed(2)} %, > 2x ${(100 * res.stretch.over2 / res.stretch.edges).toFixed(2)} %, worst ${res.stretch.worst.toFixed(2)}x`);
+  }
   if (job.conform && !A.conformed) { await conformTo(A, bones, A.bind, src.idx, job, k); A.conformed = true; }
   if (job.skel && !A.legged) { legsFromBones(A, bones, A.bind); A.legged = true; }
   const zc = (A.zs + A.zv) / 2;
   const cm0 = (j) => [+(j[0] * k * 100).toFixed(3), +((j[1] - A.yb) * k * 100).toFixed(3), +((j[2] - zc) * k * 100).toFixed(3)];
   if (job.eye) { const ec = A.conform ? A.conform.point(job.eye.c) : job.eye.c; eyeC = cm0(ec); eyeR = (job.eyeCmR ?? job.eye.r * (A.conform ? A.conform.mean(job.eye.c) : 1) * k * 100); }
   // the trunk split in two (T4): joint mid2 half way along the old spine, the old spine's place in the baked frame for the weights' ramp
-  const J18 = job.split ? { ...SKL.joints, mid2: SKL.joints.mid.map((v, i) => (v + SKL.joints.chest[i]) / 2) } : SKL.joints;
-  const split = job.split ? { head: cm0(SKL.joints.mid).map((v) => v / 100), ax: SKL.joints.chest.map((v, i) => (v - SKL.joints.mid[i]) * k) } : null;
+  // (a posed body's joints are where the pose put them: read back from the posed bones)
+  const JN = (() => { if (!A.neutralBones) return SKL.joints; const B = Object.fromEntries(A.neutralBones.map((b) => [b.name, b])), j = { vent: B.pelvis.head, mid: B.pelvis.tail, chest: B.spineB ? B.spineB.tail : B.spine.tail, neck: B.head.head, snout: B.head.tail };
+    for (const sd of ['L', 'R']) Object.assign(j, { ['hip' + sd]: B['thigh' + sd].head, ['knee' + sd]: B['thigh' + sd].tail, ['heel' + sd]: B['shin' + sd].tail, ['ankle' + sd]: B['foot' + sd].tail, ['toe' + sd]: B['toes' + sd].tail,
+      ['shoulder' + sd]: B['arm' + sd].head, ['elbow' + sd]: B['arm' + sd].tail, ['wrist' + sd]: B['hand' + sd].head, ['finger' + sd]: B['hand' + sd].tail, ...(B['scapula' + sd] ? { ['scap' + sd]: B['scapula' + sd].head } : {}), ...(B['fingers' + sd] ? { ['fingertip' + sd]: B['fingers' + sd].tail } : {}) });
+    return j; })();
+  const J18 = job.split ? { ...JN, mid2: JN.mid.map((v, i) => (v + JN.chest[i]) / 2) } : JN;
+  const split = job.split ? { head: cm0(JN.mid).map((v) => v / 100), ax: JN.chest.map((v, i) => (v - JN.mid[i]) * k) } : null;
   // Baked frame, metres: origin at the middle of the trunk, belly on y = 0, head towards +z.
   const pos = new Float32Array(A.n * 3);
   for (let i = 0; i < A.n; i++) { pos[i * 3] = A.pos[i * 3] * k; pos[i * 3 + 1] = (A.pos[i * 3 + 1] - A.yb) * k; pos[i * 3 + 2] = (A.pos[i * 3 + 2] - zc) * k; }
