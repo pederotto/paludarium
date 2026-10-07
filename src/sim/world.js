@@ -77,6 +77,7 @@ export class World {
   // Call after the ground, the wall or the hardscape changed shape.
   // `quick` skips the slower refreshes (while dragging a rock).
   groundChanged({ quick = false } = {}) {
+    this.groundVer = (this.groundVer ?? 0) + 1;      // (the animals' walkable grids, Animals.labGrid, are made again when this moves)
     this.terrain.compose(this.decor.stamps());
     this.terrain.update();
     this.wall.update();

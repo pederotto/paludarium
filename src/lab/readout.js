@@ -15,11 +15,14 @@ export function modeOf(a) {
 function driveRows(a) {
   const L = a.lab, D = L?.drive;
   if (!D) return [];
-  const S = L.stats, g = L.goal;
+  const S = L.stats, g = L.target ?? L.goal;      // (the goal itself, not the point of its route it is making for)
   const rows = [['drive', D.type === 'path' ? (D.shape === 'random' ? `random ${D.style} · seed ${D.seed} · ${D.mode}` : `${D.shape} · ${D.mode}`) : D.type === 'follow' ? `follow ${D.dot} (keep ${D.keep} cm)` : D.type]];
   if (g?.wall) rows.push(['goal', `on the wall: ${f1(g.x)} across, ${f1(g.y)} up  (${f1(Math.hypot(g.x - a.pos.x, g.y - a.pos.y))} cm away)`]);
   else if (g) rows.push(['goal', `${f1(g.x)}, ${f1(g.z)}  (${f1(Math.hypot(g.x - a.pos.x, g.z - a.pos.z))} cm away)`]);
   else rows.push(['goal', D.done ? 'arrived' : 'none']);
+  if (L.route) rows.push(['route', `round something in the way: ${L.route.pts.length - L.route.i} point${L.route.pts.length - L.route.i === 1 ? '' : 's'} to go${L.route.clipped ? ' (the goal cannot be stood on: it goes as near as it can)' : ''}${L.grow ? ` · +${f1(L.grow)} cm of room` : ''}`]);
+  if (D.stranded) rows.push(['stranded', 'not one waypoint of this path can be stood on (it lies inside or too near obstacles): it stays where it is']);
+  if (D.skipped) rows.push(['skipped', `${D.skipped} waypoint${D.skipped === 1 ? '' : 's'} that cannot be stood on (inside or too near an obstacle)`]);
   if (D.type === 'path') { rows.push(['laps', `${D.laps}  ·  waypoint ${D.i}/${D.pts.length}`]); if (S?.xteN) rows.push(['off the line', `mean ${f1(S.xteSum / S.xteN)}  max ${f1(S.xteMax)} cm`]); }
   if (S?.t > 1) rows.push(['walked', `${f1(S.dist)} cm in ${f1(S.t)} s  =  ${f1(S.dist / S.t)} cm/s`]);
   return rows;

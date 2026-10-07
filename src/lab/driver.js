@@ -61,7 +61,7 @@ export function createDriver(game, opts = {}) {
     return l;
   };
   const MAXP = 1200;
-  const pathLine = mkLine(0xffe08a, MAXP), draftLine = mkLine(0xffffff, 200), trail = mkLine(0x4fd6ff, 600);
+  const pathLine = mkLine(0xffe08a, MAXP), draftLine = mkLine(0xffffff, 200), trail = mkLine(0x4fd6ff, 600), routeLine = mkLine(0x7dff6a, 200);
   const goalRing = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 32), new THREE.MeshBasicNodeMaterial({ color: 0xff7a59, depthTest: false, transparent: true, opacity: 0.95, side: THREE.DoubleSide }));
   goalRing.rotation.x = -Math.PI / 2; goalRing.renderOrder = 26; goalRing.visible = false; goalRing.frustumCulled = false;
   scene.add(goalRing);
@@ -203,7 +203,10 @@ export function createDriver(game, opts = {}) {
     if (a !== trailFor) resetTrail(a && !a.dead ? a : null);
     const D = a?.lab?.drive;
     if (D?.type === 'path') { if (pathLine.userData.drive !== D) { setPoly(pathLine, D.pts, D.closed); pathLine.userData.drive = D; } } else { pathLine.visible = false; pathLine.userData.drive = null; }
-    const g = a?.lab?.goal;
+    // the way round what is in the way (labSteer): from where it stands through the points it is making for
+    const R = a?.lab?.route;
+    if (R && !a.dead) setPoly(routeLine, [{ x: a.pos.x, z: a.pos.z }, ...R.pts.slice(R.i)]); else routeLine.visible = false;
+    const g = a?.lab?.target ?? a?.lab?.goal;      // (the goal itself, not the point of the route it is making for)
     goalRing.visible = !!g;
     if (g) {
       // a ring flat on the floor, or standing on the wall at a wall goal
