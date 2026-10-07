@@ -24,6 +24,7 @@ import { TANK, MAT } from './tank.js';
 import { driveStep, skipWaypoint, crossTrack, panePoint } from './labdrive.js';
 import { Grid, planRoute } from './labroute.js';
 import { CLIMB as STEP_LIMIT, SURFACE_WALKERS } from './surfaces.js';
+import { faceRise, isCliff } from './facerise.js';
 import { THREAT, MOVERS, threatScore, sizeFactor, escapeScore } from './threat.js';
 import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
@@ -1278,14 +1279,20 @@ export class Animals {
   // bank: it was drawn tipped on its side with half its body in the bank), nor push its nose into one. It stays where it was; its
   // walk then turns or gives up as it does at a rock. Off such a face it may always step.
   // (A gecko climbs: steep ground is a surface to it, drawn on the plane under its feet.)
-  cliffAt(x, z) { const [gx, gz] = this.world.terrain.field.gradient(x, z); return gx * gx + gz * gz > 3; }      // (ground normal y < 0.5)
+  // (`a`, for a skink, crab or newt: a face it can step onto, rising no more than its step limit, is not a cliff to it, sim/facerise.js)
+  cliffAt(x, z, a = null) {
+    const T = this.world.terrain, [gx, gz] = T.field.gradient(x, z), g2 = gx * gx + gz * gz;      // (ground normal y < 0.5)
+    if (g2 <= 3) return false;
+    const kind = a ? SPECIES[a.sp]?.kind : null;
+    return kind && SURFACE_WALKERS.has(kind) ? isCliff(g2, faceRise((px, pz) => T.heightAt(px, pz), x, z), STEP_LIMIT[kind].up) : true;
+  }
   offCliff(a, sp, px, py, pz) {
     if (a.hop || a.perch || a.onWall || a.wallMode || a.swimming || sp.kind === 'gecko' || a.relocT === this.t) return;
     const T = this.world.terrain, bx = this.bodyBox(a, sp), ux = Math.sin(a.yaw ?? 0), uz = Math.cos(a.yaw ?? 0), nose = bx.z1 * 0.8;
-    const bad = (x, z) => this.cliffAt(x, z) || this.cliffAt(x + ux * nose, z + uz * nose);
+    const bad = (x, z) => this.cliffAt(x, z, a) || this.cliffAt(x + ux * nose, z + uz * nose, a);
     if ((a.pos.x !== px || a.pos.z !== pz) && bad(a.pos.x, a.pos.z) && !bad(px, pz)) { a.pos.set(px, py, pz); return; }
     // Standing on a cliff face however it got there (put there, the ground dug or raised under it): it slides down off it.
-    if (this.cliffAt(a.pos.x, a.pos.z) && sp.kind !== 'crab') {
+    if (this.cliffAt(a.pos.x, a.pos.z, a) && sp.kind !== 'crab') {
       const [gx, gz] = T.field.gradient(a.pos.x, a.pos.z), l = Math.hypot(gx, gz), nx = a.pos.x - gx / l * 0.3, nz = a.pos.z - gz / l * 0.3;
       // (a frog does not slide off into water deeper than half its body: it scrambles to a place it can sit instead, frogOut)
       if ((sp.kind === 'frog' || sp.kind === 'toad') && this.tooDeep(a, sp, nx, nz)) { this.frogOut(a, sp); return; }
@@ -3815,11 +3822,11 @@ export class Animals {
       // body's back, and the movers refuse to go under it (a hop's back-height test). A cell the body does not fit under is shut, as the planner must see it: a toad sent
       // to a point under a propped slate hopped round it, refused again and again, and was relocated. (A climber is let under or over by its surface layers.)
       if (!S && this.occ.count && this.occ.solidAt(x, gy + top, z)) return true;
-      // Steep ground: the newt, salamander and axolotl walker is refused a steep face by walkBlocked (a gecko climbs it, and the skink's and the
-      // crab's movers never look: they cross a low step or wall, as the lab's obstacle courses show). A hopper hops up a rise within what a hop
+      // Steep ground: the newt, salamander and axolotl walker is refused a steep face by walkBlocked, and the skink and crab by offCliff (a gecko climbs it); the
+      // three that climb (S) only a face above their step limit (cliffAt with the animal), the axolotl any steep one. A hopper hops up a rise within what a hop
       // lands on and clears (the courses: a 3 cm step is hopped, a 6 cm wall is not), so a raised cell more than HOP_RISE over its neighbours is shut.
       if (hops) { const lo = Math.min(T.heightAt(x - 1.5, z), T.heightAt(x + 1.5, z), T.heightAt(x, z - 1.5), T.heightAt(x, z + 1.5)); if (gy - lo > Math.min(5 * sp.size, HOP_RISE)) return true; }
-      else if (steep && this.cliffAt(x, z)) return true;
+      else if ((steep || S) && this.cliffAt(x, z, S ? probe : null)) return true;      // (a skink, crab or newt: only a face above its step limit, as offCliff and walkBlocked)
       if (this.occ.count) for (let k = 0; k < 8; k++) { const rx = x + Math.sin(k * 0.785) * gap, rz = z + Math.cos(k * 0.785) * gap; if ((this.occ.solidAt(rx, gy + 0.5, rz) || (!S && this.occ.solidAt(rx, gy + top, rz))) && !(S && over(rx, rz, gy))) return true; }
       return this.stemDepth(a, x, gy, z, 0) > 0.02;
     }, () => cc);
@@ -4384,7 +4391,7 @@ export class Animals {
   walkBlocked(a, nx, nz) {
     const d1 = this.stemDepth(a, nx, a.pos.y, nz, a.yaw);
     if (d1 > 0.02 && d1 > this.stemDepth(a, a.pos.x, a.pos.y, a.pos.z, a.yaw) + 1e-3) return true;
-    return SPECIES[a.sp].kind !== 'gecko' && this.cliffAt(nx, nz) && !this.cliffAt(a.pos.x, a.pos.z);
+    return SPECIES[a.sp].kind !== 'gecko' && this.cliffAt(nx, nz, a) && !this.cliffAt(a.pos.x, a.pos.z, a);
   }
 
   // Would a step to (nx, nz) take this walker further into a neighbour's body? Crawlers go round one another the way they go round
