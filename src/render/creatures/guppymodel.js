@@ -5,7 +5,7 @@
 //   guppyModel(look, meta) -> Promise<{ lo, hi, textures, finish }>   (meta: the manifest's "guppy" entry)
 import * as THREE from 'three/webgpu';
 import { loadCreatureGLB } from './glb.js';
-import { parseGuppyLook } from '../../content/guppy.js';
+import { parseGuppyLook, tailSize } from '../../content/guppy.js';
 import { paintGuppyModel } from './guppypaint.js';
 
 const base = () => new URL(`${import.meta.env.BASE_URL}assets/creatures/`, location.href);
@@ -97,9 +97,39 @@ const SHAPED = new Map();
 function shapeKey(look) {
   const p = parseGuppyLook(look);
   if (!p) return null;
-  if (p.sex === 'male') return p.tail === 'fan' || p.tail === 'round' ? p.tail : null;
-  if (p.sex === 'female') return `female_${p.tail === 'delta' ? 'delta' : p.tail === 'fan' || p.tail === 'lyre' ? 'fan' : 'round'}`;
-  return 'female_round';
+  // the twelve tails by size class until the owner's tail models come (veil and flag as the delta; spade, lyre and the single swords
+  // as the fan; spear, pin and the double sword as the round tail), plus the long fins of ribbon and swallow fish
+  const size = tailSize(p.tail), fins = (p.ribbon ? '+ribbon' : '') + (p.swallow ? '+swallow' : '');
+  if (p.sex === 'male') return (size === 'delta' ? '' : size) + fins || null;
+  return `female_${p.sex === 'juv' ? 'round' : size}${fins}`;
+}
+
+// Ribbon: the belly fins (pelvic fins and gonopodium) drawn out into long ribbons; swallow: the dorsal and the belly fins long.
+// A stretch of the model's own fin vertices away from where each fin leaves the body.
+function warpFins(geo, ribbon, swallow) {
+  if (!ribbon && !swallow) return geo;
+  const g = geo.clone();
+  const P = g.attributes.position, R = g.attributes.rig, n = P.count;
+  g.computeBoundingBox();
+  const zHead = g.boundingBox.max.z, L = zHead - g.boundingBox.min.z;
+  let zRoot = zHead;
+  const NB = 32, top = new Float32Array(NB).fill(-1e9), bot = new Float32Array(NB).fill(1e9), bin = (z) => Math.max(0, Math.min(NB - 1, Math.floor((zHead - z) / L * NB)));
+  for (let i = 0; i < n; i++) if (Math.round(R.getW(i)) === 0) { const z = P.getZ(i), b = bin(z); top[b] = Math.max(top[b], P.getY(i)); bot[b] = Math.min(bot[b], P.getY(i)); zRoot = Math.min(zRoot, z); }
+  const belly = ribbon ? 2.6 : 1.8, back = swallow ? 1.5 : 1;
+  for (let i = 0; i < n; i++) {
+    if (Math.round(R.getW(i)) !== 2) continue;
+    const z = P.getZ(i), y = P.getY(i), b = bin(z);
+    if (z < zRoot + 0.04 * L) continue;                            // the tail, and the dorsal's trailing tip over it, stay
+    if (y < bot[b] && bot[b] < 1e8) {                              // a belly fin: out and back from the belly line
+      const d = bot[b] - y;
+      P.setY(i, bot[b] - d * belly); P.setZ(i, z - d * (belly - 1) * 0.9);
+    } else if (swallow && y > top[b] && top[b] > -1e8) {           // the dorsal: taller and swept back
+      const d = y - top[b];
+      P.setY(i, top[b] + d * back); P.setZ(i, z - d * (back - 1) * 1.2);
+    }
+  }
+  P.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingBox();
+  return g;
 }
 
 export async function guppyModel(look, meta) {
@@ -111,7 +141,9 @@ export async function guppyModel(look, meta) {
   let g = g0;
   if (sk) {
     // (loadCreatureGLB has added the rig with addRig: rig.w is the material id, 2 on the fins)
-    if (!SHAPED.has(`${sex}:${sk}`)) SHAPED.set(`${sex}:${sk}`, { lo: warpTail(g0.lo, sk), hi: g0.hi === g0.lo ? null : warpTail(g0.hi, sk) });
+    const [tk, ...fins] = sk.split('+'), rib = fins.includes('ribbon'), swa = fins.includes('swallow');
+    const make = (geo) => warpFins(warpTail(geo, tk), rib, swa);
+    if (!SHAPED.has(`${sex}:${sk}`)) SHAPED.set(`${sex}:${sk}`, { lo: make(g0.lo), hi: g0.hi === g0.lo ? null : make(g0.hi) });
     const w = SHAPED.get(`${sex}:${sk}`); g = { ...g0, lo: w.lo, hi: w.hi ?? w.lo };
   }
   const e = eyes(m, parseGuppyLook(look)?.ground === 'albino');

@@ -11,28 +11,31 @@
 // State on the animal (saved): female (true/false), sizeK (its own size), gv (gravid: { t minutes left, sire }), st (stored
 // sperm: { id, genes, gen, n broods left }), mated (she has met a male: no longer a virgin), sk0 (its own size factor). sire / st carry the father's genes, so a brood can be born after he has died.
 import { guppyLook } from '../content/guppy.js';
-import { morphOf } from './genetics.js';
+import { morphOf, isMaleGenes, sexGenes, lociOf, sexedSpecies } from './genetics.js';
 
 // A new fish: its sex and its size. Founders come as the dealer sells them (trios: a male to every two females); fry are 50:50.
+// The sex of a new fish when its genes do not say it yet: fry are born half and half; founders come as trios.
+export function livebearerFemale(opt, peers) {
+  if (opt.female !== undefined) return !!opt.female;
+  if (opt.age === 0) return Math.random() < 0.5;
+  const males = peers.filter((b) => b.female === false).length, females = peers.filter((b) => b.female).length;
+  return males * 2 > females;
+}
 export function initLivebearer(a, sp, opt, peers) {
-  if (a.female === undefined) {
-    if (opt.female !== undefined) a.female = !!opt.female;
-    else if (opt.age === 0) a.female = Math.random() < 0.5;
-    else {
-      const males = peers.filter((b) => b !== a && b.female === false).length, females = peers.filter((b) => b !== a && b.female).length;
-      a.female = males * 2 > females;
-    }
-  }
+  // a species with sex chromosomes is the sex its genes say (XX, XY); otherwise as livebearerFemale decides
+  if (a.genes && sexedSpecies(a.sp) && a.genes.length === lociOf(a.sp).length) a.female = !isMaleGenes(a.sp, a.genes);
+  else if (a.female === undefined) a.female = livebearerFemale(opt, peers.filter((b) => b !== a));
   a.sk0 ??= 0.9 + Math.random() * 0.2;                 // its own size, ±10 %
   refresh(a, sp);
 }
-
 const adultOf = (a, sp) => a.age >= (sp.adultDays ?? 10) * 1440;
 
 // The look it is drawn with (content/guppy.js guppyLook) and its size factor: a young male grows toward the male body's size.
 function refresh(a, sp) {
   const adult = adultOf(a, sp), L = sp.livebearer;
-  if (a.genes) a.morph = morphOf(a.sp, a.genes);       // (a save from before the guppy's eleven genes: its two genes, completed)
+  // (a save from before the sex chromosomes or the later genes: made whole for the fish's sex)
+  if (a.genes && sexedSpecies(a.sp) && (a.genes.length < lociOf(a.sp).length || isMaleGenes(a.sp, a.genes) === a.female)) a.genes = sexGenes(a.sp, a.genes, a.female);
+  if (a.genes) a.morph = morphOf(a.sp, a.genes);
   a.look = guppyLook(a.morph, { female: a.female, adult, gravid: !!a.gv && adult });
   a.sizeK = a.sk0 * (!adult && !a.female ? (L?.maleK ?? 1) : 1);
 }
@@ -55,7 +58,8 @@ export function livebearerStep(W, a, sp, dMin, fit, room, births) {
   } else if (a.female && fit && room > 0 && adultOf(a, sp) && Math.random() < sp.breed * (dMin / 1440) * room) {
     // Conceive: with a male of the tank (her chosen mate if she has one), or from sperm she has stored.
     const mate = W.animals.mateOf?.(a);
-    const males = mate ? (mate.female === false && adultOf(mate, sp) && !mate.dead ? [mate] : []) : (W.animals.by[a.sp] ?? []).filter((b) => b.female === false && adultOf(b, sp) && !b.dead);
+    const fertile = (b) => b.female === false && adultOf(b, sp) && !b.dead && (L.fertile?.(b.genes) ?? true);
+    const males = mate ? (fertile(mate) ? [mate] : []) : (W.animals.by[a.sp] ?? []).filter(fertile);
     const m = males.length ? males[Math.floor(Math.random() * males.length)] : null;
     let sire = null;
     if (m) { sire = { id: m.id, genes: [...m.genes], gen: m.gen ?? 0 }; a.st = { ...sire, n: L.store ?? 3 }; a.mated = true; }

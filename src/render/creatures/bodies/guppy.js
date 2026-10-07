@@ -15,7 +15,7 @@
 // eyes. All variants share their finish (one shader per sex and eye colour), so a tank of many strains compiles few shaders.
 import { clamp01, lerp3, mul3, C, cells, cap, fbm, vnoise } from '../kit.js';
 import { fishBody, medianFin, pairFin, sm, curve } from './tetras.js';
-import { parseGuppyLook, GUPPY_HEX } from '../../../content/guppy.js';
+import { parseGuppyLook, GUPPY_HEX, tailSize } from '../../../content/guppy.js';
 
 const SL_MALE = 2.2, SL_FEMALE = 3.2, SL_JUV = 3.2;           // juveniles are drawn on the female body, scaled down by age
 const T = 0.035;                                              // fin half-thickness (>= 0.75 cell: the mesher needs ~1.5 cells)
@@ -68,7 +68,9 @@ function swordPoly(z0, h0, len, side) {
 
 // ---- The builder -------------------------------------------------------------------------------------------------------------
 export function guppyDef(look) {
-  const p = parseGuppyLook(look) ?? parseGuppyLook('red');
+  const p0 = parseGuppyLook(look) ?? parseGuppyLook('red');
+  // (the stand-in draws five tails; the other seven by their size class, as the owner's model does until their tails come)
+  const p = { ...p0, tail: ['delta', 'fan', 'round', 'doublesword', 'lyre'].includes(p0.tail) ? p0.tail : tailSize(p0.tail) };
   const male = p.sex === 'male', juv = p.sex === 'juv', female = !male;
   const SL = male ? SL_MALE : juv ? SL_JUV : SL_FEMALE;
   const G = GROUND[p.ground] ?? GROUND.wild, albino = p.ground === 'albino';

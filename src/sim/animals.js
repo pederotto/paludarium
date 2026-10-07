@@ -39,8 +39,9 @@ import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
 import { PLANTS } from './plants.js';
-import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf, morphList } from './genetics.js';
-import { initLivebearer } from './livebearer.js';
+import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf, morphList, sexedSpecies } from './genetics.js';
+import { initLivebearer, livebearerFemale } from './livebearer.js';
+import { guppyFertile } from '../content/guppy.js';
 import { shrimpPalette } from '../content/morphs.js';
 import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
 import { filterDrift, filterAvoid } from './filterflow.js';
@@ -247,10 +248,11 @@ export const SPECIES = {
   },
   guppy: {
     name: 'Guppy', scale: 1, group: 'Fish', kind: 'swim', band: 'top', school: false, size: 3.0, speed: 4.5,
-    temp: [22, 28], hungerHours: 120, lifeDays: 700, eats: ['flake'], cap: 40, breed: 0.06, adultDays: 8,
-    // Livebearer (sim/livebearer.js): a female carries a brood for `gestDays` and drops `brood` fry; one mating fills her store
+    temp: [22, 28], hungerHours: 120, lifeDays: 700, eats: ['flake'], cap: 40, breed: 0.35, adultDays: 8,
+    // Livebearer (sim/livebearer.js): a female with a male conceives at `breed` a day (a brood every ~6 game days, as a real female's
+    // ~30 days on the game's clock), carries it for `gestDays` and drops `brood` fry; one mating fills her store
     // for `store` more broods; fry are born at `growFrom` of the adult size; a young male grows to `maleK` of the female body.
-    livebearer: { gestDays: 3, brood: [3, 8], store: 3, growFrom: 0.2, maleK: 2.2 / 3.2 },
+    livebearer: { gestDays: 3, brood: [3, 8], store: 3, growFrom: 0.2, maleK: 2.2 / 3.2, fertile: guppyFertile },
     body: sdfBody('guppy'), anim: { amp: 0.25, wave: 1.6 },
     note: 'Livebearer: the female gives birth to live fry and keeps a male\'s sperm for several broods (use a virgin female for a known father). Males show the colours; females carry the genes.',
   },
@@ -965,8 +967,11 @@ export class Animals {
     if (hasGenetics(id)) {
       const ok = Array.isArray(opt.genes) && opt.genes.length === SPECIES_LOCI(id);
       let genes = ok ? [...opt.genes] : null;
-      if (!genes && opt.morph) { try { genes = genotypeForMorph(id, opt.morph); } catch { genes = null; } }
-      a.genes = genes ?? randomGenotype(id);
+      // A species with sex chromosomes (the guppy) is sexed by its genes: a founder's sex is chosen first (a dealer's trio), and its
+      // genes are made for that sex (a female carries no Y genes)
+      const fem = sexedSpecies(id) && !genes ? livebearerFemale(opt, this.by[id]) : undefined;
+      if (!genes && opt.morph) { try { genes = genotypeForMorph(id, opt.morph, Math.random, { female: fem }); } catch { genes = null; } }
+      a.genes = genes ?? randomGenotype(id, Math.random, { female: fem });
       a.morph = morphOf(id, a.genes);
     } else if (opt.genes && opt.gsp) {
       a.genes = [...opt.genes]; a.morph = opt.morph ?? morphOf(opt.gsp, a.genes); a.gsp = opt.gsp;

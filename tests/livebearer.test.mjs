@@ -7,15 +7,15 @@ import { guppyLook, parseGuppyLook } from '../src/content/guppy.js';
 
 const SP = { name: 'Guppy', adultDays: 8, breed: 0.06, livebearer: { gestDays: 3, brood: [3, 8], store: 3, growFrom: 0.2, maleK: 2.2 / 3.2 } };
 const DAY = 1440;
-const fish = (morph, o = {}) => { const genes = genotypeForMorph('guppy', morph, makeRng(o.seed ?? 1)); return { id: o.id ?? 1, sp: 'guppy', genes, morph: morphOf('guppy', genes), age: o.age ?? 30 * DAY, pos: { clone: () => ({}) }, hunger: 0.2, ...o }; };
+const fish = (morph, o = {}) => { const genes = genotypeForMorph('guppy', morph, makeRng(o.seed ?? 1), { female: o.female !== false }); return { id: o.id ?? 1, sp: 'guppy', genes, morph: morphOf('guppy', genes), age: o.age ?? 30 * DAY, pos: { clone: () => ({}) }, hunger: 0.2, ...o }; };
 const world = (all, mates = new Map()) => ({ animals: { by: { guppy: all }, mateOf: (a) => mates.get(a) ?? null } });
 
 test('founders come as trios (a male to two females), fry are about half and half', () => {
   const tank = [];
-  for (let i = 0; i < 9; i++) { const a = fish('red', { id: i }); initLivebearer(a, SP, {}, tank); tank.push(a); }
+  for (let i = 0; i < 9; i++) { const a = { id: i, sp: 'guppy', age: 30 * DAY, morph: 'red' }; a.female = undefined; initLivebearer(a, SP, {}, tank); tank.push(a); }
   assert.equal(tank.filter((a) => a.female === false).length, 3);
   const rng = Math.random; let f = 0;
-  for (let i = 0; i < 2000; i++) { const a = fish('red', { age: 0 }); initLivebearer(a, SP, { age: 0 }, []); f += a.female ? 1 : 0; }
+  for (let i = 0; i < 2000; i++) { const a = { id: i, sp: 'guppy', age: 0, morph: 'red' }; initLivebearer(a, SP, { age: 0 }, []); f += a.female ? 1 : 0; }
   assert.ok(f > 900 && f < 1100, `${f} of 2000 fry female`);
   void rng;
 });
@@ -40,7 +40,7 @@ test('a female carries a brood for its gestation and drops several fry fathered 
 });
 
 test('she keeps the sperm for three more broods: no male needed, and the father stays the same', () => {
-  const female = fish('red', { id: 3, female: true, st: { id: 9, genes: genotypeForMorph('guppy', 'blue', makeRng(2)), gen: 0, n: 3 }, mated: true });
+  const female = fish('red', { id: 3, female: true, st: { id: 9, genes: genotypeForMorph('guppy', 'blue', makeRng(2), { female: false }), gen: 0, n: 3 }, mated: true });
   initLivebearer(female, SP, { female: true }, []);
   const W = world([female]);
   let broods = 0;
@@ -51,6 +51,14 @@ test('she keeps the sperm for three more broods: no male needed, and the father 
   }
   assert.equal(broods, 3, 'three broods from the store, then none');
   assert.match(livebearerText(female, SP), /stored sperm is used up/);
+});
+
+test('a ribbon male cannot sire: a female with only him stays empty', () => {
+  const male = fish('red_ribbon', { id: 2, female: false }), female = fish('red', { id: 3, female: true });
+  for (const a of [male, female]) initLivebearer(a, { ...SP, livebearer: { ...SP.livebearer, fertile: (g) => !g[21].includes('I') } }, {}, []);
+  const S2 = { ...SP, livebearer: { ...SP.livebearer, fertile: (g) => !g[21].includes('I') } };
+  for (let d = 0; d < 400; d++) livebearerStep(world([male, female]), female, S2, DAY, true, 1, []);
+  assert.ok(!female.gv && !female.mated);
 });
 
 test('a virgin female says so; a young fish is drawn plain until it matures; males colour up', () => {

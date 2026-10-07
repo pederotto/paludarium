@@ -54,6 +54,18 @@ const TAIL = {
   albino_red: { root: 0xffa25a, mid: 0xff3a28, rim: 0xd41c2a, ray: 0xe8302c, dark: 0xff7a6a, spangle: 0xffd6aa },
   albino_blue: { root: 0xeef8ff, mid: 0xa6daf8, rim: 0x62acea, ray: 0x88c4f0, dark: 0xc4e2f6, spangle: 0xffffff },
   albino_purple: { root: 0xffd4e6, mid: 0xf684c0, rim: 0xd24494, ray: 0xe868aa, dark: 0xf8b6d6, spangle: 0xffffff },
+  // (7 Oct: the yellow, white and black genes; from the owner's photos: yellow cobra, white lyretail, full black)
+  yellow: { root: 0xfff59a, mid: 0xffd424, rim: 0xe89a0c, ray: 0xe0b020, dark: 0x1a1406, spangle: 0xfffbd8 },
+  lime: { root: 0xf0fca0, mid: 0xbee432, rim: 0x6ea818, ray: 0x9ac828, dark: 0x101806, spangle: 0xf8ffd8 },
+  green: { root: 0xa8f4c4, mid: 0x30c486, rim: 0x0e7a64, ray: 0x20a078, dark: 0x061810, spangle: 0xd8fff0 },
+  white: { root: 0xffffff, mid: 0xf4f6f8, rim: 0xdfe4ea, ray: 0xe6eaee, dark: 0x9aa0a8, spangle: 0xffffff },
+  pastel: { root: 0xfffdf0, mid: 0xfff2c6, rim: 0xf4d898, ray: 0xf6e4b0, dark: 0xb8a070, spangle: 0xffffff },
+  black: { root: 0x30323e, mid: 0x14151c, rim: 0x07070a, ray: 0x22242e, dark: 0x000000, spangle: 0x4a5a9a },
+  albino_yellow: { root: 0xfff8c0, mid: 0xffe050, rim: 0xf4b830, ray: 0xf0c840, dark: 0xffd890, spangle: 0xffffff },
+  albino_lime: { root: 0xf6ffc8, mid: 0xd4f070, rim: 0x9ad040, ray: 0xbce060, dark: 0xe0f0b0, spangle: 0xffffff },
+  albino_green: { root: 0xd8fff0, mid: 0x8ae8c4, rim: 0x48c09c, ray: 0x70d8b4, dark: 0xc0eedc, spangle: 0xffffff },
+  albino_white: { root: 0xffffff, mid: 0xfaf8f8, rim: 0xf0e4e4, ray: 0xf4ecec, dark: 0xf0d8d8, spangle: 0xffffff },
+  albino_pastel: { root: 0xfffef6, mid: 0xfff6dc, rim: 0xfae6bc, ray: 0xfaecd0, dark: 0xf4e0c8, spangle: 0xffffff },
 };
 // Body grounds: back, upper flank, flank (silver), belly, scale edge (melanophore), scale centre glint (iridophore).
 const GROUND = {
@@ -63,12 +75,12 @@ const GROUND = {
 };
 const IRIDESCENT = [hex(0x5ed4c8), hex(0x6a98f2), hex(0xe8a848)];     // teal, blue and gold sheens on a wild-type flank
 const BLACK = { wild: hex(0x121014), gold: hex(0x3c2814), albino: null };
-const MOSCOW = { red: hex(0x3c0a12), blue: hex(0x10184a), purple: hex(0x26103e) };
+const MOSCOW = { red: hex(0x3c0a12), blue: hex(0x10184a), purple: hex(0x26103e), yellow: hex(0x3a3010), lime: hex(0x26300e), green: hex(0x0c2e24), white: hex(0x4a4c52), pastel: hex(0x4a4436), black: hex(0x0a0a0e) };
 
 const P = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, hex(v)]));
 const tailPal = (p) => {
   const k = p.ground === 'albino' ? `albino_${p.colour}` : p.colour;
-  const t = P(TAIL[k]);
+  const t = P(TAIL[k] ?? TAIL[p.colour] ?? TAIL.red);
   if (p.ground === 'gold') { const g = hex(0xffc84a); t.root = mix(t.root, g, 0.25); t.mid = mix(t.mid, g, 0.08); t.dark = mix(t.dark, hex(0x5a3a10), 0.6); }
   return t;
 };
@@ -82,7 +94,8 @@ function makePainter(look) {
   const black = BLACK[p.ground] ?? BLACK.wild;
   const SL = male ? 2.2 : 3.2;                                       // cm: pattern sizes are real sizes
   const show = male ? 1 : fem ? 0.55 : 0;                            // how much of the line's tail colour this fish shows
-  const snake = male && (p.pattern === 'snakeskin' || p.pattern === 'tiger'), mos = male && (p.pattern === 'mosaic' || p.pattern === 'tiger');
+  const snake = male && (p.pattern === 'snakeskin' || p.pattern === 'tiger' || p.pattern === 'cobra'), mos = male && (p.pattern === 'mosaic' || p.pattern === 'tiger');
+  const leo = male && (p.pattern === 'leopard' || p.pattern === 'cobra'), grass = male && p.pattern === 'grass';
 
   // Scales: rows of overlapping scales, 27 along the side and 9 across (Fishes of Texas: 26-28, 8-9). Returns
   // [edge 0…1 (the dark free margin), glint 0…1 (the light centre)] at body (s, v).
@@ -132,6 +145,11 @@ function makePainter(look) {
         c = mix(c, mix(dark, T.mid, 0.25 * sm(0.0, 0.25, 1 - v) * sm(0.1, 0.3, s)), sm(0.08, 0.16, s) * (1 - sm(0.82, 0.98, v) * 0.5));
       }
       if (p.platinum) c = mix(c, mix(hex(0xf6f8fc), hex(0xd8ecff), fbm(s * 20, v * 9, 31) * 0.6), (1 - sm(0.36, 0.52, s + 0.08 * v)) * (1 - sm(0.55, 0.85, v)) * 0.92);
+      // Japan blue: a metallic blue front half (the owner's Japan blue red sword); neon: a turquoise band high on the flank
+      if (p.japan) c = mix(c, mix(hex(0x2c6cf0), hex(0x7ec8ff), fbm(s * 18, v * 8, 37) * 0.7), sm(0.1, 0.18, s) * (1 - sm(0.5, 0.62, s)) * sm(0.05, 0.25, v) * (1 - sm(0.65, 0.8, v)) * 0.85);
+      if (p.neon) c = mix(c, mix(hex(0x20e0e8), hex(0x40a0ff), sm(0.2, 0.8, s)), sm(0.16, 0.22, s) * (1 - sm(0.78, 0.9, s)) * sm(0.14, 0.2, v) * (1 - sm(0.36, 0.44, v)) * 0.9);
+      if (p.colour === 'black') c = mix(c, mul(T.mid, 1.4), sm(0.4, 0.62, s) * 0.85);              // black fins spill onto the stalk
+      if (p.pattern === 'cobra') c = mix(c, albino ? hex(0xf0c890) : hex(0x14140c), sm(0.62, 0.7, vnoise(s * SL * 9, v * 2.2, 43)) * sm(0.2, 0.3, s) * (1 - sm(0.8, 0.92, v)) * 0.8);   // vertical cobra bars
       if (snake) {
         const w = worley(s * SL * 13, v * 8.5, 41), chain = sm(0.05, 0.0, w.f2 - w.f1) + sm(0.2, 0.12, w.f1) * 0.35;
         const ground = mul(c, 0.55), line = albino ? hex(0xffd2a0) : p.ground === 'gold' ? hex(0xfff0a0) : hex(0xd8e47a);
@@ -199,12 +217,21 @@ function makePainter(look) {
         c = mix(c, albino ? mul(T.rim, 0.8) : mix(T.dark, T.rim, 0.35), net * reach * 0.92);
         if (p.pattern === 'tiger') c = mix(c, T.dark, sm(0.62, 0.7, vnoise(fx * 1.2, fy * 7, 101)) * 0.7);
       }
+      if (leo) {
+        // leopard: bold dark spots and broken bars across the rays, larger toward the rim (the owner's leopard male, the yellow cobra)
+        const w = worley(fx * 5.5, fy * 3.6, 109), spot = sm(0.3, 0.22, w.f1 * (0.85 + 0.3 * w.id)) * (w.id > 0.15 ? 1 : 0);
+        c = mix(c, albino ? mul(T.rim, 0.7) : mix(T.dark, hex(0x050505), 0.6), spot * sm(0.08, 0.25, y) * 0.95);
+      }
+      if (grass) {
+        const w = worley(fx * 20, fy * 20, 113);                                     // grass: many fine dark dots
+        c = mix(c, albino ? mul(T.rim, 0.8) : T.dark, sm(0.17, 0.09, w.f1) * (w.id > 0.35 ? 1 : 0) * sm(0.1, 0.3, y) * 0.85);
+      }
       if (p.pattern === 'snakeskin') {
         // lace: a fine dark web over the whole fin
         const w = worley(fx * 22, fy * 13, 103);
         c = mix(mix(c, hex(0xe8e070), 0.15), albino ? mul(T.rim, 0.85) : T.dark, sm(0.05, 0.0, w.f2 - w.f1) * 0.7 * (0.6 + 0.4 * sm(0.0, 0.3, y)));
       }
-      if (kind === 'dorsal' && !mos && p.pattern !== 'snakeskin') {
+      if (kind === 'dorsal' && !mos && !leo && !grass && p.pattern !== 'snakeskin') {
         const d = worley(fx * 10, fy * 10, 107);                                    // fancy dorsals: a few dark spots
         c = mix(c, T.dark, sm(0.18, 0.08, d.f1) * (d.id > 0.6 ? 1 : 0) * 0.6 * (albino ? 0.4 : 1));
       }
@@ -275,7 +302,9 @@ export function paintGuppyModel(look, maps) {
         const strain = mul(sc, detail * (0.75 + 0.5 * Math.min(1, Lb * 2.2)));
         const rear = male ? sm(0.45, 0.8, s) : 0;
         const over = Math.max(rear * 0.75, p.moscow && male ? sm(0.08, 0.16, s) * 0.85 : 0, p.platinum && male ? (1 - sm(0.36, 0.52, s + 0.08 * v)) * (1 - sm(0.55, 0.85, v)) * 0.85 : 0,
-          p.tuxedo && black ? sm(0.48, 0.56, s) * 0.92 : 0, (male && (p.pattern === 'snakeskin' || p.pattern === 'tiger')) ? sm(0.2, 0.3, s) * 0.7 : 0,
+          p.tuxedo && black ? sm(0.48, 0.56, s) * 0.92 : 0, (male && (p.pattern === 'snakeskin' || p.pattern === 'tiger' || p.pattern === 'cobra')) ? sm(0.2, 0.3, s) * 0.7 : 0,
+          p.japan ? sm(0.1, 0.18, s) * (1 - sm(0.5, 0.62, s)) * sm(0.05, 0.25, v) * (1 - sm(0.65, 0.8, v)) * 0.85 : 0,
+          p.neon ? sm(0.16, 0.22, s) * (1 - sm(0.78, 0.9, s)) * sm(0.14, 0.2, v) * (1 - sm(0.36, 0.44, v)) * 0.9 : 0,
           !male ? sm(0.48, 0.55, s) * (1 - sm(0.62, 0.68, s)) * sm(0.55, 0.68, v) * 0.9 : 0);
         c = mix(c, strain, over);
       }
