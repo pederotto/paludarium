@@ -171,6 +171,134 @@ if mouth:
                 if (co - loc).dot(nor) < 0: mdata.vertices[i].co = loc + nor * 0.0003
         mdata.polygons.foreach_set('use_smooth', [True] * len(mdata.polygons)); mdata.update()
         cav['bones'] = cavity_vs_bones(); cav['before'] = before; cav['fitted'] = moved
+        dressing = None
+        if D.get('dress'):
+            # ---- the mouth dressed on its skull: a tongue pad on the floor and the teeth (positions and new vertices only; the new vertices take the weights of the vertex they stand on,
+            # so the lower jaw's teeth and the tongue turn with the jaw). Teeth are marked blue in the vertex colour (green = the base ring 0, apex 1) for the skin bake.
+            import random
+            from mathutils.kdtree import KDTree
+            tg, th = D['dress']['tongue'], D['dress']['teeth']
+            # the floor first: a trough inside the lower jaw (the floor sheet was nearly level with the lip surface; the rim stays on it, the inside sinks up to 0.12 cm),
+            # then the tongue as a pad of its own on that floor (the sheet is too coarse to raise a pad out of)
+            floor_ids = []
+            for i in flagged:
+                v = mdata.vertices[i]; co = v.co; z_b, y_b = -co.y * 100, co.z * 100; dy = y_b - lipY(z_b)
+                if dy > -0.02 or z_b < 5.95: continue
+                v.co.z = (y_b - 0.12 * sstep(max(0.0, min(1.0, (-dy - 0.02) / 0.06)))) / 100.0; floor_ids.append(i)
+            bm3 = _bm.new(); bm3.from_mesh(mdata); bm3.verts.ensure_lookup_table()
+            for _ in range(2): _bm.ops.smooth_vert(bm3, verts=[bm3.verts[i] for i in floor_ids], factor=0.25, use_axis_x=False, use_axis_y=False, use_axis_z=True)
+            bm3.to_mesh(mdata); bm3.free(); mdata.update(); bpy.context.view_layer.update()
+            fl = set(flagged)
+            cavT = BVHTree.FromObject(mouth, bpy.context.evaluated_depsgraph_get())
+            def surface(x_b, z_b, up):                                           # the cavity sheet above (up) or below the lip surface at (x, z): the point, or None if it is not a cavity face
+                o = Vector((x_b / 100.0, -z_b / 100.0, (lipY(z_b) + (-0.03 if up else 0.03)) / 100.0))
+                hit = cavT.ray_cast(o, Vector((0, 0, 1 if up else -1)), 0.01)
+                if hit[0] is None: return None
+                poly = mdata.polygons[hit[2]]
+                return hit[0] if all(vi in fl for vi in poly.vertices) else None
+            # a new vertex takes the weights of the nearest vertex of ITS OWN sheet (the two lips' rim copies sit on the same spot, so one tree for both gave a spike: a tongue vertex with the head's weights)
+            lipdy = lambda i: mdata.vertices[i].co.z * 100 - lipY(-mdata.vertices[i].co.y * 100)
+            up_ids = [i for i in flagged if lipdy(i) > 0.005]; lo_ids = [i for i in flagged if lipdy(i) < -0.005]
+            kdU, kdL = KDTree(len(up_ids)), KDTree(len(lo_ids))
+            [kdU.insert(mdata.vertices[i].co, i) for i in up_ids]; [kdL.insert(mdata.vertices[i].co, i) for i in lo_ids]; kdU.balance(); kdL.balance()
+            R_, S_ = 5, 16
+            fy = lambda x_b, z_b: (lambda h: None if h is None else h.z * 100.0)(surface(x_b, z_b, False))
+            fc = fy(tg['cx'], tg['cz']); pad_v, pad_f, pad_host = [], [], []
+            if fc is not None:
+                Hc = max(0.03, min(0.22, lipY(tg['cz']) + tg['topDy'] - fc))
+                def padpoint(rr, th_):
+                    x_b = tg['cx'] + tg['ax'] * rr * math.cos(th_); z_b = tg['cz'] + tg['az'] * rr * math.sin(th_); f_ = fy(x_b, z_b)
+                    if f_ is None: return None
+                    return Vector((x_b / 100.0, -z_b / 100.0, (f_ + Hc * (1 - rr * rr) ** 0.7 - (0.008 if rr >= 1 else 0.0)) / 100.0))
+                grid = {(0, 0): padpoint(0.0, 0.0)}
+                for k in range(1, R_ + 1):
+                    for j in range(S_): grid[(k, j)] = padpoint(k / R_, 2 * math.pi * j / S_)
+                if all(p is not None for p in grid.values()):
+                    idx_of = {}
+                    for key, p in grid.items(): idx_of[key] = len(pad_v); pad_v.append(p)
+                    for j in range(S_): pad_f.append([idx_of[(0, 0)], idx_of[(1, j)], idx_of[(1, (j + 1) % S_)]])
+                    for k in range(1, R_):
+                        for j in range(S_):
+                            j2 = (j + 1) % S_; pad_f.append([idx_of[(k, j)], idx_of[(k + 1, j)], idx_of[(k + 1, j2)]]); pad_f.append([idx_of[(k, j)], idx_of[(k + 1, j2)], idx_of[(k, j2)]])
+                    pad_f = [f3 if (pad_v[f3[1]] - pad_v[f3[0]]).cross(pad_v[f3[2]] - pad_v[f3[0]]).z > 0 else f3[::-1] for f3 in pad_f]        # the pad faces up
+                    pad_host = [kdL.find(p)[1] for p in pad_v]
+                else: print('TONGUE: pad points off the floor, no tongue')
+            n0v_pad = len(mdata.vertices); pad_set = set()
+            if pad_v:
+                bmp = _bm.new(); bmp.from_mesh(mdata); pv = [bmp.verts.new(p) for p in pad_v]; bmp.verts.ensure_lookup_table()
+                for f3 in pad_f: bmp.faces.new([pv[i] for i in f3])
+                bmp.to_mesh(mdata); bmp.free(); mdata.update()
+                for name in ('_RIG', '_SKIN', '_SKINX'):
+                    at = mdata.attributes[name].data
+                    for k, host in enumerate(pad_host): at[n0v_pad + k].color = tuple(at[host].color)
+                colP = mdata.color_attributes.active_color
+                for lp in mdata.loops:
+                    if lp.vertex_index >= n0v_pad: colP.data[lp.index].color = (0.0, 1.0, 0.0, 1.0)         # cavity green: the tongue is mouth lining
+                mdata.polygons.foreach_set('use_smooth', [True] * len(mdata.polygons)); mdata.update(); bpy.context.view_layer.update()
+                pad_set = set(range(n0v_pad, len(mdata.vertices))); fl |= pad_set
+            raised = len(pad_v)
+            cavT = BVHTree.FromObject(mouth, bpy.context.evaluated_depsgraph_get())
+            _surface = surface
+            def surface(x_b, z_b, up):                                           # (again, on the mesh with the pad: a tooth does not grow on the tongue)
+                o = Vector((x_b / 100.0, -z_b / 100.0, (lipY(z_b) + (-0.03 if up else 0.03)) / 100.0))
+                hit = cavT.ray_cast(o, Vector((0, 0, 1 if up else -1)), 0.01)
+                if hit[0] is None: return None
+                poly = mdata.polygons[hit[2]]
+                if any(vi in pad_set for vi in poly.vertices): return None
+                return hit[0] if all(vi in fl for vi in poly.vertices) else None
+            rnd = random.Random(7); verts_new, faces_new, hosts = [], [], []
+            def tooth(base, kind, r, length, lean_to_x):
+                up = kind == 'lower'                                              # a lower tooth points up
+                lean = math.radians(th['lean']); d = Vector((math.copysign(math.sin(lean), lean_to_x - base.x * 100), 0.0, (1 if up else -1) * math.cos(lean))).normalized()
+                a1 = d.cross(Vector((0, 1, 0))).normalized(); a2 = d.cross(a1).normalized()
+                c0 = base - d * 0.00012; ring = [c0 + (a1 * math.cos(2 * math.pi * k / 5) + a2 * math.sin(2 * math.pi * k / 5)) * (r / 100.0) for k in range(5)]
+                apex = c0 + d * (length / 100.0); n0 = len(verts_new); verts_new.extend(ring + [apex])
+                for k in range(5):
+                    f3 = [n0 + k, n0 + (k + 1) % 5, n0 + 5]
+                    nrm = (verts_new[f3[1]] - verts_new[f3[0]]).cross(verts_new[f3[2]] - verts_new[f3[0]]); cen = (verts_new[f3[0]] + verts_new[f3[1]] + verts_new[f3[2]]) / 3
+                    faces_new.append(f3 if nrm.dot(cen - c0) > 0 else f3[::-1])
+                hosts.append((n0, (kdL if up else kdU).find(base)[1]))
+            rows = {'upper': [], 'lower': []}
+            for b in D['bones']:
+                for p in b['parts']:
+                    if p['k'] == 'rod' and 'tooth' in p: rows[p['tooth']].append([Vector(q[:3]) for q in p['pts']])
+            counts = {'upper': 0, 'lower': 0, 'vomerine': 0}; midx = D['dress']['tongue']['cx']
+            for kind, paths in rows.items():
+                for pts in paths:
+                    dist, k0 = 0.0, (0.0 if kind == 'upper' else th['spacing'] / 2)         # the lower row is half a tooth out of step with the upper
+                    nxt = k0
+                    for a, c in zip(pts[:-1], pts[1:]):
+                        seg = math.hypot(c.x - a.x, c.z - a.z)
+                        while nxt <= dist + seg:
+                            t = (nxt - dist) / seg if seg > 0 else 0; x_b, z_b = a.x + (c.x - a.x) * t, a.z + (c.z - a.z) * t
+                            hit = surface(x_b, z_b, kind == 'upper')
+                            if hit is not None:
+                                tooth(hit, kind, th['r'] * (0.85 + 0.3 * rnd.random()), th['len'] * (0.8 + 0.4 * rnd.random()), midx); counts[kind] += 1
+                            nxt += th['spacing']
+                        dist += seg
+            for b in D['bones']:                                                  # a short row on each vomer, on the palate
+                for p in b['parts']:
+                    if p['k'] == 'ell' and p.get('teeth'):
+                        cen, lat, lon, ra, rb = Vector(p['c']), Vector(p['ax'][0]), Vector(p['ax'][1]), p['r'][0], p['r'][1]
+                        for j in range(th['vomerRow']):
+                            q = cen + lon * ((j - (th['vomerRow'] - 1) / 2) * rb * 1.3 / th['vomerRow']) + lat * 0.35 * ra
+                            hit = surface(q.x, q.z, True)
+                            if hit is not None: tooth(hit, 'upper', th['vomerR'] * (0.85 + 0.3 * rnd.random()), th['vomerLen'] * (0.8 + 0.4 * rnd.random()), midx); counts['vomerine'] += 1
+            n0v = len(mdata.vertices); n0p = len(mdata.polygons)
+            bm4 = _bm.new(); bm4.from_mesh(mdata); bv = [bm4.verts.new(v) for v in verts_new]; bm4.verts.ensure_lookup_table()
+            for f3 in faces_new: bm4.faces.new([bv[i] for i in f3])
+            bm4.to_mesh(mdata); bm4.free(); mdata.update()
+            for name in ('_RIG', '_SKIN', '_SKINX'):                              # the weights of the vertex a tooth stands on
+                at = mdata.attributes[name].data
+                for n0, host in hosts:
+                    for k in range(6): at[n0v + n0 + k].color = tuple(at[host].color)
+            colA = mdata.color_attributes.active_color
+            apexes = {n0v + n0 + 5 for n0, _ in hosts}; tooth_v = set(range(n0v, len(mdata.vertices)))
+            for lp in mdata.loops:
+                if lp.vertex_index in tooth_v: colA.data[lp.index].color = (0.0, 1.0 if lp.vertex_index in apexes else 0.0, 1.0, 1.0)
+            mdata.polygons.foreach_set('use_smooth', [True] * len(mdata.polygons)); mdata.update()
+            dressing = {'tonguePadVerts': raised, 'teeth': counts, 'teethTotal': sum(counts.values()), 'newVerts': len(mdata.vertices) - n0v, 'newTris': len(mdata.polygons) - n0p}
+            print('DRESSED', json.dumps(dressing))
         for o in bpy.context.selected_objects: o.select_set(False)
         mouth.select_set(True); bpy.context.view_layer.objects.active = mouth
         bpy.ops.export_scene.gltf(filepath=OUTF, export_format='GLB', use_selection=True, export_apply=False, export_attributes=True, export_skins=False, export_animations=False,
@@ -180,6 +308,7 @@ if mouth:
 tooth_n = sum(1 for o in bpy.context.scene.objects if o.name.endswith('teeth'))
 ver = {'date': datetime.date.today().isoformat(), 'bones': len(samples), 'toothRows': tooth_n, 'minMarginCm': round(min(worst.values()), 3), 'boneOutside': outside,
        'eyeIntrusionMaxCm': round(eye_in, 3), 'eyeIntrusionBones': {k: round(v, 3) for k, v in eye_by.items() if v > 0.01}, 'cavity': cav, 'worst': dict(sorted(((k, round(v, 3)) for k, v in worst.items()), key=lambda kv: kv[1])[:6])}
+ver['dressing'] = dressing if 'dressing' in globals() else None
 D['verified'] = ver; json.dump(D, open(SK, 'w'), indent=1)
 print('VERIFIED', json.dumps(ver))
 

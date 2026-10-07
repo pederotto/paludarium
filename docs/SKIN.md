@@ -31,6 +31,18 @@ UVs come from the game bake (xatlas, deterministic): a mesh change that moves ve
 Colour 0.2 MB + normal 0.25-0.3 MB per body (WebP); `toad.glb` 0.68 MB, `toad.swim.glb` 1.15 MB. The owner allows the 1.2 MB file line to be exceeded by 20% when frame
 cost does not grow linearly: measure GPU memory and frame cost (docs/METRICS.md) before using it.
 
+## Fire salamander (6 Oct 2026, `tools/skin/firesal-skin.py`)
+The second textured animal, made without Blender's bake: a numpy generator that rasterises the UV layout and evaluates a pattern that is a function of 3D position (so it does not care how the UVs were cut).
+- Pipeline: `node tools/rig/firesal-finish.mjs <mouth.glb> --uv --plain <plain.glb> --bones <bones.json>` (xatlas UVs, a low level that keeps the seams, a plain GLB), `python3 tools/skin/firesal-skin.py
+  <plain.glb> <bones.json> <prefix> --size 1024 --skull art-src/skull/firesal.skull.json` (about 20 s), sharp to WebP, `firesal-finish.mjs ... --color ... --normal ...` to embed, `import-creatures --baked=firesal`;
+  all of it after a new mouth is `sh tools/rig/firesal-skin-chain.sh`. Maps in `art-src/textures/firesal/`.
+- Look (from the owner's photographs, kept out of git; no photo pixels): base about sRGB (24, 23, 20) with a dry-black / wet-sheen finish (`finish.matteBlack`), lemon yellow (236, 204, 22) blotches in the photos' layout,
+  stippled parotoid glands with pores, a spot over each eye, a throat crescent, bands at the limb joints, costal grooves, a lip groove from the snout to the mouth angle; eyes are analytic (`tools/paint/eyes.mjs`).
+- The mouth lining is painted from the mesh's own markers: the cavity is green and the teeth blue in the vertex colour (`tools/blender/skull.py`); a mouth texel is in a triangle green at all three corners (the lip's
+  outer skin shares its edge vertices with the cavity). Teeth share ONE strip of the atlas (u 0.985-0.995, v 0.08 root to 0.92 tip: gum pink to ivory), the body's UVs are shrunk by 3 % to leave it, and the low level has no teeth.
+- Traps: glTF reads a map with v running DOWN the image (row = v * size), Blender with v up; the first maps were made the Blender way and the mouth's red appeared on the flank and a toe. Embed maps from the SAME mesh they
+  were made on (xatlas does not give the same layout twice). Look at the low level after every finish run (an index list mapped twice once gave a shattered mesh).
+
 ## Other species
 Each species needs photographs of its own (the image-to-3D generator cannot texture an uploaded mesh) and a recipe pass in `SKIN` (palette, tubercle size, blotch
 size, band period). The slim swim scan is the base for the European edible/common frog and will be reskinned the same way.

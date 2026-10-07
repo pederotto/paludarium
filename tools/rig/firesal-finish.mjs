@@ -39,13 +39,29 @@ const report = { src, verts: a.pos.length / 3, tris: a.idx.length / 3 };
 
 let hi = a, lo = null;
 if (UV) {
-  const u = await unwrap(a.pos, a.idx, SIZE);
-  hi = remap(a, u.from, u.idx); hi.uv = u.uv;
-  report.uv = { ...uvStats(hi.uv, hi.idx, hi.pos, SIZE), atlas: [u.width, u.height], verts: hi.pos.length / 3 };
-  const s = simplifyKeepingSeams(hi.pos, hi.idx, 8000, hi.uv);
-  const sub = remap(hi, s.from, null); sub.uv = pick(hi.uv, 2, s.from);
+  // the teeth (blue in the vertex colour: tools/blender/skull.py --fit-cavity; green = base ring, 1 = apex) are not unwrapped: each one is a few texels, so all share ONE strip at the right edge of
+  // the atlas (u 0.985-0.995, v from the base 0.08 to the tip 0.92: tools/skin/firesal-skin.py paints gum pink at the root, enamel toward the tip); the body's UVs shrink by 3 % to leave it
+  const isTooth = (i) => a.col[i * 3 + 2] > 0.9 && a.col[i * 3] < 0.12;
+  const bodyI = [], toothI = [];
+  for (let t = 0; t < a.idx.length; t += 3) { const tri = [a.idx[t], a.idx[t + 1], a.idx[t + 2]]; (tri.every(isTooth) ? toothI : bodyI).push(...tri); }
+  const u = await unwrap(a.pos, Uint32Array.from(bodyI), SIZE);
+  const body = remap(a, u.from, u.idx); body.uv = Float32Array.from(u.uv, (v) => v * 0.97);
+  report.uv = { ...uvStats(body.uv, body.idx, body.pos, SIZE), atlas: [u.width, u.height], verts: body.pos.length / 3 };
+  const s = simplifyKeepingSeams(body.pos, body.idx, 8000, body.uv);                       // the low level: no teeth
+  const sub = remap(body, s.from, null); sub.uv = pick(body.uv, 2, s.from);
   lo = { ...sub, idx: Uint32Array.from(s.idx) };                    // (simplifyKeepingSeams returns the index list already compacted to the kept vertices, in `from` order)
   report.lo = { verts: lo.pos.length / 3, tris: lo.idx.length / 3 };
+  hi = body;
+  if (toothI.length) {
+    const tv = [...new Set(toothI)].sort((p, q) => p - q), at = new Map(tv.map((v, i) => [v, i])), off = body.pos.length / 3;
+    const tp = remap(a, Uint32Array.from(tv), Uint32Array.from(toothI, (v) => at.get(v)));
+    tp.uv = new Float32Array(tv.length * 2);
+    tv.forEach((v, i) => { const h = Math.abs(Math.sin(v * 12.9898) * 43758.5453) % 1; tp.uv[i * 2] = 0.985 + 0.01 * h; tp.uv[i * 2 + 1] = 0.08 + 0.84 * Math.min(1, Math.max(0, a.col[v * 3 + 1])); });
+    const cat = (x, y) => { const o = new Float32Array(x.length + y.length); o.set(x); o.set(y, x.length); return o; };
+    hi = { pos: cat(body.pos, tp.pos), nor: cat(body.nor, tp.nor), col: cat(body.col, tp.col), rig: cat(body.rig, tp.rig), skin: cat(body.skin, tp.skin), skinx: cat(body.skinx, tp.skinx), uv: cat(body.uv, tp.uv),
+      idx: Uint32Array.from([...body.idx, ...Array.from(tp.idx, (v) => v + off)]) };
+    report.teeth = { verts: tv.length, tris: toothI.length / 3 };
+  }
 }
 
 async function write(file, b, { texture = null, normal = null, colours = false } = {}) {

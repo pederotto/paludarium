@@ -16,6 +16,7 @@ from PIL import Image
 args = sys.argv[1:]
 GLB, BONES, OUT = args[0], args[1], args[2]
 SIZE = int(args[args.index('--size') + 1]) if '--size' in args else 1024
+SKULL = json.load(open(args[args.index('--skull') + 1])) if '--skull' in args else None          # art-src/skull/firesal.skull.json: the tongue's pad (an ellipse on the floor of the mouth)
 
 # ---- read the plain GLB (positions, normals, uv, vertex colour, indices) -------------------------------------------------------------
 def read_glb(path):
@@ -31,6 +32,7 @@ def read_glb(path):
     return acc(at['POSITION']) * 100.0, acc(at['NORMAL']), acc(at['TEXCOORD_0']), acc(at['COLOR_0']), acc(p['indices']).reshape(-1, 3)   # cm
 
 P, N, UV, COL, IDX = read_glb(GLB)
+TOOTH = (COL[:, 2] > 0.9) & (COL[:, 0] < 0.12)                                       # tools/blender/skull.py marks the teeth blue (and the mouth's lining green)
 sk = json.load(open(BONES)); B = sk['bones']
 print('mesh', len(P), 'verts', len(IDX), 'tris', 'uv', UV.min(0).round(3), UV.max(0).round(3))
 
@@ -190,6 +192,7 @@ pos = np.zeros((S, S, 3)); nor = np.zeros((S, S, 3)); vcol = np.zeros((S, S, 3))
 Tn = np.zeros((S, S, 3)); Bn = np.zeros((S, S, 3)); tmouth = np.zeros((S, S), bool)
 for t in range(len(IDX)):
     i0, i1, i2 = IDX[t]
+    if TOOTH[i0] and TOOTH[i1] and TOOTH[i2]: continue                                   # teeth share one strip of the atlas (painted below)
     q = UV[[i0, i1, i2]] * S                                                  # glTF's own orientation: v runs down the image (row = v * S), as the game samples it
     x0, y0 = np.floor(q.min(0)).astype(int).clip(0, S - 1); x1, y1 = np.ceil(q.max(0)).astype(int).clip(0, S - 1)
     xs, ys = np.meshgrid(np.arange(x0, x1 + 1) + .5, np.arange(y0, y1 + 1) + .5)
@@ -224,8 +227,29 @@ print('mouth texels', int(mouth.sum()), 'in 3D x', Q[mouth].min(0).round(2), 'to
 _lv = Q[:, 1] - (2.178 + 0.0595 * (Q[:, 2] - 5.8)); _nl = (np.abs(_lv) < 0.03) & (Q[:, 2] > 5.95) & (np.abs(Q[:, 0] + 0.45) < 1.35)
 print('texels on the lip surface', int(_nl.sum()), '| of them in the mouth mask', int((_nl & mouth).sum()), '| groove depth range', round(float((f0['h'][_nl]).min()), 3) if _nl.any() else '-')
 if os.environ.get('FS_STOP'): sys.exit(0)
-col = f0['col'].copy(); col[mouth] = MOUTH[None, :] + (vnoise(Q[mouth], 10, 41) - 0.5)[:, None] * np.array([22, 8, 10.0])[None, :]
-nts[mouth] = [0, 0, 1]
+col = f0['col'].copy()
+# the lining of the mouth (6 Oct, the owner: "refine the inside of the mouth adding a tongue and teeth skin cover"): a pink-red palate with the vomers' ridges, a darker floor, a lighter tongue pad with
+# papillae, a pale gum along the tooth rows; relief on the tongue (papillae) and a fine grain on the rest
+Qm = Q[mouth]; lipq = 2.178 + 0.0595 * (Qm[:, 2] - 5.8); dyq = Qm[:, 1] - lipq
+tg = SKULL['dress']['tongue'] if SKULL and SKULL.get('dress') else None
+def tongue_of(Qx):
+    if tg is None: return np.zeros(len(Qx), bool)
+    return (np.hypot((Qx[:, 0] - tg['cx']) / tg['ax'], (Qx[:, 2] - tg['cz']) / tg['az']) < 1.04) & (Qx[:, 1] - (2.178 + 0.0595 * (Qx[:, 2] - 5.8)) < 0.0)
+tng = tongue_of(Qm); roof = dyq > 0.02
+grain = (vnoise(Qm, 10, 41) - 0.5)[:, None]; mott = (vnoise(Qm, 4, 43) - 0.5)[:, None]
+lin = np.where(roof[:, None], np.array([172, 62, 74.0])[None, :], np.array([150, 48, 60.0])[None, :])
+lin = np.where(tng[:, None], np.array([200, 92, 102.0])[None, :], lin)
+gum = (1 - sstep(0.012, 0.05, np.abs(dyq))) * (~tng)
+lin = lin * (1 - gum[:, None]) + np.array([218, 132, 136.0])[None, :] * gum[:, None]
+lin = lin + grain * np.array([20, 8, 10.0])[None, :] + mott * np.array([18, 10, 10.0])[None, :] * 1.0
+pap = np.exp(-(worley(Qm, 0.05) / 0.017) ** 2) * tng                                         # papillae: small pale bumps, a little paler
+lin = lin + pap[:, None] * np.array([18, 16, 14.0])[None, :]
+col[mouth] = lin
+def hmouth(Qx):
+    t_ = tongue_of(Qx); return 0.011 * np.exp(-(worley(Qx, 0.05) / 0.017) ** 2) * t_ + 0.004 * (vnoise(Qx, 30, 44) - 0.5)
+hm0 = hmouth(Qm); gTm = (hmouth(Qm + eps * Tt[mouth]) - hm0) / eps; gBm = (hmouth(Qm + eps * Bt[mouth]) - hm0) / eps
+nm = np.stack([-gTm, gBm, np.ones_like(gTm)], 1); nm /= np.linalg.norm(nm, axis=1, keepdims=True)
+nts[mouth] = nm
 img = np.zeros((S, S, 3), np.float32); nimg = np.zeros((S, S, 3), np.float32); nimg[..., :] = [0.5, 0.5, 1.0]
 img[yy, xx] = np.clip(col, 0, 255) / 255.0; nimg[yy, xx] = nts * 0.5 + 0.5
 # fill the gutter outward so bilinear filtering and mipmaps never reach the background
@@ -241,6 +265,12 @@ def fill(a, mask, iters=8):
         new = (~mask) & (cnt > 0); a[new] = acc[new] / cnt[new][:, None]; mask |= new
     return a
 img = fill(img, cov); nimg = fill(nimg, cov)
+# the teeth's strip (u 0.985-0.995, v 0.08 base to 0.92 tip: tools/rig/firesal-finish.mjs): gum pink at the root, ivory enamel toward the tip, a faint warm tip
+x0 = int(0.975 * S)
+for r in range(S):
+    t = np.clip(((r + 0.5) / S - 0.08) / 0.84, 0, 1); k = sstep(0.12, 0.38, t)
+    c = (np.array([214, 130, 134.0]) * (1 - k) + np.array([236, 230, 212.0]) * k) * (1 - 0.06 * sstep(0.85, 1.0, t)) / 255.0
+    img[r, x0:, :] = c; nimg[r, x0:, :] = [0.5, 0.5, 1.0]
 Image.fromarray((np.clip(img, 0, 1) * 255 + .5).astype(np.uint8)).save(OUT + '_color.png')
 Image.fromarray((np.clip(nimg, 0, 1) * 255 + .5).astype(np.uint8)).save(OUT + '_normal.png')
 Yl = f0['Y']; print('yellow share of the skin %.1f %%' % (100 * (Yl > 0.5).mean()), '| relief height range cm', round(float(f0['h'].min()), 3), round(float(f0['h'].max()), 3), '| mean normal tilt deg %.1f' % float(np.degrees(np.arccos(nts[:, 2])).mean()))

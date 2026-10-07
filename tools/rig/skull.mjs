@@ -31,7 +31,10 @@ const rot = (v, k, deg) => { const a = deg * Math.PI / 180, c = Math.cos(a), s =
 // (tools/paint/eyes.mjs). tests/skull.test.mjs keeps them equal to those files.
 export const CONFIG = {
   firesal: { plan: 'caudate', snoutZ: 8.0, hingeZ: 5.8, lip: { y0: 2.178 - 0.0595 * 5.8, slope: 0.0595 }, skinCm: 0.08, softCm: 0.16,
-    eyes: [{ c: [-1.19, 2.94, 6.61], r: 0.42 }, { c: [0.19, 2.88, 6.76], r: 0.42 }] },
+    eyes: [{ c: [-1.19, 2.94, 6.61], r: 0.42 }, { c: [0.19, 2.88, 6.76], r: 0.42 }],
+    // what goes into the mouth on top of the skull (tools/blender/skull.py --fit-cavity): a tongue pad on the floor (a share of the skull's length and of its width,
+    // its top that far below the lip surface) and the teeth (cm): pleurodont cones along the tooth rows, a short row on each vomer
+    dress: { tongue: { at: 0.40, lengthShare: 0.30, widthShare: 0.5, topDy: -0.07 }, teeth: { spacing: 0.07, r: 0.013, len: 0.065, lean: 12, vomerLen: 0.045, vomerR: 0.011, vomerRow: 7 } } },
 };
 
 // fractions: t along the skull (0 snout tip, 1 occipital condyles), u across (0 midline, 1 the skull's half width at that station), dy up from the lip plane
@@ -115,6 +118,13 @@ export function headProfile(P, cfg) {
   return rows;
 }
 
+// the tongue's pad as an ellipse on the floor of the mouth (baked cm: centre x and z, half width, half length) and the teeth's numbers, from the head's own measures
+function dressOf(cfg, { z0, L, mid, half }) {
+  const d = cfg.dress; if (!d) return undefined;
+  const cz = z0 - d.tongue.at * L;
+  return { tongue: { cx: +mid(cz).toFixed(3), cz: +cz.toFixed(3), ax: +(d.tongue.widthShare * half(cz)).toFixed(3), az: +(d.tongue.lengthShare * L).toFixed(3), topDy: d.tongue.topDy }, teeth: d.teeth };
+}
+
 export function fitSkull(P, id = 'firesal') {
   const cfg = CONFIG[id], plan = PLANS[cfg.plan], lipY = (z) => cfg.lip.y0 + cfg.lip.slope * z;
   const rows = headProfile(P, cfg).sort((a, b) => b.z - a.z);
@@ -165,7 +175,7 @@ export function fitSkull(P, id = 'firesal') {
     hingeOffLip: +Math.max(...hinge.map((h) => Math.abs(h.at[1] - lipY(h.at[2])))).toFixed(3), jointGap: Math.max(...hinge.map((h) => h.gap)), jointReach: Math.min(...hinge.map((h) => h.reach)), hingeSpan: +(hinge[1].at[0] - hinge[0].at[0]).toFixed(3), skullLengthCm: +L.toFixed(3), skullWidthCm: +(2 * half(cfg.hingeZ)).toFixed(3) };
   return { id, units: 'cm', frame: 'baked: x lateral, y up, z forward', plan: cfg.plan, status: 'schematic proportions (guess to the plate and literature); not measured on a specimen',
     lip: { zh: cfg.hingeZ, y0: +lipY(cfg.hingeZ).toFixed(4), slope: cfg.lip.slope }, snoutZ: cfg.snoutZ, skullLengthCm: +L.toFixed(3), hingeT: +hingeT.toFixed(3),
-    hinge, jawAxis: [1, 0, 0], eyes: cfg.eyes, profile: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, +v.toFixed(3)]))), checks, bones };
+    hinge, jawAxis: [1, 0, 0], eyes: cfg.eyes, dress: dressOf(cfg, { z0, L, mid, half }), profile: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, +v.toFixed(3)]))), checks, bones };
 }
 
 if (process.argv[1]?.endsWith('skull.mjs') && process.argv[2]) {

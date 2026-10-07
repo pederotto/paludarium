@@ -55,4 +55,9 @@ test('every bone lies inside the skin, clear of the eyes, and the mouth cavity s
   assert.ok(cb.roof.minGapCm >= -0.05 && cb.floor.minGapCm >= -0.05, `the cavity is inside a bone by more than 0.05 cm: roof ${cb.roof.minGapCm}, floor ${cb.floor.minGapCm}`);
   assert.ok(cb.roof.inside <= 5 && cb.floor.inside <= 20, 'a few vertices may graze a bone (0.03 cm), not many');
   assert.ok(v.toothRows >= 5, 'tooth rows: premaxilla, maxillae, dentaries, vomers');
+  const d = v.dressing;                                                    // the mouth dressed on the skull (skull.py --fit-cavity): teeth along the tooth rows, a tongue pad on the floor
+  assert.ok(d && d.teeth.upper >= 40 && d.teeth.lower >= 35 && d.teeth.vomerine >= 10, `teeth upper / lower / vomerine: ${JSON.stringify(d?.teeth)}`);
+  assert.ok(d.tonguePadVerts >= 60, 'a tongue pad');
+  assert.ok(sk.dress.tongue.az > 0.5 && sk.dress.tongue.ax > 0.3 && sk.dress.tongue.topDy < 0, 'the pad is an ellipse on the floor, its top below the lip surface');
+  assert.ok(sk.dress.teeth.len < 0.1 && sk.dress.teeth.r < 0.03, 'salamander teeth are tiny (under a millimetre)');
 });
