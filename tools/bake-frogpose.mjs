@@ -111,6 +111,8 @@ function analyse(src, job = {}) {
   const pos = Float32Array.from(src.pos), n = pos.length / 3;
   // 0. a scan that does not face +z: turned about y (as bake-creature's rotY)
   if (job.rotY) { const a = job.rotY * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a); for (let i = 0; i < n; i++) { const x = pos[i * 3], z = pos[i * 3 + 2]; pos[i * 3] = x * ca + z * sa; pos[i * 3 + 2] = -x * sa + z * ca; } }
+  // 0b. a scan placed off the axis (the red-eyed tree frog's walking scan): its trunk's x (`job.center`, scan units after rotY) taken to 0 first, so the trunk windows below find the trunk
+  if (job.center) for (let i = 0; i < n; i++) pos[i * 3] -= job.center;
   // 1. level: a least-squares line y = a + b z through the trunk, rotated about x until it is flat.
   let sz = 0, sy = 0, szz = 0, szy = 0, m = 0;
   for (let i = 0; i < n; i++) { const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]; if (Math.abs(x) < 0.2 && z > -0.2 && z < 0.6) { sz += z; sy += y; szz += z * z; szy += z * y; m++; } }

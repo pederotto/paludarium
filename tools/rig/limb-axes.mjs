@@ -17,9 +17,9 @@ if (PRE && idx.length / 3 > PRE) {
   pos = np; idx = out;
 }
 { const a = ROT * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a); for (let i = 0; i < pos.length; i += 3) { const x = pos[i], z = pos[i + 2]; pos[i] = x * ca + z * sa; pos[i + 2] = -x * sa + z * ca; } }
+if (process.env.CENTER) { const cx = +process.env.CENTER; for (let i = 0; i < pos.length; i += 3) pos[i] -= cx; console.log('centred by', cx); }   // (as the bake's job.center)
 if (process.env.LEVEL) {   // (as joints-view.mjs and the bake: a line through the trunk, rotated about x until flat; the trunk window follows the scan's own centre in x)
-  let cx = 0, c0 = 0; for (let i = 0; i < pos.length; i += 3) if (pos[i + 2] > -0.2 && pos[i + 2] < 0.6) { cx += pos[i]; c0++; }
-  cx /= c0; let sz = 0, sy = 0, szz = 0, szy = 0, m = 0;
+  let cx = 0, c0 = 0; if (!process.env.CENTER) { for (let i = 0; i < pos.length; i += 3) if (pos[i + 2] > -0.2 && pos[i + 2] < 0.6) { cx += pos[i]; c0++; } cx /= c0; } let sz = 0, sy = 0, szz = 0, szy = 0, m = 0;
   for (let i = 0; i < pos.length; i += 3) { const x = pos[i] - cx, y = pos[i + 1], z = pos[i + 2]; if (Math.abs(x) < 0.2 && z > -0.2 && z < 0.6) { sz += z; sy += y; szz += z * z; szy += z * y; m++; } }
   const b = (m * szy - sz * sy) / (m * szz - sz * sz), th = Math.atan(b), c = Math.cos(th), s = Math.sin(th);
   for (let i = 0; i < pos.length; i += 3) { const y = pos[i + 1], z = pos[i + 2]; pos[i + 1] = y * c - z * s; pos[i + 2] = y * s + z * c; }
@@ -36,10 +36,29 @@ function dijkstra(src) {   // (a binary heap)
   return d;
 }
 const nearest = (q) => { let b = 0, bd = Infinity; for (let i = 0; i < n; i++) { const e = dist(P(i), q); if (e < bd) { bd = e; b = i; } } return b; };
+if (process.env.TRUNK) {   // the trunk's axis from the appendage segmentation's trunk vertices: per band of z the centre, the y range and the half width
+  const { segment } = await import('./appendages.mjs'); const seg = segment(pos, idx, JSON.parse(process.env.SEG ?? '{"thin":0.24,"eyeMax":30,"distal":0.08,"minLimb":30}'));
+  for (let z = -0.8; z < 1.3; z += 0.1) { const ys = [], xs = []; for (let i = 0; i < n; i++) { const p = P(i); if (seg.limb[i] < 0 && p[2] >= z && p[2] < z + 0.1) { ys.push(p[1]); xs.push(p[0]); } } if (ys.length < 8) continue; ys.sort((a, b) => a - b); xs.sort((a, b) => a - b);
+    const q = (a, f) => a[Math.min(a.length - 1, Math.floor(a.length * f))];
+    console.log(`  z ${z.toFixed(1)}..${(z + 0.1).toFixed(1)}  n ${ys.length}  x ${q(xs, 0.05).toFixed(2)} .. ${q(xs, 0.95).toFixed(2)} (mid ${((q(xs, 0.05) + q(xs, 0.95)) / 2).toFixed(2)})  y ${q(ys, 0.03).toFixed(2)} .. ${q(ys, 0.97).toFixed(2)} (mid ${((q(ys, 0.03) + q(ys, 0.97)) / 2).toFixed(2)})`); }
+}
+if (process.env.EYES) {   // the eye bumps: the head's vertices above y = EYEY (default 0.13) either side of the midline: centroid, extent, and a sphere through the highest ring
+  const ey = +(process.env.EYEY ?? 0.13);
+  for (const sx of [-1, 1]) { const V = []; for (let i = 0; i < n; i++) { const p = P(i); if (p[1] > ey && p[2] > 0.5 && p[2] < 1.05 && Math.sign(p[0]) === sx) V.push(p); }
+    if (!V.length) continue; const c = [0, 1, 2].map((k) => V.reduce((a, p) => a + p[k], 0) / V.length), mx = [0, 1, 2].map((k) => [Math.min(...V.map((p) => p[k])), Math.max(...V.map((p) => p[k]))]);
+    console.log(`eye ${sx > 0 ? 'R' : 'L'}: n ${V.length} centroid [${c.map((x) => x.toFixed(3))}] extents x ${mx[0].map((x) => x.toFixed(2))} y ${mx[1].map((x) => x.toFixed(2))} z ${mx[2].map((x) => x.toFixed(2))}`); }
+}
+if (process.env.ROLL) {   // the trunk's roll about z: per z band the lowest and highest y of the trunk's left and right thirds
+  const { segment } = await import('./appendages.mjs'); const seg = segment(pos, idx, JSON.parse(process.env.SEG ?? '{"thin":0.24,"eyeMax":30,"distal":0.08,"minLimb":30}'));
+  for (let z = -0.3; z < 1.0; z += 0.15) { const side = { L: [], R: [] }; for (let i = 0; i < n; i++) { const p = P(i); if (seg.limb[i] < 0 && p[2] >= z && p[2] < z + 0.15) { if (p[0] < -0.08 && p[0] > -0.3) side.L.push(p[1]); else if (p[0] > 0.08 && p[0] < 0.3) side.R.push(p[1]); } }
+    const q = (a, f) => { a.sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.floor(a.length * f))].toFixed(2) : 'n/a'; };
+    console.log(`  roll z ${z.toFixed(2)}: L n ${side.L.length} y ${q(side.L, 0.03)}..${q(side.L, 0.97)}   R n ${side.R.length} y ${q(side.R, 0.03)}..${q(side.R, 0.97)}`); }
+}
 const ROOT = (process.env.ROOT ?? '0,0,0').split(',').map(Number), root = nearest(ROOT), dr = dijkstra(root);
 // the tips: the farthest vertices, clustered by position
 const order = [...Array(n).keys()].sort((a, b) => dr[b] - dr[a]), tips = [];
 for (const v of order) { if (!isFinite(dr[v])) continue; if (tips.length >= K) break; if (tips.every((t) => dist(P(t.v), P(v)) > +(process.env.SEP ?? 0.25))) tips.push({ v, d: dr[v] }); }
+if (process.env.TIPAT) { const v = nearest(process.env.TIPAT.split(',').map(Number)); tips.length = 0; tips.push({ v, d: dr[v] }); }   // (TIPAT=x,y,z: just the tip nearest to that point)
 console.log('root', root, P(root).map((x) => x.toFixed(2)), 'tips (geodesic d, position):'); tips.forEach((t, i) => console.log(' ', i, t.d.toFixed(2), P(t.v).map((x) => x.toFixed(2)).join(',')));
 // per tip: the tube round its shortest path, cut into bands of the distance from the root, each band's centroid
 const ONLY = (process.env.ONLY ?? '').split(',').filter(Boolean).map(Number);
