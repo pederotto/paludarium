@@ -1,7 +1,7 @@
 // The climb as a body movement (util/climb.js, owner's Movement rule): the advance and the yaw come out of the limbs' pulses, never from the sim.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CLIMB, CLIMB_KEYS, climbState, climbStep, climbPose, climbMove } from '../src/util/climb.js';
+import { CRAWL, CLIMB, CLIMB_KEYS, climbState, climbStep, climbPose, climbMove } from '../src/util/climb.js';
 import { HIND, FORE } from '../src/util/gait.js';
 import { excitation, ANURAN_MUSCLES } from '../src/content/anuranmuscles.js';
 import { motionOf } from '../src/render/creatures/muscles.js';
@@ -108,7 +108,7 @@ test('crawl: the body advances its stride a cycle from the limbs\' stance, turns
   const a = crawler(); let adv = 0, dyaw = 0; const T = 1.6;                    // (urgency 0: a cycle lasts 1.6 s)
   for (let i = 0; i < 4 * T / dt; i++) { const m = climbStep(a, { go: 1, steer: 1, bodyLen: 4, urgency: 0, rnd }, dt); adv += m.adv; dyaw += m.dyaw; }
   assert.ok(Math.abs(adv - 4 * 4 * 0.5) < 0.1 * 4 * 4 * 0.5, `advanced ${adv.toFixed(2)} cm in 4 cycles`);
-  assert.ok(dyaw > 0.8 * 4 * 40 * Math.PI / 180, `turned ${dyaw}`);
+  assert.ok(dyaw > 0.8 * 4 * CRAWL.yawCycle, `turned ${dyaw}`);
   // asked to stop: it finishes the swing it is in and stands, no foot left in the air, nothing moves after
   let still = 0, moved = 0;
   for (let i = 0; i < 400; i++) { const m = climbStep(a, { go: 0, bodyLen: 4, rnd }, dt); if (i > 100) { if (m.adv || m.dyaw) moved++; else still++; } }

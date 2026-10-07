@@ -8,7 +8,7 @@ import { SPECIES } from '../sim/animals.js';
 import { TANK } from '../sim/tank.js';
 import { L } from './state.js';
 import { buildArena, shapeGround, setDepth, setView, setPaused, setRate, stepFrames } from './arena.js';
-import { animalAt, groundAt, onTap } from './pick.js';
+import { animalAt, groundAt, onTap, pieceAt } from './pick.js';
 import { spawn } from './spawn.js';
 import { readout, census } from './readout.js';
 import { createDriver, CLIMBERS } from './driver.js';
@@ -42,7 +42,7 @@ export async function start(game, params) {
     L.sel.value = a;
     if (a && !a.dead) L.tab.value = 'sel';
     const t = a?.lab?.drive?.type;
-    L.dtab.value = t === 'path' ? 'path' : t === 'goto' ? 'goto' : t === 'follow' ? 'follow' : 'free';
+    L.dtab.value = t === 'path' ? 'path' : t === 'goto' ? 'goto' : t === 'follow' ? 'follow' : t === 'climb' ? 'climb' : 'free';
     L.pick.value = null;
     shownDrive = a?.lab?.drive?.type ?? 'free';
     refresh();
@@ -82,6 +82,13 @@ export async function start(game, params) {
   onTap(game.renderer.domElement, (e) => {
     if (!game.world) return;
     // A tap that is an answer: where to go, or the next waypoint of a drawn path.
+    if (L.pick.value === 'climb') {
+      // (a climbing frog sent up the object tapped: a log, cork, a stump, a bamboo pole)
+      const it = pieceAt(game, e, obstacles.items);
+      if (it) { if (driver.climbObject(it.id)) L.pick.value = null; } else L.note.value = 'Tap one of the objects you put in the arena.';
+      refresh();
+      return;
+    }
     if (L.pick.value) {
       // (a climber may be sent to a point on the wall: the ray then also tests the background)
       const climber = !!L.sel.value && CLIMBERS.has(SPECIES[L.sel.value.sp].kind);

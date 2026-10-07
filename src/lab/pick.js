@@ -51,3 +51,10 @@ export function onTap(el, fn) {
   });
   el.addEventListener('pointercancel', () => { down = null; });
 }
+
+// The obstacle (items of obstacles.js) whose piece the pointer is over, or null: for sending a climbing frog up an object by tapping it.
+export function pieceAt(game, e, items) {
+  const hit = rayAt(game, e).intersectObjects(game.world.decor.meshes, true)[0];
+  for (let o = hit?.object; o; o = o.parent) { const it = items.find((i) => i.piece && i.piece.mesh === o); if (it) return it; }
+  return null;
+}

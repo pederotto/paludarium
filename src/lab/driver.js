@@ -105,6 +105,11 @@ export function createDriver(game, opts = {}) {
         if (d.wall) return { type: 'goto', wall: true, x: d.x, y: d.y, z: d.z, tol: 2, d0: Math.hypot(d.x - a.pos.x, d.y - a.pos.y) };
         return { type: 'goto', x: d.x, z: d.z, tol, d0: Math.hypot(d.x - a.pos.x, d.z - a.pos.z) };
       case 'follow': return { type: 'follow', dot: d.dot, keep: d.keep ?? 4, tol: 1.5 };
+      case 'climb': {
+        // (an object of the arena, by the id the obstacle list gave it: the runtime piece goes in the drive, the description keeps only the id)
+        if (d.obj != null) { const it = opts.obstacles?.().find((o) => o.id === d.obj); return { type: 'climb', obj: d.obj, kind: it?.kind, piece: it?.piece ?? null, tol: 1 }; }
+        return { type: 'climb', pane: d.pane ?? 'front', top: d.top ?? 28, tol: 1 };
+      }
       default: {
         let pts, closed = false;
         if (d.shape === 'random') pts = randomPath(d.seed, { style: d.style, length: d.length ?? 240, bounds: floor(), start: { x: d.sx, z: d.sz }, heading: d.h, obstacles: circles() }).pts;
@@ -141,6 +146,21 @@ export function createDriver(game, opts = {}) {
       const list = targets().filter((a) => CLIMBERS.has(SPECIES[a.sp].kind));
       if (!list.length) { L.note.value = 'Only a climber (the gecko) can go to a point on the wall.'; return false; }
       give(list, { type: 'goto', wall: true, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, z: Math.round(z * 10) / 10 });
+      return true;
+    },
+    // A climbing frog up a glass pane (the front or a side): the lab only picks the pane; the frog's own perch mission walks to the foot of the climb and climbs (Animals.labClimb).
+    climb(pane = L.pane.value) {
+      const list = targets().filter((a) => SPECIES[a.sp].perch);
+      if (!list.length) { L.note.value = 'Only a climbing frog (the red-eyed tree frog, the reed frog) can be sent up the glass.'; return false; }
+      L.pane.value = pane;
+      give(list, { type: 'climb', pane });
+      return true;
+    },
+    // The same for an object of the arena (a log, cork, a stump, a bamboo pole: PERCH_PIECES), by the id of its obstacle.
+    climbObject(id) {
+      const list = targets().filter((a) => SPECIES[a.sp].perch);
+      if (!list.length) { L.note.value = 'Only a climbing frog (the red-eyed tree frog, the reed frog) can be sent up an object.'; return false; }
+      give(list, { type: 'climb', obj: id });
       return true;
     },
     path(shape = 'figure8', { size = L.size.value, mode = L.pathMode.value } = {}) { give(targets(), { type: 'path', shape, size, mode }); },

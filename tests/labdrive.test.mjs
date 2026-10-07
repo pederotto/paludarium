@@ -1,7 +1,7 @@
 // The test lab's drives (src/sim/labdrive.js): paths, dots and the step from a drive to a goal. Pure numbers, no scene.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { circle, figure8, square, zigzag, line, pathLength, resample, clampTo, crossTrack, makeDot, dotStep, makeDrive, driveStep, dist2 } from '../src/sim/labdrive.js';
+import { circle, figure8, square, zigzag, line, pathLength, resample, clampTo, crossTrack, makeDot, dotStep, makeDrive, driveStep, dist2, PANES, panePoint, GLASS_OFF } from '../src/sim/labdrive.js';
 
 const B = { x0: -45, x1: 45, z0: -22, z1: 22 };
 
@@ -121,4 +121,21 @@ test('a go-to on the wall names its goal across and up, and is done only once th
   assert.equal(driveStep(d, { x: 15, y: 30, z: -21 }, {}, 0, true).done, false, '5 cm along the wall is not there');
   const r = driveStep(d, { x: 10.5, y: 29.2, z: -21.9 }, {}, 0, true);
   assert.equal(r.done, true); assert.equal(r.goal, null);
+});
+
+// --- the glass panes a climbing frog is sent up ---
+test('a pane\'s top of the climb is 0.12 cm off the glass, inside the tank, the normal turned into it, the place across the pane kept (clamped off the corners)', () => {
+  const hx = 45, hz = 22;
+  const f = panePoint('front', { x: 12, z: 3 }, hx, hz, 28), l = panePoint('left', { x: 0, z: -4 }, hx, hz), r = panePoint('right', { x: 0, z: 40 }, hx, hz, 20);
+  assert.deepEqual(PANES, ['front', 'left', 'right']);
+  assert.equal(f.top.z, hz - GLASS_OFF); assert.equal(f.top.x, 12); assert.equal(f.top.y, 28); assert.deepEqual(f.N, { x: 0, y: 0, z: -1 });
+  assert.equal(l.top.x, -hx + GLASS_OFF); assert.equal(l.top.z, -4); assert.deepEqual(l.N, { x: 1, y: 0, z: 0 }); assert.equal(l.yaw, -Math.PI / 2);
+  assert.equal(r.top.x, hx - GLASS_OFF); assert.equal(r.top.z, hz - 10, 'a place past the corner is brought 10 cm in'); assert.equal(r.top.y, 20); assert.equal(r.yaw, Math.PI / 2);
+  // (the normal points into the tank: from the pane toward the frog)
+  assert.ok(f.N.z < 0 && l.N.x > 0 && r.N.x < 0);
+  assert.equal(panePoint('nonsense', { x: 100, z: 0 }, hx, hz).top.x, hx - 10, 'an unknown pane is the front, clamped');
+});
+test('a climb drive is plain data the sim reads: it is not finished by driveStep', () => {
+  const d = makeDrive({ type: 'climb', pane: 'right', top: 28 });
+  assert.equal(d.type, 'climb'); assert.equal(d.pane, 'right'); assert.equal(d.done, false);
 });

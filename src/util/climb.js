@@ -51,7 +51,8 @@ export const CRAWL = {
   stride: 0.5,                       // body lengths a cycle advances (guess: the clip pans, 2 cycles)
   share: { fore: 0.15, hind: 0.35 },
   drive: [0.30, 0.80],               // the part of a limb's own cycle that moves the body: its stance, the leg extending and the hand drawing it up
-  yawCycle: 40 * DEG,                // rad a cycle at full steer turns the body (guess)
+  yawCycle: 120 * DEG,               // rad a cycle at full steer turns the body (the owner's turn clip: 105 deg in 0.65 s with two forelimb steps of about 45 deg; the first guess of 40 deg a cycle turned a frog
+                                     // so slowly that a turn over 90 deg outlasted the sim's 3 s no-headway limit and it gave up its climb)
   sway: 10, roll: 10,                // deg the torso bends toward the reaching hand and rolls about its length with the steps (clip 3: it turns side to dorsal view; guess)
 };
 

@@ -21,7 +21,7 @@ import { hopPlan, hopAt, hopPitch, hopFrame, svlOf } from '../util/hop.js';
 import { buccalState, buccalStep, pumpThroat, pumpBreath, swallowDrive, eyeStep } from '../content/anuranheadmuscles.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
-import { driveStep, skipWaypoint, crossTrack } from './labdrive.js';
+import { driveStep, skipWaypoint, crossTrack, panePoint } from './labdrive.js';
 import { Grid, planRoute } from './labroute.js';
 import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
@@ -51,7 +51,7 @@ const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _d = 
 const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0), _gb = V(0, 0, 0);
 const _fr = new Array(9), _gp = [0, 0, 0], _bb = { X: 0, z0: 0, z1: 0, H: 0 }, _sd = [0, 0, 0];     // (whole-body containment: inGlass, bodyBox, stemDepth)
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
-const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog']);
+export const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog']);
 // Plants a perching frog uses: broad leaves to sit on, or reed stems to cling to (grass and creeping plants hold no frog).
 const PERCH_PLANTS = { bromeliad: 'leaf', guzmania: 'leaf', neoregelia: 'leaf', monstera: 'leaf', fern: 'leaf', fernph: 'leaf', cattail: 'stem', bamboo: 'stem' };   // (frogs sit in a bromeliad's cup leaves)
 const _pm = new THREE.Mesh(undefined, new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide }));   // a plant instance, for rays
@@ -446,7 +446,7 @@ export const SPECIES = {
     note: 'A jet-black reed frog from Madagascar dotted with yellow-white stars and with orange legs. Sits by day high on broad leaves, bamboo and wood above the water, hunts flies at dusk. Wants a tall tank, 70% water, warm air (24-29 °C). Keep 3 to 5.',
   },
   redeye: {
-    name: 'Red-eyed tree frog', scale: 1, group: 'Amphibians', kind: 'frog', perch: true, size: 1.8, speed: 1.1,
+    name: 'Red-eyed tree frog', scale: 1, group: 'Amphibians', kind: 'frog', perch: true, crawlSet: 'redeye', size: 1.8, speed: 1.1,
     minL: 60, minH: 60, temp: [22, 28], humidity: 75, hungerHours: 170, lifeDays: 3600, eats: ['fly', 'cricket', 'waxworm', 'dubia'], cap: 6, breed: 0.02, adultDays: 45,
     eggs: { n: 30, days: 7, into: 'tadpole', where: 'water' },
     ph: [6.5, 7.5], land: 0.4, flock: [2, 5],
@@ -954,7 +954,7 @@ export class Animals {
           case 'crab': this.crab(a, sp, dt); break;
           case 'fly': this.fly(a, sp, dt); break;
           case 'frog':
-          case 'toad': if (!((sp.perch || a.perch) && !a.lab?.drive && this.perchFrog(a, sp, dt))) this.frog(a, sp, dt); break;   // (a.perch: any frog climbing out of the water)
+          case 'toad': if (!((sp.perch || a.perch) && (!a.lab?.drive || a.lab.drive.type === 'climb') && this.perchFrog(a, sp, dt))) this.frog(a, sp, dt); break;   // (a lab 'climb' drive runs the frog's own perch mission)   // (a.perch: any frog climbing out of the water)
           case 'newt': case 'axolotl': case 'gecko': this.herp(a, sp, arr, dt); break;
           case 'skink': this.skink(a, sp, dt); break;
           case 'egg': break;
@@ -2122,7 +2122,7 @@ export class Animals {
         const crawl = sp.perch && !PADLESS.has(a.sp) && !a.swimming;
         let step, nx, nz;
         if (crawl) {
-          const cl = a.climb ??= climbState(undefined, 'crawl'), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
+          const cl = a.climb ??= climbState(undefined, 'crawl', sp.crawlSet), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
           const m = climbStep(cl, { go: dist > 0.1 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.7, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
           a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
           step = Math.min(dist, m.adv * Math.max(0, Math.cos(err)));
@@ -2153,7 +2153,7 @@ export class Animals {
         const surf = PADLESS.has(a.sp) ? null : P.exit === 'glass' ? (P.i >= 2 && P.i <= P.glassTo ? P.glassN : null) : P.glassN ? (Math.abs(dy) > dh * 1.5 ? P.glassN : null) : goal.n ?? null;
         let step = 0;
         if (surf) {
-          const cl = a.climb ??= climbState(undefined, sp.perch ? 'crawl' : 'pulse'), bb = this.bodyBox(a, sp), want = dist > 0.05 ? this.glassYawTo(surf, dx, dy, dz) : (a.yaw ?? 0);
+          const cl = a.climb ??= climbState(undefined, sp.perch ? 'crawl' : 'pulse', sp.crawlSet), bb = this.bodyBox(a, sp), want = dist > 0.05 ? this.glassYawTo(surf, dx, dy, dz) : (a.yaw ?? 0);
           if (!a._surfPrev) { a.yaw = want; cl.t = -1; cl.hold = 0.15; }       // (it takes hold of the surface heading the way it climbs: the mount, as before)
           const err = angDiff(want, a.yaw ?? 0);
           const m = climbStep(cl, { go: dist > 0.3 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.6, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
@@ -2176,6 +2176,13 @@ export class Animals {
             (a.badShore ??= []).push([P.top.x, P.top.z]); if (a.badShore.length > 8) a.badShore.shift();
             return false;
           }
+        }
+        // A climb that gets no nearer its next point (the body held off it: a waypoint the glass or a piece keeps it from) is given up after a few seconds, as the exits above are:
+        // it was left holding the foot of the glass for good, a route made before its body had loaded putting the snout's point inside the pane.
+        if (!P.exit) {
+          if (P.gi !== P.i) { P.gi = P.i; P.near = Infinity; P.stuck = 0; }
+          if (dist < P.near - 0.05) { P.near = dist; P.stuck = 0; }
+          else if ((P.stuck += dt) > (surf ? 6 : 4)) { this.perchQuit(a, P); return false; }
         }
         let onGlass = false;
         if (P.exit === 'glass') {
@@ -2237,16 +2244,52 @@ export class Animals {
       else if (Math.random() < dt * 0.05) a.yaw += (Math.random() - 0.5) * 0.6;   // shuffles round now and then
       return true;
     }
-    if (!want) return false;
+    if (!want || a.lab?.drive) return false;       // (a driven frog does not choose a perch of its own: the lab says where)
     a.perchT = (a.perchT ?? Math.random() * 6) - dt;
     if (a.perchT > 0) return false;
     a.perchT = 8 + Math.random() * 8;
     const r = this.perchSpot(a, sp);
     if (!r) return false;
-    a.perch = { ph: 'go', top: r.p, plant: r.plant, piece: r.piece, glassN: r.glassN, glassYaw: r.glassYaw, up: r.up, base: r.base, path: r.path, near: Infinity, stuck: 0 };
+    a.perch = this.perchMission(r);
     a.fs = null;
     return true;
   }
+
+  // The points of a piece's top surface, highest first (a 7 x 7 grid of rays over its footprint, those within 1.5 cm of one already taken left out): the test lab tries them in turn.
+  pieceTops(pc) {
+    const m = pc.mesh;
+    _box.setFromObject(m);
+    const hits = [];
+    for (let k = 0; k < 49; k++) {
+      const px = lerp(_box.min.x, _box.max.x, 0.07 + 0.14 * (k % 7)), pz = lerp(_box.min.z, _box.max.z, 0.07 + 0.14 * Math.floor(k / 7));
+      _ray.set(_t.set(px, _box.max.y + 2, pz), DOWN);
+      const hit = _ray.intersectObject(m, false)[0];
+      if (hit) hits.push(V(hit.point.x, hit.point.y + PIECE_GAP, hit.point.z));
+    }
+    hits.sort((p, q) => q.y - p.y);
+    const out = [];
+    for (const h of hits) if (out.length < 14 && out.every((o) => Math.hypot(o.x - h.x, o.z - h.z) > 1.5)) out.push(h);
+    return out;
+  }
+
+  // The highest point of a piece's top surface (PIECE_GAP above it): a ray dropped on it at a few points of its footprint, random ones for a frog choosing a perch, a 5 x 5 grid
+  // for the test lab (which wants the same answer every time).
+  pieceTop(pc, grid = false) {
+    const m = pc.mesh;
+    _box.setFromObject(m);
+    let top = null;
+    for (let k = 0; k < (grid ? 25 : 5); k++) {
+      const u = grid ? 0.1 + 0.2 * (k % 5) : 0.2 + Math.random() * 0.6, v = grid ? 0.1 + 0.2 * Math.floor(k / 5) : 0.2 + Math.random() * 0.6;
+      const px = lerp(_box.min.x, _box.max.x, u), pz = lerp(_box.min.z, _box.max.z, v);
+      _ray.set(_t.set(px, _box.max.y + 2, pz), DOWN);
+      const hit = _ray.intersectObject(m, false)[0];
+      if (hit && (!top || hit.point.y > top.y)) top = V(hit.point.x, hit.point.y + PIECE_GAP, hit.point.z);
+    }
+    return top;
+  }
+
+  // A perch mission from a route (perchRoute): on foot to the foot of the climb ('go'), then up the climb, then sitting.
+  perchMission(r) { return { ph: 'go', top: r.p, plant: r.plant, piece: r.piece, glassN: r.glassN, glassYaw: r.glassYaw, up: r.up, base: r.base, path: r.path, near: Infinity, stuck: 0 }; }
 
   // Off the way to a perch (stuck, or water ahead): back to frog(), and that perch is left alone for a few minutes.
   perchQuit(a, P) {
@@ -2292,13 +2335,7 @@ export class Animals {
       _box.setFromObject(m);
       const cx = (_box.min.x + _box.max.x) / 2, cz = (_box.min.z + _box.max.z) / 2;
       if (Math.hypot(cx - a.pos.x, cz - a.pos.z) > 45) continue;
-      let top = null;
-      for (let k = 0; k < 5; k++) {
-        const px = lerp(_box.min.x, _box.max.x, 0.2 + Math.random() * 0.6), pz = lerp(_box.min.z, _box.max.z, 0.2 + Math.random() * 0.6);
-        _ray.set(_t.set(px, _box.max.y + 2, pz), DOWN);
-        const hit = _ray.intersectObject(m, false)[0];
-        if (hit && (!top || hit.point.y > top.y)) top = V(hit.point.x, hit.point.y + PIECE_GAP, hit.point.z);
-      }
+      const top = this.pieceTop(pc);
       if (!top || Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1 || taken(top) || !this.perchFits(a, sp, top)) continue;
       const gy = T.heightAt(top.x, top.z), over = W.water.surfaceAt(top.x, top.z) > gy;
       if (top.y - gy < 2) continue;
@@ -2337,6 +2374,7 @@ export class Animals {
     const W = this.world, T = W.terrain, top = c.top, medium = sp.perchSwim ? 'any' : 'land';
     // in front of the background relief, by more than the push that keeps a body clear of it (clearOfWall)
     const gap = Math.max(0.8, (a.rad ?? 0.5) * 0.9 + 0.4), front = (x, y, z) => Math.max(z, W.wall.zAt(x, y) + gap, W.wall.zAt(x, y + 1.5) + gap);
+    const why = (t) => { this.perchWhy = t; return null; };       // (what the last refusal was, for the test lab's readout)
     const dryAt = (x, z) => !(W.water.surfaceAt(x, z, 0.2) > T.heightAt(x, z) + 0.2);
     let base, path;
     if (c.glassN) {
@@ -2377,7 +2415,7 @@ export class Animals {
       const cx = (_box.min.x + _box.max.x) / 2, cz = (_box.min.z + _box.max.z) / 2;
       let dx = a.pos.x - cx, dz = a.pos.z - cz;
       const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
-      const rx = (_box.max.x - _box.min.x) / 2 + 1, rz = (_box.max.z - _box.min.z) / 2 + 1, k = Math.min(rx / Math.max(1e-3, Math.abs(dx)), rz / Math.max(1e-3, Math.abs(dz)));
+      const fg = c.footGap ?? 1, rx = (_box.max.x - _box.min.x) / 2 + fg, rz = (_box.max.z - _box.min.z) / 2 + fg, k = Math.min(rx / Math.max(1e-3, Math.abs(dx)), rz / Math.max(1e-3, Math.abs(dz)));
       const bx = clamp(cx + dx * k, -TANK.w / 2 + 1.5, TANK.w / 2 - 1.5), bz = clamp(cz + dz * k, -TANK.d / 2 + 1.5, TANK.d / 2 - 1.5);
       base = V(bx, T.heightAt(bx, bz), bz);
       path = [base];
@@ -2388,8 +2426,8 @@ export class Animals {
         _ray.set(_t.set(x, _box.max.y + 2, z), DOWN);
         const hit = _ray.intersectObject(m, false)[0];
         if (!hit) {
-          if (on) return null;                                           // a gap in the wood
-          if (!sp.perchSwim && !dryAt(x, z)) return null;                // water before the wood (a floating log)
+          if (on) return why(`a gap in the wood ${(Math.hypot(x - bx, z - bz)).toFixed(1)} cm from its foot, ${(Math.hypot(top.x - x, top.z - z)).toFixed(1)} cm short of the top`);   // a gap in the wood
+          if (!sp.perchSwim && !dryAt(x, z)) return why('water before the wood');   // water before the wood (a floating log)
           continue;
         }
         const y = hit.point.y + PIECE_GAP;
@@ -2421,16 +2459,16 @@ export class Animals {
     }
     // The foot, and the straight way to it from here.
     const rb = (a.rad ?? 0.5) * 0.9 + 0.1;                              // (clear of the background by its body, as clearOfWall keeps it)
-    if (!this.okFor(medium, base.x, base.z, 99, rb)) return null;
+    if (!this.okFor(medium, base.x, base.z, 99, rb)) return why(`the foot of the climb (${base.x.toFixed(1)}, ${base.z.toFixed(1)}) cannot be stood on`);
     // A swimmer starts a climb from the water at the surface; for a tree frog no point of the climb may be under water.
     for (const q of path) {
       const s = W.water.surfaceAt(q.x, q.z, 0.2);
       if (!(s > q.y)) continue;
-      if (!sp.perchSwim) return null;
+      if (!sp.perchSwim) return why('part of the way up is under water');
       q.y = Math.max(q.y, s - 0.35 * sp.size);
     }
     const d = Math.hypot(base.x - a.pos.x, base.z - a.pos.z), n = Math.ceil(d / 0.8);
-    for (let i = 1; i < n; i++) if (!this.okFor(medium, lerp(a.pos.x, base.x, i / n), lerp(a.pos.z, base.z, i / n), 99, rb)) return null;
+    for (let i = 1; i < n; i++) if (!this.okFor(medium, lerp(a.pos.x, base.x, i / n), lerp(a.pos.z, base.z, i / n), 99, rb)) return why(`the way from here to the foot is blocked ${(i / n * d).toFixed(1)} cm along`);
     return { p: top, plant: c.plant ?? null, piece: c.piece ?? null, glassN: c.glassN ?? null, glassYaw: c.glassYaw ?? 0, up: c.up ?? null, base, path };
   }
 
@@ -3027,7 +3065,7 @@ export class Animals {
     if (ok && sp.perch && !PADLESS.has(a.sp)) {
       // An arboreal frog walks as the green tree frog of the owner's clip does (util/climb.js 'crawl': a four-beat walk, three limbs down, the legs
       // hanging stretched, the hand reaching): the step and the turn come out of its limbs, drawn on the climbing body; the old walk below is for the others.
-      const cl = a.climb ??= climbState(undefined, 'crawl'), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
+      const cl = a.climb ??= climbState(undefined, 'crawl', sp.crawlSet), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
       const m = climbStep(cl, { go: d > 0.2 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: clamp(p.v ?? 0.5, 0, 1), bodyLen: Math.max(1, bb.z1 - bb.z0) }, dtS);
       a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
       const adv = Math.min(d, m.adv * Math.max(0, Math.cos(err))), nx = a.pos.x + Math.sin(a.yaw) * adv, nz = a.pos.z + Math.cos(a.yaw) * adv;
@@ -3515,6 +3553,7 @@ export class Animals {
     const L = a.lab;
     if (!L.drive) { L.goal = null; return; }
     const D = L.drive, sp = SPECIES[a.sp], onWall = !!(a.onWall || a.wallMode);
+    if (D.type === 'climb') { this.labClimb(a, sp, D, dt); L.goal = null; L.target = null; return; }   // (the frog's own perch mission climbs; the lab only picked the pane)
     let r = driveStep(D, a.pos, this.labDots ?? {}, dt, onWall);
     // A floor goal: round what is in the way (labSteer), and past a waypoint that cannot be stood on (it lies inside an obstacle).
     if (r.goal && !r.goal.wall && !onWall && sp.kind !== 'swim') {
@@ -3543,6 +3582,50 @@ export class Animals {
     S.dist += Math.hypot(a.pos.x - S.last.x, a.pos.z - S.last.z);
     S.last.copy(a.pos);
     if (D.type === 'path' && D.reached > 0) { const e = crossTrack(D.pts, a.pos, D.closed); S.xteSum += e; S.xteN++; if (e > S.xteMax) S.xteMax = e; }
+  }
+
+  // A climbing frog sent up a glass pane by the lab (drive { type: 'climb', pane }, labdrive.js panePoint): the lab only names the pane; the frog's own perch mission does the rest, its crawl on
+  // the floor to the foot of the climb and the belly-to-the-glass climb (util/climb.js). Nothing here writes a position, a heading or a pose. D.phase is the mission's phase for the readout
+  // ('go', 'up', 'sit'); the drive is done once it has sat on the glass for a moment, and says why in D.failed when there is no way or it gives the climb up.
+  labClimb(a, sp, D, dt) {
+    // (the route needs the drawn body's size: the model of a species is loaded the first time it appears, and a route made before has a body box of the fallback circle)
+    if (!D.started && !this.bodyOf(a.sp) && (D.wait = (D.wait ?? 0) + dt) < 15) return;
+    if (!D.started) {
+      D.started = true; D.t = 0;
+      const W = this.world, V3 = (v) => new THREE.Vector3(v.x, v.y, v.z);
+      const fail = (why) => { D.failed = why; D.done = true; };
+      if (!sp.perch) return fail('this animal does not climb');
+      let r = null;
+      if (D.piece) {
+        // An object of the arena (a log, cork, a stump, a bamboo pole): up to the highest point of its top, as the frog's own mind finds a piece to sit on.
+        if (!PERCH_PIECES.has(D.piece.type)) return fail(`a ${D.kind ?? D.piece.type} is not something a frog climbs`);
+        // (the highest point is often the tip of a branch the straight way up has a gap on: the highest points in turn, as the frog's own mind tries one after another)
+        const tops = this.pieceTops(D.piece);
+        if (!tops.length) return fail('no top surface found on that object');
+        let fits = 0;
+        for (const top of tops) {
+          if (Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1 || !this.perchFits(a, sp, top)) continue;
+          fits++;
+          // (the foot of the climb 1 cm outside the object's box is often nearer than the frog's own radius lets it stand: further out in turn, it only walks a little more)
+          for (const footGap of [1, 2, 3.5, 5]) if ((r = this.perchRoute(a, sp, { top, piece: D.piece, footGap }))) break;
+          if (r) break;
+        }
+        if (!r) return fail(fits ? `no way up the ${D.kind ?? D.piece.type} from here: ${this.perchWhy ?? 'no route'}` : 'its body does not fit on top of that object');
+      } else {
+        const q = panePoint(D.pane, a.pos, TANK.w / 2, TANK.d / 2, Math.min(D.top ?? 28, TANK.h - 4)), top = V3(q.top), n = V3(q.N);
+        // (in front of the background relief by its body all the way up, as the frog's own mind asks of a glass perch)
+        const bb = this.bodyBox(a, sp), R = Math.max(bb.X, -bb.z0, bb.z1) + 0.3, dH = n.x * bb.H, gy = W.terrain.heightAt(top.x + n.x * 1.2, top.z + n.z * 1.2);
+        for (let yy = gy; yy <= top.y + R; yy += 1.5) if (top.z - R < Math.max(W.wall.zAt(top.x, yy), W.wall.zAt(top.x + dH, yy)) + 0.15) return fail(`the background relief is in the way on the ${D.pane} glass there`);
+        r = this.perchRoute(a, sp, { top, glassN: n, glassYaw: q.yaw });
+        if (!r) return fail(`no way to the ${D.pane} glass from here`);
+      }
+      a.perch = this.perchMission(r); a.fs = null; a.perchLike = D.piece ? 'piece' : 'glass';
+    }
+    D.t += dt;
+    const P = a.perch;
+    if (P) { D.phase = P.ph; if (P.ph === 'sit') D.sat = (D.sat ?? 0) + dt; }
+    else if (!D.done) { D.failed = D.sat ? null : D.phase === 'go' ? 'stopped on the way to the glass (something in its way)' : 'gave up the climb'; D.done = true; }
+    if (D.sat > 1.5) D.done = true;
   }
 
   // Where this kind of body walks: [medium for okFor, deepest water it wades].
