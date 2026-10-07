@@ -1171,10 +1171,10 @@ const bump = (t, a, b) => smooth(a - 0.02, a + 0.02, t) * smooth(b + 0.02, b - 0
 BUILDERS.canyon = (g) => {
   const { w, d, h, T } = g;
   const L = g.lvl(0.42);                                      // the deep downstream pool (the pump reservoir) holds this level
-  const D = Math.min(h * 0.3, 27);                            // the head of the river above it
+  const D = Math.min(h * (g.P.head ?? 0.3), g.P.headMax ?? 27);   // the head of the river above it (recipe knobs: head, headMax, poolU, poolBed, cliffZ, hillDepth, caps)
   const Y0 = L + D;
   const Htop = Math.min(h - 2, Math.max(Math.round(h * 0.9), Math.round(Y0 + 6)));
-  const xa = g.X(-0.94), xb = g.X(0.1), S = xb - xa;          // g.X(1) is the right glass: run to xb, then the deep pool
+  const xa = g.X(-0.94), xb = g.X(g.P.poolU ?? 0.1), S = xb - xa;          // g.X(1) is the right glass: run to xb, then the deep pool
   const tOf = (x) => clamp((x - xa) / S, 0, 1);
   const wd0 = g.wide(clamp(d * 0.1, 3.2, 6), 45 * 0.1);       // half width of the river; it lies against the front glass
   const W = (t) => wd0 * (1 - 0.5 * bump(t, 0.52, 0.66));
@@ -1183,11 +1183,12 @@ BUILDERS.canyon = (g) => {
   const zb = (x) => d / 2 - 2 * W(tOf(x)) + wob(x);          // the channel's back edge; its front edge is the glass
   const zr = (x) => (zb(x) + d / 2) / 2;
   const KN = [[0, 1], [0.1, 1], [0.28, 0.78], [0.45, 0.55], [0.47, 0.28], [0.52, 0.25], [0.7, 0.1], [0.82, 0.08], [0.97, 0.02], [1, 0]];
+  const ef = g.P.endFall ?? 0;   // a share of the head kept for one last fall into the deep pool (its splash is what oxygenates the main pool)
   const bedAt = (t) => {
-    for (let k = 1; k < KN.length; k++) if (t <= KN[k][0]) return L + D * lerp(KN[k - 1][1], KN[k][1], (t - KN[k - 1][0]) / (KN[k][0] - KN[k - 1][0]));
+    for (let k = 1; k < KN.length; k++) if (t <= KN[k][0]) return L + D * ((1 - ef) * lerp(KN[k - 1][1], KN[k][1], (t - KN[k - 1][0]) / (KN[k][0] - KN[k - 1][0])) + ef * (1 - smooth(0.95, 0.99, t)));
     return L;
   };
-  const poolBed = 4.5;
+  const poolBed = g.P.poolBed ?? 4.5, cz = g.P.cliffZ ?? 0.2;
   g.fill((x, z) => {
     const t = tOf(x), nz = g.n(x, z, 0.09), n2 = g.n(x, z, 0.3);
     const bd = bedAt(t) + (n2 - 0.5) * 0.5;
@@ -1203,9 +1204,9 @@ BUILDERS.canyon = (g) => {
     }
     hgt = lerp(hgt, Math.max(hgt, Htop * 0.92 + (nz - 0.5) * 3), smooth(xa + 3, xa - 5, x));   // the head: rock closes the river
     const lg = smooth(xb - 1.5, xb + 2.5, x);                   // the deep pool
-    const cl = Htop * smooth(g.Z(0.2), g.Z(0.08), z);
-    hgt = lerp(hgt, poolBed + 1.2 * n2 + (Htop - poolBed) * smooth(g.Z(0.2), g.Z(0.08), z) * 1, lg);
-    const face = lg > 0.5 ? smooth(g.Z(0.24), g.Z(0.2), z) : clamp((e - 4.5) / 2, 0, 1);
+    const cl = 0;
+    hgt = lerp(hgt, poolBed + 1.2 * n2 + (Htop - poolBed) * smooth(g.Z(cz), g.Z(cz * 0.4), z) * 1, lg);
+    const face = lg > 0.5 ? smooth(g.Z(cz + 0.04), g.Z(cz), z) : clamp((e - 4.5) / 2, 0, 1);
     void cl;
     return ledged(hgt, face, 4.2);
   });
@@ -1218,7 +1219,16 @@ BUILDERS.canyon = (g) => {
   // fall flux in the thousands of cm3/s, measured), the plunge pool a little lower, set well downstream of the fall's lip
   for (const [t, dep] of [[0.04, 6], [0.17, 4.5], [0.3, 5], [0.39, 4.5], [0.55, 6.5], [0.64, 4.5], [0.78, 5], [0.89, 4.5]]) cup(t, wd0, dep);
   { const x = xa + S * 0.76; T.digBasin(x, zb(x) - 2.6, 3.2, 3); }
-  groundPaint(g, L, { moss: 0.3, gravelBand: 0.8, rockUp: 0.8, stoneUp: 0.55, sand: (x, z) => x > xb && z > g.Z(0.2) });
+  // The river bed and the front cut-away under it are cobbles (gravel and stone), the banks rock with a little moss, the deep pool sand: the
+  // default ground paint made the whole front a brown soil slab under a thin river.
+  g.paint((x, z, hh, up, m) => {
+    const mo = g.n(x, z, 0.16) * 0.8 + g.n(x, z, 0.5) * 0.3;
+    if (x > xb && z > g.Z(0.2) && hh < L - 0.6) { m[MAT.sand] = 1; return; }
+    if (z > zb(x) - 1) { m[MAT.gravel] = 0.55; m[MAT.stone] = 0.45; return; }
+    if (up < 0.55) { m[MAT.stone] = 0.35; m[MAT.rock] = 0.65; return; }
+    if (up < 0.8 && hh > L + 1.5) { m[MAT.rock] = 0.75; m[MAT.stone] = 0.25; if (mo > 0.75) m[MAT.moss] = 0.55; return; }
+    if (mo > 0.3) m[MAT.moss] = 1; else m[MAT.soil] = 1;
+  });
   rockWall(g, { L, style: 'strata', moss: 0.35, rock: 0.55, mossMin: 4, calm: (x, y) => 0.4 * smooth(Htop + 4, Htop - 6, y), relief: 1.2 });
 
   const boulder = (x, z, size, v) => g.piece('boulder', x, z, { size, variant: v, sink: 0.3 });
@@ -1247,12 +1257,13 @@ BUILDERS.canyon = (g) => {
   g.wallScatter('pothos', g.wcnt(3), (x, y) => y > L + 6, { gap: 10 });
   g.wallScatter('fern', g.wcnt(3), (x, y) => y > L + 6, { gap: 12 });
   g.wallScatter('begonia', g.wcnt(2), (x, y) => y > L + 6, { gap: 14 });
-  g.animal('shrimp', g.cnt(10), (x, y, z, s) => s - y > 0.8 && x > xb + 2);   // shrimp: the quiet pool only (they die of 'current too strong' in the run)
-  if (SPECIES.hillloach) g.animal('hillloach', g.cnt(5), (x, y, z, s) => s - y > 1.2 && s - y < 9 && x < xb);
-  if (SPECIES.zacco) g.animal('zacco', g.cnt(8), (x, y, z, s) => s - y > 4);
+  const cap = (id, n) => { const c = g.P.caps?.[id]; return Math.min(n, Array.isArray(c) ? c[w >= 170 ? 1 : 0] : c ?? 999); };   // caps: a number, or [small tank, show tank]
+  g.animal('shrimp', cap('shrimp', g.cnt(10)), (x, y, z, s) => s - y > 0.8 && x > xb + 2);   // shrimp: the quiet pool only (they die of 'current too strong' in the run)
+  if (SPECIES.hillloach) g.animal('hillloach', cap('hillloach', g.cnt(5)), (x, y, z, s) => s - y > 1.2 && s - y < (g.P.hillDepth ?? 9) && x < xb + (g.P.hillX ?? 0));
+  if (SPECIES.zacco) g.animal('zacco', cap('zacco', g.cnt(8)), (x, y, z, s) => s - y > 4);
   g.animal('isopod', g.cnt(8), dry);
   g.animal('springtail', g.cnt(30), dry);
-  g.env({ setpoint: 22, drainage: 0.3, mediaBio: 0.6, lampPower: 1.05, fan: 0.05, fogger: 0.35, rockMoss: 0.45, nitrate: 2, detritus: 6, algae: 0.02 }, ['fan', 'fogger']);
+  g.env({ setpoint: 22, drainage: 0.3, mediaBio: 0.6, lampPower: 1.05, fan: 0.05, fogger: 0.35, rockMoss: 0.45, nitrate: 2, detritus: 6, algae: 0.02, ...(g.P.canister ? { filterKind: 'canister', prefilter: true, mediaBio: 1 } : {}), ...(g.P.env?.air ? { air: g.P.env.air } : {}) }, [...(g.P.canister ? ['fan', 'fogger', 'filterCanister'] : ['fan', 'fogger']), ...(g.P.gear?.includes('airpump') ? ['airpump'] : [])]);
 };
 
 // ===== highland (run "sets", S3) ==============================================

@@ -33,7 +33,7 @@ export const SIZE_RULES = {
 // are the same whatever the tank; starter gear (price 0) comes with the tank.
 export const GEAR_SIZING = {
   ledPro: 'width', uvb: 'width',
-  fan: 'litres', fogger: 'litres', mister: 'width', chiller: 'litres',
+  fan: 'litres', fogger: 'litres', airpump: 'litres', mister: 'width', chiller: 'litres',
   filterSponge: 'litres', filterMatten: 'litres', filterCanister: 'litres',
   drainageLeca: 'floor', falseBottom: 'floor',
 };
@@ -64,7 +64,7 @@ export const RUN = {
   light: 2, ledPro: 1.25, uvb: 0.3, basking: 0.6,
   heater: 1.2, chiller: 1.5,
   pump: 0.6, filter: { sponge: 0.4, matten: 0.4, canister: 0.9 },
-  fan: 0.2, fogger: 0.5, rain: 0.03,         // rain: per minute of showers a day
+  fan: 0.2, fogger: 0.5, air: 0.15, rain: 0.03,         // rain: per minute of showers a day
   waterPerLitre: { tap: 0.002, soft: 0.012, remin: 0.014, hard: 0.006 },   // about a 40% change a week, per litre of tank water
 };
 
@@ -101,6 +101,7 @@ export function runningCosts(tank, E, has = () => true, o = {}) {
   const showers = (E.rainProgram ?? []).reduce((s, r) => s + (r.len ?? 0), 0);
   add('Fans, fog and rain', (has('fan') ? RUN.fan * (E.fan ?? 0) * sized : 0) + (has('fogger') ? RUN.fogger * (E.fogger ?? 0) * sized : 0)
     + (has('mister') ? RUN.rain * showers * SIZE_RULES.width(tank) : 0));
+  add('Air pump', has('airpump') ? RUN.air * (E.air ?? 0) * sized : 0);
   add('Water', water * (RUN.waterPerLitre[E.waterSource] ?? RUN.waterPerLitre.tap));
   let food = 0;
   for (const [sp, n] of o.animals ?? []) food += foodPerDay(sp) * n;

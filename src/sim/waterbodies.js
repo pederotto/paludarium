@@ -17,6 +17,9 @@ import { sizeFactors } from './tank.js';
 export const NODE = { GROUND: 0, SUMP: 1, EXT: 2, OUT0: 3, OUTS: 12, BODY0: 15, BODIES: 48, TRANSIT: 63, MAX: 64 };
 
 const WET_STREAM = 0.12;   // cm of water that makes a stream cell
+// An air pump's airstone (content/equipment.js airpump, Env.air 0 … 1): the oxygen it adds to the main pool's target at full setting, mg/l
+// (a guess: a falling sheet or a filter's return adds about 1 to 2); the other bodies of the tank feel a third of it through the stirring.
+const AIR_O2 = 2.2;
 const CHEM = ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'temp', 'co2', 'ph', 'gh'];
 // Hardscape that leaches tannins (softens and acidifies the water a little) or minerals (hardens it).
 const TANNIN = { wood: 1, roots: 1, stump: 0.6, cork: 0.5, bamboopole: 0.15, floatlog: 0.8 }, MINERAL = { boulder: 0.25, spire: 0.15, cliff: 0.3, slate: 0.35, pebbles: 0.1 };
@@ -439,7 +442,7 @@ export class WaterBodies {
       // sump), plants by day and a stream's churn add; fish and heat take away.
       const depth = Math.max(1, b.depth || 6);
       const aer = clamp(8 / depth, 0.5, 2.5) * (1 - 0.5 * (E.film ?? 0));    // a surface film slows gas exchange
-      const oT = 5.2 + Math.min(4, b.falls) * fallK * 0.9 + (b === sump && E.filter ? F.oxygen * (0.4 + 0.6 * fEff) : b.kind === 'stream' ? 1.2 : 0.3) + E.fan * 0.4 + E.rain * 0.5
+      const oT = 5.2 + Math.min(4, b.falls) * fallK * 0.9 + (b === sump && E.filter ? F.oxygen * (0.4 + 0.6 * fEff) : b.kind === 'stream' ? 1.2 : 0.3) + E.fan * 0.4 + E.rain * 0.5 + (E.air ?? 0) * (b === sump ? AIR_O2 : AIR_O2 * 0.3)
         + (light - 0.4) * b.plantUse * 0.02 * Math.sqrt(100 / V) - b.fishLoad * 0.8 / V - Math.max(0, b.temp - 24) * 0.12;
       b.oxygen = clamp(lerp(b.oxygen, oT, clamp(d * 0.01 * aer, 0, 1)), 0.5, 10);
       // --- Temperature: shallow water takes the warmth of the lamp, deep
