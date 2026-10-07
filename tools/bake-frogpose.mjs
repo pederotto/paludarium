@@ -22,7 +22,7 @@ import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer
 import { bindCapsules, frogBones, skinFour, SKIN_PASSES, spineRamp, vertexNormals } from './rig/skeleton.mjs';
 import { headWeight, rollHead, poseToStroke, scanStroke } from './rig/neutral.mjs';
 import { cutSeams } from './rig/seam-cut.mjs';
-import { graftMirror, relaxRings } from './rig/leg-graft.mjs';
+import { graftMirror, relaxRings, meshCheck } from './rig/leg-graft.mjs';
 import { neutralStroke } from '../src/util/climb.js';
 
 const OUT = process.env.T4_OUT || 'public/assets/creatures';
@@ -54,9 +54,9 @@ const JOBS = {
   // (the scan is off the axis). `headRoll`: the scan's head is rolled about the body axis; the head bone is turned back through its skeleton (tools/rig/neutral.mjs,
   // tools/rig/neutral-check.mjs: the roll fitted from the eye bumps, -10.2 deg). `neutral: [hind, arm]` (not set: tried 6 Oct, see reports/REDEYE-plan.md) poses the whole scan into a point of the
   // crawl cycle through its skeleton first. `eye`: the bump, scan units after the roll (right eye; the shader mirrors it).
-  'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.14, 0.09, 0.725], r: 0.12 }, split: true,
+  'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.129, 0.09, 0.725], r: 0.12 }, split: true,   // (c.x was 0.14 on the scan's own head; the symmetrized head's bumps sit 0.011 nearer the midline)
     // (the walking scan's hind legs lie against each other and the left one runs across the midline: no x-sign rule, distances in radii, a bone does not take skin that faces into its axis, and the diffused weights may only join a bone to its parent and children; the joints and per-side radii fitted to the skin, tools/rig/fit-chain.mjs)
-    bind: { side: false, norm: false, sigma: 0.03, facing: 0.15, mask: 1 }, cut: true, graft: true },
+    bind: { side: false, norm: false, sigma: 0.03, facing: 0.15, mask: 1 }, cut: true, graft: true, symHead: true },
 };
 // The swimming scan's skeleton (tools/rig/skeleton.mjs frogBones): joints measured on the leveled scan (scan units, head +z, about 2
 // long: analyse() below) from its top, side and front views, each at the middle of the limb where the mesh bends. The hind leg is
@@ -346,26 +346,45 @@ for (const [id, job] of Object.entries(JOBS)) {
       if (process.env.NEUTRAL === 'scan') { const sh0 = sh(f4.skin), per = {}; for (let i = 0; i < A.n; i++) { const b = Math.round(sh0[i * 4] * 32), d = Math.hypot(res.pos[i * 3] - A.pos[i * 3], res.pos[i * 3 + 1] - A.pos[i * 3 + 1], res.pos[i * 3 + 2] - A.pos[i * 3 + 2]); per[b] = Math.max(per[b] ?? 0, d); } console.log('  by first bone (max move):', b22.map((bb, ix) => `${bb.name} ${(per[ix >= 2 ? ix + 1 : ix] ?? 0).toFixed(3)}`).join(', ')); } }
     // The fused right hind leg replaced by the mirror of the clean left one (`graft`, tools/rig/leg-graft.mjs): the copy's vertices appended, bound to the right bones, the right leg's
     // bones the left's mirrored (the skeleton must be the skin's): the per-vertex arrays follow
-    let graftSk = null;
-    if (job.graft && process.env.GRAFT !== '0') {
-      const nameOf = (b) => bones[b]?.name ?? '', dom0 = (i) => (A.bind.w[i] >= 0.5 ? A.bind.idx[i * 2] : A.bind.idx[i * 2 + 1]), reL = /^(thigh|shin|foot|toes)L$/, reR = /^(thigh|shin|foot|toes)R$/;
-      const g = graftMirror({ pos: res.pos, idx: src.idx, isFrom: (i) => reL.test(nameOf(dom0(i))), isTo: (i) => reR.test(nameOf(dom0(i))), mirrorX: 0 });
-      const n0 = A.n, n1 = g.pos.length / 3, swap = (b) => { const nm = nameOf(b), o = nm.replace(/L$/, '#').replace(/R$/, 'L').replace(/#$/, 'R'); const k = bones.findIndex((x) => x.name === o); return k >= 0 ? k : b; };
-      const bi = new Uint8Array(n1 * 2), bw = new Float32Array(n1); bi.set(A.bind.idx.subarray(0, n0 * 2)); bw.set(A.bind.w.subarray(0, n0));
-      for (let k = n0; k < n1; k++) { const o = g.src[k]; bi[k * 2] = swap(A.bind.idx[o * 2]); bi[k * 2 + 1] = swap(A.bind.idx[o * 2 + 1]); bw[k] = A.bind.w[o]; }
+    // One graft taken into the bake's arrays: the copy's vertices appended (bound to the mirrored bones: `swap`), the per-vertex arrays grown, the shape relaxed over `rings` round the
+    // stitch band, the four-bone weights again on the grown mesh (a vertex without weights does not move)
+    const nameOf = (b) => bones[b]?.name ?? '', dom0 = (i) => (A.bind.w[i] >= 0.5 ? A.bind.idx[i * 2] : A.bind.idx[i * 2 + 1]);
+    const swapLR = (b) => { const nm = nameOf(b), o = nm.replace(/L$/, '#').replace(/R$/, 'L').replace(/#$/, 'R'); const k = bones.findIndex((x) => x.name === o); return k >= 0 ? k : b; };
+    const takeGraft = (g, rings) => {
+      const n0 = A.n, n1 = g.pos.length / 3, bi = new Uint8Array(n1 * 2), bw = new Float32Array(n1); bi.set(A.bind.idx.subarray(0, n0 * 2)); bw.set(A.bind.w.subarray(0, n0));
+      for (let k = n0; k < n1; k++) { const o = g.src[k]; bi[k * 2] = swapLR(A.bind.idx[o * 2]); bi[k * 2 + 1] = swapLR(A.bind.idx[o * 2 + 1]); bw[k] = A.bind.w[o]; }
       A.bind = { idx: bi, w: bw };
-      // (the four-bone weights again, on the grown mesh: the copy's vertices had none, and a vertex without weights does not move)
-      { const sk3 = new Float32Array(n1 * 4); for (let i = 0; i < n1; i++) { sk3[i * 4] = bi[i * 2] / 32; sk3[i * 4 + 1] = bi[i * 2 + 1] / 32; sk3[i * 4 + 2] = bw[i]; } graftSk = sk3; }
       const grow = (arr, C) => { const o = new C(n1); o.set(arr.subarray(0, n0)); return o; };
       A.U = grow(A.U, Float32Array); A.H = grow(A.H, Float32Array); A.S = grow(A.S, Float32Array); A.LEG = grow(A.LEG, Uint8Array); A.LEGT = grow(A.LEGT, Float32Array);
       const clamp = (v) => Math.max(0, Math.min(1, v));
+      if (rings > 0) relaxRings(g.pos, g.idx, g.band, rings, 10, 0.6);
       for (let k = n0; k < n1; k++) { const x = g.pos[k * 3], y = g.pos[k * 3 + 1], z = g.pos[k * 3 + 2]; A.U[k] = clamp((A.zs - z) / (A.zs - A.zv)); A.H[k] = clamp((y - A.yb) / (A.yt - A.yb)); A.S[k] = clamp(Math.abs(x) / (job.sHalf ?? 0.3)); }
-      const rings = +(process.env.SEAMRINGS ?? 7); if (rings > 0) relaxRings(g.pos, g.idx, g.band, rings, 10, 0.6);   // (the step between the thin copied thigh and the thick hip, relaxed over a few rings; 0 = off)
       const sc2 = new Float32Array(g.pos.length); sc2.set(scanPos); sc2.set(g.pos.subarray(n0 * 3), n0 * 3); scanPos = sc2;
       res.pos = g.pos; src.idx = g.idx; A.n = n1; A.cutIdx = g.idx;
-      f4 = skinFour(g.pos, g.idx, graftSk, job.skinPasses ?? SKIN_PASSES.swim, maskPar);
+      const sk3 = new Float32Array(n1 * 4); for (let i = 0; i < n1; i++) { sk3[i * 4] = bi[i * 2] / 32; sk3[i * 4 + 1] = bi[i * 2 + 1] / 32; sk3[i * 4 + 2] = bw[i]; }
+      f4 = skinFour(g.pos, g.idx, sk3, job.skinPasses ?? SKIN_PASSES.swim, maskPar);
+    };
+    // The fused right hind leg replaced by the mirror of the clean left one (`graft`, tools/rig/leg-graft.mjs); the right leg's bones the left's mirrored (the skeleton must be the skin's)
+    if (job.graft && process.env.GRAFT !== '0') {
+      const reL = /^(thigh|shin|foot|toes)L$/, reR = /^(thigh|shin|foot|toes)R$/;
+      const g = graftMirror({ pos: res.pos, idx: src.idx, isFrom: (i) => reL.test(nameOf(dom0(i))), isTo: (i) => reR.test(nameOf(dom0(i))), mirrorX: 0 });
+      takeGraft(g, +(process.env.SEAMRINGS ?? 7)); console.log('  mesh after the leg graft:', JSON.stringify(meshCheck(src.idx)));
       for (const nm of ['thigh', 'shin', 'foot', 'toes']) { const L = res.bones.find((b) => b.name === nm + 'L'), R = res.bones.find((b) => b.name === nm + 'R'); R.head = [-L.head[0] + g.shift[0], L.head[1] + g.shift[1], L.head[2] + g.shift[2]]; R.tail = [-L.tail[0] + g.shift[0], L.tail[1] + g.shift[1], L.tail[2] + g.shift[2]]; }
       console.log(`  leg graft: ${g.stats.removedFaces} faces of the right leg removed, ${g.stats.copiedFaces} copied from the left, ${g.stats.bridgeFaces} stitched (rims ${g.stats.holeRim} / ${g.stats.patchRim}), shifted ${g.stats.shift}`);
+    }
+    // The head made symmetric (`symHead`): the scan's head midline is off the trunk's axis (a line x = a + b z over the head: measured from the head's extents slice by slice) and its two eyes
+    // differ (the right bump is the larger, the one the eye fit is of). The head's smoothed weight shears it onto x = 0 (the bisect plane), the left half is removed and the right half
+    // mirrored into its place, the seam stitched and relaxed; the bone weights go with the copies.
+    if (job.symHead && process.env.SYMHEAD !== '0') {
+      const hbI = bones.findIndex((b) => b.name === 'head'), isHead = (i) => dom0(i) === hbI, zS = [], cS = [];
+      for (let z0 = 0.62; z0 < 1.0; z0 += 0.04) { let lo = 9, hi = -9; for (let i = 0; i < A.n; i++) if (isHead(i) && res.pos[i * 3 + 2] >= z0 && res.pos[i * 3 + 2] < z0 + 0.04) { lo = Math.min(lo, res.pos[i * 3]); hi = Math.max(hi, res.pos[i * 3]); } if (hi > lo) { zS.push(z0 + 0.02); cS.push((lo + hi) / 2); } }
+      const mz = zS.reduce((a, v) => a + v, 0) / zS.length, mc = cS.reduce((a, v) => a + v, 0) / cS.length;
+      let sxz = 0, szz = 0; for (let i = 0; i < zS.length; i++) { sxz += (zS[i] - mz) * (cS[i] - mc); szz += (zS[i] - mz) ** 2; }
+      const slope = sxz / szz, off = mc - slope * mz, hw = headWeight(bones, A.bind, A.n, src.idx, 30);
+      for (let i = 0; i < A.n; i++) res.pos[i * 3] -= hw[i] * (off + slope * res.pos[i * 3 + 2]);
+      const g = graftMirror({ pos: res.pos, idx: src.idx, isFrom: (i) => isHead(i) && res.pos[i * 3] >= 0, isTo: (i) => isHead(i) && res.pos[i * 3] < 0, mirrorX: 0 });
+      takeGraft(g, +(process.env.HEADRINGS ?? 6)); console.log('  mesh after the head graft:', JSON.stringify(meshCheck(src.idx)));
+      console.log(`  head symmetrized: midline x = ${off.toFixed(3)} + ${slope.toFixed(3)} z over z ${zS[0].toFixed(2)}..${zS[zS.length - 1].toFixed(2)}, ${g.stats.removedFaces} faces of the left half removed, ${g.stats.copiedFaces} copied from the right, ${g.stats.bridgeFaces} stitched (rims ${g.stats.holeRim} / ${g.stats.patchRim})`);
     }
     A.pos = res.pos; A.neutralBones = res.bones; A.neutralised = true;
     // The scan's fused folds, pulled apart by the posing, are sheets now: every face whose edge grew more than `TEAR` times (default 3) is cut, the holes capped, the flaps dropped

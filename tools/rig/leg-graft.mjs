@@ -52,6 +52,9 @@ export function graftMirror({ pos, idx, isFrom, isTo, mirrorX = 0 }) {
   const newell = (L) => { const c = cen(L, getN); let x = 0, y = 0, z = 0; for (let i = 0; i < L.length; i++) { const p = P(L[i]), q = P(L[(i + 1) % L.length]), a = [p[0] - c[0], p[1] - c[1], p[2] - c[2]], b = [q[0] - c[0], q[1] - c[1], q[2] - c[2]]; x += a[1] * b[2] - a[2] * b[1]; y += a[2] * b[0] - a[0] * b[2]; z += a[0] * b[1] - a[1] * b[0]; } return [x, y, z]; };
   let B = H.slice(); { const nA = newell(A), nB = newell(B); if (nA[0] * nB[0] + nA[1] * nB[1] + nA[2] * nB[2] < 0) B.reverse(); }
   { let bi = 0, bd = Infinity; for (let j = 0; j < B.length; j++) { const d = dist(P(A[0]), P(B[j])); if (d < bd) { bd = d; bi = j; } } B = B.slice(bi).concat(B.slice(0, bi)); }
+  const keepDir = new Set(), copyDir = new Set();
+  for (let t = 0; t < keep.length; t += 3) for (const [x, y] of [[0, 1], [1, 2], [2, 0]]) keepDir.add(`${keep[t + x]},${keep[t + y]}`);
+  for (let t = 0; t < copyF.length; t += 3) for (const [x, y] of [[0, 1], [1, 2], [2, 0]]) copyDir.add(`${copyF[t + x]},${copyF[t + y]}`);
   const bridge = []; let i = 0, j = 0;
   while (i < A.length || j < B.length) {
     const a0 = A[i % A.length], a1 = A[(i + 1) % A.length], b0 = B[j % B.length], b1 = B[(j + 1) % B.length];
@@ -59,7 +62,12 @@ export function graftMirror({ pos, idx, isFrom, isTo, mirrorX = 0 }) {
     const tri = advA ? [a0, a1, b0] : [a0, b1, b0];   // (a0 a1 b0 | a0 b1 b0: each wound the same way round the band; fixed against the surface normal below)
     const p0 = P(tri[0]), p1 = P(tri[1]), p2 = P(tri[2]), u = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], w = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]], q = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
     const rn = [0, 1, 2].map((k) => nrm(tri[0])[k] + nrm(tri[1])[k] + nrm(tri[2])[k]);
-    bridge.push(...(q[0] * rn[0] + q[1] * rn[1] + q[2] * rn[2] >= 0 ? tri : [tri[0], tri[2], tri[1]]));
+    // the winding from the mesh itself: the triangle's one rim edge (a0 a1 on the copy's rim, b0 b1 on the hole's) must run opposite to the face already on that edge
+    const rimEdge = advA ? [a0, a1] : [b0, b1], usedBy = advA ? copyDir : keepDir, fwd = usedBy.has(`${rimEdge[0]},${rimEdge[1]}`), rev = usedBy.has(`${rimEdge[1]},${rimEdge[0]}`);
+    // (tri lists the rim edge first: a0->a1 for (a0 a1 b0), b0->b1 for (a0 b1 b0) read as b1->b0 then b0->a0: its rim edge runs b1->b0)
+    const triEdgeDir = advA ? [a0, a1] : [b1, b0];
+    let flip; if (fwd !== rev) flip = (usedBy.has(`${triEdgeDir[0]},${triEdgeDir[1]}`)); else flip = !(q[0] * rn[0] + q[1] * rn[1] + q[2] * rn[2] >= 0);
+    bridge.push(...(flip ? [tri[0], tri[2], tri[1]] : tri));
     if (advA) i++; else j++;
   }
   const outPos = new Float32Array(pos.length + newPos.length); outPos.set(pos); outPos.set(newPos, pos.length);
@@ -82,4 +90,14 @@ export function relaxRings(pos, idx, seeds, rings = 6, iters = 8, lambda = 0.5) 
     for (const [v, q] of np) { pos[v * 3] = q[0]; pos[v * 3 + 1] = q[1]; pos[v * 3 + 2] = q[2]; }
   }
   return region;
+}
+
+// How sound a face list is: edges used once (a boundary: a hole), edges used twice in the same direction (a flipped face next to its neighbour), edges used more than twice.
+export function meshCheck(idx) {
+  const d = new Map(); for (let t = 0; t < idx.length; t += 3) for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) { const k = `${idx[t + a]},${idx[t + b]}`; d.set(k, (d.get(k) ?? 0) + 1); }
+  let boundary = 0, flipped = 0, nonManifold = 0, seen = new Set();
+  for (const [k, n] of d) { const [a, b] = k.split(','), r = d.get(`${b},${a}`) ?? 0, key = +a < +b ? k : `${b},${a}`; if (seen.has(key)) continue; seen.add(key); if (n + r === 1) boundary++; else if (n > 1 && r === 0 || r > 1 && n === 0 || (n > 1 && r > 0)) nonManifold++; else if (n === 2 && r === 0) flipped++; }
+  // (a directed edge used twice with no opposite is two faces wound against each other)
+  for (const [k, n] of d) { const [a, b] = k.split(','); if (n === 2 && !d.has(`${b},${a}`)) flipped++; }
+  return { boundary, flipped: flipped / 1, nonManifold };
 }

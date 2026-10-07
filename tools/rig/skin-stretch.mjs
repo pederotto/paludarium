@@ -3,6 +3,7 @@
 // 95th percentile and the worst one. A fused fold of the scan (a sitting frog's shin pressed on its foot) shows up here as a web. The same poses drawn by
 // the vertex rig (render/creatures/instanced.js: the leg's vertices shifted by legT x the foot's offset) for comparison.
 //
+//   CRAWLSET=redeye: the crawl poses from the red-eye's own key set (util/climb.js CRAWL_SETS)
 //   node tools/rig/skin-stretch.mjs [id ...]        (default: every manifest model with a skeleton)
 //   --muscles: a model with a muscle binding (_MUSC/_MUSU, tools/rig/muscles.mjs) is also measured with its bellies, as the shader
 //   moves them (render/creatures/skin.js skinVertex), at the motion's activations (render/creatures/muscles.js)
@@ -48,7 +49,7 @@ for (const id of list) {
   const poses = rig.stroke ? { swim: [0, 0.08, 0.16, 0.3, 0.6, 0.8].map((p) => ({ pL: p, pR: p, ampL: 1, ampR: 1, float: 0, scull: 0, arms: 0.5 })),
     launch: drawnHop([0.05, 0.1, 0.15, 0.2, 0.25, 0.3]), flight: drawnHop([0.4, 0.55, 0.7]),
     // (the climbing frogs' own gait: the crawl at eight points of its cycle, util/climb.js; the pulse's key poses are in it too)
-    crawl: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875].map((c) => { const st = climbState(() => 0.5, 'crawl'); for (const k of ['hR', 'fR', 'hL', 'fL']) st[k] = (((c - CRAWL.offset[k]) % 1) + 1) % 1; st.act = 1; return climbPose(st, {}); }) } : POSES;
+    crawl: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875].map((c) => { const st = climbState(() => 0.5, 'crawl', process.env.CRAWLSET ?? 'default'); for (const k of ['hR', 'fR', 'hL', 'fL']) st[k] = (((c - CRAWL.offset[k]) % 1) + 1) % 1; st.act = 1; return climbPose(st, {}); }) } : POSES;
   // the normals as the bake stored them, in the same frame as the positions (rotation only)
   if (NR) for (let i = 0; i < NR.length; i += 3) { const [x, y, z] = [NR[i], NR[i + 1], NR[i + 2]]; const l = Math.hypot(x, y, z) || 1; NR[i] = x / l; NR[i + 1] = y / l; NR[i + 2] = z / l; }
   const prof = (u) => { const v = Math.sin(Math.PI * Math.min(1, Math.max(0, u))); return v * v; };
