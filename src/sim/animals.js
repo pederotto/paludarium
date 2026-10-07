@@ -24,6 +24,7 @@ import { TANK, MAT } from './tank.js';
 import { driveStep, skipWaypoint, crossTrack } from './labdrive.js';
 import { Grid, planRoute } from './labroute.js';
 import { CLIMB as STEP_LIMIT, SURFACE_WALKERS } from './surfaces.js';
+import { THREAT, MOVERS, threatScore, sizeFactor, escapeScore } from './threat.js';
 import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
@@ -76,6 +77,8 @@ const PADLESS = new Set(['bumblebee', 'toad', 'ediblefrog', 'commonfrog']);   //
 const EXIT_LOOK = 160;      // how far across the water a frog in it looks for a way out (cm: past the far side of any tank)
 const _gf = new Array(9);
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
+const PIECE_LIFT = 0.35;    // cm: how far above the surface of a piece a walker's belly is held
+const FROG_SCARE = 10;     // cm: how near a much bigger neighbour on the move must come to frighten a frog or a toad (no listed pair: only the size and motion rule)
 const HOP_RISE = 4;       // cm: the tallest rise of the ground a hop is planned onto (labGrid): a 3 cm step is hopped up, a 6 cm wall is not
 const _sh = {}, _shF = {}, _shR = {}, _shH = {};            // (scratch for the surface map's height lookups: under the middle, the shoulders, the pelvis: three, they are read together)
 const TURN_GO = 0.5;      // rad: a frog sets off on a walk or a hop once its body is within this of the way it is going (it finishes the turn as it goes)
@@ -1160,7 +1163,9 @@ export class Animals {
       const hf = S.heightAt(x + fx * f, z + fz * f, y0, c.up, c.down, room, _shF), hr = S.heightAt(x - fx * f, z - fz * f, y0, c.up, c.down, room, _shR);
       yf = hf ? hf.y : T.heightAt(x + fx * f, z + fz * f); yr = hr ? hr.y : T.heightAt(x - fx * f, z - fz * f);
     }
-    a.pos.y = yc;                                   // (the surface under its middle, as a.pos.y is everywhere: footing() poses the body on its feet)
+    // (the surface under its middle, as a.pos.y is everywhere: footing() poses the body on its feet; a hair above a piece's, PIECE_LIFT: the blended surface can
+    // sit a little under a bumpy trunk's real mesh and the engine then takes the body for inside it and relocates it)
+    a.pos.y = yc + (piece ? PIECE_LIFT : 0);
     a.pitch = f > 0.3 ? clamp(-Math.atan2(yf - yr, 2 * f), -0.7, 0.7) : 0;
     a.normal = piece ? V(nx, ny, nz) : T.normalAt(x, z);
   }
@@ -2556,6 +2561,7 @@ export class Animals {
       const d = Math.hypot(b.pos.x - x, b.pos.z - z);
       if (d < SKINK.scareCm * 0.5 && (!threat || d < threat.d)) threat = { x: b.pos.x, z: b.pos.z, d };
     }
+    threat = this.threatPlus(a, sp, threat, SKINK.scareCm * 0.7);       // (the listed pairs and the lens first; then a much bigger neighbour on the move)
     const it = (a.si = skinkThink(m, {
       t: this.t, dt, dtMin: dt * (this.warp ?? 1), x, z, depth, light: clamp(E.bright(), 0, 1), rain: E.rain ?? 0,
       rh: C.humidityAt(x, g + 1, z), temp: C.tempAt(x, g + 0.5, z), wetGround: Math.min(1, T.field.matAt(x, z, MAT.moss) + C.sample(C.soil, x, z) * 0.5),
@@ -2566,6 +2572,8 @@ export class Animals {
     if (it.say && Math.random() < 0.5) W.log(it.say, 'info');
     let goal = it.goal, speed = it.speed;
     if (it.mode === 'hunt' && a.target) { goal = { x: a.target.x, z: a.target.z }; speed = SKINK.speed * 0.7; }
+    // (a skink that knows no cover would run a fixed 15 cm straight away: it picks a spot instead, far from the threat, in cover or on a log's crest)
+    if (it.mode === 'flee' && threat && goal && !a.skRefuge && !a.lab?.drive && depth <= SKINK.maxDepth) { const g2 = this.escapeGoal(a, sp, threat, (px, pz) => this.skinkNiche(px, pz)); if (g2) goal = g2; }
     if (a.lab?.drive) { goal = a.lab.goal; speed = goal ? SKINK.speed * a.lab.k : 0; }          // (the test lab)
     else if (goal && speed > 0) goal = this.steerGoal(a, sp, goal, dt);                          // (round what is in the way)
     a.state = goal && speed > 0 ? 'walk' : 'rest';
@@ -2657,6 +2665,7 @@ export class Animals {
       const d = Math.hypot(b.pos.x - x, b.pos.z - z);
       if (d < P.scareCm * sp.size && Math.abs(b.pos.y - a.pos.y) < 6 && (!threat || d < threat.d)) threat = { x: b.pos.x, z: b.pos.z, d };
     }
+    threat = this.threatPlus(a, sp, threat, P.scareCm * sp.size * 0.7);
     let other = null;
     for (const b of this.by[a.sp]) {
       if (b === a || b.dead) continue;
@@ -2674,7 +2683,11 @@ export class Animals {
     };
     const it = (a.ci = crabThink(m, sense, Math.random, P));
     if (a.lab?.drive) this.labCrab(a, P, it);
-    else if (it.goal && it.speed > 0) it.goal = this.steerGoal(a, sp, it.goal, dt);              // (round what is in the way)
+    else {
+      // (a crab with no safe burrow would run a fixed 12 cm straight away: it picks a spot, far from the threat, under cover or in shallow water)
+      if (m.mode === 'flee' && threat && it.goal && !(a.home && Math.hypot(a.home.x - threat.x, a.home.z - threat.z) > threat.d)) { const g2 = this.escapeGoal(a, sp, threat, (px, pz) => this.crabNiche(px, pz, P)); if (g2) it.goal = g2; }
+      if (it.goal && it.speed > 0) it.goal = this.steerGoal(a, sp, it.goal, dt);              // (round what is in the way)
+    }
     if (it.say) W.log(it.say, 'warn');
     if (it.eat && food) {
       if (isItem(food.pid)) { food.p.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE[food.pid]); }
@@ -2892,11 +2905,12 @@ export class Animals {
     if (!inWater && a.swimming) { a.dryT = 0; a.dive = null; a.diveP = 0; }
     a.swimming = inWater;
     a.timer -= dt;
-    if (inWater) { a.wetT = (a.wetT ?? 0) + dtS; this.frogSwim(a, sp, dt, s, toad); a.fs = null; return; }
+    if (inWater) { a.fear = null; a.wetT = (a.wetT ?? 0) + dtS; this.frogSwim(a, sp, dt, s, toad); a.fs = null; return; }
     a.dryT = (a.dryT ?? 0) + dtS;
     a.pos.y = g;
     a.normal = T.normalAt(a.pos.x, a.pos.z);
     if (!a.fs) { a.fs = 'sit'; a.fsT = this.pickSit(a, sp) * Math.random(); a.chain = 0; a.crouch = 0; if (a.lab) a.lab.kicked = false; }   // (a driven frog put back to its start, by an unstick or a relocation, does not sit out the rest it was dealt)
+    if (!a.lab?.drive) this.frogFear(a, sp);                                       // (a bigger neighbour on the move: it jumps away)
     switch (a.fs) {
       case 'sit': {
         a.fsT -= dt * (a.order || a.lab?.goal ? 1 : this.warp);
@@ -2917,7 +2931,7 @@ export class Animals {
           this.planFollowsPivot(a);
           a.fs = a.afterTurn ?? 'sit';
           a.walkT = 0;
-          if (a.fs === 'crouch') a.fsT = 0.22 + Math.random() * 0.25;
+          if (a.fs === 'crouch') a.fsT = (0.22 + Math.random() * 0.25) * (a.fear ? 0.45 : 1);
           else if (a.fs === 'sit') a.fsT = a.order || a.lab?.goal ? 0.2 : this.pickSit(a, sp, true);
         }
         break;
@@ -2930,7 +2944,7 @@ export class Animals {
         if (a.fsT <= 0) {
           const p = a.plan;
           a.crouch = 0;
-          if (!(p && this.hopTo(a, sp, p.to, p.water))) { a.fs = 'sit'; a.fsT = 1 + Math.random() * 3; a.hopFail = (a.hopFail ?? 0) + 1; a.chain = 0; }
+          if (!(p && this.hopTo(a, sp, p.to, p.water))) { a.fs = 'sit'; a.fsT = a.fear ? 0.15 : 1 + Math.random() * 3; a.hopFail = (a.hopFail ?? 0) + 1; a.chain = 0; if (a.fear) a.fear.gt = -9; }      // (frightened: at once, and to another spot)
         }
         break;
       }
@@ -2944,10 +2958,72 @@ export class Animals {
     if (p?.x0 != null) { p.to.x += a.pos.x - p.x0; p.to.z += a.pos.z - p.z0; p.x0 = a.pos.x; p.z0 = a.pos.z; }
   }
 
+  // A frog's fear (the owner's design, 6 Oct 2026): it never freezes and waits. A much bigger neighbour on the move (threatPlus: no frog has a listed pair
+  // or reacts to the lens) sets it off; it hops away, hop after hop with no rest between, toward a spot the planner's grid says is far from the threat and in
+  // its niche (frogNiche); after two hops, or once it is clear, it does what its species does to be safe: a frog with toe pads climbs (a perch: a plant, wood,
+  // the glass), a toad or a European frog (PADLESS: no pads, at home in the water) hops into the water if some is near, and swims. Calm for 3 s: over.
+  frogFear(a, sp) {
+    const F = a.fear;
+    if (a.perch || a.swimming) return;
+    const th = this.threatPlus(a, sp, null, FROG_SCARE);
+    if (!F) {
+      if (!th) return;
+      a.fear = { t0: this.t, last: this.t, th: { x: th.x, z: th.z }, hops: 0, goal: null, gt: -9 };
+      if (a.fs === 'sit' || a.fs === 'walk' || a.fs === 'turn' || a.fs === 'crouch') { a.fs = 'sit'; a.fsT = 0.05; a.crouch = 0; a.plan = null; }      // (whatever it was doing is dropped: up and away at once; a walk could run 14 s)
+      return;
+    }
+    if (th) { F.last = this.t; F.th.x = th.x; F.th.z = th.z; }
+    else if (!F.safe && this.t - F.last > 3) a.fear = null;       // (calm again; once it is on its way to the water the calm no longer cancels that)
+    if (F.safe && this.t - F.t0 > 25) a.fear = null;
+  }
+
+  // Its refuge niche: a toad or a European frog, the water; a frog with pads, cover (wood, cork, a rock over it) or the glass beside it.
+  frogNiche(a, sp, x, z) {
+    const W = this.world, T = W.terrain, g = T.heightAt(x, z);
+    if (PADLESS.has(a.sp) || sp.kind === 'toad') return W.water.surfaceAt(x, z, 0.3) > g + 0.8 ? 8 : 0;
+    const over = this.occ.count && this.occ.solidAt(x, g + 2.5, z) ? 6 : 0, glass = Math.abs(x) > TANK.w / 2 - 3.5 || z > TANK.d / 2 - 3.5 ? 3 : 0;
+    return over + glass;
+  }
+
+  // The next hop of a frightened frog: a hop plan (never a walk), or 'perch' (the climb began), or null (nothing it can do from here this moment).
+  frogFleePlan(a, sp) {
+    const F = a.fear, toad = sp.kind === 'toad', swimmer = PADLESS.has(a.sp) || toad, x = a.pos.x, z = a.pos.z;
+    const d = Math.hypot(x - F.th.x, z - F.th.z), maxHop = 5.5 * sp.size * (toad ? 1.2 : 1);
+    let goal = null, water = false;
+    // Phase 1: jump away (at least one hop, or it is already clear of it, or 2.5 s have gone). Phase 2: what its species does to be safe.
+    if (F.hops >= 1 || d > FROG_SCARE * 1.4 || this.t - F.t0 > 2.5) {
+      if (!swimmer) {
+        const r = this.perchSpot(a, sp);                            // (up a plant, onto wood, onto the glass: the way is checked there)
+        if (r) {
+          a.perch = { ph: 'go', top: r.p, plant: r.plant, piece: r.piece, glassN: r.glassN, glassYaw: r.glassYaw, up: r.up, base: r.base, path: r.path, near: Infinity, stuck: 0, fear: true };
+          a.fs = null; a.fear = null;
+          return 'perch';
+        }
+      } else {
+        // (water that is not on the threat's side: a toad does not hop past what frightened it)
+        const pond = this.crabFind(x, z, 30, (px, pz, dd) => dd > 1.2 * sp.size);
+        if (pond && Math.hypot(pond.x - F.th.x, pond.z - F.th.z) > d * 0.8) { goal = { x: pond.x, z: pond.z }; water = true; F.safe = true; }
+      }
+    }
+    if (!goal) {
+      if (this.t - F.gt > 1.5) { F.goal = this.escapeGoal(a, sp, F.th, (px, pz) => this.frogNiche(a, sp, px, pz)); F.gt = this.t; }
+      goal = F.goal ?? { x: x + ((x - F.th.x) / Math.max(0.5, d)) * 8, z: z + ((z - F.th.z) / Math.max(0.5, d)) * 8 };      // (nowhere better found: straight away)
+    }
+    const dx = goal.x - x, dz = goal.z - z, dd = Math.hypot(dx, dz), ang = Math.atan2(dx, dz), sd = a.side ?? 1;
+    if (dd < 0.4) return null;
+    for (const da of [0, 0.5 * sd, -0.5 * sd, 1 * sd, -1 * sd]) for (const f of [1, 0.7, 0.45]) {
+      const an = ang + da, len = Math.min(dd, maxHop) * f;
+      const plan = this.checkPlan(a, sp, 'hop', V(x + Math.sin(an) * len, 0, z + Math.cos(an) * len), an, water && da === 0);
+      if (plan) { a.side = Math.sign(da) || a.side; return plan; }
+    }
+    return null;
+  }
+
   // Back to sitting after a hop or a walk: the next segment of the burst soon, else a long sit.
   frogEnd(a, sp, hopped) {
     a.hopFail = 0;
     a.fs = 'sit';
+    if (a.fear) { a.chain = 0; a.chainNext = false; a.fsT = hopped ? 0.1 + Math.random() * 0.15 : 0.1; if (hopped) a.fear.hops++; return; }      // (frightened: straight on to the next hop)
     if (a.lab?.goal) { a.chain = 0; a.chainNext = false; a.fsT = hopped ? 0.35 + Math.random() * 0.35 : 0.1; return; }   // (the test lab: a driven frog goes on after the pause between two hops)
     if (a.chain > 0) { a.chain--; a.chainNext = true; a.fsT = hopped ? 0.35 + Math.random() * 0.5 : 0.8 + Math.random() * 2; }
     else { a.chainNext = false; a.fsT = a.order || a.lab?.goal ? 0.5 + Math.random() * 0.5 : this.pickSit(a, sp); }
@@ -2980,7 +3056,12 @@ export class Animals {
     const W = this.world, T = W.terrain, toad = sp.kind === 'toad';
     const o = a.order, lg = a.lab?.goal;
     let plan = null, chain = 0;
-    if (lg) {
+    if (a.fear && !lg) {
+      // Frightened: hop after hop away, and then what its species does to be safe (frogFleePlan).
+      plan = this.frogFleePlan(a, sp);
+      if (plan === 'perch') return;
+      if (!plan) { a.fsT = 0.3; return; }
+    } else if (lg) {
       plan = this.labFrogPlan(a, sp, lg);
       if (plan === 'wait') { a.fsT = 0.25; return; }
     } else if (o && this.validPrey(o.target, a)) {
@@ -3580,7 +3661,8 @@ export class Animals {
     const rad = a.rad ?? this.radiusOf(a, sp), ext = Math.max(Math.abs(bx.z0), Math.abs(bx.z1));
     const key = `${a.sp}|${rad.toFixed(2)}|${ext.toFixed(1)}|${grow}`, cache = (this._labGrids ??= new Map()), now = performance.now();
     const hit = cache.get(key);
-    if (hit && hit.v === this.occ.version && hit.gv === W.groundVer && now - hit.at < ttl) return hit.g;
+    // (reused while nothing changed, up to `ttl`; and, changed or not, for at least 1.5 s: the ground changes all the time under erosion and a rebuild per change would be a hitch)
+    if (hit && (now - hit.at < 1500 || (hit.v === this.occ.version && hit.gv === W.groundVer && now - hit.at < ttl))) return hit.g;
     const [medium, maxD] = this.labMedium(a, sp), steep = sp.kind === 'newt' || sp.kind === 'axolotl', hops = sp.kind === 'frog' || sp.kind === 'toad';
     // (a hop is refused when its nose or back goes through a piece on the way, so a hopper keeps its nose's reach off one, not only its radius)
     const gap = Math.max(Math.min(3.5, rad + (a.cap ? a.cap.hl * 0.4 : 0)), hops ? Math.min(ext + 0.4, 4) : 0) + grow, wallGap = ext * 0.75 + 0.3 + grow, side = Math.max(rad, bx.X) + 0.4 + grow;
@@ -3669,6 +3751,75 @@ export class Animals {
       if (S.grow < 2.4) S.grow += 0.8; else { S.grow = 0; return G; }
     }
     return via;
+  }
+
+  // A threat the explicit pairs did not find (the owner's design, sim/threat.js): `base` is what the lists and the camera already found, and it keeps its
+  // priority, untouched. With none, a neighbour of another kind that is much bigger and moving (or right beside it) is one. Which neighbour is looked at
+  // again every THREAT.every seconds, staggered by animal (the pairwise loop is the only cost); its distance every tick. null: no threat.
+  threatPlus(a, sp, base, radius) {
+    if (base || !this.avoid || a.onWall || a.wallMode) return base;
+    const S = (a._thr ??= { t: -1, b: null }), x = a.pos.x, z = a.pos.z;
+    if (this.t - S.t >= THREAT.every) {
+      S.t = this.t + ((a.id * 0.37) % 0.1); S.b = null;
+      let best = 0;
+      const p = { id: a.sp, size: sp.size, y: a.pos.y };
+      for (const id in this.by) {
+        const osp = SPECIES[id];
+        if (id === a.sp || !MOVERS.has(osp.kind)) continue;
+        for (const b of this.by[id]) {
+          if (b.dead) continue;
+          const o = { id, kind: osp.kind, size: osp.size, speed: b.speedNow ?? 0, y: b.pos.y }, sc = threatScore(p, o, Math.hypot(b.pos.x - x, b.pos.z - z), radius);
+          if (sc > best) { best = sc; S.b = b; S.k = sizeFactor(p, o); }
+        }
+      }
+    }
+    const b = S.b;
+    if (!b || b.dead) return null;
+    const d = Math.hypot(b.pos.x - x, b.pos.z - z);
+    return d < radius ? { x: b.pos.x, z: b.pos.z, d: d / (S.k || 1) } : null;      // (a much bigger neighbour is reported nearer than it is)
+  }
+
+  // Where a frightened animal runs when its mind knows no cover or burrow (it would run a fixed 12-15 cm straight away: into a corner, along the
+  // glass, back the way it came): spots on rings round it, over what its body can stand on (the planner's grid), each scored by escapeScore (far from the
+  // threat, in the animal's own niche, not far round to get to). `niche(x, z)`: 0 for open ground, up to ~8 in a refuge. The best few are routed; the
+  // winner is kept for 1.2 s so it does not dither. null: nowhere better than where it is.
+  escapeGoal(a, sp, threat, niche) {
+    const E = (a._esc ??= { t: -9, g: null, tx: 0, tz: 0 });
+    if (this.t - E.t < (E.g ? 1.2 : 0.5) && Math.hypot(E.tx - threat.x, E.tz - threat.z) < 4) return E.g;      // (nowhere better is remembered too: no search every tick)
+    const x = a.pos.x, z = a.pos.z, d0 = Math.hypot(x - threat.x, z - threat.z), m = this.labGrid(a, sp, 0, 20000), cands = [];
+    for (const r of [5, 9, 14, 20]) for (let k = 0; k < 12; k++) {
+      const t = (k / 12) * TAU + r * 0.37, px = x + Math.sin(t) * r, pz = z + Math.cos(t) * r;
+      if (m.blockedAt(px, pz) || Math.abs(px) > TANK.w / 2 - 5 || Math.abs(pz) > TANK.d / 2 - 5) continue;      // (not at the glass: a hop, a step there is refused)
+      const dT = Math.hypot(px - threat.x, pz - threat.z);
+      if (dT < d0 + 4) continue;                                    // it must gain real distance: a refuge a few cm further is no escape
+      const n = niche(px, pz);
+      cands.push({ x: px, z: pz, dThreat: dT, niche: n, len: r, pre: escapeScore({ dThreat: dT, niche: n, len: r }) });
+    }
+    cands.sort((p, q) => q.pre - p.pre);
+    let best = null, bs = -Infinity;
+    for (const c of cands.slice(0, 4)) {
+      const rt = planRoute(m, x, z, c.x, c.z);
+      if (!rt || rt.clipped) continue;
+      let len = 0, px = x, pz = z, close = Infinity;
+      for (const q of rt.pts) { len += Math.hypot(q.x - px, q.z - pz); close = Math.min(close, Math.hypot((q.x + px) / 2 - threat.x, (q.z + pz) / 2 - threat.z)); px = q.x; pz = q.z; }
+      if (close < Math.min(d0, 3)) continue;                         // a way that runs through the threat is no way
+      const sc = escapeScore({ dThreat: c.dThreat, niche: c.niche, len });
+      if (sc > bs) { bs = sc; best = { x: c.x, z: c.z }; }
+    }
+    E.t = this.t; E.g = best; E.tx = threat.x; E.tz = threat.z;
+    return best;
+  }
+
+  // A skink's refuge niche (cover, or the crest of a log it climbs, where the heavier animals cannot follow) and a crab's (cover or a burrow: low clearance,
+  // or shallow water): 0 on open ground.
+  skinkNiche(x, z) {
+    const S = this.surfaces(), c = STEP_LIMIT.skink;
+    return (this.skinkCover(x, z) >= 0.5 ? 8 : 0) + (S.climbable(x, z, this.world.terrain.heightAt(x, z), c.up, c.down, 1) ? 4 : 0);
+  }
+
+  crabNiche(x, z, P) {
+    const T = this.world.terrain, depth = this.world.water.surfaceAt(x, z) - T.heightAt(x, z);
+    return (this.crabCover(x, z) >= 0.5 ? 8 : 0) + (depth >= 0.5 && depth <= P.safeDepth ? 5 : 0);
   }
 
   // A fish told where to go: swim's own control input (the same one the herps use in the water).
@@ -4809,7 +4960,7 @@ export class Animals {
         if (d < P.scareCm * 0.7 && ((b.speedNow ?? 0) > 0.6 || d < 3.5) && (!t || d < t.d)) t = { ...planar(b.pos), d: d * 1.1 };
       }
     }
-    return t;
+    return wall ? t : this.threatPlus(a, sp, t, P.scareCm * 0.7);
   }
 
   // A long body standing on uneven ground (a slope, the edge of a stone, a bank): the footing plane carries the trunk, but the tail
@@ -4863,7 +5014,7 @@ export class Animals {
     const T = this.world.terrain;
     if (!SURFACE_WALKERS.has(sp.kind) || !this.avoid || !this.occ.count) return T.heightAt(x, z);
     const c = STEP_LIMIT[sp.kind], h = this.surfaces().heightAt(x, z, a.pos.y, c.up, c.down, Math.max(0.8, a.bh ?? 1), _shH);
-    return h ? h.y : T.heightAt(x, z);
+    return h ? h.y + (h.piece ? PIECE_LIFT : 0) : T.heightAt(x, z);
   }
 
   footing(a, sp) {
