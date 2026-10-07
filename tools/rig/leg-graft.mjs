@@ -64,5 +64,22 @@ export function graftMirror({ pos, idx, isFrom, isTo, mirrorX = 0 }) {
   }
   const outPos = new Float32Array(pos.length + newPos.length); outPos.set(pos); outPos.set(newPos, pos.length);
   const outIdx = Uint32Array.from([...keep, ...copyF, ...bridge]);
-  return { pos: outPos, idx: outIdx, src: Int32Array.from([...new Int32Array(n).fill(-1), ...src]), shift, stats: { removedFaces: removed.length / 3, copiedFaces: copyF.length / 3, bridgeFaces: bridge.length / 3, holeRim: H.length, patchRim: A.length, shift: shift.map((v) => +v.toFixed(3)) } };
+  const band = [...new Set(bridge)];
+  return { pos: outPos, idx: outIdx, band, src: Int32Array.from([...new Int32Array(n).fill(-1), ...src]), shift, stats: { removedFaces: removed.length / 3, copiedFaces: copyF.length / 3, bridgeFaces: bridge.length / 3, holeRim: H.length, patchRim: A.length, shift: shift.map((v) => +v.toFixed(3)) } };
+}
+
+// The shape relaxed over a few rings round a set of vertices (the stitch band): each ring's vertices move `lambda` (fading to 0 at the last ring) of the way to the mean of their
+// neighbours, `iters` times, so a step between two surfaces (a thin thigh joined to a thick hip) becomes a gradual swell. Moves `pos` in place; returns the vertices touched.
+export function relaxRings(pos, idx, seeds, rings = 6, iters = 8, lambda = 0.5) {
+  const n = pos.length / 3, nb = Array.from({ length: n }, () => new Set());
+  for (let t = 0; t < idx.length; t += 3) for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) { nb[idx[t + a]].add(idx[t + b]); nb[idx[t + b]].add(idx[t + a]); }
+  const ring = new Int16Array(n).fill(-1); let front = [...seeds]; for (const v of front) ring[v] = 0;
+  for (let r = 1; r <= rings; r++) { const nx = []; for (const v of front) for (const u of nb[v]) if (ring[u] < 0) { ring[u] = r; nx.push(u); } front = nx; }
+  const region = []; for (let i = 0; i < n; i++) if (ring[i] >= 0) region.push(i);
+  for (let it = 0; it < iters; it++) {
+    const np = new Map();
+    for (const v of region) { const L = [...nb[v]]; if (!L.length) continue; const w = lambda * (1 - ring[v] / (rings + 1)); let x = 0, y = 0, z = 0; for (const u of L) { x += pos[u * 3]; y += pos[u * 3 + 1]; z += pos[u * 3 + 2]; } x /= L.length; y /= L.length; z /= L.length; np.set(v, [pos[v * 3] + (x - pos[v * 3]) * w, pos[v * 3 + 1] + (y - pos[v * 3 + 1]) * w, pos[v * 3 + 2] + (z - pos[v * 3 + 2]) * w]); }
+    for (const [v, q] of np) { pos[v * 3] = q[0]; pos[v * 3 + 1] = q[1]; pos[v * 3 + 2] = q[2]; }
+  }
+  return region;
 }

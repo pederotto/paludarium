@@ -96,11 +96,11 @@ import { CRAWL_SETS } from '../src/util/climb.js';
 test('the red-eye crawl keys: the gathered leg, the support arm and the reach arm are the scan\'s own right leg, right arm and left arm', () => {
   const J = JSON.parse(fs.readFileSync(new URL('../tools/rig/redeye-walk-joints.json', import.meta.url), 'utf8')).joints, S = scanStroke(J), K = CRAWL_SETS.redeye;
   const close = (a, b, what) => a.forEach((v, i) => { const d = Math.abs(((v - b[i] + 540) % 360) - 180); assert.ok(d < 1.5, `${what}[${i}] ${v} vs ${b[i].toFixed(1)}`); });   // (angles modulo 360)
-  close(K.hind.find(([p]) => p === 0.12)[1].slice(0, 8), [...S.legA.slice(9, 17)], 'gathered leg');
+  close(K.hind.find(([p]) => p === 0.20)[1].slice(0, 8), [...S.legA.slice(9, 17)], 'gathered leg');
   close(K.fore[0][1], [...S.armA.slice(6, 12)], 'support arm');
-  close(K.fore.find(([p]) => p === 0.25)[1], [...S.armA.slice(0, 6)], 'reach arm');
-  const st = climbState(() => 0.5, 'crawl', 'redeye'); st.hR = 0.12; st.hL = 0.12; st.act = 1;
-  const P = climbPose(st), D = climbState(() => 0.5, 'crawl'); D.hR = 0.12; D.hL = 0.12; D.act = 1;
+  close(K.fore.find(([p]) => p === 0.45)[1].slice(0, 3), [...S.armA.slice(0, 3)], 'reach arm (upper arm, forearm, hand)');
+  const st = climbState(() => 0.5, 'crawl', 'redeye'); st.hR = 0.20; st.hL = 0.20; st.act = 1;
+  const P = climbPose(st), D = climbState(() => 0.5, 'crawl'); D.hR = 0.20; D.hL = 0.20; D.act = 1;
   assert.ok(Math.abs(P.legA[9 + 2] - S.legA[9 + 2]) < 1.5, 'the red-eye set poses the right foot as the scan has it');
   assert.ok(Math.abs(climbPose(D).legA[9 + 2] - S.legA[9 + 2]) > 20, 'the shared set does not');
 });

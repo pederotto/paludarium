@@ -151,15 +151,17 @@ const FORE_CRAWL = [[0, [96, 120, 126, 6, -8, -2]], [0.12, [124, 150, 160, 22, -
 // angles measured on the scan, which is a frog mid-step. Its right hind leg is the GATHERED pose (thigh forward-out 122 deg, shin back, the tarsus forward again: the Z a swinging
 // frog folds its leg into), its right arm the SUPPORT (the elbow out, the forearm down onto the wall) and its left arm the REACH (forward, the hand ahead); the leg's other end is the
 // stretch of clip 3 (thigh, shin and foot in line, hanging). tests/redeye-bones.test.mjs keeps the anchors equal to the scan's own angles.
-const RE_GATHER = [122, -32, 135, 108, -23, 27, -32, -17, 0];          // the scan's right hind leg
-const RE_HANG = [30, 4, 10, 14, -4, 2, -2, -2, 20];                   // lift-off: the leg straight back (clip 3; the tiger-striped leaf frog's stretched leg is as long and straight)
+const RE_GATHER = [122, -32, 135, 108, -23, 27, -32, -17, 0];          // the scan's right hind leg: the gathered Z, the foot under the belly
+const RE_HANG = [30, 4, 10, 14, -4, -30, -12, -8, 20];                // lift-off: the leg trailing, the knee still flexed (the shin 34 deg below the thigh: the owner's walking clip never locks the knee straight)
+const RE_SWING = [100, -20, 90, 80, 38, -45, -20, -12, 0];            // the swing's top: the knee up over the back, the shin hanging from it (walking clip, rows 3-5)
 const RE_PLACE = [96, -18, 96, 86, -18, 16, -26, -14, 0];             // reaching ahead to place the foot
-const RE_PUSH = [60, 6, 40, 44, -10, 6, -12, -8, 10];                 // planted, the leg extending: the body is baked in this pose (bake `neutral`), so every pose is a half turn from it
-const RE_OPEN = [36, 24, 34, 40, -5, 0, -8, -5, 20];                  // the stance's end: the leg open behind
-const HIND_REDEYE = [[0, RE_HANG], [0.12, RE_GATHER], [0.25, RE_PLACE], [0.45, RE_PUSH], [0.60, RE_OPEN], [0.80, [14, -4, 0, 2, -4, 3, 2, 0, 20]], [1, RE_HANG]];
+const RE_PUSH = [60, 6, 40, 44, -10, -22, -12, -8, 10];               // planted, the leg extending: the body is baked in this pose (bake `neutral`), so every pose is a half turn from it
+const RE_OPEN = [36, 24, 34, 40, 5, -28, -10, -6, 20];                // the stance's end: the leg open behind, still flexed about 145 deg
+const HIND_REDEYE = [[0, RE_HANG], [0.10, RE_SWING], [0.20, RE_GATHER], [0.30, RE_PLACE], [0.45, RE_PUSH], [0.60, RE_OPEN], [0.80, [14, -4, 0, 2, -2, -30, -10, -6, 20]], [1, RE_HANG]];
 const RE_SUPPORT = [55, 0, 199, 14, -80, -18];                        // the scan's right arm (its hand -161 deg, written 199 so the blend to the reach turns the short way)
 const RE_REACH = [103, 173, 170, -9, -30, -14];                       // the scan's left arm
-const FORE_REDEYE = [[0, RE_SUPPORT], [0.12, RE_SUPPORT.map((v, i) => v + (RE_REACH[i] - v) * 0.4)], [0.25, RE_REACH], [0.45, RE_REACH.map((v, i) => v + (i === 4 ? -10 : 0))], [0.80, RE_SUPPORT], [1, RE_SUPPORT]];
+const RE_FAR = [118, 176, 172, -6, -22, -10];                         // the reach in the walking clip: the hand far ahead of the snout, the digits fanned
+const FORE_REDEYE = [[0, RE_SUPPORT], [0.12, RE_SUPPORT.map((v, i) => v + (RE_REACH[i] - v) * 0.4)], [0.25, RE_FAR], [0.45, RE_REACH.map((v, i) => v + (i === 4 ? -10 : 0))], [0.80, RE_SUPPORT], [1, RE_SUPPORT]];
 export const CRAWL_SETS = { default: { hind: HIND_CRAWL, fore: FORE_CRAWL }, redeye: { hind: HIND_REDEYE, fore: FORE_REDEYE } };
 function keyed(keys, p, out, o) {
   let i = 1; while (i < keys.length - 1 && p > keys[i][0]) i++;

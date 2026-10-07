@@ -22,7 +22,7 @@ import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer
 import { bindCapsules, frogBones, skinFour, SKIN_PASSES, spineRamp, vertexNormals } from './rig/skeleton.mjs';
 import { headWeight, rollHead, poseToStroke, scanStroke } from './rig/neutral.mjs';
 import { cutSeams } from './rig/seam-cut.mjs';
-import { graftMirror } from './rig/leg-graft.mjs';
+import { graftMirror, relaxRings } from './rig/leg-graft.mjs';
 import { neutralStroke } from '../src/util/climb.js';
 
 const OUT = process.env.T4_OUT || 'public/assets/creatures';
@@ -338,7 +338,7 @@ for (const [id, job] of Object.entries(JOBS)) {
     const J = { ...SKL.joints, mid2: SKL.joints.mid.map((v, i) => (v + SKL.joints.chest[i]) / 2) };
     const b22 = frogBones(J).map((b) => ({ ...b, r: SKL.radius[b.name.replace(/[LR]$/, '').replace('spineB', 'spine')] ?? 0.05 }));
     const sk2 = new Float32Array(A.n * 4); for (let i = 0; i < A.n; i++) { sk2[i * 4] = A.bind.idx[i * 2] / 32; sk2[i * 4 + 1] = A.bind.idx[i * 2 + 1] / 32; sk2[i * 4 + 2] = A.bind.w[i]; }
-    const f4 = skinFour(A.pos, src.idx, sk2, job.skinPasses ?? SKIN_PASSES.swim, maskPar);
+    let f4 = skinFour(A.pos, src.idx, sk2, job.skinPasses ?? SKIN_PASSES.swim, maskPar);
     const sh = (a) => { const o = Float32Array.from(a); for (let i = 0; i < o.length; i += 4) for (const q of [0, 1]) { const b = Math.round(o[i + q] * 32); o[i + q] = (b >= 2 ? b + 1 : b) / 32; } return o; };
     let scanPos = Float32Array.from(A.pos);
     const res = poseToStroke(A.pos, { skin: sh(f4.skin), skinx: sh(f4.skinx) }, b22, (process.env.NEUTRAL === 'scan' ? scanStroke(SKL.joints) : /^redeye:/.test(process.env.NEUTRAL ?? '') ? neutralStroke(...process.env.NEUTRAL.split(':').slice(1).map(Number), 'redeye') : neutralStroke(...(process.env.NEUTRAL ? process.env.NEUTRAL.split(',').map(Number) : job.neutral))), src.idx);
@@ -346,6 +346,7 @@ for (const [id, job] of Object.entries(JOBS)) {
       if (process.env.NEUTRAL === 'scan') { const sh0 = sh(f4.skin), per = {}; for (let i = 0; i < A.n; i++) { const b = Math.round(sh0[i * 4] * 32), d = Math.hypot(res.pos[i * 3] - A.pos[i * 3], res.pos[i * 3 + 1] - A.pos[i * 3 + 1], res.pos[i * 3 + 2] - A.pos[i * 3 + 2]); per[b] = Math.max(per[b] ?? 0, d); } console.log('  by first bone (max move):', b22.map((bb, ix) => `${bb.name} ${(per[ix >= 2 ? ix + 1 : ix] ?? 0).toFixed(3)}`).join(', ')); } }
     // The fused right hind leg replaced by the mirror of the clean left one (`graft`, tools/rig/leg-graft.mjs): the copy's vertices appended, bound to the right bones, the right leg's
     // bones the left's mirrored (the skeleton must be the skin's): the per-vertex arrays follow
+    let graftSk = null;
     if (job.graft && process.env.GRAFT !== '0') {
       const nameOf = (b) => bones[b]?.name ?? '', dom0 = (i) => (A.bind.w[i] >= 0.5 ? A.bind.idx[i * 2] : A.bind.idx[i * 2 + 1]), reL = /^(thigh|shin|foot|toes)L$/, reR = /^(thigh|shin|foot|toes)R$/;
       const g = graftMirror({ pos: res.pos, idx: src.idx, isFrom: (i) => reL.test(nameOf(dom0(i))), isTo: (i) => reR.test(nameOf(dom0(i))), mirrorX: 0 });
@@ -353,12 +354,16 @@ for (const [id, job] of Object.entries(JOBS)) {
       const bi = new Uint8Array(n1 * 2), bw = new Float32Array(n1); bi.set(A.bind.idx.subarray(0, n0 * 2)); bw.set(A.bind.w.subarray(0, n0));
       for (let k = n0; k < n1; k++) { const o = g.src[k]; bi[k * 2] = swap(A.bind.idx[o * 2]); bi[k * 2 + 1] = swap(A.bind.idx[o * 2 + 1]); bw[k] = A.bind.w[o]; }
       A.bind = { idx: bi, w: bw };
+      // (the four-bone weights again, on the grown mesh: the copy's vertices had none, and a vertex without weights does not move)
+      { const sk3 = new Float32Array(n1 * 4); for (let i = 0; i < n1; i++) { sk3[i * 4] = bi[i * 2] / 32; sk3[i * 4 + 1] = bi[i * 2 + 1] / 32; sk3[i * 4 + 2] = bw[i]; } graftSk = sk3; }
       const grow = (arr, C) => { const o = new C(n1); o.set(arr.subarray(0, n0)); return o; };
       A.U = grow(A.U, Float32Array); A.H = grow(A.H, Float32Array); A.S = grow(A.S, Float32Array); A.LEG = grow(A.LEG, Uint8Array); A.LEGT = grow(A.LEGT, Float32Array);
       const clamp = (v) => Math.max(0, Math.min(1, v));
       for (let k = n0; k < n1; k++) { const x = g.pos[k * 3], y = g.pos[k * 3 + 1], z = g.pos[k * 3 + 2]; A.U[k] = clamp((A.zs - z) / (A.zs - A.zv)); A.H[k] = clamp((y - A.yb) / (A.yt - A.yb)); A.S[k] = clamp(Math.abs(x) / (job.sHalf ?? 0.3)); }
+      const rings = +(process.env.SEAMRINGS ?? 7); if (rings > 0) relaxRings(g.pos, g.idx, g.band, rings, 10, 0.6);   // (the step between the thin copied thigh and the thick hip, relaxed over a few rings; 0 = off)
       const sc2 = new Float32Array(g.pos.length); sc2.set(scanPos); sc2.set(g.pos.subarray(n0 * 3), n0 * 3); scanPos = sc2;
       res.pos = g.pos; src.idx = g.idx; A.n = n1; A.cutIdx = g.idx;
+      f4 = skinFour(g.pos, g.idx, graftSk, job.skinPasses ?? SKIN_PASSES.swim, maskPar);
       for (const nm of ['thigh', 'shin', 'foot', 'toes']) { const L = res.bones.find((b) => b.name === nm + 'L'), R = res.bones.find((b) => b.name === nm + 'R'); R.head = [-L.head[0] + g.shift[0], L.head[1] + g.shift[1], L.head[2] + g.shift[2]]; R.tail = [-L.tail[0] + g.shift[0], L.tail[1] + g.shift[1], L.tail[2] + g.shift[2]]; }
       console.log(`  leg graft: ${g.stats.removedFaces} faces of the right leg removed, ${g.stats.copiedFaces} copied from the left, ${g.stats.bridgeFaces} stitched (rims ${g.stats.holeRim} / ${g.stats.patchRim}), shifted ${g.stats.shift}`);
     }
