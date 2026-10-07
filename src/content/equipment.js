@@ -56,6 +56,11 @@ export const GEAR = {
     blurb: 'Makes cool, dense fog. Raises humidity fast around where you put it, and slightly cools the air.',
     teach: 'An ultrasonic disc shakes water into 1–5 micrometre droplets, which evaporate quickly. Because evaporation takes heat from the air, fog is cool, and it hugs the ground because it is heavier than warm air.',
   },
+  airpump: {
+    id: 'airpump', group: 'Water', name: 'Air pump and airstone', level: 2, price: 35, icon: 'bubbles',
+    blurb: 'An air pump with an airstone: a curtain of fine bubbles that stirs the pool and puts oxygen into it. It matters most in warm, deep or crowded water and at night.',
+    teach: 'Fish breathe oxygen dissolved in the water, and it only gets in at the surface. The bubbles carry little oxygen themselves: they lift water to the surface and break it up, so more of it meets the air. Warm water holds less oxygen, plants use it up at night and a crowded tank breathes it faster, which is why an airstone is the cheap fix for fish gasping at dawn.',
+  },
   mister: {
     id: 'mister', group: 'Climate', name: 'Rain system', level: 3, price: 180, icon: 'rain',
     blurb: 'Nozzles along the top that make a rain shower on a timer. Waters the plants and the soil and keeps moss lush.',
@@ -166,6 +171,7 @@ export const SENSORS = {
   light: { name: 'Light', unit: '', min: 0, max: 1.4, step: 0.05, get: (E) => E.bright() },
   soil: { name: 'Soil moisture', unit: '%', min: 0, max: 100, step: 1, get: (E) => E.soil * 100 },
   nitrate: { name: 'Nitrate', unit: 'ppm', min: 0, max: 100, step: 1, get: (E) => E.nitrate },
+  oxygen: { name: 'Oxygen', unit: 'mg/l', min: 2, max: 10, step: 0.1, get: (E) => E.oxygen },
   ammonia: { name: 'Ammonia', unit: 'ppm', min: 0, max: 3, step: 0.05, get: (E) => E.ammonia },
   hour: { name: 'Time of day', unit: 'h', min: 0, max: 24, step: 0.5, get: (E) => (E.minute % 1440) / 60 },
   water: { name: 'Water level', unit: 'cm', min: 0, max: 80, step: 0.5, get: (E, W) => W.water.level },
@@ -174,6 +180,7 @@ export const SENSORS = {
 export const ACTUATORS = {
   fan: { name: 'Fan', gear: 'fan', on: 1, off: 0, key: 'fan' },
   fogger: { name: 'Fogger', gear: 'fogger', on: 0.8, off: 0, key: 'fogger' },
+  air: { name: 'Air pump', gear: 'airpump', on: 1, off: 0, key: 'air' },
   rain: { name: 'Rain shower', gear: 'mister', pulse: 4, key: 'rain' },
   heater: { name: 'Heater setpoint', gear: 'heater', on: 26, off: 18, key: 'setpoint' },
   lamp: { name: 'Lamp power', gear: 'led', on: 1, off: 0.35, key: 'lampPower' },

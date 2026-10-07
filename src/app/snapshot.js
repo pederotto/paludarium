@@ -49,7 +49,7 @@ export function snapshot(game) {
     env: {
       temp: E.temp, humidity: E.humidity, ammonia: E.ammonia, nitrite: E.nitrite, nitrate: E.nitrate, oxygen: E.oxygen, cycle: E.cycle,
       algae: E.algae, diatoms: E.diatoms, detritus: E.detritus, mold: E.mold, soil: E.soil, condense: E.condense, drainage: E.drainage,
-      fan: E.fan, fogger: E.fogger, rain: E.rain, basking: E.basking, lampPower: E.lampPower, lampWarmth: E.lampWarmth,
+      fan: E.fan, fogger: E.fogger, air: E.air, rain: E.rain, basking: E.basking, lampPower: E.lampPower, lampWarmth: E.lampWarmth,
       moonlight: E.moonlight, heater: E.heater, setpoint: E.setpoint, lid: E.lid, filter: E.filter, autoFeed: E.autoFeed, culture: E.culture,
       lights: E.lights, lightsOn: E.lightsOn, lightsOff: E.lightsOff, room: E.room, mediaBio: E.mediaBio, chill: E.chill, coolSet: E.coolSet, tankDays: E.tankDays,
       ph: E.ph, gh: E.gh, flow: E.flow, uvb: E.uvb, filterKind: E.filterKind, waterSource: E.waterSource,

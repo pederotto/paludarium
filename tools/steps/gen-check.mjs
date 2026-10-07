@@ -22,11 +22,13 @@ export default async (page, shot, name) => {
   }
   let bad = 0;
   for (const { preset, seed, tier } of list) {
-    const r = await page.evaluate(async ({ preset, seed, tier, days, FEEDERS }) => {
+    const r = await page.evaluate(async ({ preset, seed, tier, days, FEEDERS, knobs }) => {
       await new Promise((res) => { const t = setInterval(() => { if (document.getElementById('loading')?.classList.contains('gone') && window.game?.world) { clearInterval(t); setTimeout(res, 800); } }, 200); });
       const { generateTerrarium } = await import('/src/sim/generator.js');
       const w = await window.game.loadTank(tier, { layout: 'empty' });
       window.game.rig.stopOrbit();
+      const { PRESETS: PS } = await import('/src/content/presets.js');
+      if (knobs?.[preset]) Object.assign(PS[preset], knobs[preset]);   // GEN_KNOBS='{"canyon":{"level":0.55}}': try recipe knobs without editing the file
       const info = generateTerrarium(w, { preset, seed, tier });
       const cnt = () => Object.fromEntries(Object.entries(w.animals.by).filter(([, v]) => v.length).map(([k, v]) => [k, v.length]));
       const before = cnt(), plants0 = w.plants.list.length;
@@ -51,7 +53,7 @@ export default async (page, shot, name) => {
         deaths: tally(deaths), feederLoss: tally(feederLoss), nan, temp: +E.temp.toFixed(1), rh: Math.round(E.humidity), mold: +E.mold.toFixed(2), algae: +E.algae.toFixed(2),
         o2: +E.oxygen.toFixed(1), nh3: +E.ammonia.toFixed(2), warnings: info.warnings,
       };
-    }, { preset, seed, tier, days, FEEDERS });
+    }, { preset, seed, tier, days, FEEDERS, knobs: process.env.GEN_KNOBS ? JSON.parse(process.env.GEN_KNOBS) : null });
     const fail = Object.keys(r.deaths).length > 0 || r.nan.length > 0 || r.weak > Math.max(2, r.plants[1] * 0.08);
     if (fail) bad++;
     console.log(fail ? 'FAIL' : 'ok  ', `${preset}:${seed}:${tier}`, JSON.stringify(r));

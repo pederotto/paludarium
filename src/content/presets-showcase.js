@@ -26,7 +26,11 @@ SHOWCASE_LAYOUTS.highland = {
 
 export const SHOWCASE_SETS = {
   canyon: {
-    featured: ['hillloach', 'zacco'], place: 'Liwu River, Taroko Gorge, Taiwan', ref: 'long', water: 0.25, climate: { temp: [18, 26], rh: [70, 95] }, env: { setpoint: 22 },
+    featured: ['hillloach', 'zacco'], place: 'Liwu River, Taroko Gorge, Taiwan', ref: 'long', water: 0.28, climate: { temp: [18, 26], rh: [70, 95] }, env: { setpoint: 22, air: 0.8 }, gear: ['airpump'],
+    // BUILDERS.canyon knobs (run "sets", measured: 6 of 6 three-day checks clean, 85 L on long, 329 L on show): a deep downstream pool over half the width,
+    // a river that keeps 40 % of its head for one last fall into it, a canister filter and an air pump for oxygen, animals capped by tank size
+    level: 0.66, head: 0.3, headMax: 27, poolU: 0.0, poolBed: 2.2, cliffZ: 0.12, canister: true, endFall: 0.4, hillDepth: 40, hillX: 30,
+    caps: { zacco: [6, 12], shrimp: 14, hillloach: 3 },
     plants: ['fern', 'grass', 'miscanthus', 'nidus', 'pothos', 'begonia', 'javafern', 'javamoss'],
     animals: ['shrimp', 'hillloach', 'zacco', 'isopod', 'springtail'],
   },
