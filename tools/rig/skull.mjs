@@ -30,7 +30,14 @@ const rot = (v, k, deg) => { const a = deg * Math.PI / 180, c = Math.cos(a), s =
 // The fire salamander's own numbers: the lip plane and the hinge (tools/rig/firesal-mouth.mjs fitMouth on the bake, tools/blender/firesal-mouth.py), the eyes
 // (tools/paint/eyes.mjs). tests/skull.test.mjs keeps them equal to those files.
 export const CONFIG = {
-  firesal: { plan: 'caudate', snoutZ: 8.0, hingeZ: 5.8, lip: { y0: 2.178 - 0.0595 * 5.8, slope: 0.0595 }, skinCm: 0.08, softCm: 0.16,
+  // the owner's slim swimming scan (white_mesh 10), sculpted (6 Oct night, .agents/skin/skull/frog-sculpt.py) and scaled to a 16 cm lab frog (SVL about 8.5 cm), levelled, head to +z.
+  // The lip plane and the hinge are the frog's: the tooth line runs from the snout tip back and a little down to the mouth angle under the tympanum. xr: the head's lateral window for
+  // the profile rows; yBand: the height above which a midline band belongs to the head; roofDrop: how far the skull roof falls toward the sides (a flat head, not a dome);
+  // eyeZone: the containment test leaves out the skin faces within 1.15 eye radii of an eye (the scan's eyeballs are spheres merged into the skin: their sheets fool a sign test).
+  // The globes are sunk 0.19 cm into the orbits (the scan had them at up 3.27).
+  frog: { plan: 'anuran', snoutZ: 7.97, hingeZ: 5.0, lip: { y0: 2.85 - 0.232 * 7.4, slope: 0.232 }, skinCm: 0.08, softCm: 0.16, xr: [-1.62, 1.62], yBand: 1.0, roofDrop: 0.85, eyeZone: 1.15,
+    eyes: [{ c: [-0.672, 3.080, 6.069], r: 0.481 }, { c: [0.672, 3.080, 6.069], r: 0.477 }] },
+  firesal: { plan: 'caudate', snoutZ: 8.0, hingeZ: 5.8, lip: { y0: 2.178 - 0.0595 * 5.8, slope: 0.0595 }, skinCm: 0.08, softCm: 0.16, xr: [-2.2, 1.4], yBand: 0.9,
     eyes: [{ c: [-1.19, 2.94, 6.61], r: 0.42 }, { c: [0.19, 2.88, 6.76], r: 0.42 }],
     // what goes into the mouth on top of the skull (tools/blender/skull.py --fit-cavity): a tongue pad on the floor (a share of the skull's length and of its width,
     // its top that far below the lip surface) and the teeth (cm): pleurodont cones along the tooth rows, a short row on each vomer
@@ -86,12 +93,55 @@ const CAUDATE = {
       { k: 'rod', pts: [[0.04, 0.60, { floor: 0.21 }, 0.028], [0.30, 0.78, { floor: 0.23 }, 0.026], [0.55, 0.92, { floor: 0.26 }, 0.024]], mirror: true }] },    // ceratobranchial
   ],
 };
+// The anuran plan (frogs: the plate's own frog skull: broad and flat, big orbits, a long toothed maxilla running back to the quadratojugal and the quadrate, a
+// frontoparietal roof plate, a three-armed pterygoid, a toothless dentary, an articular cartilage at the jaw joint, a flat hyoid plate). Same fractions as the caudate plan.
+const ANURAN = {
+  condyleBackCm: 0.15,
+  bones: [
+    { name: 'premaxilla', code: 'pm', group: 'skull', mid: true, parts: [
+      { k: 'rod', pts: [[-0.30, 0.06, R], [-0.14, 0.03, R], [0, 0.025, R], [0.14, 0.03, R], [0.30, 0.06, R]], tooth: 'upper' },
+      { k: 'plate', c: [0, 0.075, { roof: -0.10 }], fa: 0.22, fb: 0.06, th: 0.03, n: 'roof' }] },
+    { name: 'maxilla', code: 'm', group: 'skull', pair: true, parts: [
+      { k: 'rod', pts: [[0.30, 0.06, R], [0.52, 0.15, R], [0.72, 0.32, R], [0.86, 0.52, R * 0.9], [0.94, 0.72, R * 0.8], [0.97, 0.86, R * 0.6]], tooth: 'upper' }] },
+    { name: 'quadratojugal', code: 'qj', group: 'skull', pair: true, parts: [{ k: 'rod', pts: [[0.97, 0.86, 0.04, 0.04], [0.985, 0.93, 0.05, 0.045], [0.995, 'H', 0.04, 0.05]] }] },
+    { name: 'nasal', code: 'n', group: 'skull', pair: true, parts: [{ k: 'plate', c: [0.18, 0.19, { roof: -0.12 }], fa: 0.20, fb: 0.12, th: 0.03, n: 'roof', roll: 12 }] },
+    { name: 'sphenethmoid', code: 'os', group: 'skull', mid: true, parts: [{ k: 'plate', c: [0, 0.34, { roof: -0.11 }], fa: 0.20, fb: 0.12, th: 0.04, n: 'roof' }] },
+    { name: 'prefrontal', code: 'pf', group: 'skull', pair: true, parts: [{ k: 'plate', c: [0.62, 0.36, { roof: -0.22 }], fa: 0.12, fb: 0.07, th: 0.03, n: 'roof', roll: 35 }] },
+    { name: 'frontoparietal', code: 'f/p', group: 'skull', pair: true, parts: [{ k: 'plate', c: [0.05, 0.62, { roof: -0.27 }], fa: 0.065, fb: 0.32, th: 0.04, n: 'roof', roll: 6 }] },
+    { name: 'squamosal', code: 'sq', group: 'skull', pair: true, parts: [
+      { k: 'rod', pts: [[0.74, 0.70, { roof: -0.30 }, 0.035], [0.88, 0.80, { roof: -0.40 }, 0.04], [0.94, 0.92, 0.24, 0.045]] },
+      { k: 'plate', c: [0.90, 0.84, 0.26], fa: 0.12, fb: 0.08, th: 0.025, n: 'side' }] },
+    { name: 'quadrate', code: 'qu', group: 'skull', pair: true, parts: [{ k: 'rod', pts: [[0.985, 0.93, 0.12, 0.05], [0.995, 'H', 0.04, 0.06]], joint: 'hinge' }] },
+    { name: 'otic-occipital', code: 'o.o.c', group: 'skull', pair: true, parts: [
+      { k: 'ell', c: [0.50, 0.93, 0.36], fa: 0.26, fb: 0.10, ry: 0.20 },
+      { k: 'ell', c: [0.13, 1.0, 0.36], fa: 0.10, fb: 0.04, ry: 0.07 }] },        // the two occipital condyles
+    { name: 'pterygoid', code: 'pt', group: 'skull', pair: true, parts: [
+      { k: 'rod', pts: [[0.90, 0.60, 0.04, 0.035], [0.72, 0.46, 0.02, 0.035], [0.50, 0.34, 0.03, 0.03]] },          // the arm to the maxilla and palatine (kept low, under the orbit)
+      { k: 'rod', pts: [[0.90, 0.60, 0.06, 0.035], [0.95, 0.80, 0.05, 0.04], [0.985, 0.93, 0.05, 0.045]] },         // the arm to the quadrate
+      { k: 'rod', pts: [[0.88, 0.62, 0.07, 0.035], [0.55, 0.74, 0.13, 0.03], [0.28, 0.84, 0.20, 0.03]] }] },        // the arm to the braincase
+    { name: 'vomer', code: 'v', group: 'skull', pair: true, parts: [{ k: 'plate', c: [0.16, 0.20, 0.15], fa: 0.16, fb: 0.09, th: 0.025, n: 'floor', roll: 8 }] },
+    { name: 'neopalatine', code: 'pl', group: 'skull', pair: true, parts: [{ k: 'rod', pts: [[0.52, 0.30, 0.13, 0.03], [0.28, 0.31, 0.14, 0.03], [0.10, 0.32, 0.15, 0.03]] }] },
+    { name: 'parasphenoid', code: 'ps', group: 'skull', mid: true, parts: [
+      { k: 'plate', c: [0, 0.66, 0.26], fa: 0.18, fb: 0.26, th: 0.03, n: 'floor' },
+      { k: 'rod', pts: [[0, 0.44, 0.20, 0.025], [0, 0.26, 0.16, 0.018]] }] },
+    // lower jaw (one rigid piece on the hinge): the dentary is toothless in frogs (the maxilla is the tooth row), the angulosplenial (prearticular), the articular cartilage, the mentomeckelian
+    { name: 'dentary', code: 'den', group: 'mandible', pair: true, parts: [
+      { k: 'rod', pts: [[0.08, 0.05, -0.045, 0.045], [0.34, 0.14, -0.045, 0.045], [0.62, 0.34, -0.045, 0.045], [0.82, 0.56, -0.05, 0.045], [0.92, 0.76, -0.06, 0.045]] }] },
+    { name: 'angular-prearticular', code: 'prart', group: 'mandible', pair: true, parts: [
+      { k: 'rod', pts: [[0.90, 0.66, -0.12, 0.05], [0.96, 0.82, -0.10, 0.055], [0.99, 0.94, -0.06, 0.06]] },
+      { k: 'plate', c: [0.86, 0.74, -0.12], fa: 0.10, fb: 0.10, th: 0.02, n: 'side' }] },
+    { name: 'articular', code: 'art', group: 'mandible', pair: true, parts: [{ k: 'ell', c: [0.995, 'H', -0.03], fa: 0.08, fb: 0.035, ry: 0.06, joint: 'hinge' }] },
+    { name: 'mentomeckelian', code: 'sym', group: 'mandible', mid: true, parts: [{ k: 'ell', c: [0, 0.06, -0.08], fa: 0.07, fb: 0.03, ry: 0.05 }] },
+    // the hyoid: a flat plate in the floor with the anterior cornua (the tongue's and the throat pump's frame; held, not moved by the jaw)
+    { name: 'hyobranchial', code: 'hy', group: 'hyoid', mid: true, parts: [
+      { k: 'ell', c: [0, 0.50, { floor: 0.28 }], fa: 0.18, fb: 0.16, ry: 0.03 },
+      { k: 'rod', pts: [[0.04, 0.34, { floor: 0.28 }, 0.03], [0.30, 0.40, { floor: 0.30 }, 0.03], [0.50, 0.50, { floor: 0.32 }, 0.03]], mirror: true },
+      { k: 'rod', pts: [[0, 0.62, { floor: 0.28 }, 0.03], [0, 0.82, { floor: 0.30 }, 0.03]] }] },
+  ],
+};
 export const PLANS = {
   caudate: CAUDATE,
-  // the plate's frog skull, as a list to fit later (no mouth is built on it yet): bones named with the plate's own codes
-  anuran: { bones: ['premaxilla pm', 'maxilla m (long, curved back to the quadratojugal)', 'nasal n', 'frontoparietal f/p (one roof plate)', 'prefrontal pf', 'sphenethmoid os (the plate: orbit floor)',
-    'pterygoid pt (three arms: to the maxilla, to the quadrate, to the braincase)', 'squamosal sq', 'quadrate qu (jaw joint; the cartilage at the end)', 'otic-occipital o.o.c (fused; two condyles; foramen magnum fo.ma)',
-    'vomer v', 'parasphenoid ps', 'external naris na.ex, internal nasal cavity ca.in', 'dentary den (toothless in most frogs; the maxilla is the tooth row)', 'prearticular prart', 'articular art (Meckel cartilage)'] },
+  anuran: ANURAN,
 };
 
 export async function readPositions(file) {
@@ -104,12 +154,14 @@ export async function readPositions(file) {
 export function headProfile(P, cfg) {
   const lipY = (z) => cfg.lip.y0 + cfg.lip.slope * z, rows = [];
   for (let z = cfg.snoutZ - 0.05; z > cfg.hingeZ - 0.5; z -= 0.1) {
-    const at = P.filter((p) => Math.abs(p[2] - z) < 0.07 && Math.abs(p[1] - lipY(z)) < 0.14 && p[0] > -2.2 && p[0] < 1.4);
+    const at = P.filter((p) => Math.abs(p[2] - z) < 0.07 && Math.abs(p[1] - lipY(z)) < 0.14 && p[0] > cfg.xr[0] && p[0] < cfg.xr[1]);
     if (at.length < 2) continue;
     const xs = at.map((p) => p[0]), lo = Math.min(...xs), hi = Math.max(...xs);
-    const mid = (lo + hi) / 2, band = P.filter((p) => Math.abs(p[2] - z) < 0.07 && Math.abs(p[0] - mid) < 0.15 && p[1] > 0.9);
+    const mid = (lo + hi) / 2, band = P.filter((p) => Math.abs(p[2] - z) < 0.07 && Math.abs(p[0] - mid) < 0.15 && p[1] > cfg.yBand);
     rows.push({ z, mid, half: (hi - lo) / 2, top: Math.max(...band.map((p) => p[1])), bottom: Math.min(...band.map((p) => p[1])) });
   }
+  // rows whose midline band caught only a point or two (near the shoulders) have no real underside: keep the last good one
+  rows.forEach((r, i) => { if (r.top - r.bottom < 0.6 && i > 0) { r.bottom = rows[i - 1].bottom; } });
   // a row whose band caught the mouth's cavity or missed the surface is an outlier: take the median of its five neighbours instead
   for (const key of ['mid', 'half', 'top', 'bottom']) {
     const v = rows.map((r) => r[key]), med = (a) => [...a].sort((x, y) => x - y)[a.length >> 1];
@@ -133,10 +185,10 @@ export function fitSkull(P, id = 'firesal') {
   const mid = (z) => sample('mid', z), half = (z) => Math.max(0.3, sample('half', z) - cfg.softCm), top = (z) => sample('top', z) - cfg.skinCm;
   const slope = (z) => (top(z + 0.1) - top(z - 0.1)) / 0.2;                      // d roof / d z
   const bottom = (z) => sample('bottom', z);
-  const yOf = (z, v) => (typeof v === 'number' ? lipY(z) + v : v.roof !== undefined ? top(z) + v.roof : bottom(z) + v.floor);
+  const yOf = (z, v, u = 0) => (typeof v === 'number' ? lipY(z) + v : v.roof !== undefined ? top(z) + v.roof - (cfg.roofDrop ?? 0) * Math.max(0, top(z) - lipY(z) + 0.3) * u * u : bottom(z) + v.floor);
   const T = (t) => (t === 'H' ? hingeT : t), r3 = (v) => +v.toFixed(3);
   // a point from (u, t, dy): across (fraction of the half width), along (fraction of the skull), up (cm from the lip plane, or below the roof)
-  const pt = (u, t, dy) => { const z = z0 - T(t) * L; return [mid(z) + u * half(z), yOf(z, dy), z]; };
+  const pt = (u, t, dy) => { const z = z0 - T(t) * L; return [mid(z) + u * half(z), yOf(z, dy, u), z]; };
   const bones = [], joints = [];
   const side = (b, sx, tag) => {
     const parts = [];
@@ -175,7 +227,7 @@ export function fitSkull(P, id = 'firesal') {
     hingeOffLip: +Math.max(...hinge.map((h) => Math.abs(h.at[1] - lipY(h.at[2])))).toFixed(3), jointGap: Math.max(...hinge.map((h) => h.gap)), jointReach: Math.min(...hinge.map((h) => h.reach)), hingeSpan: +(hinge[1].at[0] - hinge[0].at[0]).toFixed(3), skullLengthCm: +L.toFixed(3), skullWidthCm: +(2 * half(cfg.hingeZ)).toFixed(3) };
   return { id, units: 'cm', frame: 'baked: x lateral, y up, z forward', plan: cfg.plan, status: 'schematic proportions (guess to the plate and literature); not measured on a specimen',
     lip: { zh: cfg.hingeZ, y0: +lipY(cfg.hingeZ).toFixed(4), slope: cfg.lip.slope }, snoutZ: cfg.snoutZ, skullLengthCm: +L.toFixed(3), hingeT: +hingeT.toFixed(3),
-    hinge, jawAxis: [1, 0, 0], eyes: cfg.eyes, dress: dressOf(cfg, { z0, L, mid, half }), profile: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, +v.toFixed(3)]))), checks, bones };
+    hinge, jawAxis: [1, 0, 0], eyes: cfg.eyes, ...(cfg.eyeZone ? { eyeZone: cfg.eyeZone } : {}), dress: dressOf(cfg, { z0, L, mid, half }), profile: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, +v.toFixed(3)]))), checks, bones };
 }
 
 if (process.argv[1]?.endsWith('skull.mjs') && process.argv[2]) {

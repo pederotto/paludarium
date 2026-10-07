@@ -61,3 +61,56 @@ test('every bone lies inside the skin, clear of the eyes, and the mouth cavity s
   assert.ok(sk.dress.tongue.az > 0.5 && sk.dress.tongue.ax > 0.3 && sk.dress.tongue.topDy < 0, 'the pad is an ellipse on the floor, its top below the lip surface');
   assert.ok(sk.dress.teeth.len < 0.1 && sk.dress.teeth.r < 0.03, 'salamander teeth are tiny (under a millimetre)');
 });
+
+// ---- the frogs (6 Oct 2026, night): the anuran plan fitted to the sculpted slim scan (the owner's white_mesh 10), shared by the edible and the common frog. Lab chain:
+// .agents/skin/skull (frog-sculpt.py -> tools/rig/skull.mjs frog -> tools/blender/skull.py -> frog-mouth.py -> skull.py --fit-cavity). The skull is fitted to the LAB head; it is
+// re-fitted when a frog body is baked for the game.
+const fr = JSON.parse(fs.readFileSync('art-src/skull/frog.skull.json', 'utf8'));
+
+test('the anuran plan has the bones of the plate\'s frog skull, the lower jaw in one piece, no teeth on the dentary', () => {
+  const codes = new Set(PLANS.anuran.bones.map((b) => b.code));
+  for (const c of ['pm', 'm', 'qj', 'n', 'os', 'pf', 'f/p', 'sq', 'qu', 'o.o.c', 'pt', 'v', 'pl', 'ps', 'den', 'prart', 'art', 'sym', 'hy']) assert.ok(codes.has(c), `plan lacks ${c}`);
+  const groups = (g) => PLANS.anuran.bones.filter((b) => b.group === g).map((b) => b.code);
+  assert.deepEqual(groups('mandible').sort(), ['art', 'den', 'prart', 'sym'], 'dentary, angulosplenial (prearticular), articular, mentomeckelian');
+  assert.ok(groups('skull').includes('qu') && groups('skull').includes('qj') && !groups('mandible').includes('qu'), 'the quadrate and the quadratojugal are the skull\'s');
+  assert.ok(!PLANS.anuran.bones.find((b) => b.code === 'den').parts.some((p) => p.tooth), 'the dentary is toothless in frogs: the maxilla is the tooth row');
+  assert.ok(PLANS.anuran.bones.find((b) => b.code === 'm').parts.some((p) => p.tooth === 'upper'), 'the maxilla and premaxilla carry the teeth');
+});
+
+test('the frog skull: 33 bones in pairs, a broad flat skull, the globes sunk into the orbits', () => {
+  assert.equal(fr.bones.length, 33);
+  const names = fr.bones.map((b) => b.name);
+  for (const b of fr.bones) if (b.name.endsWith('.R')) assert.ok(names.includes(b.name.replace(/\.R$/, '.L')), `${b.name} has no left twin`);
+  assert.ok(fr.bones.filter((b) => b.group === 'mandible').every((b) => /^(dentary|angular-prearticular|articular|mentomeckelian)/.test(b.name)));
+  assert.ok(fr.skullLengthCm > 2.8 && fr.skullLengthCm < 3.3, `skull length ${fr.skullLengthCm} cm (a 16 cm lab frog: about 3.05)`);
+  const ratio = fr.checks.skullWidthCm / fr.skullLengthCm;
+  assert.ok(ratio > 0.8 && ratio < 1.05, `a broad frog skull: width / length ${ratio.toFixed(2)}`);
+  assert.ok(Math.abs(fr.eyes[0].c[0] + fr.eyes[1].c[0]) < 0.01 && Math.abs(fr.eyes[0].c[1] - fr.eyes[1].c[1]) < 0.01, 'two eyes, mirrored about the midline');
+  assert.ok(fr.eyes[1].c[1] > 2.95 && fr.eyes[1].c[1] < 3.2, `the globes sit ${fr.eyes[1].c[1]} cm up: sunk into the orbits (the scan had 3.27)`);
+});
+
+test('the frog\'s lip line is the tooth line and the hinge is the quadrate-articular joint', () => {
+  assert.ok(fr.checks.toothRowOffLipUpper <= 0.01, 'the upper tooth row lies on the lip surface');
+  assert.equal(fr.checks.toothRowOffLipLower, null, 'no lower tooth row: the dentary is toothless');
+  const [a, b] = fr.hinge;
+  assert.ok(Math.abs(a.at[1] - b.at[1]) < 0.02 && Math.abs(a.at[2] - b.at[2]) < 0.02, 'one transverse axis');
+  assert.ok(fr.checks.hingeOffLip <= 0.02 && fr.checks.jointGap <= fr.checks.jointReach, 'the hinge is on the lip surface and the quadrate and the articular touch');
+  const C = CONFIG.frog;
+  assert.ok(Math.abs(fr.lip.zh - C.hingeZ) < 0.01 && Math.abs(fr.lip.y0 - (C.lip.y0 + C.lip.slope * C.hingeZ)) < 0.01 && Math.abs(fr.lip.slope - C.lip.slope) < 0.001, 'the skull\'s lip surface is the config\'s');
+  assert.equal(fr.eyeZone, C.eyeZone, 'the containment test leaves out the eyeball zone (the scan\'s eyes are spheres merged into the skin)');
+});
+
+test('every frog bone lies inside the skin, clear of the eyes, and the mouth cavity stays inside (Blender check, tools/blender/skull.py)', () => {
+  const v = fr.verified;
+  assert.ok(v, 'the frog skull has not been checked in Blender: run tools/blender/skull.py');
+  assert.equal(v.bones, fr.bones.length);
+  assert.deepEqual(v.boneOutside, [], 'no bone through the skin');
+  assert.ok(v.minMarginCm >= 0.03, `the smallest margin to the skin is ${v.minMarginCm} cm`);
+  assert.ok(v.eyeIntrusionMaxCm <= 0.03, `bones in the eyeballs: ${v.eyeIntrusionMaxCm} cm`);
+  assert.equal(v.cavity.outside, 0, 'the mouth cavity must not poke out of the head');
+  assert.ok(v.cavity.underEye > 100 && v.cavity.underEyeMinClearCm >= -0.02, `the palate dips round the globes (clearance ${v.cavity.underEyeMinClearCm} cm over ${v.cavity.underEye} vertices)`);
+  const cb = v.cavity.bones;                                                // the frog's lining is a sheet of 3,400 vertices a side: a graze of at most 0.15 mm is accepted, not a dive
+  assert.ok(cb.roof.minGapCm >= -0.05 && cb.floor.minGapCm >= -0.05, `the cavity is inside a bone by more than 0.05 cm: roof ${cb.roof.minGapCm}, floor ${cb.floor.minGapCm}`);
+  assert.ok(cb.roof.inside <= 15 && cb.floor.inside <= 500, `grazes: roof ${cb.roof.inside}, floor ${cb.floor.inside}`);
+  assert.ok(v.toothRows >= 3, 'tooth rows: the premaxilla and the two maxillae');
+});

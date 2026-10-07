@@ -16,6 +16,7 @@ argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 SK, HEAD, OUT = argv[0], argv[1], argv[2]
 MOUTH = argv[argv.index('--mouth') + 1] if '--mouth' in argv else None
 D = json.load(open(SK))
+ZMIN = round(D['hinge'][0]['at'][2] + 0.1, 3)            # the mouth's throat starts at the hinge (was 5.9, the salamander's own hinge 5.8 + 0.1)
 conv = lambda p: Vector((p[0], -p[2], p[1])) / 100.0                    # baked cm (x lateral, y up, z forward) -> Blender metres (x, -z, y)
 dirc = lambda v: Vector((v[0], -v[2], v[1]))
 
@@ -99,7 +100,20 @@ for i, e in enumerate(D.get('eyes', [])):
 
 # ---- the checks --------------------------------------------------------------------------------------------------------------------------
 dg = bpy.context.evaluated_depsgraph_get()
-tree = BVHTree.FromObject(skin, dg)
+EYEZONE = D.get('eyeZone')       # opt-in (frogs): the scan's eyeballs are spheres merged into the skin, with internal sheets whose normals can point any way: a closest-point sign test against them
+if EYEZONE:                      # calls a bone that is plainly inside the head "outside". The containment test then uses the skin WITHOUT the faces within EYEZONE x the eye radius of an eye;
+    _bm = bmesh.new(); _bm.from_mesh(skin.data); _bm.transform(skin.matrix_world)       # the bones' relation to the eyeballs is checked on its own (eyeIntrusion)
+    _zone = [(conv(e['c']), e['r'] / 100.0 * EYEZONE) for e in D.get('eyes', [])]
+    _kill = [f for f in _bm.faces if _zone and all(any((v.co - c).length < r for c, r in _zone) for v in f.verts)]
+    if _kill: bmesh.ops.delete(_bm, geom=_kill, context='FACES')
+    print('containment skin: %d eye-zone faces left out' % len(_kill))
+    tree = BVHTree.FromBMesh(_bm)
+else:
+    tree = BVHTree.FromObject(skin, dg)
+tree_full = BVHTree.FromObject(skin, dg)                                    # the cavity is judged against the whole skin
+def margin_full(p):
+    loc, nor, idx, d = tree_full.find_nearest(p)
+    return (d if (p - loc).dot(nor) < 0 else -d) * 100.0
 def margin(p):                                                              # cm: >0 inside the skin by that much, <0 outside by that much
     loc, nor, idx, d = tree.find_nearest(p)
     return (d if (p - loc).dot(nor) < 0 else -d) * 100.0
@@ -118,8 +132,21 @@ if mouth:
     for lp in me.loops:
         c = col.data[lp.index].color if col.domain == 'CORNER' else col.data[lp.vertex_index].color
         if c[1] > 0.7 and c[0] < 0.25 and c[2] < 0.25: flagged.add(lp.vertex_index)
-    ms = [margin(me.vertices[i].co) for i in flagged]
+    under = None
+    if EYEZONE:
+        # vertices under an eyeball (below its centre, within its radius + 1.5 mm) are judged against the GLOBE, not the skin: the roof dips round the globe, which bulges into the mouth,
+        # and the scan's eye shell has an underside whose normals read as "outside" to the sign test. Their number and smallest clearance are reported on their own.
+        def cav_margin(co):
+            for ec, er in eyes:
+                d = (co - ec).length
+                if d < er + 0.0015 and co.z < ec.z: return (d - er) * 100.0, True
+            return margin_full(co), False
+        _cm = [cav_margin(me.vertices[i].co) for i in flagged]
+        ms = [m for m, u in _cm if not u]; under = [m for m, u in _cm if u]
+    else:
+        ms = [margin(me.vertices[i].co) for i in flagged]
     cav = {'verts': len(ms), 'minMarginCm': round(min(ms), 3) if ms else None, 'thin': sum(1 for m in ms if m < 0.05), 'outside': sum(1 for m in ms if m < -0.01)}
+    if under is not None: cav['underEye'] = len(under); cav['underEyeMinClearCm'] = round(min(under), 3) if under else None
 # the cavity against the bones: the roof must lie just under the palate bones (vomer, pterygoid, parasphenoid), the floor above the mandible's rami and the hyoid, neither inside a bone
 def bvh_of(names):
     dg2 = bpy.context.evaluated_depsgraph_get(); verts, polys = [], []
@@ -134,7 +161,7 @@ def cavity_vs_bones():
     me = mouth.data; roof_gap, floor_gap = [], []
     for i in flagged:
         co = me.vertices[i].co; z_b, y_b = -co.y * 100, co.z * 100; dy = y_b - lipY(z_b)
-        if abs(dy) < 0.02 or z_b < 5.9: continue                              # the lip rim and the throat's closing rings are not the roof or the floor
+        if abs(dy) < 0.02 or z_b < ZMIN: continue                              # the lip rim and the throat's closing rings are not the roof or the floor
         t = roofT if dy > 0 else floorT; loc, nor, idx, d = t.find_nearest(co)
         (roof_gap if dy > 0 else floor_gap).append(-d * 100 if (co - loc).dot(nor) < 0 else d * 100)
     r = lambda g: {'n': len(g), 'minGapCm': round(min(g), 3), 'meanGapCm': round(sum(g) / len(g), 3), 'inside': sum(1 for x in g if x < 0)}
@@ -152,21 +179,21 @@ if mouth:
         moved = 0
         for i in flagged:
             v = mdata.vertices[i]; co = v.co; z_b, y_b = -co.y * 100, co.z * 100; dy = y_b - lipY(z_b)
-            if dy < 0.02 or z_b < 5.9: continue
+            if dy < 0.02 or z_b < ZMIN: continue
             hit = roofT.ray_cast(Vector((co.x, co.y, lipY(z_b) / 100.0)), Vector((0, 0, 1)), 0.006)
             if hit[0] is None: continue
             target = min(0.40, max(0.03, hit[0].z * 100 - lipY(z_b) - 0.04))
-            w = sstep(dy / 0.12) * sstep((z_b - 5.9) / 0.5)
+            w = sstep(dy / 0.12) * sstep((z_b - ZMIN) / 0.5)
             v.co.z = (lipY(z_b) + dy + (target - dy) * w) / 100.0; moved += 1
         import bmesh as _bm
         bm2 = _bm.new(); bm2.from_mesh(mdata); bm2.verts.ensure_lookup_table()
-        inner = [bm2.verts[i] for i in flagged if abs(-bm2.verts[i].co.z * 0 + (bm2.verts[i].co.z * 100 - lipY(-bm2.verts[i].co.y * 100))) > 0.02 and -bm2.verts[i].co.y * 100 > 5.9]
+        inner = [bm2.verts[i] for i in flagged if abs(-bm2.verts[i].co.z * 0 + (bm2.verts[i].co.z * 100 - lipY(-bm2.verts[i].co.y * 100))) > 0.02 and -bm2.verts[i].co.y * 100 > ZMIN]
         for _ in range(3): _bm.ops.smooth_vert(bm2, verts=inner, factor=0.3, use_axis_x=False, use_axis_y=False, use_axis_z=True)
         bm2.to_mesh(mdata); bm2.free(); mdata.update()
         for it in range(3):                                                   # whatever is still inside a bone is pushed out to its surface plus a hair
             for i in flagged:
                 co = mdata.vertices[i].co; z_b, y_b = -co.y * 100, co.z * 100; dy = y_b - lipY(z_b)
-                if abs(dy) < 0.02 or z_b < 5.9: continue
+                if abs(dy) < 0.02 or z_b < ZMIN: continue
                 t = roofT if dy > 0 else floorT; loc, nor, idx, d = t.find_nearest(co)
                 if (co - loc).dot(nor) < 0: mdata.vertices[i].co = loc + nor * 0.0003
         mdata.polygons.foreach_set('use_smooth', [True] * len(mdata.polygons)); mdata.update()
@@ -183,7 +210,7 @@ if mouth:
             floor_ids = []
             for i in flagged:
                 v = mdata.vertices[i]; co = v.co; z_b, y_b = -co.y * 100, co.z * 100; dy = y_b - lipY(z_b)
-                if dy > -0.02 or z_b < 5.95: continue
+                if dy > -0.02 or z_b < ZMIN + 0.05: continue
                 v.co.z = (y_b - 0.12 * sstep(max(0.0, min(1.0, (-dy - 0.02) / 0.06)))) / 100.0; floor_ids.append(i)
             bm3 = _bm.new(); bm3.from_mesh(mdata); bm3.verts.ensure_lookup_table()
             for _ in range(2): _bm.ops.smooth_vert(bm3, verts=[bm3.verts[i] for i in floor_ids], factor=0.25, use_axis_x=False, use_axis_y=False, use_axis_z=True)
