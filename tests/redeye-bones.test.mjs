@@ -73,3 +73,20 @@ test('the crawl\'s reach lifts the shoulder and curls the fingers of the reachin
   for (let i = 0; i < 80; i++) { climbStep(st, { go: 1, urgency: 0, rnd: () => 0.5 }, 0.02); const P = climbPose(st); if (P.scap[3] > maxEl) { maxEl = P.scap[3]; } maxCurl = Math.max(maxCurl, P.fcurl[1], P.fcurl[0]); side += P.scap[1] > 0 ? 1 : 0; }
   assert.ok(maxEl > 10, `elevation ${maxEl}`); assert.ok(maxCurl > 10, `curl ${maxCurl}`); assert.ok(side > 0, 'the left side reaches too');
 });
+
+// --- the red-eye's own body: the scan's bones are posed onto themselves by the angles measured from them ----------------------------------------------------------
+import { frogBones } from '../tools/rig/skeleton.mjs';
+import { scanStroke, poseToStroke } from '../tools/rig/neutral.mjs';
+test('the red-eye scan\'s own measured angles pose its 22 bones onto themselves (the poser\'s angle convention inverted exactly)', () => {
+  const J = JSON.parse(fs.readFileSync(new URL('../tools/rig/redeye-walk-joints.json', import.meta.url), 'utf8')).joints;
+  const { mid2: _m2, ...rest } = J, jj = { ...rest, mid2: J.mid.map((v, i) => (v + J.chest[i]) / 2) };
+  const bones = frogBones(jj).map((b) => ({ ...b, r: 0.05 }));
+  assert.equal(bones.length, 22);
+  const res = poseToStroke(new Float32Array(0), { skin: new Float32Array(0), skinx: new Float32Array(0) }, bones, scanStroke(jj));
+  let worst = 0;
+  for (let i = 0; i < bones.length; i++) for (const k of ['head', 'tail']) for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(res.bones[i][k][c] - bones[i][k][c]));
+  assert.ok(worst < 2e-3, `a bone end moved ${worst}`);   // (the poser works in float32: 0.0005 of a scan unit, 0.02 mm)
+  // a leg the scan folds (the right hind leg: thigh forward-out, shin back, foot forward) reads as such: thigh th > 90 (forward), shin th < 90 (back), foot th > 90
+  const S = scanStroke(jj);
+  assert.ok(S.legA[9] > 90 && S.legA[10] < 90 && S.legA[11] > 90, `right hind th ${[...S.legA.slice(9, 13)].map((v) => v.toFixed(0))}`);
+});

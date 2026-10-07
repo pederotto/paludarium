@@ -72,3 +72,22 @@ export function poseToStroke(pos, f4, bones, stroke, tris = null) {
   }
   return { pos: out, bones: nb, stretch };
 }
+
+// --- The scan's own pose as a stroke -----------------------------------------------------------------------------------------------------------------------------
+// The poser (render/creatures/skeleton.js poseStroke) points every limb bone along segDir(th, ph, side) = [side sin th cos ph, sin ph, -cos th cos ph], its frame the one
+// across(dir, up) defines (the bone's rest frame is the same formula): so the angles of a bone's own direction pose it exactly where it is. `scanStroke` reads them from the joints
+// (the hind legs' four bones: thigh hip-knee, shin knee-heel, foot heel-ankle, toes ankle-toe; the arms' three: arm, forearm, hand shoulder-elbow-wrist-finger, and the fingers
+// finger-fingertip as the hand's own angles less `fcurl`): { legA (18: left 9 then right 9: th x4, ph x4, foot roll), armA (12: left 6 then right 6: th x3, ph x3), fcurl [L, R] }.
+// A key set for this body is the scan's angles plus deviations; posing the scan with its own angles must leave every vertex where it is (tests/redeye-bones.test.mjs).
+export const dirAngles = (d, side) => { const l = Math.hypot(...d), y = d[1] / l, ph = Math.asin(Math.max(-1, Math.min(1, y))), c = Math.cos(ph); return c < 1e-6 ? [0, ph * 180 / Math.PI] : [Math.atan2(side * d[0], -d[2]) * 180 / Math.PI, ph * 180 / Math.PI]; };
+export function scanStroke(j) {
+  const legA = new Float32Array(18), armA = new Float32Array(12), fcurl = [0, 0], sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  for (const [s, side, lo, alo] of [['L', -1, 0, 0], ['R', 1, 9, 6]]) {
+    const H = [j['hip' + s], j['knee' + s], j['heel' + s], j['ankle' + s], j['toe' + s]];
+    for (let i = 0; i < 4; i++) { const [th, ph] = dirAngles(sub(H[i + 1], H[i]), side); legA[lo + i] = th; legA[lo + 4 + i] = ph; }
+    const F = [j['shoulder' + s], j['elbow' + s], j['wrist' + s], j['finger' + s]];
+    for (let i = 0; i < 3; i++) { const [th, ph] = dirAngles(sub(F[i + 1], F[i]), side); armA[alo + i] = th; armA[alo + 3 + i] = ph; }
+    if (j['fingertip' + s]) { const [, ph] = dirAngles(sub(j['fingertip' + s], j['finger' + s]), side); fcurl[s === 'L' ? 0 : 1] = armA[alo + 5] - ph; }
+  }
+  return { legA, armA, fcurl };
+}

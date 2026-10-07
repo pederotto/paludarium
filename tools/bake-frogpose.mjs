@@ -20,7 +20,7 @@ import sharp from 'sharp';
 import { weld, quantize, meshopt } from '@gltf-transform/functions';
 import { MeshoptSimplifier, MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 import { bindCapsules, frogBones, skinFour, SKIN_PASSES, spineRamp } from './rig/skeleton.mjs';
-import { headWeight, rollHead, poseToStroke } from './rig/neutral.mjs';
+import { headWeight, rollHead, poseToStroke, scanStroke } from './rig/neutral.mjs';
 import { neutralStroke } from '../src/util/climb.js';
 
 const OUT = process.env.T4_OUT || 'public/assets/creatures';
@@ -52,7 +52,9 @@ const JOBS = {
   // (the scan is off the axis). `headRoll`: the scan's head is rolled about the body axis; the head bone is turned back through its skeleton (tools/rig/neutral.mjs,
   // tools/rig/neutral-check.mjs: the roll fitted from the eye bumps, -10.2 deg). `neutral: [hind, arm]` (not set: tried 6 Oct, see reports/REDEYE-plan.md) poses the whole scan into a point of the
   // crawl cycle through its skeleton first. `eye`: the bump, scan units after the roll (right eye; the shader mirrors it).
-  'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.14, 0.09, 0.725], r: 0.12 }, split: true },
+  'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.14, 0.09, 0.725], r: 0.12 }, split: true,
+    // (the walking scan's hind legs lie against each other and the left one runs across the midline: no x-sign rule, distances in radii; the joints and per-side radii fitted to the skin, tools/rig/fit-chain.mjs)
+    bind: { side: false, norm: true, sigma: 0.3 } },
 };
 // The swimming scan's skeleton (tools/rig/skeleton.mjs frogBones): joints measured on the leveled scan (scan units, head +z, about 2
 // long: analyse() below) from its top, side and front views, each at the middle of the limb where the mesh bends. The hind leg is
@@ -303,7 +305,7 @@ for (const [id, job] of Object.entries(JOBS)) {
   // the skeleton and the skin's binding, on the full scan (scan units): every level of detail takes its vertices' binding from it
   // (bound as 17 bones; a split trunk shares the old spine's weight after the smoothing, writeGlb)
   const bones = frogBones(SKL.joints);
-  A.bind ??= bindCapsules(A.pos, bones, { radius: SKL.radius, tris: src.idx, smooth: 6 });
+  A.bind ??= bindCapsules(A.pos, bones, { radius: SKL.radius, tris: src.idx, smooth: 6, ...(process.env.BIND ? JSON.parse(process.env.BIND) : job.bind ?? {}) });
   const k = job.cmPerUnit / 100;
   // A scan whose head is rolled (the red-eye's): taken back to neutral through the skeleton, the head bone turned about its own axis by `headRoll` deg, each vertex by its (smoothed) weight on it
   if (job.headRoll && !A.rolled) {
@@ -312,16 +314,17 @@ for (const [id, job] of Object.entries(JOBS)) {
   }
   // The body posed ONCE into the gait's neutral pose through its skeleton (`neutral: [hind, arm]`, util/climb.js neutralStroke), so it rests in a pose the runtime's poses are
   // small turns from; the transition's own stretch is printed (tools/rig/neutral.mjs: it says whether bones, weights and keys make sense together).
-  if (job.neutral && !A.neutralised) {
+  if ((job.neutral || process.env.NEUTRAL) && !A.neutralised) {
     const J = { ...SKL.joints, mid2: SKL.joints.mid.map((v, i) => (v + SKL.joints.chest[i]) / 2) };
     const b22 = frogBones(J).map((b) => ({ ...b, r: SKL.radius[b.name.replace(/[LR]$/, '').replace('spineB', 'spine')] ?? 0.05 }));
     const sk2 = new Float32Array(A.n * 4); for (let i = 0; i < A.n; i++) { sk2[i * 4] = A.bind.idx[i * 2] / 32; sk2[i * 4 + 1] = A.bind.idx[i * 2 + 1] / 32; sk2[i * 4 + 2] = A.bind.w[i]; }
     const f4 = skinFour(A.pos, src.idx, sk2, job.skinPasses ?? SKIN_PASSES.swim);
     const sh = (a) => { const o = Float32Array.from(a); for (let i = 0; i < o.length; i += 4) for (const q of [0, 1]) { const b = Math.round(o[i + q] * 32); o[i + q] = (b >= 2 ? b + 1 : b) / 32; } return o; };
-    const res = poseToStroke(A.pos, { skin: sh(f4.skin), skinx: sh(f4.skinx) }, b22, neutralStroke(...(process.env.NEUTRAL ? process.env.NEUTRAL.split(',').map(Number) : job.neutral)), src.idx);
-    { let md = 0, mi = 0; for (let i = 0; i < A.pos.length; i++) { const d = Math.abs(res.pos[i] - A.pos[i]); if (d > md) { md = d; mi = i; } } console.log(`  neutral pose moved a vertex by up to ${md.toFixed(3)} scan units`); }
+    const res = poseToStroke(A.pos, { skin: sh(f4.skin), skinx: sh(f4.skinx) }, b22, (process.env.NEUTRAL === 'scan' ? scanStroke(SKL.joints) : neutralStroke(...(process.env.NEUTRAL ? process.env.NEUTRAL.split(',').map(Number) : job.neutral))), src.idx);
+    { let md = 0, mi = 0; for (let i = 0; i < A.pos.length; i++) { const d = Math.abs(res.pos[i] - A.pos[i]); if (d > md) { md = d; mi = i; } } console.log(`  neutral pose moved a vertex by up to ${md.toFixed(3)} scan units`);
+      if (process.env.NEUTRAL === 'scan') { const sh0 = sh(f4.skin), per = {}; for (let i = 0; i < A.n; i++) { const b = Math.round(sh0[i * 4] * 32), d = Math.hypot(res.pos[i * 3] - A.pos[i * 3], res.pos[i * 3 + 1] - A.pos[i * 3 + 1], res.pos[i * 3 + 2] - A.pos[i * 3 + 2]); per[b] = Math.max(per[b] ?? 0, d); } console.log('  by first bone (max move):', b22.map((bb, ix) => `${bb.name} ${(per[ix >= 2 ? ix + 1 : ix] ?? 0).toFixed(3)}`).join(', ')); } }
     A.pos = res.pos; A.neutralBones = res.bones; A.neutralised = true;
-    console.log(`  neutral pose ${job.neutral.join('/')}: ${res.stretch.edges} edges, > 1.3x ${(100 * res.stretch.over13 / res.stretch.edges).toFixed(2)} %, > 2x ${(100 * res.stretch.over2 / res.stretch.edges).toFixed(2)} %, worst ${res.stretch.worst.toFixed(2)}x`);
+    console.log(`  neutral pose ${process.env.NEUTRAL ?? job.neutral.join('/')}: ${res.stretch.edges} edges, > 1.3x ${(100 * res.stretch.over13 / res.stretch.edges).toFixed(2)} %, > 2x ${(100 * res.stretch.over2 / res.stretch.edges).toFixed(2)} %, worst ${res.stretch.worst.toFixed(2)}x`);
   }
   if (job.conform && !A.conformed) { await conformTo(A, bones, A.bind, src.idx, job, k); A.conformed = true; }
   if (job.skel && !A.legged) { legsFromBones(A, bones, A.bind); A.legged = true; }

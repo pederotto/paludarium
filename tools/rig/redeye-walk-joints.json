@@ -1,16 +1,177 @@
 {
-  "about": "The red-eyed tree frog's walking scan (art-src/raw/redeye_walk_mesh.glb, the owner's, 6 Oct 2026) in the frog pose bake's frame: rotY 128, trunk x centred by 0.274 (job.center), then levelled about x (20.6 deg) as tools/bake-frogpose.mjs analyse() does; scan units (the trunk, snout to vent, is about 1.55 long). Measured with tools/rig/limb-axes.mjs (centrelines by geodesic bands from the vent), the right hind leg partly by eye from close views (it is folded in a tight Z: thigh forward and out, shin back, foot forward). First draft: +-0.05 on a joint; not yet checked against the skin binding.",
-  "frame": { "rotY": 128, "center": 0.274, "levelDeg": 20.6 },
-  "joints": {
-    "vent": [0, -0.09, -0.45], "mid": [0, -0.09, -0.02], "mid2": [0, -0.08, 0.26], "chest": [0, -0.08, 0.50], "neck": [0, -0.04, 0.58], "snout": [0, -0.06, 1.10],
-    "hipL": [-0.08, -0.08, -0.40], "kneeL": [-0.42, 0.03, -0.68], "heelL": [0.21, 0.06, -0.83], "ankleL": [0.0, -0.02, -1.0], "toeL": [-0.60, -0.12, -0.94],
-    "hipR": [0.08, -0.10, -0.36], "kneeR": [0.60, -0.36, -0.02], "heelR": [0.35, -0.40, -0.51], "ankleR": [0.50, -0.41, -0.25], "toeR": [0.97, -0.48, -0.10],
-    "scapL": [-0.10, 0.0, 0.30], "shoulderL": [-0.17, -0.16, 0.36], "elbowL": [-0.43, -0.20, 0.42], "wristL": [-0.46, -0.35, 0.68], "fingerL": [-0.40, -0.38, 0.84], "fingertipL": [-0.53, -0.45, 1.07],
-    "scapR": [0.10, 0.0, 0.28], "shoulderR": [0.17, -0.12, 0.32], "elbowR": [0.33, -0.07, 0.21], "wristR": [0.33, -0.36, 0.16], "fingerR": [0.27, -0.41, 0.25], "fingertipR": [0.23, -0.46, 0.45]
-  },
-  "radius": { "pelvis": 0.17, "spine": 0.20, "head": 0.18, "thigh": 0.10, "shin": 0.065, "foot": 0.05, "toes": 0.03, "arm": 0.06, "forearm": 0.05, "hand": 0.045, "fingers": 0.03, "scapula": 0.06 },
-  "notes": [
-    "The head is rolled in the scan: the right eye bump is higher (y top 0.23) than the left (0.11), centroids about (0.17, 0.17, 0.76) and (-0.10, 0.07, 0.76): the trunk itself is not rolled (left and right belly levels agree to 0.02 up to z 0.45). Un-roll the head (the trunk vertices in front of z 0.55, blended over 0.45-0.55, about the z axis, about 20 deg) before the eyes are fitted, or the mirrored eye lands off the left bump.",
-    "The two hind legs have different bone lengths in the scan (left thigh 0.45, shin 0.65; right thigh 0.62, shin 0.55): a pose, or the folded right leg misread; check against the skin binding."
+ "about": "The red-eyed tree frog's walking scan (art-src/raw/redeye_walk_mesh.glb, the owner's, 6 Oct 2026) in the frog pose bake's frame: rotY 128, trunk x centred by 0.274 (job.center), then levelled about x (20.6 deg) as tools/bake-frogpose.mjs analyse() does; scan units (the trunk, snout to vent, is about 1.55 long). Measured with tools/rig/limb-axes.mjs (centrelines by geodesic bands from the vent), the right hind leg partly by eye from close views (it is folded in a tight Z: thigh forward and out, shin back, foot forward). First draft: +-0.05 on a joint; not yet checked against the skin binding.",
+ "frame": {
+  "rotY": 128,
+  "center": 0.274,
+  "levelDeg": 20.6
+ },
+ "joints": {
+  "vent": [
+   0,
+   -0.09,
+   -0.45
+  ],
+  "mid": [
+   0,
+   -0.09,
+   -0.02
+  ],
+  "mid2": [
+   0,
+   -0.08,
+   0.26
+  ],
+  "chest": [
+   0,
+   -0.08,
+   0.5
+  ],
+  "neck": [
+   0,
+   -0.04,
+   0.58
+  ],
+  "snout": [
+   0,
+   -0.06,
+   1.1
+  ],
+  "hipL": [
+   -0.08,
+   -0.08,
+   -0.4
+  ],
+  "kneeL": [
+   -0.488,
+   0.052,
+   -0.714
+  ],
+  "heelL": [
+   0.278,
+   0.094,
+   -0.8
+  ],
+  "ankleL": [
+   0.019,
+   -0.024,
+   -0.996
+  ],
+  "toeL": [
+   -0.551,
+   -0.082,
+   -1.015
+  ],
+  "hipR": [
+   0.08,
+   -0.1,
+   -0.36
+  ],
+  "kneeR": [
+   0.698,
+   -0.413,
+   0.021
+  ],
+  "heelR": [
+   0.372,
+   -0.1,
+   -0.499
+  ],
+  "ankleR": [
+   0.695,
+   -0.391,
+   -0.175
+  ],
+  "toeR": [
+   0.947,
+   -0.473,
+   -0.092
+  ],
+  "scapL": [
+   -0.1,
+   0.0,
+   0.3
+  ],
+  "shoulderL": [
+   -0.17,
+   -0.16,
+   0.36
+  ],
+  "elbowL": [
+   -0.43,
+   -0.2,
+   0.42
+  ],
+  "wristL": [
+   -0.46,
+   -0.35,
+   0.68
+  ],
+  "fingerL": [
+   -0.487,
+   -0.389,
+   0.831
+  ],
+  "fingertipL": [
+   -0.53,
+   -0.45,
+   1.07
+  ],
+  "scapR": [
+   0.1,
+   0.0,
+   0.28
+  ],
+  "shoulderR": [
+   0.17,
+   -0.12,
+   0.32
+  ],
+  "elbowR": [
+   0.33,
+   -0.07,
+   0.21
+  ],
+  "wristR": [
+   0.33,
+   -0.36,
+   0.16
+  ],
+  "fingerR": [
+   0.294,
+   -0.396,
+   0.265
+  ],
+  "fingertipR": [
+   0.23,
+   -0.46,
+   0.45
   ]
+ },
+ "radius": {
+  "pelvis": 0.17,
+  "spine": 0.2,
+  "head": 0.18,
+  "thigh": 0.1,
+  "shin": 0.065,
+  "foot": 0.05,
+  "toes": 0.03,
+  "arm": 0.06,
+  "forearm": 0.05,
+  "hand": 0.045,
+  "fingers": 0.03,
+  "scapula": 0.06,
+  "thighL": 0.075,
+  "shinL": 0.062,
+  "footL": 0.046,
+  "toesL": 0.045,
+  "thighR": 0.112,
+  "shinR": 0.081,
+  "footR": 0.049,
+  "toesR": 0.033
+ },
+ "notes": [
+  "The head is rolled in the scan: the right eye bump is higher (y top 0.23) than the left (0.11), centroids about (0.17, 0.17, 0.76) and (-0.10, 0.07, 0.76): the trunk itself is not rolled (left and right belly levels agree to 0.02 up to z 0.45). Un-roll the head (the trunk vertices in front of z 0.55, blended over 0.45-0.55, about the z axis, about 20 deg) before the eyes are fitted, or the mirrored eye lands off the left bump.",
+  "The two hind legs have different bone lengths in the scan (left thigh 0.45, shin 0.65; right thigh 0.62, shin 0.55): a pose, or the folded right leg misread; check against the skin binding."
+ ],
+ "_note": "hind legs (knee, heel, ankle, toe, per-side radii) fitted to the skin by tools/rig/fit-chain.mjs on 6 Oct 2026 (hips and the rest measured by hand); the left leg crosses the midline behind the vent; hand and fingers collinear (the poser gives the fingers the hand's plan direction: only their lift differs, fcurl)"
 }

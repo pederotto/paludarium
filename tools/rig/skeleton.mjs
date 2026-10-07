@@ -59,10 +59,13 @@ export function bindSkin(pos, bones, rig, { sigma = 0.05, attachT = 0.12 } = {})
 // press unrelated parts together (a sitting frog's foot under its thigh), a vertex blended between them would be left halfway as
 // they part, a web of stretched skin. (A limb's root bone may pair with any body bone.) Returns { idx: Uint8Array(n * 2), w: Float32Array(n) } (the first bone's weight; the second
 // has 1 - w).
+// `side: false` (the red-eye's walking scan, whose left hind leg runs across the midline behind the vent: a left bone may not take only x < 0 skin) and `norm: true` (the
+// distance is taken in radii of the bone, `sigma` then in radii too: a wide thigh no longer wins every vertex of the thin shin and foot folded against it) are for a scan
+// whose limbs lie against each other; off, the binding is as it was for every other body.
 // `tris` + `smooth` (iterations): the weights are then smoothed over the mesh's edges, so where the scan's folds fuse parts that move
 // apart (the frog's heel against its vent), the skin between them stretches over a band instead of tearing along one row of
 // triangles.
-export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.025, distalT = 0.3, mid = 0.02, tris = null, smooth = 0 } = {}) {
+export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.025, distalT = 0.3, mid = 0.02, tris = null, smooth = 0, side: sideRule = true, norm = false } = {}) {
   const n = pos.length / 3, idx = new Uint8Array(n * 2), w = new Float32Array(n);
   const side = bones.map((b) => (!b.limb ? 0 : /L$/.test(b.name) ? -1 : 1));
   const rad = bones.map((b) => radius[b.name] ?? radius[b.name.replace(/[LR]$/, '')] ?? 0.05);
@@ -84,8 +87,8 @@ export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.02
     let b0 = -1, b1 = -1;
     for (let b = 0; b < bones.length; b++) {
       d[b] = Infinity;
-      if (sure ? bones[b].limb !== l || byLimb[l].indexOf(b) < far : side[b] && side[b] !== s) continue;
-      d[b] = segDist(p, bones[b].head, bones[b].tail) - rad[b];
+      if (sure ? bones[b].limb !== l || byLimb[l].indexOf(b) < far : sideRule && side[b] && side[b] !== s) continue;
+      d[b] = norm ? segDist(p, bones[b].head, bones[b].tail) / rad[b] : segDist(p, bones[b].head, bones[b].tail) - rad[b];
       if (b0 < 0 || d[b] < d[b0]) b0 = b;
     }
     for (let b = 0; b < bones.length; b++) if (d[b] < Infinity && adj(b, b0) && (b1 < 0 || d[b] < d[b1])) b1 = b;
@@ -113,7 +116,7 @@ export function bindCapsules(pos, bones, { radius = {}, rig = null, sigma = 0.02
   for (let i = 0; i < n; i++) {
     const o = i * nb, s = pos[i * 3] < -mid ? -1 : pos[i * 3] > mid ? 1 : 0;
     const l = rig?.leg?.[i], sure = l && byLimb[l] && rig.legT[i] > distalT, far = !sure ? 0 : rig.legT[i] > 0.6 ? 2 : rig.legT[i] > 0.5 ? 1 : 0;
-    const ok = (b) => (sure ? bones[b].limb === l && byLimb[l].indexOf(b) >= far : !side[b] || side[b] === s);
+    const ok = (b) => (sure ? bones[b].limb === l && byLimb[l].indexOf(b) >= far : !sideRule || !side[b] || side[b] === s);
     for (let b = 0; b < nb; b++) if (!ok(b)) W[o + b] = 0;
     let b0 = -1, b1 = -1;
     for (let b = 0; b < nb; b++) { if (!ok(b)) continue; if (b0 < 0 || W[o + b] > W[o + b0]) b0 = b; }

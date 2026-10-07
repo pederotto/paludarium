@@ -40,5 +40,9 @@ for (let b = 0; b < B.length; b++) {
   const tot = sizes.reduce((a, s, c) => a + (owner[c] === b ? s : 0), 0); if (!tot) continue;
   const big = sizes.map((s, c) => [s, c]).filter(([s, c]) => owner[c] === b && s > 0.01 * tot).sort((a, c) => c[0] - a[0]);
   let bad = 0, cnt = 0; for (let i = 0; i < n; i++) if (weld[i] === i && dom(i) === b) { cnt++; const o = w0[i] >= 0.5 ? b1[i] : b0[i]; if (o !== b && par[o] !== b && par[b] !== o && !(par[b] === -1 || par[o] === -1 || !/[LR]$/.test(B[b].name) || !/[LR]$/.test(B[o].name))) bad++; }
-  console.log(' ', B[b].name.padEnd(8), String(tot).padStart(6), '|', big.map(([s, c]) => `${s} @ ${cen[c].map((v) => v.toFixed(2)).join(' ')}`).join('; '), '|', bad ? `${bad} not across a joint` : '');
+  // where along its own axis the bone's vertices lie (0 head ... 1 tail): a bone that owns skin past its own ends (t piled at 0 or 1) is carrying a neighbour's
+  const hd = B[b].head, tl = B[b].tail, ax = tl.map((v, k) => v - hd[k]), l2 = ax[0] ** 2 + ax[1] ** 2 + ax[2] ** 2 || 1e-9, ts = [], ds = [];
+  for (let i = 0; i < n; i++) if (weld[i] === i && dom(i) === b) { const t = P[i].reduce((a, v, k) => a + (v - hd[k]) * ax[k], 0) / l2, tc = Math.max(0, Math.min(1, t)); ts.push(t); ds.push(Math.hypot(...P[i].map((v, k) => v - hd[k] - ax[k] * tc))); }
+  ts.sort((x, y) => x - y); ds.sort((x, y) => x - y); const at = (a, f) => a[Math.min(a.length - 1, Math.floor(f * a.length))].toFixed(2);
+  console.log(' ', B[b].name.padEnd(8), String(tot).padStart(6), `| t ${at(ts, 0.1)}/${at(ts, 0.5)}/${at(ts, 0.9)} r50 ${at(ds, 0.5)} cm |`, big.map(([s, c]) => `${s} @ ${cen[c].map((v) => v.toFixed(2)).join(' ')}`).join('; '), '|', bad ? `${bad} not across a joint` : '');
 }
