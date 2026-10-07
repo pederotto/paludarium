@@ -150,5 +150,8 @@ export function planRoute(g, fx, fz, tx, tz) {
   const raw = [{ x: fx, z: fz }, ...cells.slice(1)];
   if (goalOpen && reached) { if (raw.length > 1) raw[raw.length - 1] = { x: tx, z: tz }; else raw.push({ x: tx, z: tz }); }
   const pts = pull(g, raw).slice(1);
-  return { pts: pts.length ? pts : [{ x: goal.x, z: goal.z }], clipped: !(goalOpen && reached) };
+  // (no point left means the body already stands at the end of the route: for a goal that cannot be reached that end is the nearest place it can get, NOT the
+  // goal behind the wall: a tree frog beside a log that shut the tank was sent at the goal itself, hopped at the log, was refused and relocated, again and again)
+  const end = cells[cells.length - 1];
+  return { pts: pts.length ? pts : [goalOpen && reached ? { x: goal.x, z: goal.z } : { x: end.x, z: end.z }], clipped: !(goalOpen && reached) };
 }

@@ -1400,7 +1400,13 @@ export class Animals {
       const g = this.world.terrain.heightAt(a.pos.x, a.pos.z);
       if (a.pos.y < g - 0.3) a.pos.y = g;
     }
-    if (this.insideSolid(a, sp)) { this.stuckStats.inside = (this.stuckStats.inside ?? 0) + 1; const by = this.stuckStats.by ??= {}; by[a.sp] = (by[a.sp] ?? 0) + 1; this.relocate(a, sp, false, true); return; }
+    if (this.insideSolid(a, sp)) {
+      this.stuckStats.inside = (this.stuckStats.inside ?? 0) + 1; const by = this.stuckStats.by ??= {}; by[a.sp] = (by[a.sp] ?? 0) + 1;
+      // (found inside again soon after being set down: that spot was a pocket of the same piece: this time go further)
+      const again = this.t - (a.lastIns ?? -1e9) < 30;
+      a.lastIns = this.t;
+      this.relocate(a, sp, again, true); return;
+    }
     if (sp.kind === 'egg') return;
     if (freeWalledIn(this, a, sp, dt)) return;                    // N11c: walled in by solid cells (walledin.js)
     if (!this.wantsMove(a, sp)) { a.stillT = 0; a.anchor = null; return; }
@@ -1499,6 +1505,7 @@ export class Animals {
     const W = this.world, T = W.terrain, occ = this.occ;
     const from = a.pos.clone();
     this.stuckStats.relocated++;
+    { const rb = this.stuckStats.relBy ??= {}; rb[a.sp] = (rb[a.sp] ?? 0) + 1; }                // (per species, for tools/steps/stuck.mjs)
     a.relocT = this.t;                                                         // (offCliff must not put it back this tick)
     a.stillT = 0; a.anchor = null; a.target = null; a.shore = null; a.hop = null; a.hopFail = 0; a.gx = null; a.rt = null;
     a.timer = 0; a.state = 'idle'; a.vel.set(0, 0, 0); a.fs = null; this.dropStrike(a); a.crouch = 0; a.chain = 0;
@@ -1530,9 +1537,9 @@ export class Animals {
       return;
     }
     const medium = this.mediumOf(sp);
-    const free = (x, z) => this.okFor(medium, x, z) && !occ.solidAt(x, T.heightAt(x, z) + 0.5, z) && !(CORE_WALKERS.has(sp.kind) && this.cliffAt(x, z));
+    const free = (x, z) => this.okFor(medium, x, z) && this.noseClear(a, sp, x, z) && !occ.solidAt(x, T.heightAt(x, z) + 0.5, z) && !(CORE_WALKERS.has(sp.kind) && this.cliffAt(x, z)) && this.shellClear(x, z, a.bh);
     let best = null;
-    for (let r = far ? 4.5 : 1.5; r <= 30 && !best; r += 1.5) {           // (stuck again and again: a little further, not anywhere in the tank)
+    for (let r = far ? 4.5 : 3; r <= 30 && !best; r += 1.5) {           // (stuck again and again: a little further, not anywhere in the tank)
       const n = Math.ceil(r * 2.4);
       for (let k = 0; k < n; k++) {
         const ang = (k / n) * Math.PI * 2;
@@ -1545,6 +1552,18 @@ export class Animals {
       if (free(x, z)) best = [x, z];
     }
     if (best) { a.pos.x = best[0]; a.pos.z = best[1]; a.pos.y = T.heightAt(best[0], best[1]); a.home = a.pos.clone(); }
+  }
+
+  // A ground spot where a crawler is not inside a piece's shell (a piece partly buried in the ground: the ground height is inside its
+  // volume), nor within 0.6 cm of such a spot: relocate must not set an animal down in the pocket it was just taken out of.
+  shellClear(x, z, bh = 0.5) {
+    const T = this.world.terrain, occ = this.occ, h = Math.max(0.2, bh ?? 0.5);
+    if (!occ.count) return true;
+    for (const [dx, dz] of [[0, 0], [0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6]]) {
+      const px = x + dx, pz = z + dz;
+      if (occ.insideBody(px, T.heightAt(px, pz), pz, h)) return false;
+    }
+    return true;
   }
 
   // A heading (radians) that is free of solids for the next `reach` cm from (x, y, z), nearest to `want`.
@@ -3683,7 +3702,11 @@ export class Animals {
       const path = D.type === 'path', lap = [D.laps, D.skipped ?? 0, D.i, D.dir];
       let skips = 0, goal = null;
       while (r.goal) {
-        goal = path && m.blockedAt(r.goal.x, r.goal.z) ? null : this.labSteer(a, sp, m, r.goal, dt);
+        // (a long body cannot face a waypoint nearer the side glass than its nose reaches: the waypoint is moved in to where the nose fits, and
+        // counts as reached there; R3. Short bodies: the clamp is outside the grid's own margin, so nothing changes.)
+        const cg = path ? this.noseClamp(a, sp, r.goal) : r.goal;
+        if (path && cg !== r.goal && Math.hypot(cg.x - a.pos.x, cg.z - a.pos.z) < 1.2) { skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall); if (++skips > D.pts.length) break; continue; }
+        goal = path && m.blockedAt(cg.x, cg.z) ? null : this.labSteer(a, sp, m, cg, dt);
         if (goal || !path) break;
         if (++skips > D.pts.length) { [D.laps, D.skipped, D.i, D.dir] = lap; r = { goal: null, done: false }; break; }
         skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall);
@@ -3776,7 +3799,7 @@ export class Animals {
     // A walker that climbs (the skink so far) does not take a log it can step onto for a wall: that cell is open to it, at a cost, so the route
     // goes over a log when going round is much longer (sim/surfaces.js).
     const climbs = SURFACE_WALKERS.has(sp.kind) ? STEP_LIMIT[sp.kind] : null, S = climbs ? this.surfaces() : null, room = Math.max(0.8, a.bh ?? 1);
-    const probe = { sp: a.sp, pos: { y: 0 }, bh: a.bh };
+    const probe = { sp: a.sp, pos: { y: 0 }, bh: a.bh }, top = Math.max(1.2, bx.H);      // (top: the height of its back)
     const over = (px, pz, y) => S.climbable(px, pz, y, climbs.up, climbs.down, room);
     let cc = 1;
     g.fill((x, z) => {
@@ -3788,12 +3811,16 @@ export class Animals {
       if (Math.abs(x) > TANK.w / 2 - side || z > TANK.d / 2 - wallGap) return true;
       const gy = T.heightAt(x, z);
       if (z < Wl.zAt(x, gy + 1) + wallGap) return true;
+      // Room above the belly: a slab propped over the ground (slate, cork, a root arch) has its underside higher than the 0.5 cm the checks below look at but lower than the
+      // body's back, and the movers refuse to go under it (a hop's back-height test). A cell the body does not fit under is shut, as the planner must see it: a toad sent
+      // to a point under a propped slate hopped round it, refused again and again, and was relocated. (A climber is let under or over by its surface layers.)
+      if (!S && this.occ.count && this.occ.solidAt(x, gy + top, z)) return true;
       // Steep ground: the newt, salamander and axolotl walker is refused a steep face by walkBlocked (a gecko climbs it, and the skink's and the
       // crab's movers never look: they cross a low step or wall, as the lab's obstacle courses show). A hopper hops up a rise within what a hop
       // lands on and clears (the courses: a 3 cm step is hopped, a 6 cm wall is not), so a raised cell more than HOP_RISE over its neighbours is shut.
       if (hops) { const lo = Math.min(T.heightAt(x - 1.5, z), T.heightAt(x + 1.5, z), T.heightAt(x, z - 1.5), T.heightAt(x, z + 1.5)); if (gy - lo > Math.min(5 * sp.size, HOP_RISE)) return true; }
       else if (steep && this.cliffAt(x, z)) return true;
-      if (this.occ.count) for (let k = 0; k < 8; k++) { const rx = x + Math.sin(k * 0.785) * gap, rz = z + Math.cos(k * 0.785) * gap; if (this.occ.solidAt(rx, gy + 0.5, rz) && !(S && over(rx, rz, gy))) return true; }
+      if (this.occ.count) for (let k = 0; k < 8; k++) { const rx = x + Math.sin(k * 0.785) * gap, rz = z + Math.cos(k * 0.785) * gap; if ((this.occ.solidAt(rx, gy + 0.5, rz) || (!S && this.occ.solidAt(rx, gy + top, rz))) && !(S && over(rx, rz, gy))) return true; }
       return this.stemDepth(a, x, gy, z, 0) > 0.02;
     }, () => cc);
     cache.set(key, { g, v: this.occ.version, gv: W.groundVer, at: now });
@@ -3804,6 +3831,21 @@ export class Animals {
   // way (labroute.js). A goal that cannot be stood on (inside a piece, too near the relief) is made for the nearest place that can, and
   // arriving there counts as arriving (a go-to is done). A path waypoint that cannot be reached returns null (it is skipped). A route that gets nowhere for 4 s is made
   // again with more room, and, at the most room, given up on (the waypoint is skipped).
+  // R3: a path waypoint nearer the side glass than the body's nose can reach (the nose is pinned by the glass push when it faces the
+  // glass) is moved in to ext*0.85+0.4 off the glass. Returns `g` itself when nothing changes (short bodies).
+  noseClamp(a, sp, g) {
+    const bx = this.bodyBox(a, sp), ext = Math.max(Math.abs(bx.z0), Math.abs(bx.z1)), rad = a.rad ?? this.radiusOf(a, sp);
+    const lim = TANK.w / 2 - ext * 0.85 - 0.4;
+    if (ext * 0.85 < Math.max(rad, bx.X) + 1 || Math.abs(g.x) <= lim) return g;
+    return { ...g, x: Math.sign(g.x) * lim };
+  }
+
+  // R3: is (x, z) far enough off the side glass for a walker's whole length (relocate must not drop a long body with its nose in the glass)?
+  noseClear(a, sp, x, z) {
+    const bx = this.bodyBox(a, sp);
+    return Math.abs(x) <= TANK.w / 2 - Math.max(Math.abs(bx.z0), Math.abs(bx.z1)) * 0.85 - 0.4;
+  }
+
   labSteer(a, sp, m, G, dt) {
     const L = a.lab, D = L.drive, hx = a.pos.x, hz = a.pos.z;
     if (!m.blockedAt(G.x, G.z) && m.lineFree(hx, hz, G.x, G.z, 1.2)) { L.route = null; L.prog = null; return G; }

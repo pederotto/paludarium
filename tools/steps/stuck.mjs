@@ -50,7 +50,7 @@ export default async (page, shot, name) => {
         const all = () => Object.values(A.by).flat();
         const n0 = all().length;
         const track = new Map();
-        let maxStill = 0, worstSp = '', maxInside = 0, insideTicks = 0, worstKind = '';
+        let maxStill = 0, worstSp = '', maxInside = 0, insideTicks = 0, worstKind = '', insideGame = 0; const insideGameBy = {};
         const FISH = ['neon', 'cardinal', 'cory', 'loach', 'guppy'];
         const inside = (a) => {
           if (a.onWall || a.hop || a.stranded) return false;
@@ -73,6 +73,7 @@ export default async (page, shot, name) => {
                 A.move(0.2);
                 let bad = 0;
                 for (const a of all()) {
+                  { const sk = SPECIES[a.sp]; if (sk && A.insideSolid(a, sk)) { insideGame++; insideGameBy[a.sp] = (insideGameBy[a.sp] ?? 0) + 1; } }
                   if (inside(a)) { bad++; worstKind = a.sp; if (firstInside.length < 3) firstInside.push({ sp: a.sp, pos: a.pos.toArray().map((v) => +v.toFixed(1)), st: a.state, g: +T.heightAt(a.pos.x, a.pos.z).toFixed(1), swim: !!a.swimming, top: A.waterTop(a.pos.x, a.pos.z), lvl: w.water.level, solid: A.occ.solidAt(a.pos.x, a.pos.y, a.pos.z), guard: A.insideSolid(a, SPECIES[a.sp]), by: +A.bodyY(a, SPECIES[a.sp]).toFixed(2), tick: +A.t.toFixed(1) }); }
                   // Own still-time tracker, independent of the game's detector.
                   const hungry = a.hunger > 0.25;
@@ -92,7 +93,7 @@ export default async (page, shot, name) => {
             if (h % 4 === 0) await new Promise((r) => setTimeout(r, 0));
           }
         }
-        out.push({ firstInside, avoid, preset, tier, pieces: w.decor.pieces.length, solidCells: A.occ.count, animals: n0, alive: all().length, maxStillS: +maxStill.toFixed(1), worst: worstSp, maxInside, insideTicks, worstKind, stats: { ...A.stuckStats, worst: +A.stuckStats.worst.toFixed(1) }, sec: Math.round((performance.now() - t0) / 1000) });
+        out.push({ firstInside, avoid, preset, tier, pieces: w.decor.pieces.length, solidCells: A.occ.count, animals: n0, alive: all().length, maxStillS: +maxStill.toFixed(1), worst: worstSp, maxInside, insideTicks, worstKind, insideGame, insideGameBy, stats: { ...A.stuckStats, worst: +A.stuckStats.worst.toFixed(1) }, sec: Math.round((performance.now() - t0) / 1000) });
       }
     }
     return out;

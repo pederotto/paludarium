@@ -57,6 +57,19 @@ test('a goal in a closed pen: it goes as near as it can get', () => {
   assert.ok(Math.hypot(e.x, e.z) > 4, 'it stays outside the ring');
 });
 
+test('a wall across the whole floor, the goal open behind it, the body already beside the wall: the route ends on its own side, not at the goal', () => {
+  // (found in the Test Lab: a tree frog sent across a 40 cm log that shuts the tank hopped at the log, was refused, and was relocated again and again,
+  // because the route came back as "the goal" when its own place already was the nearest it could get)
+  const g = floor([[-22.5, -22.5, -21, 22.5], [21, -22.5, 22.5, 22.5], [-22.5, -22.5, 22.5, -21], [-22.5, 21, 22.5, 22.5], [-3, -22.5, 3, 22.5]]);
+  for (const from of [{ x: -5.2, z: 1.3 }, { x: -8, z: 0 }, { x: -2.5, z: 0.4 }, { x: -3.6, z: -2 }]) {
+    const r = planRoute(g, from.x, from.z, 12, 0);
+    assert.equal(r.clipped, true);
+    const e = r.pts[r.pts.length - 1];
+    assert.ok(e.x < -3, `ends on the near side of the wall (${e.x})`);
+    assert.ok(!g.blockedAt(e.x, e.z) || g.blockedAt(from.x, from.z), 'an open place, or where it already stands');
+  }
+});
+
 test('a start inside a blocked cell (its clearance overlaps one) still gets a route out', () => {
   const g = floor([[-2.25, -6, 2.25, 17]]);
   const r = planRoute(g, 1.6, 5, 10, 5);
@@ -107,4 +120,19 @@ test('lineCost: the length on plain ground, more over a costly stretch', () => {
   assert.ok(Math.abs(g.lineCost(-10, 10, 10, 10) - g.lineCost(-10, 10, 10, 10)) < 1e-9);
   assert.ok(g.lineCost(-10, 0, 10, 0) > 20 + 4, 'over the log costs more than its length');
   assert.ok(Math.abs(g.lineCost(5, 0, 15, 0) - 10) < 1e-6, 'plain ground costs its length');
+});
+
+// R3: a long body's waypoint is moved in off the side glass; a short body's is not; relocate's margin helper agrees.
+test('noseClamp / noseClear: long body clamped off the side glass, short body unchanged', async () => {
+  // (animals.js cannot be imported in node: the two methods are cut out of the source and run on a stub)
+  const fs = await import('node:fs'), src = fs.readFileSync(new URL('../src/sim/animals.js', import.meta.url), 'utf8');
+  const grab = (name) => { const i = src.indexOf(`  ${name}(`), j = src.indexOf('\n  }\n', i); return src.slice(i, j + 4).replace(/^\s*/, '').replace(/^(\w+)\(/, 'function $1('); };
+  const TANK = { w: 45 }, ns = new Function('TANK', `${grab('noseClamp')}\n${grab('noseClear')}\nreturn { noseClamp, noseClear };`)(TANK);
+  const mk = (z) => ({ bodyBox: () => ({ X: 2, z0: -z, z1: z, H: 2 }), radiusOf: () => 2 });
+  const long = mk(8), short = mk(2.5), g = { x: -18.2, z: 16.2 };
+  const c = ns.noseClamp.call(long, { rad: 2 }, {}, g);
+  assert.ok(c.x > g.x && c.z === g.z && Math.abs(c.x) <= 22.5 - 8 * 0.85 - 0.4 + 1e-9, 'long body: clamped in');
+  assert.equal(ns.noseClamp.call(short, { rad: 2 }, {}, g), g, 'short body: same object');
+  assert.equal(ns.noseClear.call(long, {}, {}, -18.2, 0), false);
+  assert.equal(ns.noseClear.call(short, {}, {}, -18.2, 0), true);
 });

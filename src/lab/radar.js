@@ -15,7 +15,7 @@ const KEEP = 150;    // rows kept
 export function createRadar(game) {
   const states = new WeakMap();
   const recent = new Map();     // 'id:kind' -> its row
-  let rows = [];
+  let rows = [], seq = 0;
   const wrapped = new WeakSet();
   const clock = () => game.world?.animals.t ?? 0;
 
@@ -24,7 +24,7 @@ export function createRadar(game) {
   function flag(a, kind, msg, sev = 'warn') {
     const t = clock(), key = `${a.id}:${kind}`, e = recent.get(key);
     if (e && t - e.last < COOL) { e.n++; e.last = t; publish(); return; }
-    const row = { key, n: 1, t, last: t, id: a.id, sp: a.sp, name: SPECIES[a.sp]?.name ?? a.sp, kind, msg, sev, pos: [a.pos.x, a.pos.y, a.pos.z], animal: a };
+    const row = { key, seq: ++seq, n: 1, t, last: t, id: a.id, sp: a.sp, name: SPECIES[a.sp]?.name ?? a.sp, kind, msg, sev, pos: [a.pos.x, a.pos.y, a.pos.z], animal: a };
     rows.unshift(row);
     recent.set(key, row);
     if (rows.length > KEEP) { const old = rows.pop(); if (recent.get(old.key) === old) recent.delete(old.key); }
