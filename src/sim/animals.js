@@ -23,6 +23,7 @@ import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { driveStep, skipWaypoint, crossTrack } from './labdrive.js';
 import { Grid, planRoute } from './labroute.js';
+import { CLIMB as STEP_LIMIT, SURFACE_WALKERS } from './surfaces.js';
 import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
 import { hideScore } from './habitat.js';
@@ -76,6 +77,7 @@ const EXIT_LOOK = 160;      // how far across the water a frog in it looks for a
 const _gf = new Array(9);
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
 const HOP_RISE = 4;       // cm: the tallest rise of the ground a hop is planned onto (labGrid): a 3 cm step is hopped up, a 6 cm wall is not
+const _sh = {}, _shF = {}, _shR = {};            // (scratch for the surface map's height lookups: under the middle, the shoulders, the pelvis: three, they are read together)
 const TURN_GO = 0.5;      // rad: a frog sets off on a walk or a hop once its body is within this of the way it is going (it finishes the turn as it goes)
 const RADIUS = { skink: 0.6, swim: 0.38, crawlWater: 0.4, crawlLand: 0.3, crab: 0.6, fly: 0.2, frog: 0.85, toad: 0.8, newt: 0.7, axolotl: 0.75, gecko: 0.7 };
 const STRENGTH = { skink: 1, swim: 1, frog: 1, toad: 1, newt: 1, axolotl: 1, gecko: 1, crab: 1, crawlWater: 0.85, crawlLand: 0.85, fly: 0.3 };
@@ -1126,6 +1128,43 @@ export class Animals {
     return need;
   }
 
+  // The layers a walker can stand on (sim/surfaces.js): the ground and the tops of the pieces, baked from the pieces and the ground as they are
+  // and made again when either changes (at most every 1.5 s: the ground moves with erosion). Read in O(1); never a ray per frame.
+  surfaces() {
+    const W = this.world, occ = this.occ, now = performance.now();
+    if (!occ.surf || ((occ.surfV !== occ.version || occ.surfG !== W.groundVer) && now - (occ.surfT ?? 0) > 1500)) {
+      occ.bakeSurfaces((x, z) => W.terrain.heightAt(x, z));
+      occ.surfV = occ.version; occ.surfG = W.groundVer; occ.surfT = now;
+    }
+    return occ.surf;
+  }
+
+  // Can this walker step onto what is solid at (x, z) (a log, a root), as it is, from where it stands? Then the solid is not a wall to it.
+  canClimb(a, x, z) {
+    const kind = SPECIES[a.sp].kind, c = SURFACE_WALKERS.has(kind) ? STEP_LIMIT[kind] : null;
+    return !!c && this.surfaces().climbable(x, z, a.pos.y, c.up, c.down, Math.max(0.8, a.bh ?? 1));
+  }
+
+  // Where a walker's body rests after a step: on the ground, or on the piece it has climbed onto: the surface under it, and, for a long body,
+  // under its shoulders and its pelvis, the body pitched between them (nose up on the way up a log) and never lower than the surface under
+  // its middle (the crest of the log it bridges). A walker that cannot climb, or a tank with no pieces: the ground, as before.
+  standOn(a, sp) {
+    const T = this.world.terrain, x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z), c = SURFACE_WALKERS.has(sp.kind) ? STEP_LIMIT[sp.kind] : null;
+    if (!c || !this.avoid || !this.occ.count) { a.pos.y = g; a.normal = T.normalAt(x, z); return; }
+    const S = this.surfaces(), room = Math.max(0.8, a.bh ?? 1), y0 = a.pos.y, mid = S.heightAt(x, z, y0, c.up, c.down, room, _sh);
+    if (!mid) { a.pos.y = g; a.normal = T.normalAt(x, z); a.pitch = 0; return; }
+    const piece = _sh.piece, nx = _sh.nx, ny = _sh.ny, nz = _sh.nz, yc = mid.y;
+    const b = this.bodyOf(a.sp), f = b ? b.hlen * drawScale(a, sp) * 0.6 : 0, fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0);
+    let yf = yc, yr = yc;
+    if (f > 0.3) {
+      const hf = S.heightAt(x + fx * f, z + fz * f, y0, c.up, c.down, room, _shF), hr = S.heightAt(x - fx * f, z - fz * f, y0, c.up, c.down, room, _shR);
+      yf = hf ? hf.y : T.heightAt(x + fx * f, z + fz * f); yr = hr ? hr.y : T.heightAt(x - fx * f, z - fz * f);
+    }
+    a.pos.y = Math.max(yc, (yf + yr) / 2);
+    a.pitch = f > 0.3 ? clamp(-Math.atan2(yf - yr, 2 * f), -0.7, 0.7) : 0;
+    a.normal = piece ? V(nx, ny, nz) : T.normalAt(x, z);
+  }
+
   // Would a step to (nx, nz) push the body further into the background relief than it is (and than it may be)? The walkers refuse it as they
   // refuse a step into a piece, and go round (along the wall) instead of walking into the clamp (clearOfWall) and standing there, legs
   // stepping, with the head against the relief.
@@ -1665,14 +1704,14 @@ export class Animals {
 
   // Does (x, z) suit a crawler of this medium?
   // `r`: the body's radius (a.rad), kept clear of the background as well as its middle.
-  okFor(medium, x, z, maxDepth = 5, r = 0, fine = 0) {
+  okFor(medium, x, z, maxDepth = 5, r = 0, fine = 0, climber = null) {
     const W = this.world;
     if (Math.abs(x) > TANK.w / 2 - 1 || Math.abs(z) > TANK.d / 2 - 1) return false;
     const g = W.terrain.heightAt(x, z);
     const s = W.water.surfaceAt(x, z);
     const depth = s - g;
     // (fine: a solid cell the body is not really in is open, as for insideSolid: two newts under one root could not be parted)
-    if (this.avoid && this.occ.count && this.occ.solidAt(x, g + 0.5, z) && !(fine && !this.occ.insideBody(x, g, z, fine))) return false;
+    if (this.avoid && this.occ.count && this.occ.solidAt(x, g + 0.5, z) && !(fine && !this.occ.insideBody(x, g, z, fine)) && !(climber && this.canClimb(climber, x, z))) return false;
     if (this.avoid && z < W.wall.zAt(x, g + 1) + Math.max(0.4, r)) return false;       // not into the background relief
     if (medium === 'water') return depth > 1;
     if (medium === 'land') return !(depth > -0.2);
@@ -2537,12 +2576,12 @@ export class Animals {
         const step = Math.min(dist, speed * dt);
         let ux = dx / dist, uz = dz / dist;
         const maxD = it.mode === 'flee' && depth > SKINK.maxDepth ? 99 : SKINK.maxDepth;
-        if (!this.okFor('any', x + ux * step, z + uz * step, maxD, a.rad) || this.bumps(a, x + ux * step, z + uz * step) || this.wallBlocks(a, x + ux * step, z + uz * step)) {
+        if (!this.okFor('any', x + ux * step, z + uz * step, maxD, a.rad, 0, a) || this.bumps(a, x + ux * step, z + uz * step) || this.wallBlocks(a, x + ux * step, z + uz * step)) {
           const sd = a.side ?? 1, base = Math.atan2(ux, uz);
           let ok = false;
           for (const da of [0.7 * sd, -0.7 * sd, 1.4 * sd, -1.4 * sd, 2.1 * sd]) {
             const sx = Math.sin(base + da), sz = Math.cos(base + da);
-            if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
+            if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad, 0, a) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
           }
           if (!ok) { ux = 0; uz = 0; m.goal = null; if (a.order) a.target = null; }
         }
@@ -2551,8 +2590,7 @@ export class Animals {
         if (ux || uz) this.turnTo(a, sp, Math.atan2(ux, uz), dt, 5);
       }
     }
-    a.pos.y = T.heightAt(a.pos.x, a.pos.z);
-    a.normal = T.normalAt(a.pos.x, a.pos.z);
+    this.standOn(a, sp);                       // (on the ground, or on the log it has climbed onto)
     a.crouch = Math.max(it.flat ?? 0, a.crouch && a.st ? a.crouch : 0) * 0.6;
     a.grazing = it.mode === 'forage' && a.state === 'rest';
     m.sinkNow = lerp(m.sinkNow ?? 0, it.sink ?? 0, Math.min(1, dt * 1.5));
@@ -3548,8 +3586,17 @@ export class Animals {
     // (a hop is refused when its nose or back goes through a piece on the way, so a hopper keeps its nose's reach off one, not only its radius)
     const gap = Math.max(Math.min(3.5, rad + (a.cap ? a.cap.hl * 0.4 : 0)), hops ? Math.min(ext + 0.4, 4) : 0) + grow, wallGap = ext * 0.75 + 0.3 + grow, side = Math.max(rad, bx.X) + 0.4 + grow;
     const g = new Grid(-TANK.w / 2, -TANK.d / 2, OCC_CELL, Math.ceil(TANK.w / OCC_CELL), Math.ceil(TANK.d / OCC_CELL));
+    // A walker that climbs (the skink so far) does not take a log it can step onto for a wall: that cell is open to it, at a cost, so the route
+    // goes over a log when going round is much longer (sim/surfaces.js).
+    const climbs = SURFACE_WALKERS.has(sp.kind) ? STEP_LIMIT[sp.kind] : null, S = climbs ? this.surfaces() : null, room = Math.max(0.8, a.bh ?? 1);
+    const probe = { sp: a.sp, pos: { y: 0 }, bh: a.bh };
+    const over = (px, pz, y) => S.climbable(px, pz, y, climbs.up, climbs.down, room);
+    let cc = 1;
     g.fill((x, z) => {
-      if (!this.okFor(medium, x, z, maxD, rad)) return true;
+      cc = 1;
+      if (S) probe.pos.y = T.heightAt(x, z);
+      if (!this.okFor(medium, x, z, maxD, rad, 0, S ? probe : null)) return true;
+      if (S && this.occ.count && this.occ.solidAt(x, T.heightAt(x, z) + 0.5, z)) cc = climbs.cost;
       // (its drawn width off the side glass, its reach off the front glass and the relief: a landing or a step there is refused otherwise)
       if (Math.abs(x) > TANK.w / 2 - side || z > TANK.d / 2 - wallGap) return true;
       const gy = T.heightAt(x, z);
@@ -3559,9 +3606,9 @@ export class Animals {
       // lands on and clears (the courses: a 3 cm step is hopped, a 6 cm wall is not), so a raised cell more than HOP_RISE over its neighbours is shut.
       if (hops) { const lo = Math.min(T.heightAt(x - 1.5, z), T.heightAt(x + 1.5, z), T.heightAt(x, z - 1.5), T.heightAt(x, z + 1.5)); if (gy - lo > Math.min(5 * sp.size, HOP_RISE)) return true; }
       else if (steep && this.cliffAt(x, z)) return true;
-      if (this.occ.count) for (let k = 0; k < 8; k++) if (this.occ.solidAt(x + Math.sin(k * 0.785) * gap, gy + 0.5, z + Math.cos(k * 0.785) * gap)) return true;
+      if (this.occ.count) for (let k = 0; k < 8; k++) { const rx = x + Math.sin(k * 0.785) * gap, rz = z + Math.cos(k * 0.785) * gap; if (this.occ.solidAt(rx, gy + 0.5, rz) && !(S && over(rx, rz, gy))) return true; }
       return this.stemDepth(a, x, gy, z, 0) > 0.02;
-    });
+    }, () => cc);
     cache.set(key, { g, v: this.occ.version, gv: W.groundVer, at: now });
     return g;
   }

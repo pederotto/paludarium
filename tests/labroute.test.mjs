@@ -76,3 +76,35 @@ test('outside the floor counts as blocked, and the nearest open cell is found in
   const n = g2.nearestFree(0, 0);
   assert.ok(Math.hypot(n.x, n.z) > 3 && Math.hypot(n.x, n.z) < 6);
 });
+
+// A floor with a log across x = 0 (z from -zlen to +zlen) that a body can climb over at `cost` per cell, and glass margins all round.
+const climbable = (zlen, cost) => {
+  const g = new Grid(-22.5, -22.5, 1.5, 30, 30);
+  g.fill((x, z) => false, (x, z) => (Math.abs(x) <= 2.25 && Math.abs(z) <= zlen ? cost : 1));
+  return g;
+};
+
+test('a log a body can climb over: it goes over when going round is much longer, round when that is cheap', () => {
+  const from = { x: -10, z: 0 }, to = { x: 10, z: 0 };
+  const longLog = planRoute(climbable(21, 3), from.x, from.z, to.x, to.z);          // a log nearly wall to wall: round is 40+ cm longer
+  assert.equal(longLog.clipped, false);
+  const crosses = longLog.pts.some((p, i, a) => { const q = i ? a[i - 1] : from; return (q.x < -2 && p.x > 2) || (q.x > 2 && p.x < -2) || Math.abs(p.x) < 2.25; });
+  assert.ok(crosses, 'over the log');
+  const shortLog = planRoute(climbable(3, 3), from.x, from.z, to.x, to.z);           // a short log: round it costs 2 cm more
+  assert.ok(shortLog.pts.every((p) => Math.abs(p.x) >= 2.25 || Math.abs(p.z) > 3), 'round the short log, not over it');
+});
+
+test('a shortcut never cuts across a costly cell the route went round', () => {
+  const g = climbable(3, 8);
+  const r = planRoute(g, -10, 0, 10, 0);
+  let p = { x: -10, z: 0 }, over = 0;
+  for (const q of r.pts) { over += g.lineCost(p.x, p.z, q.x, q.z) - Math.hypot(q.x - p.x, q.z - p.z); p = q; }
+  assert.ok(over < 1, `extra cost of the whole route ${over.toFixed(1)}`);
+});
+
+test('lineCost: the length on plain ground, more over a costly stretch', () => {
+  const g = climbable(21, 3);
+  assert.ok(Math.abs(g.lineCost(-10, 10, 10, 10) - g.lineCost(-10, 10, 10, 10)) < 1e-9);
+  assert.ok(g.lineCost(-10, 0, 10, 0) > 20 + 4, 'over the log costs more than its length');
+  assert.ok(Math.abs(g.lineCost(5, 0, 15, 0) - 10) < 1e-6, 'plain ground costs its length');
+});

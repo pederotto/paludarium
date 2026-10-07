@@ -9,6 +9,7 @@ export class Grid {
   constructor(x0, z0, cell, nx, nz) {
     this.x0 = x0; this.z0 = z0; this.cell = cell; this.nx = nx; this.nz = nz;
     this.bad = new Uint8Array(nx * nz);
+    this.mult = new Uint8Array(nx * nz).fill(1);     // what a cell costs to cross, in cells of plain ground: more where a body climbs over something
   }
 
   ci(x) { return Math.floor((x - this.x0) / this.cell); }
@@ -17,9 +18,28 @@ export class Grid {
   cz(k) { return this.z0 + (k + 0.5) * this.cell; }
   has(i, k) { return i >= 0 && k >= 0 && i < this.nx && k < this.nz; }
 
-  // Mark the blocked cells: block(x, z) says whether a body cannot stand at the cell's middle.
-  fill(block) {
-    for (let k = 0; k < this.nz; k++) for (let i = 0; i < this.nx; i++) this.bad[k * this.nx + i] = block(this.cx(i), this.cz(k)) ? 1 : 0;
+  // Mark the blocked cells: block(x, z) says whether a body cannot stand at the cell's middle. cost(x, z), asked right after block for the same cell,
+  // is what the cell costs to cross (1, 2, 3 ...; default 1).
+  fill(block, cost = null) {
+    for (let k = 0; k < this.nz; k++) for (let i = 0; i < this.nx; i++) {
+      const x = this.cx(i), z = this.cz(k), c = k * this.nx + i;
+      this.bad[c] = block(x, z) ? 1 : 0;
+      this.mult[c] = cost ? Math.max(1, Math.min(255, cost(x, z) | 0)) : 1;
+    }
+  }
+
+  // What the straight way from a to b costs in cells of plain ground (its length over the cell, each stretch weighted by the cost of the cell
+  // it crosses): the length when the way is plain ground, more when it climbs over something.
+  lineCost(ax, az, bx, bz) {
+    const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+    if (len < 1e-6) return 0;
+    const n = Math.max(1, Math.ceil(len / (this.cell / 3)));
+    let sum = 0;
+    for (let s = 0; s < n; s++) {
+      const t = (s + 0.5) / n, i = this.ci(ax + dx * t), k = this.ck(az + dz * t);
+      sum += this.has(i, k) ? this.mult[k * this.nx + i] : 1;
+    }
+    return (sum / n) * len;
   }
 
   // Outside the grid counts as blocked.
@@ -89,7 +109,7 @@ function search(g, si, sk, ti, tk) {
       const ni = i + di, nk = k + dk;
       if (!g.has(ni, nk) || bad[nk * nx + ni]) continue;
       if (di && dk && (bad[k * nx + ni] || bad[nk * nx + i])) continue;
-      const n = nk * nx + ni, cost = gs[c] + (di && dk ? Math.SQRT2 : 1);
+      const n = nk * nx + ni, cost = gs[c] + (di && dk ? Math.SQRT2 : 1) * g.mult[n];
       if (cost < gs[n]) { gs[n] = cost; from[n] = c; push(cost + h(ni, nk), n); }
     }
   }
@@ -105,7 +125,9 @@ function pull(g, pts) {
   let a = 0;
   while (a < pts.length - 1) {
     let b = pts.length - 1;
-    while (b > a + 1 && !g.lineFree(pts[a].x, pts[a].z, pts[b].x, pts[b].z)) b--;
+    // (a shortcut must be open and cost no more than the way it replaces: it may not cut across a log the route went round)
+    const along = (to) => { let c = 0; for (let q = a; q < to; q++) c += g.lineCost(pts[q].x, pts[q].z, pts[q + 1].x, pts[q + 1].z); return c; };
+    while (b > a + 1 && !(g.lineFree(pts[a].x, pts[a].z, pts[b].x, pts[b].z) && g.lineCost(pts[a].x, pts[a].z, pts[b].x, pts[b].z) <= along(b) * 1.02 + 0.1)) b--;
     out.push(pts[b]);
     a = b;
   }
@@ -121,7 +143,8 @@ export function planRoute(g, fx, fz, tx, tz) {
   const goalOpen = !g.blockedAt(tx, tz);
   const goal = goalOpen ? { x: tx, z: tz } : g.nearestFree(tx, tz);
   if (!goal) return null;
-  if (goalOpen && g.lineFree(start.x, start.z, tx, tz, g.cell * 0.75)) return { pts: [{ x: tx, z: tz }], clipped: false };
+  // (straight at it when the way is open and plain ground: a way over a costly stretch goes through the search below, which weighs the way round)
+  if (goalOpen && g.lineFree(start.x, start.z, tx, tz, g.cell * 0.75) && g.lineCost(start.x, start.z, tx, tz) <= Math.hypot(tx - start.x, tz - start.z) * 1.02 + 0.1) return { pts: [{ x: tx, z: tz }], clipped: false };
   const { cells, reached } = search(g, g.ci(start.x), g.ck(start.z), g.ci(goal.x), g.ck(goal.z));
   // (the first cell is where it stands: its own place; the last is the goal's exact point when that is open and was reached)
   const raw = [{ x: fx, z: fz }, ...cells.slice(1)];
