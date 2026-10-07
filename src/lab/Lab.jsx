@@ -271,7 +271,7 @@ function Radar({ lab, tab }) {
       {rows.length === 0 ? <p class="dim">Nothing found. It watches every animal: stuck, popped by the engine, through the ground, jumps, spins, shivers, bodies inside each other.</p> : (
         <ul class="log">
           {rows.slice(0, 40).map((r) => (
-            <li key={r.key} class={r.sev} onClick={() => lab.focus(r.animal)} title="Tap to look at it">
+            <li key={r.seq} class={r.sev} onClick={() => lab.focus(r.animal)} title="Tap to look at it">
               <span class="t">{Math.round(r.t)}s</span><b>{r.name} #{r.id}</b> {r.msg}{r.n > 1 ? <i> ×{r.n}</i> : null}
             </li>
           ))}
