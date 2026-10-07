@@ -264,7 +264,8 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   const glassSolid = (f.glassOpacity ?? 0.55) >= 0.9;                       // an almost opaque shell (shrimp) is drawn as solid
   const trans = glassSolid ? fin : fin.or(glass);
   const rimK = float(1).sub(ndv);
-  const finOp = float(f.finOpacity ?? 0.5).mul(rimK.mul(0.5).add(0.8)), glassOp = float(f.glassOpacity ?? 0.55).mul(rimK.mul(0.5).add(0.8));
+  // finAlpha: the texture's alpha says how dense the membrane is (a painted guppy tail: render/creatures/guppypaint.js)
+  const finOp = float(f.finOpacity ?? 0.5).mul(rimK.mul(0.5).add(0.8)).mul(f.finAlpha && map ? texture(map, uv()).a : float(1)), glassOp = float(f.glassOpacity ?? 0.55).mul(rimK.mul(0.5).add(0.8));
   const tOp = select(fin, finOp, glassOp).min(0.92);
   if (pass === 'opaque') {
     m.opacityNode = select(trans, float(0), float(1));

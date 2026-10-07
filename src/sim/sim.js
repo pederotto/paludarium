@@ -23,6 +23,7 @@ import { HABITAT } from '../content/habitats.js';
 import { filterOf, filterClog, filterEff, substrateOf } from '../content/equipment.js';
 import { filterFlow } from './filterflow.js';
 import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from './genetics.js';
+import { livebearerStep } from './livebearer.js';
 import { morphName, morphRarity } from '../content/morphs.js';
 import { stepPlenum } from './plenum.js';
 
@@ -423,6 +424,15 @@ export class Sim {
         if (sp.cap < 60 || Math.random() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
         continue;
       }
+      // Livebearers (sim/livebearer.js): females carry broods and drop live fry; the generic breeding below is not for them.
+      if (sp.livebearer) {
+        const pop = W.animals.count(a.sp) + births.filter((b) => b.sp === a.sp).length;
+        const suck = E.filter ? filterOf(E).suction * (E.prefilter ? 0.08 : 1) : 0;    // a canister intake takes fry
+        const line = livebearerStep(W, a, sp, d, a.hunger < 0.5 && a.health > 0.7, (1 - pop / this.roomOf(a.sp).cap) * (1 - suck * 0.7), births);
+        if (line?.startsWith('matured:')) { const m = line.slice(8); if (morphRarity(a.sp, m) >= 3) W.log(`A young ${one(a.sp)} has coloured up: a male ${morphName(a.sp, m).toLowerCase()}!`, 'good'); }
+        else if (line && (Math.random() < 0.3 || SPECIES[a.sp].cap <= 20)) W.log(line, 'good');
+        continue;
+      }
       // Breeding.
       if (sp.breed && a.age > (sp.adultDays ?? 10) * 1440 && a.hunger < 0.5 && a.health > 0.7) {
         const pop = W.animals.count(a.sp) + births.filter((b) => b.sp === a.sp).length;
@@ -470,7 +480,7 @@ export class Sim {
         if (gene) Object.assign(opt, { genes: gene.genes, gen: Math.max(b.pa.gen ?? 0, b.pb.gen ?? 0) + 1, parents: [b.pa.id, b.pb.id] });
         const child = W.animals.add(b.sp, b.pos, opt);
         if (child && gene) { child.mut = gene.surprise || undefined; this.logBabies(b.sp, [gene], 'was born'); }
-        if (child && (SPECIES[b.sp].cap <= 40 || Math.random() < 0.08) && !(gene && (gene.surprise || gene.rare))) W.log(`A ${one(b.sp)} was born.`, 'good');
+        if (child && !b.brood && (SPECIES[b.sp].cap <= 40 || Math.random() < 0.08) && !(gene && (gene.surprise || gene.rare))) W.log(`A ${one(b.sp)} was born.`, 'good');
       }
     }
   }

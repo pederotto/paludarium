@@ -1,4 +1,4 @@
-// Schooling and show fish: neon, cardinal and ember tetras, guppy and betta. Face +z, centred on the origin, cm.
+// Schooling and show fish: neon, cardinal and ember tetras and betta (the guppy is in guppy.js). Face +z, centred on the origin, cm.
 // The tail end undulates in the shader (rig.x: 0 at the snout … 1 at the tail tip); the rest pose is straight.
 //
 // Every fish is a LOFT (a body cross-section that changes along z: back, belly and width curves) plus fins built
@@ -305,62 +305,7 @@ TETRAS.pygmy = () => {
   });
 };
 
-// ---- Guppy: a slender male with a big delta tail, a tall dorsal and colour spots ---------------------------------------
-// Morph palettes (sRGB hex, no values above 1.0). tail = [root, middle, rim] colours across the fan, rimC = dark edge of the
-// fan, spot / spotAmt = black spots on the tail and dorsal, dor = [low, middle, tip] dorsal fin colours, silver/back/belly =
-// flank tints, rear = colour of the rear body, patch = iridescent flank patch, ring = eye ring.
-const GUPPY_MORPHS = {
-  red: { tail: [0xff7a1e, 0xff3018, 0xe01422], rimC: 0x7a1010, spot: 0x1a0a08, spotAmt: 0.8, dor: [0xffb070, 0xff6a2a, 0xe0281c], silver: 0x9ba889, back: 0x59634a, belly: 0xe1e2d0, rear: 0xff5a1a, patch: 0x3fe3a4, ring: 0xc8b46a },
-  purple: { tail: [0xdc70ff, 0xa448f8, 0x7030e0], rimC: 0x3a1a78, spot: 0x140a24, spotAmt: 0.7, dor: [0xe0b0ff, 0xb060f0, 0x7a2ad0], silver: 0x9a94ac, back: 0x524a66, belly: 0xe4dcec, rear: 0x9a3ae0, patch: 0x60b0ff, ring: 0xb8a8d0 },
-  blue: { tail: [0x5ad0ff, 0x2c80ff, 0x2048e8], rimC: 0x14308c, spot: 0x0a0e24, spotAmt: 0.7, dor: [0xa8e0ff, 0x4aa0ff, 0x1c44e0], silver: 0x8fa4b4, back: 0x43566a, belly: 0xdce6ec, rear: 0x2a88f0, patch: 0x3ae8ff, ring: 0x9ab8d0 },
-  gold: { tail: [0xffea50, 0xffcc1c, 0xf8ac0a], rimC: 0xa87010, spot: 0x5a3a08, spotAmt: 0.3, dor: [0xfff0a0, 0xffd640, 0xf0aa10], silver: 0xe6c454, back: 0xb08a30, belly: 0xfff0b4, rear: 0xffc818, patch: 0xfff4a8, ring: 0xf0d070 },
-};
-const guppyMorph = (k) => () => {
-  const PAL = GUPPY_MORPHS[k];
-  const t = 0.05, silver = C(PAL.silver), backC = C(PAL.back), bellyC = C(PAL.belly), rearC = C(PAL.rear), patch = C(PAL.patch), spot = C(PAL.spot), rimC = C(PAL.rimC);
-  const [T0, T1, T2] = PAL.tail.map(C), [D0, D1, D2] = PAL.dor.map(C);
-  const tailPaint = (u, v, ds, x, y, z) => {
-    const f = clamp01((-0.42 - z) / 1.13);                                           // 0 at the root ... 1 at the rim
-    let c = lerp3(T0, T1, sm(0.0, 0.3, f));
-    c = lerp3(c, T2, sm(0.35, 0.9, f + (y > 0 ? 0.0 : 0.12)));
-    c = lerp3(c, spot, sm(0.22, 0.14, cells(x, y, z, 3.6)) * PAL.spotAmt * sm(0.15, 0.4, f));
-    return lerp3(c, rimC, sm(-0.14, 0.0, ds) * 0.7);                                // dark rim
-  };
-  const dorPaint = (u, v, ds, x, y, z) => {
-    let c = lerp3(lerp3(D0, D1, sm(0.2, 0.5, v)), D2, sm(0.4, 0.8, v) * 0.7);
-    c = lerp3(c, spot, sm(0.2, 0.12, cells(x, y, z, 6)) * PAL.spotAmt * 0.8);
-    return lerp3(c, rimC, sm(-0.1, 0.0, ds) * 0.4);
-  };
-  return fishBody({
-    sl: 2.1, total: 3.1, cell: 0.058, eyeRing: C(PAL.ring), box: [0.5, -0.9, 0.95], nose: 0.08,
-    top: [[0, 0.02], [0.06, 0.07], [0.2, 0.11], [0.4, 0.12], [0.6, 0.105], [0.8, 0.075], [1, 0.05]],
-    bot: [[0, -0.03], [0.06, -0.06], [0.2, -0.08], [0.4, -0.09], [0.6, -0.08], [0.8, -0.055], [1, -0.04]],
-    wid: [[0, 0.02], [0.06, 0.05], [0.2, 0.065], [0.4, 0.07], [0.6, 0.06], [0.8, 0.04], [1, 0.03]],
-    eyes: [{ s: 0.09, v: 0.15, r: 0.14, inner: C(0xe6c46a), outer: C(0x9a7a3a), limb: C(0x3a2a10) }],
-    extra: (x, y, z, ax) => (z < 0.6 && z > -0.45 ? cap([x, y, z], [0, -0.15, 0.42], [0, -0.3, -0.2], 0.056, 0.046)[0] : 1),    // gonopodium
-    fins: ({ Z, TY, BY, sec }) => {
-      const [cy, hy, ww] = sec(0.25);
-      const clear = fanPaint({ f: [Z(0.3), cy], base: lerp3(C(0xd9d9c8), T0, 0.18), ray: C(0x8a8a78), n: 14, amt: 0.3 });
-      const y0 = TY(0.5);
-      return [
-        medianFin(caudalPoly(Z(0.93), Z(0.93) + 1.55, 0.09, 0.66, (r) => 0.82 + 0.18 * r, 1.0), t, tailPaint),
-        medianFin([[Z(0.44), TY(0.44) - 0.07], [Z(0.45), y0 + 0.22], [Z(0.48), y0 + 0.42], [Z(0.54), y0 + 0.53], [Z(0.62), y0 + 0.5], [Z(0.68), y0 + 0.36], [Z(0.72), y0 + 0.16], [Z(0.7), TY(0.7) - 0.07]], t, dorPaint),
-        medianFin([[Z(0.72), BY(0.72) + 0.06], [Z(0.76), BY(0.8) - 0.22], [Z(0.88), BY(0.9) - 0.15], [Z(0.92), BY(0.92) + 0.06]], t, clear),
-        ...pairFin({ x: ww * 0.8, y: cy - hy * 0.4, z: Z(0.25), dir: [0.45, -0.1, -1], poly: [[-0.05, -0.04], [0.05, 0.1], [0.28, 0.11], [0.42, 0.02], [0.3, -0.08], [0.08, -0.09]], t, paint: clear }),
-      ];
-    },
-    paint: (s, v, x, y, z) => {
-      let c = lerp3(silver, backC, sm(0.2, 0.95, v));
-      c = lerp3(c, bellyC, sm(-0.3, -0.95, v) * 0.8);
-      c = lerp3(c, patch, sm(0.3, 0.42, s) * (1 - sm(0.5, 0.62, s)) * sm(-0.4, 0.0, v) * (1 - sm(0.3, 0.6, v)) * 0.8);
-      c = lerp3(c, rearC, sm(0.52, 0.7, s));
-      return lerp3(c, spot, sm(0.2, 0.12, cells(x * 1.3, y * 1.3, z * 1.3, 4.2)) * sm(0.45, 0.65, s) * PAL.spotAmt * 0.85);
-    },
-    finish: { finOpacity: 0.62, flutter: 0.03 },
-  });
-};
-TETRAS.guppy = guppyMorph('red');
-for (const k of Object.keys(GUPPY_MORPHS)) TETRAS[`guppy:${k}`] = guppyMorph(k);
+// ---- Guppy: bodies/guppy.js (every strain, both sexes and the fry).
 
 // ---- Betta: elongate body, huge veil tail and long flowing fins ---------------------------------------------------------------
 // Morph palettes (sRGB hex, no values above 1.0). back/dark/belly = body tints (dorsal, darkest back, underside), rear = tail

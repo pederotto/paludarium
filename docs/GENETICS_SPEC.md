@@ -38,10 +38,29 @@ Loci: `B` cobalt / `b` sky blue (recessive); `S` many spots / `s` few spots (rec
 Morphs: `cobalt_spotted` (B_ S_, the current look, rarity 1), `cobalt_clean` (B_ ss, rarity 2), `sky_spotted` (bb S_, rarity 2),
 `sky_clean` (bb ss, rarity 4). Freq: b 0.2, s 0.25.
 
-### guppy (`guppy`, already breeds)
-Loci: `C` tail colour with INCOMPLETE dominance, alleles `R` and `B`: `RR` red, `BR` purple (the heterozygote is intermediate),
-`BB` blue; `G` normal / `g` gold (recessive; `gg` overrides the colour).
-Morphs: `red`, `purple`, `blue`, `gold`. Rarity: red 1, blue 2, purple 2, gold 3. Freq: R 0.6, g 0.1.
+### guppy (`guppy`, a livebearer: sim/livebearer.js; rebuilt 7 Oct 2026)
+Eleven genes (content/guppy.js `GUPPY_LOCI`, in genotype order): tail colour `B`/`R` in-between (RR red, BR purple, BB blue);
+gold `G`/`g` recessive; albino `A`/`a` recessive; tail size `L`/`S` in-between (LL delta, LS fan, SS round); sword `W` dominant; mosaic `M`
+dominant; snakeskin `K` dominant (mosaic + snakeskin = tiger); half-black `T` dominant; Moscow `F` dominant; platinum `P` dominant; big ear
+`e` recessive. Epistasis: albino hides gold, half-black and Moscow (no melanin); a big delta tail hides the swords (sword + fan = lyre,
+sword + round = double sword). Loci whose trait is the dominant allele carry `dom: true` (describe says "shows mosaic (one copy)", and
+two plain parents having a plain baby is not "a hidden gene showed up").
+The morph is the strain a male shows, an id of tokens in a fixed order with defaults left out: ground (gold | albino) · moscow · platinum
+· tuxedo · colour · pattern (mosaic | snakeskin | tiger) · tail (fan | round | doublesword | lyre; delta default) · dumbo. `red` is a plain
+red delta; old saves' `gold` reads as `gold_red` (their two genes are completed). `SPECIES_GENETICS.guppy.morphs` lists the 22 strains a
+dealer sells (`GUPPY_STRAINS`); a tank breeds any of the others, named, priced and starred by `morphInfo` (rarity from the genes stacked).
+Females carry the genes and show little of them (real: most colour genes are sex-limited): a female's LOOK shows her ground colour, a wash
+of her line's tail colour, half-black and big ears, and her tail size; fry are plain until they mature, when males colour up.
+Simplified, and said so in content/guppy.js: every gene is autosomal here (in real guppies most colour genes ride on X and Y); tail size
+is one gene. Sources: gensou.sg (breeders' inheritance notes), bioone Zoological Science 16 (Y-linked colour genes), FishBase.
+Enumeration: `outcomes` and `genotypeForMorph` count phenotype classes ('Aa' and 'AA' look alike at a complete-dominance locus), 4 608
+for the guppy instead of 177 147 genotypes (~30 ms a pair).
+Livebearing (sim/livebearer.js): founders come as trios (one male to two females), fry 50:50; a fed, healthy adult female conceives
+(`breed` per day, by the room the tank has) with her paired male or any adult male, keeps his sperm for `store` (3) more broods, carries
+for `gestDays` (3 game days) and drops `brood` (3-8) fry fathered by that male, even after he has died; a breeder who wants a known
+father uses a virgin female (the info card says which). Tests: tests/genetics.test.mjs, tests/livebearer.test.mjs.
+Bodies: the owner's male and female GLBs, each look with its own texture painted at run time (render/creatures/guppymodel.js,
+guppypaint.js); fan and round tails are the owner's tail scaled; swords and the lyre still need tails of their own (drawn as delta).
 
 ### betta (`betta`; currently never breeds: give it `breed: 0.02`, adultDays 40)
 Loci: `C` incomplete dominance `R`/`B`: `RR` red, `BR` purple, `BB` blue; `X` normal / `x` cellophane (recessive, pale translucent).

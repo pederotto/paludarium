@@ -4,7 +4,7 @@ import {
   SPECIES_GENETICS, hasGenetics, randomGenotype, genotypeForMorph, morphOf, breed, describe, punnett, outcomes, outcomeList,
   rarity, allGenotypes, makeRng, config, MUTATION, isSurprise, recessiveFromCarriers, suggestPair, carriedGenes, locusOutcomes,
 } from '../src/sim/genetics.js';
-import { MORPHS, LOCI_TEXT, morphFactor } from '../src/content/morphs.js';
+import { MORPHS, LOCI_TEXT, morphFactor, morphInfo } from '../src/content/morphs.js';
 
 const N = 20000;
 const near = (got, want, tol, msg) => assert.ok(Math.abs(got - want) <= tol, `${msg ?? ''} got ${got.toFixed(4)}, want ${want} ± ${tol}`);
@@ -15,7 +15,23 @@ const H = (g, a) => g[0] === a && g[1] === a;
 const SPEC = {
   axolotl: (g) => (H(g[1], 'm') ? 'melanoid' : H(g[0], 'a') && H(g[2], 'l') ? 'white_albino' : H(g[0], 'a') ? 'golden' : H(g[2], 'l') ? 'leucistic' : 'wild'),
   dartfrog: (g) => (H(g[0], 'b') ? (H(g[1], 's') ? 'sky_clean' : 'sky_spotted') : (H(g[1], 's') ? 'cobalt_clean' : 'cobalt_spotted')),
-  guppy: (g) => (H(g[1], 'g') ? 'gold' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
+  // the guppy's eleven genes (content/guppy.js), restated: colour BR, gold g, albino a, tail size LS, sword W, mosaic M, snakeskin K,
+  // half-black T, Moscow F, platinum P, big ear e; albino hides gold, half-black and Moscow; a big delta hides the swords
+  guppy: (g) => {
+    const D = (x, a) => x[0] === a, albino = H(g[2], 'a'), len = g[3] === 'LL' ? 'delta' : g[3] === 'LS' ? 'fan' : 'round', sw = D(g[4], 'W');
+    const t = [];
+    if (albino) t.push('albino'); else if (H(g[1], 'g')) t.push('gold');
+    if (!albino && D(g[8], 'F')) t.push('moscow');
+    if (D(g[9], 'P')) t.push('platinum');
+    if (!albino && D(g[7], 'T')) t.push('tuxedo');
+    t.push(g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple');
+    const mo = D(g[5], 'M'), sn = D(g[6], 'K');
+    if (mo || sn) t.push(mo && sn ? 'tiger' : mo ? 'mosaic' : 'snakeskin');
+    const tail = !sw || len === 'delta' ? len : len === 'fan' ? 'lyre' : 'doublesword';
+    if (tail !== 'delta') t.push(tail);
+    if (H(g[10], 'e')) t.push('dumbo');
+    return t.join('_');
+  },
   betta: (g) => (H(g[1], 'x') ? 'cellophane' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
   shrimp: (g) => {
     const r = H(g[0], 'r'), y = H(g[1], 'y'), b = H(g[2], 'b'), rili = g[3] === 'LL' || g[3] === 'Ll';
@@ -33,7 +49,7 @@ test('the five species have genetics, everything else does not', () => {
 });
 
 test('morph resolution matches the spec table for every species and every genotype', () => {
-  for (const id of ids) {
+  for (const id of ids.filter((x) => x !== 'guppy')) {          // (the guppy's 177 147 genotypes: next test)
     const all = allGenotypes(id);
     const nLoci = SPECIES_GENETICS[id].loci.length;
     assert.equal(all.length, 3 ** nLoci, id);
@@ -52,6 +68,18 @@ test('morph resolution matches the spec table for every species and every genoty
   }
 });
 
+test('guppy: the strain matches the rules for random genotypes, every strain sold is reachable, and every strain has words', () => {
+  const rng = makeRng(3);
+  for (let k = 0; k < 4000; k++) {
+    const g = randomGenotype('guppy', rng), m = morphOf('guppy', g);
+    assert.equal(m, SPEC.guppy(g), String(g));
+    const info = morphInfo('guppy', m);
+    assert.ok(info && info.name && info.blurb.length > 10 && info.blurb.length < 140 && info.rarity >= 1 && info.rarity <= 5, m);
+  }
+  for (const m of SPECIES_GENETICS.guppy.morphs) assert.equal(morphOf('guppy', genotypeForMorph('guppy', m, rng)), m);
+  assert.equal(SPECIES_GENETICS.guppy.loci.length, 11);
+});
+
 test('spec examples', () => {
   assert.equal(morphOf('axolotl', ['AA', 'MM', 'LL']), 'wild');
   assert.equal(morphOf('axolotl', ['AA', 'MM', 'll']), 'leucistic');
@@ -62,7 +90,7 @@ test('spec examples', () => {
   assert.equal(morphOf('dartfrog', ['bb', 'ss']), 'sky_clean');
   assert.equal(morphOf('dartfrog', ['Bb', 'Ss']), 'cobalt_spotted');
   assert.equal(morphOf('guppy', ['BR', 'GG']), 'purple');
-  assert.equal(morphOf('guppy', ['RR', 'gg']), 'gold');
+  assert.equal(morphOf('guppy', ['RR', 'gg']), 'gold_red');        // (a save from before the eleven genes: the others are completed)
   assert.equal(morphOf('betta', ['BB', 'xx']), 'cellophane');
   assert.equal(morphOf('shrimp', ['rr', 'yy']), 'orange');
   assert.equal(morphOf('shrimp', ['Wr', 'YY']), 'wild');
@@ -165,7 +193,7 @@ test('outcomes() sum to 1 and match Punnett arithmetic', () => {
       const o = outcomes(id, a, b);
       const sum = Object.values(o).reduce((s, p) => s + p, 0);
       near(sum, 1, 1e-9, `${id} ${a} x ${b}`);
-      for (const m of Object.keys(o)) assert.ok(Object.hasOwn(MORPHS[id], m));
+      for (const m of Object.keys(o)) assert.ok(morphInfo(id, m), `${id}:${m}`);
       const l = outcomeList(id, a, b);
       assert.equal(l.length, Object.keys(o).length);
       for (let i = 1; i < l.length; i++) assert.ok(l[i - 1].p >= l[i].p);
@@ -268,7 +296,7 @@ test('economy: a rare morph costs more to buy and sells for more, and buying the
   const { ANIMALS, SELL_CAP } = await import('../src/content/economy.js');
   const c = new Career();
   assert.equal(c.cost('animal', 'guppy', 1), 2);
-  assert.ok(c.cost('animal', 'guppy', 1, 'gold') > c.cost('animal', 'guppy', 1, 'red'));
+  assert.ok(c.cost('animal', 'guppy', 1, 'gold_red') > c.cost('animal', 'guppy', 1, 'red'));
   assert.equal(c.cost('animal', 'axolotl', 1, 'white_albino'), Math.ceil(60 * morphFactor('axolotl', 'white_albino')));
   assert.equal(c.cost('animal', 'neon', 6, 'whatever'), c.cost('animal', 'neon', 6));
   const common = { sp: 'axolotl', morph: 'wild', age: 100 * 1440, health: 1 };
