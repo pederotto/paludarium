@@ -77,7 +77,7 @@ const EXIT_LOOK = 160;      // how far across the water a frog in it looks for a
 const _gf = new Array(9);
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
 const HOP_RISE = 4;       // cm: the tallest rise of the ground a hop is planned onto (labGrid): a 3 cm step is hopped up, a 6 cm wall is not
-const _sh = {}, _shF = {}, _shR = {};            // (scratch for the surface map's height lookups: under the middle, the shoulders, the pelvis: three, they are read together)
+const _sh = {}, _shF = {}, _shR = {}, _shH = {};            // (scratch for the surface map's height lookups: under the middle, the shoulders, the pelvis: three, they are read together)
 const TURN_GO = 0.5;      // rad: a frog sets off on a walk or a hop once its body is within this of the way it is going (it finishes the turn as it goes)
 const RADIUS = { skink: 0.6, swim: 0.38, crawlWater: 0.4, crawlLand: 0.3, crab: 0.6, fly: 0.2, frog: 0.85, toad: 0.8, newt: 0.7, axolotl: 0.75, gecko: 0.7 };
 const STRENGTH = { skink: 1, swim: 1, frog: 1, toad: 1, newt: 1, axolotl: 1, gecko: 1, crab: 1, crawlWater: 0.85, crawlLand: 0.85, fly: 0.3 };
@@ -1160,7 +1160,7 @@ export class Animals {
       const hf = S.heightAt(x + fx * f, z + fz * f, y0, c.up, c.down, room, _shF), hr = S.heightAt(x - fx * f, z - fz * f, y0, c.up, c.down, room, _shR);
       yf = hf ? hf.y : T.heightAt(x + fx * f, z + fz * f); yr = hr ? hr.y : T.heightAt(x - fx * f, z - fz * f);
     }
-    a.pos.y = Math.max(yc, (yf + yr) / 2);
+    a.pos.y = yc;                                   // (the surface under its middle, as a.pos.y is everywhere: footing() poses the body on its feet)
     a.pitch = f > 0.3 ? clamp(-Math.atan2(yf - yr, 2 * f), -0.7, 0.7) : 0;
     a.normal = piece ? V(nx, ny, nz) : T.normalAt(x, z);
   }
@@ -2696,13 +2696,13 @@ export class Animals {
         const step = Math.min(dist, it.speed * dt);
         const maxD = m.mode === 'exit' ? 99 : m.mode === 'soak' ? P.soakDepth[1] + 0.5 : P.safeDepth;
         let ux = dx / dist, uz = dz / dist;
-        if (!this.okFor('any', x + ux * step, z + uz * step, maxD, a.rad) || this.bumps(a, x + ux * step, z + uz * step) || this.wallBlocks(a, x + ux * step, z + uz * step)) {
+        if (!this.okFor('any', x + ux * step, z + uz * step, maxD, a.rad, 0, a) || this.bumps(a, x + ux * step, z + uz * step) || this.wallBlocks(a, x + ux * step, z + uz * step)) {
           // Blocked: slide round it, trying the side that worked last time first.
           const sd = a.side ?? 1, base = Math.atan2(ux, uz);
           let ok = false;
           for (const da of [0.7 * sd, -0.7 * sd, 1.4 * sd, -1.4 * sd, 2.1 * sd]) {
             const sx = Math.sin(base + da), sz = Math.cos(base + da);
-            if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
+            if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad, 0, a) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
           }
           if (!ok) { ux = 0; uz = 0; m.goal = null; }
         }
@@ -2718,8 +2718,7 @@ export class Animals {
     } else if (it.face) {
       this.turnTo(a, sp, Math.atan2(it.face.x - x, it.face.z - z), dt, 5);
     }
-    a.pos.y = T.heightAt(a.pos.x, a.pos.z);
-    a.normal = T.normalAt(a.pos.x, a.pos.z);
+    this.standOn(a, sp);                       // (on the ground, or on the log it has climbed onto)
     a.grazing = it.mode === 'eat' || it.nose;
   }
 
@@ -4494,6 +4493,7 @@ export class Animals {
       if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, medium, maxD);
       else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - x, it.face.z - z), dt, 4); }
       const gy = T.heightAt(a.pos.x, a.pos.z);
+      if (SURFACE_WALKERS.has(sp.kind) && !a.swimming && W.water.surfaceAt(a.pos.x, a.pos.z) - gy < 0.5) { this.standOn(a, sp); a.hmoved = Math.hypot(a.pos.x - px, a.pos.y - py, a.pos.z - pz); a.grazing = false; return; }       // (on the ground, or on the log it has climbed onto)
       const ny = a.pos.y > gy + 0.05 ? Math.max(gy, lerp(a.pos.y, gy, Math.min(1, dt * 6))) : gy;
       // (one that stops swimming over sunken wood settles on it, not into it: it was relocated, swam back, and so on, many times a second)
       if (!(this.avoid && this.occ.count && ny < a.pos.y && this.occ.solidAt(a.pos.x, ny + 0.5, a.pos.z) && !this.occ.solidAt(a.pos.x, a.pos.y + 0.5, a.pos.z))) a.pos.y = ny;
@@ -4517,13 +4517,14 @@ export class Animals {
     let ux = Math.sin(a.yaw), uz = Math.cos(a.yaw);
     if (fwd > 0.95) { ux = dx / dist; uz = dz / dist; }
     // (An animal standing where it is not allowed, in the margin by the glass, may step toward the middle.)
-    const here = this.okFor(medium, x, z, maxD, a.rad);
+    const here = this.okFor(medium, x, z, maxD, a.rad, 0, a);
     // (the way out toward the middle never leads into a piece: a newt on a pool's bottom hid in under the wood, was relocated, and
     // walked back in, several times a second)
     const solid = (nx, nz) => this.avoid && this.occ.count && this.occ.solidAt(nx, this.world.terrain.heightAt(nx, nz) + 0.5, nz);
     // (and nothing solid between here and there: a long step at the fast speeds walked through thin wood, B4b)
-    const swept = (nx, nz) => !this.avoid || this.occ.walkFree(a, x, a.pos.y, z, nx, this.world.terrain.heightAt(nx, nz), nz) === 1;
-    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz) && !this.wallBlocks(a, nx, nz) && swept(nx, nz) && this.depthOkFor(a, sp, nx, nz);
+    // (a step onto a log the body can climb is not stopped by the log's cells: the climber's step up is allowed by okFor and canClimb)
+    const swept = (nx, nz) => !this.avoid || this.occ.walkFree(a, x, a.pos.y, z, nx, this.world.terrain.heightAt(nx, nz), nz) === 1 || this.canClimb(a, nx, nz);
+    const free = (nx, nz) => (this.okFor(medium, nx, nz, maxD, a.rad, 0, a) || (!here && Math.hypot(nx, nz * 1.6) < Math.hypot(x, z * 1.6) - 0.02 && !solid(nx, nz))) && !this.walkBlocked(a, nx, nz) && !this.wallBlocks(a, nx, nz) && swept(nx, nz) && this.depthOkFor(a, sp, nx, nz);
     const probe = Math.max(step, 0.15);       // (the first step of a start has no length yet)
     if (!free(x + ux * probe, z + uz * probe)) {
       const sd = a.side ?? 1, base = Math.atan2(ux, uz);
@@ -4856,6 +4857,15 @@ export class Animals {
   // capsuleOf), a plane fitted through them, and how far the body must move up or down from a.pos (the ground under its
   // middle) to stand on that plane. Returns { up, dy } or null before the mesh is measured. On a hump the middle is high and
   // the feet would dangle: the body comes down onto them, but never sinks more than a third of its height into the ground.
+  // The height a walker's feet find at (x, z): the top of the piece under that spot if it stands on one it can climb (sim/surfaces.js), else the
+  // ground. footing() poses the body on the plane through these, so a skink on a log is drawn tilted on it, not level on the floor under it.
+  footH(a, sp, x, z) {
+    const T = this.world.terrain;
+    if (!SURFACE_WALKERS.has(sp.kind) || !this.avoid || !this.occ.count) return T.heightAt(x, z);
+    const c = STEP_LIMIT[sp.kind], h = this.surfaces().heightAt(x, z, a.pos.y, c.up, c.down, Math.max(0.8, a.bh ?? 1), _shH);
+    return h ? h.y : T.heightAt(x, z);
+  }
+
   footing(a, sp) {
     const b = this.bodyOf(a.sp);
     if (!b) return null;
@@ -4869,10 +4879,10 @@ export class Animals {
     // (standing on level ground at the foot of a bank, ground rising beside it steeper than it can stand on, as cliffAt, is the bank,
     // not a foothold: a frog there, a flank's point up it, was drawn tipped on its side and lifted 2.6 cm, floating, a gecko 3.9 cm; it
     // stands on what is under it until it is on the slope.)
-    const [gx, gz] = T.field.gradient(x, z), h0 = T.heightAt(x, z), wall = gx * gx + gz * gz < 0.56;
+    const [gx, gz] = T.field.gradient(x, z), h0 = this.footH(a, sp, x, z), wall = gx * gx + gz * gz < 0.56;
     const foot = (h, d) => (wall && h - h0 > 1.73 * Math.max(0.3, Math.abs(d)) ? h0 : h);
-    const hF = foot(T.heightAt(x + fx * fore, z + fz * fore), fore), hB = foot(T.heightAt(x + fx * hind, z + fz * hind), hind);
-    const hR = foot(T.heightAt(x + rx * side, z + rz * side), side), hL = foot(T.heightAt(x - rx * side, z - rz * side), side);
+    const hF = foot(this.footH(a, sp, x + fx * fore, z + fz * fore), fore), hB = foot(this.footH(a, sp, x + fx * hind, z + fz * hind), hind);
+    const hR = foot(this.footH(a, sp, x + rx * side, z + rz * side), side), hL = foot(this.footH(a, sp, x - rx * side, z - rz * side), side);
     const span = Math.max(0.3, fore - hind);
     // Up from the two tangents of the plane: along the body (hind to fore) and across it (left to right).
     const t1x = fx * span, t1y = hF - hB, t1z = fz * span, t2x = rx * 2 * side, t2y = hR - hL, t2z = rz * 2 * side;

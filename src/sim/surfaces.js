@@ -11,11 +11,11 @@
 export const CLIMB = {
   skink: { up: 4.5, down: 9, cost: 3 },       // `cost`: what a cell it climbs over costs the planner, in cells of plain ground (it goes round a log when that is cheaper)
   crab: { up: 4, down: 8, cost: 3 },
-  newt: { up: 3, down: 7, cost: 4 },          // the salamanders and newts
+  newt: { up: 4.2, down: 8, cost: 4 },        // the salamanders and newts (a fire salamander is 16 cm long: it crosses a log with a 3.7 cm top)
   axolotl: { up: 1.5, down: 4, cost: 6 },
 };
 // The kinds whose mover really climbs (Animals.standOn and the climber argument of okFor): the planner only routes these over a piece.
-export const SURFACE_WALKERS = new Set(['skink']);
+export const SURFACE_WALKERS = new Set(['skink', 'crab', 'newt']);
 
 export const MAX_LAYERS = 4;
 
