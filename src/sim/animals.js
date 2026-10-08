@@ -26,6 +26,7 @@ import { driveStep, skipWaypoint, crossTrack, panePoint } from './labdrive.js';
 import { Grid, planRoute } from './labroute.js';
 import { CLIMB as STEP_LIMIT, SURFACE_WALKERS, limitRise, notABank } from './surfaces.js';
 import { faceRise, isCliff } from './facerise.js';
+import { easePush } from './glassease.js';
 import { THREAT, MOVERS, threatScore, sizeFactor, escapeScore } from './threat.js';
 import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
@@ -1332,10 +1333,16 @@ export class Animals {
     const d = glassPush(a.pos.x, a.pos.y, a.pos.z, this.frameOf(a), this.bodyBox(a, sp), TANK.w / 2, TANK.d / 2, TANK.h, 0.1, _gp);
     if (!d[0] && !d[1] && !d[2]) return false;
     const Wl = this.world.wall, z0 = a.wallMode ? Wl.zAt(a.pos.x, a.pos.y) : 0;
-    a.pos.x += d[0]; a.pos.y += d[1];
+    // (a walker whose drawn box grew past the pane while it stood (its model arrived: a skink's 12 cm tail) is eased in at GLASS_EASE cm a call, not popped 3 cm in one frame: glassease.js)
+    const ease = !a.wallMode && !a.onWall && !a.hop && !a.perch && !a.swimming && sp.kind !== 'swim' && sp.kind !== 'fly';
+    a.pos.x += ease ? easePush(d[0]) : d[0]; a.pos.y += d[1];
     if (a.wallMode) a.pos.z += Wl.zAt(a.pos.x, a.pos.y) - z0;            // (along the relief, as far off it as it was)
-    else a.pos.z += d[2];
-    if (!a.wallMode && !a.onWall && !a.hop && !a.perch && !a.swimming && sp.kind !== 'swim' && sp.kind !== 'fly') a.pos.y = this.world.terrain.heightAt(a.pos.x, a.pos.z);
+    else a.pos.z += ease ? easePush(d[2]) : d[2];
+    // (on the ground there; a walker that climbs pieces stays on the one it stands on: snapped to the soil here, a skink on a log by the glass was dropped 2-4 cm and
+    // lifted again by standOn three times a lap, a 4 cm jump the radar called a teleport)
+    if (!a.wallMode && !a.onWall && !a.hop && !a.perch && !a.swimming && sp.kind !== 'swim' && sp.kind !== 'fly') {
+      if (SURFACE_WALKERS.has(sp.kind)) this.standOn(a, sp); else a.pos.y = this.world.terrain.heightAt(a.pos.x, a.pos.z);
+    }
     return true;
   }
 
