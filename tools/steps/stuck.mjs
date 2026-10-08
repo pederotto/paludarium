@@ -48,6 +48,19 @@ export default async (page, shot, name) => {
           }
         }
         const all = () => Object.values(A.by).flat();
+        // R6a: every stuck decision and relocation of a FISH, classed by the fish's own intent at that moment (hold / creep / go = spot > 2.5 cm / inside = found in a solid).
+        // Inline and independent of src/sim/stuckintent.js, so the same file measures a build without it. Printed per species as cls.
+        const CLS = {}, bump = (a, ev, c) => { const o = ((CLS[a.sp] ??= {})[ev] ??= {}); o[c] = (o[c] ?? 0) + 1; };
+        const cls = (a) => { const m = a.fm; if (a.rest?.resting) return 'hold'; if (!m) return 'go'; if (a.dart || m.fleeT > 0 || m.I?.escape) return 'go'; if (a.nib || m.resting) return 'hold'; const d = m.goal ? Math.hypot(m.goal.x - a.pos.x, m.goal.z - a.pos.z) : 0; return d > 2.5 ? 'go' : d >= 1 ? 'creep' : 'hold'; };
+        const proto = Object.getPrototypeOf(A);
+        A.relocate = function (a, sp, ...rest) { if (sp.kind === 'swim') bump(a, 'reloc', rest[1] ? 'inside' : cls(a)); return proto.relocate.call(this, a, sp, ...rest); };
+        A.keepFree = function (a, sp, dt) { const pre = sp.kind === 'swim' && a.anchor && (a.stillT ?? 0) + dt >= 3.5 && this.wantsMove(a, sp) ? cls(a) : null, ls = a.lastStuck; const r = proto.keepFree.call(this, a, sp, dt); if (pre && a.lastStuck !== ls) bump(a, 'stuck', pre); return r; };
+        // The test's own idea of "is trying to get somewhere": the animal's own goal, not A.wantsMove (the game's predicate, which the exemption changes).
+        const ownWants = (a) => {
+          if (a.dead || a.hop || a.onWall || a.stranded) return false;
+          const m = a.fm; if (m) return !!(a.dart || m.fleeT > 0 || m.I?.escape || (m.goal && Math.hypot(m.goal.x - a.pos.x, m.goal.z - a.pos.z) > 2.5));
+          return (a.state === 'walk' && !!a.target) || !!a.swimming || (!!a.herp && !!a.wantMove);
+        };
         const n0 = all().length;
         const track = new Map();
         let maxStill = 0, worstSp = '', maxInside = 0, insideTicks = 0, worstKind = '', insideGame = 0; const insideGameBy = {};
@@ -78,7 +91,7 @@ export default async (page, shot, name) => {
                   // Own still-time tracker, independent of the game's detector.
                   const hungry = a.hunger > 0.25;
                   let tr = track.get(a);
-                  if (!hungry || !A.wantsMove(a)) { if (tr) tr.t = 0; continue; }
+                  if (!hungry || !ownWants(a)) { if (tr) tr.t = 0; continue; }
                   if (!tr) { tr = { p: a.pos.clone(), t: 0 }; track.set(a, tr); }
                   if (a.pos.distanceTo(tr.p) > 0.3) { tr.p.copy(a.pos); tr.t = 0; } else tr.t += 0.2;
                   if (tr.t > maxStill) { maxStill = tr.t; worstSp = a.sp; }
@@ -93,7 +106,7 @@ export default async (page, shot, name) => {
             if (h % 4 === 0) await new Promise((r) => setTimeout(r, 0));
           }
         }
-        out.push({ firstInside, avoid, preset, tier, pieces: w.decor.pieces.length, solidCells: A.occ.count, animals: n0, alive: all().length, maxStillS: +maxStill.toFixed(1), worst: worstSp, maxInside, insideTicks, worstKind, insideGame, insideGameBy, stats: { ...A.stuckStats, worst: +A.stuckStats.worst.toFixed(1) }, sec: Math.round((performance.now() - t0) / 1000) });
+        out.push({ firstInside, avoid, preset, tier, pieces: w.decor.pieces.length, solidCells: A.occ.count, animals: n0, alive: all().length, maxStillS: +maxStill.toFixed(1), worst: worstSp, maxInside, insideTicks, worstKind, insideGame, insideGameBy, stats: { ...A.stuckStats, worst: +A.stuckStats.worst.toFixed(1) }, heldS: Object.fromEntries(Object.entries(A.stuckStats.held ?? {}).map(([k, v]) => [k, Math.round(v)])), cls: CLS, sec: Math.round((performance.now() - t0) / 1000) });
       }
     }
     return out;

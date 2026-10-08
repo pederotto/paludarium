@@ -36,6 +36,7 @@ import { HABITAT } from '../content/habitats.js';
 import { restStep, isNight, REST_LABEL, LARVA_REST } from './swimrest.js';
 import { SKINK, skinkMind, skinkThink, skinkRefugeOk } from './skink.js';
 import { freeWalledIn } from './walledin.js';
+import { stuckIntent, asleep, HOLD_CAP } from './stuckintent.js';
 import { SHRIMP, shrimpMind, shrimpThink, shrimpDoing } from './shrimp.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
@@ -1528,7 +1529,7 @@ export class Animals {
     if (a.rest?.resting) return false;                          // (a tadpole at rest on the floor is not stuck: swim() holds it still)
     if (a.dead || a.hop || a.onWall || a.stranded) return false;
     switch (sp.kind) {
-      case 'swim': return true;
+      case 'swim': { const k = stuckIntent(a, sp, { holdS: a.holdS ?? 0, cap: HOLD_CAP }); return k === 'go' || k === 'none'; }   // (R6a: a fish holding station, resting, nibbling or creeping the last 2 cm is not stuck, for at most HOLD_CAP s in a row)
       case 'crawlWater': case 'crawlLand': case 'crab': return a.state === 'walk' && !!a.target && Math.hypot(a.target.x - a.pos.x, a.target.z - a.pos.z) > 0.5;   // (there: not stuck)
       // (a frog resting at the surface or sitting on the bottom means to be still: taken for stuck, a floating toad was put ashore)
       case 'frog': case 'toad': return (a.hopFail ?? 0) >= 1 || (!!a.swimming && !!a.shore && !a.floating && a.dive?.ph !== 'sit');
@@ -1556,6 +1557,11 @@ export class Animals {
     }
     if (sp.kind === 'egg') return;
     if (freeWalledIn(this, a, sp, dt)) return;                    // N11c: walled in by solid cells (walledin.js)
+    if (sp.kind === 'swim') {                                      // R6a: seconds in an asleep intent in a row (stuckintent.js); counted, never silent
+      const k0 = stuckIntent(a, sp, { holdS: 0, cap: Infinity });
+      if (asleep(k0)) { a.holdS = (a.holdS ?? 0) + dt; if (a.holdS <= HOLD_CAP) { const h = this.stuckStats.held ??= {}; h[a.sp] = (h[a.sp] ?? 0) + dt; } }
+      else a.holdS = 0;
+    }
     if (!this.wantsMove(a, sp)) { a.stillT = 0; a.anchor = null; return; }
     if (!a.anchor) { a.anchor = a.pos.clone(); a.stillT = 0; return; }
     if (a.pos.distanceTo(a.anchor) > 0.25 + 0.1 * sp.size) { a.anchor.copy(a.pos); a.stillT = 0; return; }
@@ -1564,6 +1570,7 @@ export class Animals {
     if (a.stillT < 3.5) return;
     // Stuck.
     this.stuckStats.unstuck++;
+    a.holdS = 0;                                  // (R6a: a fish woken by the cap may hold again after the back-off, for another HOLD_CAP at most)
     const recent = this.t - (a.lastStuck ?? -1e9) < 25;
     a.lastStuck = this.t;
     a.stuckLevel = recent ? (a.stuckLevel ?? 0) + 1 : 1;

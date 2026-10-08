@@ -1,0 +1,250 @@
+[
+{
+"name": "L1 fish-lee 6 cory 3 loach 4 guppy among 4 boulders and 3 logs",
+"seconds": 45,
+"rate": 4,
+"spec": {
+"tank": "standard",
+"ground": "flat",
+"depth": 18,
+"obstacles": [
+{
+"kind": "boulder",
+"x": -14,
+"z": -6,
+"size": 10,
+"rot": 0
+},
+{
+"kind": "boulder",
+"x": 12,
+"z": 6,
+"size": 10,
+"rot": 0
+},
+{
+"kind": "boulder",
+"x": -2,
+"z": -9,
+"size": 9,
+"rot": 0
+},
+{
+"kind": "boulder",
+"x": 4,
+"z": 8,
+"size": 9,
+"rot": 0
+},
+{
+"kind": "wood",
+"x": 0,
+"z": 0,
+"size": 23,
+"rot": 0.6
+},
+{
+"kind": "wood",
+"x": -8,
+"z": 8,
+"size": 23,
+"rot": 1.5
+},
+{
+"kind": "wood",
+"x": 10,
+"z": -4,
+"size": 23,
+"rot": 2.2
+}
+],
+"animals": [
+{
+"sp": "cory",
+"x": 4.4,
+"z": 4.8,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "cory",
+"x": 10.6,
+"z": 8.8,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "cory",
+"x": 8.6,
+"z": 8.4,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "cory",
+"x": -17.0,
+"z": -0.7,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "cory",
+"x": 16.0,
+"z": 3.0,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "cory",
+"x": 14.4,
+"z": -7.7,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "loach",
+"x": -1.1,
+"z": -5.1,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "loach",
+"x": 1.6,
+"z": 1.5,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "loach",
+"x": -17.5,
+"z": -5.7,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "guppy",
+"x": -7.9,
+"z": 8.3,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "guppy",
+"x": 9.6,
+"z": -6.8,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "guppy",
+"x": 10.7,
+"z": -7.2,
+"yaw": 0,
+"drive": null
+},
+{
+"sp": "guppy",
+"x": 4.2,
+"z": -7.5,
+"yaw": 0,
+"drive": null
+}
+]
+}
+},
+{
+"name": "L2 fish-pocket U of 3 logs, guppy goto behind the back wall",
+"seconds": 45,
+"rate": 4,
+"spec": {
+"tank": "standard",
+"ground": "flat",
+"depth": 18,
+"obstacles": [
+{
+"kind": "wood",
+"x": 0,
+"z": -4,
+"size": 23,
+"rot": 1.5708
+},
+{
+"kind": "wood",
+"x": -11,
+"z": 2,
+"size": 15,
+"rot": 0
+},
+{
+"kind": "wood",
+"x": 11,
+"z": 2,
+"size": 15,
+"rot": 0
+}
+],
+"animals": [
+{
+"sp": "guppy",
+"x": 0,
+"z": 2,
+"yaw": 0,
+"drive": {
+"type": "goto",
+"x": 0,
+"z": -10,
+"tol": 1.5
+}
+}
+]
+}
+},
+{
+"name": "L3 fish-pinned U of 3 logs, guppy goto beyond the back glass (goal never reached)",
+"seconds": 45,
+"rate": 4,
+"spec": {
+"tank": "standard",
+"ground": "flat",
+"depth": 18,
+"obstacles": [
+{
+"kind": "wood",
+"x": 0,
+"z": -4,
+"size": 23,
+"rot": 1.5708
+},
+{
+"kind": "wood",
+"x": -11,
+"z": 2,
+"size": 15,
+"rot": 0
+},
+{
+"kind": "wood",
+"x": 11,
+"z": 2,
+"size": 15,
+"rot": 0
+}
+],
+"animals": [
+{
+"sp": "guppy",
+"x": 0,
+"z": -2,
+"yaw": 3.14,
+"drive": {
+"type": "goto",
+"x": 0,
+"z": -60,
+"tol": 1.5
+}
+}
+]
+}
+}
+]
