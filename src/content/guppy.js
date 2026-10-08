@@ -96,6 +96,9 @@ export const GUPPY_STRAINS = [
   'yellow', 'green', 'white', 'black', 'moscow_black', 'red_leopard', 'yellow_cobra', 'blue_grass', 'japan_red', 'neon_red',
   'platinum_yellow', 'tuxedo_yellow', 'tuxedo_pastel', 'albino_platinum_white', 'japan_red_doublesword', 'white_lyre',
   'blue_veil', 'red_flag', 'red_spade', 'yellow_topsword', 'albino_red_bottomsword', 'blue_spear', 'red_pin', 'yellow_leopard_veil_ribbon', 'black_swallow',
+  // the owner's strain models (8 Oct 2026, 16 with albino_red, tuxedo_red, tuxedo_blue and red_mosaic above; drawn with their own models: render/creatures/guppymodel.js strainModel)
+  'blue_leopard_fan', 'platinum_tuxedo_red_mosaic', 'green_snakeskin', 'yellow_tiger', 'moscow_red_fan', 'japan_red_mosaic', 'yellow_mosaic',
+  'red_snakeskin_fan', 'platinum_red_tiger', 'gold_red_snakeskin', 'red_cobra', 'yellow_leopard',
 ];
 
 // ---- Genotype -> phenotype ------------------------------------------------------------------------------------------------

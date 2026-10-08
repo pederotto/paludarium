@@ -127,6 +127,128 @@
      ],
      "r": 0.088
     }
+   },
+   "strains": {
+    "albino_red": {
+     "file": "guppy/strain-albino_red.glb",
+     "lo": "guppy/strain-albino_red.lo.glb",
+     "parts": "guppy/strain-albino_red-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.667
+    },
+    "blue_leopard_fan": {
+     "file": "guppy/strain-blue_leopard_fan.glb",
+     "lo": "guppy/strain-blue_leopard_fan.lo.glb",
+     "parts": "guppy/strain-blue_leopard_fan-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.385
+    },
+    "gold_red_snakeskin": {
+     "file": "guppy/strain-gold_red_snakeskin.glb",
+     "lo": "guppy/strain-gold_red_snakeskin.lo.glb",
+     "parts": "guppy/strain-gold_red_snakeskin-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.667
+    },
+    "green_snakeskin": {
+     "file": "guppy/strain-green_snakeskin.glb",
+     "lo": "guppy/strain-green_snakeskin.lo.glb",
+     "parts": "guppy/strain-green_snakeskin-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.826
+    },
+    "japan_red_mosaic": {
+     "file": "guppy/strain-japan_red_mosaic.glb",
+     "lo": "guppy/strain-japan_red_mosaic.lo.glb",
+     "parts": "guppy/strain-japan_red_mosaic-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.667
+    },
+    "moscow_red_fan": {
+     "file": "guppy/strain-moscow_red_fan.glb",
+     "lo": "guppy/strain-moscow_red_fan.lo.glb",
+     "parts": "guppy/strain-moscow_red_fan-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.321
+    },
+    "platinum_red_tiger": {
+     "file": "guppy/strain-platinum_red_tiger.glb",
+     "lo": "guppy/strain-platinum_red_tiger.lo.glb",
+     "parts": "guppy/strain-platinum_red_tiger-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.451
+    },
+    "platinum_tuxedo_red_mosaic": {
+     "file": "guppy/strain-platinum_tuxedo_red_mosaic.glb",
+     "lo": "guppy/strain-platinum_tuxedo_red_mosaic.lo.glb",
+     "parts": "guppy/strain-platinum_tuxedo_red_mosaic-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.385
+    },
+    "red_cobra": {
+     "file": "guppy/strain-red_cobra.glb",
+     "lo": "guppy/strain-red_cobra.lo.glb",
+     "parts": "guppy/strain-red_cobra-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.385
+    },
+    "red_mosaic": {
+     "file": "guppy/strain-red_mosaic.glb",
+     "lo": "guppy/strain-red_mosaic.lo.glb",
+     "parts": "guppy/strain-red_mosaic-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.52
+    },
+    "red_snakeskin_fan": {
+     "file": "guppy/strain-red_snakeskin_fan.glb",
+     "lo": "guppy/strain-red_snakeskin_fan.lo.glb",
+     "parts": "guppy/strain-red_snakeskin_fan-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.385
+    },
+    "tuxedo_blue": {
+     "file": "guppy/strain-tuxedo_blue.glb",
+     "lo": "guppy/strain-tuxedo_blue.lo.glb",
+     "parts": "guppy/strain-tuxedo_blue-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.592
+    },
+    "tuxedo_red": {
+     "file": "guppy/strain-tuxedo_red.glb",
+     "lo": "guppy/strain-tuxedo_red.lo.glb",
+     "parts": "guppy/strain-tuxedo_red-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.321,
+     "eye": {
+      "c": [
+       0.2658,
+       0.0198,
+       1.003
+      ],
+      "r": 0.1894
+     }
+    },
+    "yellow_leopard": {
+     "file": "guppy/strain-yellow_leopard.glb",
+     "lo": "guppy/strain-yellow_leopard.lo.glb",
+     "parts": "guppy/strain-yellow_leopard-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.259
+    },
+    "yellow_mosaic": {
+     "file": "guppy/strain-yellow_mosaic.glb",
+     "lo": "guppy/strain-yellow_mosaic.lo.glb",
+     "parts": "guppy/strain-yellow_mosaic-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.592
+    },
+    "yellow_tiger": {
+     "file": "guppy/strain-yellow_tiger.glb",
+     "lo": "guppy/strain-yellow_tiger.lo.glb",
+     "parts": "guppy/strain-yellow_tiger-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.911
+    }
    }
   }
  }

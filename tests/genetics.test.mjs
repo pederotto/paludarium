@@ -377,3 +377,17 @@ test('the guppy breeding guide: every tail recipe makes its tail, and the guide 
   assert.equal(ANIMAL_INFO.guppy.lesson2, 'guppy-breeding');
   for (const r of c.related) assert.ok(CONCEPTS[r], r);
 });
+
+test('the owner\'s strain models are real strains: they parse, round-trip and are sold', async () => {
+  const fs = await import('node:fs');
+  const { GUPPY_STRAINS, parseGuppy, guppyId } = await import('../src/content/guppy.js');
+  const ov = JSON.parse(fs.readFileSync(new URL('../art-src/creatures/overrides.json', import.meta.url), 'utf8'));
+  const ids = Object.keys(ov.guppy.guppy.strains ?? {});
+  assert.ok(ids.length >= 15, `${ids.length} strain models`);
+  for (const id of ids) {
+    const p = parseGuppy(id);
+    assert.ok(p && guppyId(p) === id && p.sex !== 'female', id);
+    assert.ok(GUPPY_STRAINS.includes(id), `${id} sold`);
+    assert.ok(fs.existsSync(new URL(`../public/assets/creatures/${ov.guppy.guppy.strains[id].file}`, import.meta.url)), `${id} file`);
+  }
+});

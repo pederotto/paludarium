@@ -232,7 +232,16 @@ function makePainter(look) {
       c = mix(c, T.spangle, sm(0.22, 0.1, sp.f1) * (sp.id > 0.55 ? 1 : 0) * (1 - sm(0.25, 0.5, y)) * 0.8);
       const dk = worley(fx * 9, fy * 9, 83);
       c = mix(c, T.dark, sm(0.2, 0.1, dk.f1) * (dk.id > 0.72 ? 1 : 0) * sm(0.15, 0.35, y) * (1 - sm(0.7, 0.9, y)) * (albino ? 0.4 : 0.7));
-      if (mos) {
+      if (mos && strip) {
+        // mosaic on a tail, from the owner's mosaic models (8 Oct): a net of thin dark lines whose cells grow toward the rim, over a pale
+        // yellow-orange root, and a dark margin band
+        const w = worley(fx * 8, fy * (6 - 2.5 * y), 141);                         // (cells drawn out along the rays)
+        const net = sm(0.17, 0.04, w.f2 - w.f1) * sm(0.08, 0.22, y);
+        c = mix(c, mix(T.root, hex(0xffe040), albino ? 0.25 : 0.7), (1 - sm(0.08, 0.3, y)) * 0.85);
+        c = mix(c, albino ? mul(T.rim, 0.75) : mix(T.dark, hex(0x050505), 0.5), net * 0.95);
+        if (!long) c = mix(c, albino ? T.rim : mix(T.dark, hex(0x050505), 0.4), sm(0.8, 0.95, y) * 0.8);
+        if (p.pattern === 'tiger') c = mix(c, T.dark, sm(0.62, 0.7, vnoise(fx * 1.2, fy * 7, 101)) * 0.5);
+      } else if (mos) {
         // mosaic: a dark irregular network over a lighter root, fading out toward the rim
         // blotches drawn out along the rays and branching (an fbm threshold, stretched across the rays), with fine dark veins
         const n = fbm(fx * 6.5, fy * 2.6, 91), n2 = fbm(fx * 13, fy * 5, 97);
