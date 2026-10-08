@@ -43,7 +43,7 @@ test('the set climate holds the species it stocks (care limits tMax / rhMin from
   }
 });
 
-test('canyon: the real-world targets are declared (full-length river, four hydraulic features, strata, rheophilic fauna)', () => {
+test('canyon: the targets are declared (layered massifs, a wall fall onto a shelf stream, a deep lagoon, rheophilic fauna)', () => {
   const c = SHOWCASE_SETS.canyon, l = SHOWCASE_LAYOUTS.canyon;
   assert.deepEqual(['long', 'show'].filter((t) => !l.tiers.includes(t)), []);   // only tiers run clean (showcase-flow.mjs)
   assert.equal(c.ref, 'long');
