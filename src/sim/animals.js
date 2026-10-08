@@ -23,7 +23,7 @@ import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { driveStep, skipWaypoint, crossTrack, panePoint } from './labdrive.js';
 import { Grid, planRoute } from './labroute.js';
-import { CLIMB as STEP_LIMIT, SURFACE_WALKERS } from './surfaces.js';
+import { CLIMB as STEP_LIMIT, SURFACE_WALKERS, limitRise, notABank } from './surfaces.js';
 import { faceRise, isCliff } from './facerise.js';
 import { THREAT, MOVERS, threatScore, sizeFactor, escapeScore } from './threat.js';
 import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
@@ -1232,18 +1232,24 @@ export class Animals {
   standOn(a, sp) {
     const T = this.world.terrain, x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z), c = SURFACE_WALKERS.has(sp.kind) ? STEP_LIMIT[sp.kind] : null;
     if (!c || !this.avoid || !this.occ.count) { a.pos.y = g; a.normal = T.normalAt(x, z); return; }
-    const S = this.surfaces(), room = Math.max(0.8, a.bh ?? 1), y0 = a.pos.y, mid = S.heightAt(x, z, y0, c.up, c.down, room, _sh);
-    if (!mid) { a.pos.y = g; a.normal = T.normalAt(x, z); a.pitch = 0; return; }
+    // (the height it stands at now: a.pos.y, or, when a mover reset a.pos.y to the ground since (the gecko's herpStep), the one this function left it at last,
+    // a._soy; admission of a layer is measured from the real layer it stood on, a._soly, not from the blended height, which fed itself at a log's end)
+    const S = this.surfaces(), room = Math.max(0.8, a.bh ?? 1), fresh = a._soy !== undefined && this.t - a._sot < 0.5 && Math.hypot(x - a._sox, z - a._soz) < 3;
+    const y0 = fresh ? a._soy : a.pos.y, yl = fresh && a._soly !== undefined ? a._soly : y0, mid = S.heightAt(x, z, yl, c.up, c.down, room, _sh);
+    if (!mid) { a.pos.y = g; a.normal = T.normalAt(x, z); a.pitch = 0; a._soy = undefined; return; }
     const piece = _sh.piece, nx = _sh.nx, ny = _sh.ny, nz = _sh.nz, yc = mid.y;
     const b = this.bodyOf(a.sp), f = b ? b.hlen * drawScale(a, sp) * 0.6 : 0, fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0);
     let yf = yc, yr = yc;
     if (f > 0.3) {
-      const hf = S.heightAt(x + fx * f, z + fz * f, y0, c.up, c.down, room, _shF), hr = S.heightAt(x - fx * f, z - fz * f, y0, c.up, c.down, room, _shR);
+      const hf = S.heightAt(x + fx * f, z + fz * f, yl, c.up, c.down, room, _shF), hr = S.heightAt(x - fx * f, z - fz * f, yl, c.up, c.down, room, _shR);
       yf = hf ? hf.y : T.heightAt(x + fx * f, z + fz * f); yr = hr ? hr.y : T.heightAt(x - fx * f, z - fz * f);
     }
     // (the surface under its middle, as a.pos.y is everywhere: footing() poses the body on its feet; a hair above a piece's, PIECE_LIFT: the blended surface can
     // sit a little under a bumpy trunk's real mesh and the engine then takes the body for inside it and relocates it)
-    a.pos.y = yc + (piece ? PIECE_LIFT : 0);
+    let yt = yc + (piece ? PIECE_LIFT : 0);
+    // The rise or fall follows the travel: a step of a log's end is climbed over the distance walked, not taken in one frame.
+    if (fresh) yt = limitRise(y0, yt, Math.hypot(x - a._sox, z - a._soz));
+    a._soy = a.pos.y = yt; a._sox = x; a._soz = z; a._sot = this.t; a._soly = _sh.ly;
     a.pitch = f > 0.3 ? clamp(-Math.atan2(yf - yr, 2 * f), -0.7, 0.7) : 0;
     a.normal = piece ? V(nx, ny, nz) : T.normalAt(x, z);
   }
@@ -1405,7 +1411,11 @@ export class Animals {
         const tail = i++ === 1 && hips != null, px = x0 + ox, pz = z0w + oz;
         // (and lies up a gentle rise behind it, its tip lifted, groundBend: only ground rising more steeply than about 20 degrees is a bank)
         const e = T.heightAt(px, pz) - (tail ? Math.max(plane(px, pz), plane(x0 + ux * hips, z0w + uz * hips)) + Math.max(H * 0.5, -z0 * 0.4) : plane(px, pz) + H * 0.5);
-        if (e > 0) { d += e; if (away) { mx -= ox; mz -= oz; n++; } }
+        // (a surface walker at the lip of a rock or log: the footing plane under its fore feet runs steeply down and, extended to the snout, lies
+        // under the floor below; ground that is lower than the body's own height is a drop it overhangs, not a bank it is in. R5b: the gecko at a boulder's
+        // far face was pushed back 0.3 cm a tick for ever, 'stuck' on the middle boulder)
+        // (and a rise ahead that it can climb, within its step limit, is the foot of what it is walking up onto, not a bank it is in)
+        if (e > 0 && !notABank(sp.kind, T.heightAt(px, pz), y0, i === 1)) { d += e; if (away) { mx -= ox; mz -= oz; n++; } }
       }
       return d;
     };
@@ -4975,8 +4985,7 @@ export class Animals {
       this.herpStep(a, sp, P, { x: a.pos.x, z: wz + 1.5 }, goal ? it.speed : P.walk, dt, 'land', 5);
     } else if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, 'land', 0.3);
     else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - a.pos.x, it.face.z - a.pos.z), dt, 5); }
-    a.pos.y = T.heightAt(a.pos.x, a.pos.z);
-    a.normal = T.normalAt(a.pos.x, a.pos.z);
+    this.standOn(a, sp);                  // (on the floor, or on the log or root it has stepped onto: sim/surfaces.js)
     a.wallMode = false; a._wn = null;
   }
 
@@ -5246,7 +5255,7 @@ export class Animals {
   footH(a, sp, x, z) {
     const T = this.world.terrain;
     if (!SURFACE_WALKERS.has(sp.kind) || !this.avoid || !this.occ.count) return T.heightAt(x, z);
-    const c = STEP_LIMIT[sp.kind], h = this.surfaces().heightAt(x, z, a.pos.y, c.up, c.down, Math.max(0.8, a.bh ?? 1), _shH);
+    const c = STEP_LIMIT[sp.kind], h = this.surfaces().heightAt(x, z, a._soly ?? a.pos.y, c.up, c.down, Math.max(0.8, a.bh ?? 1), _shH);
     return h ? h.y + (h.piece ? PIECE_LIFT : 0) : T.heightAt(x, z);
   }
 

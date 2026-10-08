@@ -2195,7 +2195,19 @@
    "grainAmt": 0.15,
    "finOpacity": 0.85,
    "finAlpha": 1,
-   "flutter": 0.03
+   "flutter": 0.03,
+   "finFlow": {
+    "lag": 0.45,
+    "ripple": 0.022,
+    "wave": 7,
+    "rate": 7,
+    "pect": 0.45,
+    "pectRate": 26
+   },
+   "finFray": {
+    "start": 0.62,
+    "scale": 14
+   }
   },
   "guppy": {
    "male": {
@@ -2213,6 +2225,12 @@
       1.3362
      ],
      "r": 0.0634
+    },
+    "tails": {
+     "file": "guppy/tail-{shape}.glb",
+     "lo": "guppy/tail-{shape}.lo.glb",
+     "zEnd": -0.5729,
+     "zCut": -0.1729
     }
    },
    "female": {
@@ -2222,7 +2240,15 @@
     "parts": "guppy/female-parts.png",
     "base": "guppy/female-base.webp",
     "slCm": 3.2,
-    "totalCm": 4.129
+    "totalCm": 4.129,
+    "eye": {
+     "c": [
+      0.1133,
+      0.1275,
+      1.6775
+     ],
+     "r": 0.088
+    }
    }
   }
  },

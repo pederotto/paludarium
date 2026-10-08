@@ -60,7 +60,7 @@ const TAIL = {
   green: { root: 0xa8f4c4, mid: 0x30c486, rim: 0x0e7a64, ray: 0x20a078, dark: 0x061810, spangle: 0xd8fff0 },
   white: { root: 0xffffff, mid: 0xf4f6f8, rim: 0xdfe4ea, ray: 0xe6eaee, dark: 0x9aa0a8, spangle: 0xffffff },
   pastel: { root: 0xfffdf0, mid: 0xfff2c6, rim: 0xf4d898, ray: 0xf6e4b0, dark: 0xb8a070, spangle: 0xffffff },
-  black: { root: 0x30323e, mid: 0x14151c, rim: 0x07070a, ray: 0x22242e, dark: 0x000000, spangle: 0x4a5a9a },
+  black: { root: 0x2c3a78, mid: 0x161a32, rim: 0x0c0d1a, ray: 0x2a3258, dark: 0x000000, spangle: 0x5a78c8 },   // navy-black, blue at the base (the owner's photo)
   albino_yellow: { root: 0xfff8c0, mid: 0xffe050, rim: 0xf4b830, ray: 0xf0c840, dark: 0xffd890, spangle: 0xffffff },
   albino_lime: { root: 0xf6ffc8, mid: 0xd4f070, rim: 0x9ad040, ray: 0xbce060, dark: 0xe0f0b0, spangle: 0xffffff },
   albino_green: { root: 0xd8fff0, mid: 0x8ae8c4, rim: 0x48c09c, ray: 0x70d8b4, dark: 0xc0eedc, spangle: 0xffffff },
@@ -149,6 +149,13 @@ function makePainter(look) {
       if (p.japan) c = mix(c, mix(hex(0x2c6cf0), hex(0x7ec8ff), fbm(s * 18, v * 8, 37) * 0.7), sm(0.1, 0.18, s) * (1 - sm(0.5, 0.62, s)) * sm(0.05, 0.25, v) * (1 - sm(0.65, 0.8, v)) * 0.85);
       if (p.neon) c = mix(c, mix(hex(0x20e0e8), hex(0x40a0ff), sm(0.2, 0.8, s)), sm(0.16, 0.22, s) * (1 - sm(0.78, 0.9, s)) * sm(0.14, 0.2, v) * (1 - sm(0.36, 0.44, v)) * 0.9);
       if (p.colour === 'black') c = mix(c, mul(T.mid, 1.4), sm(0.4, 0.62, s) * 0.85);              // black fins spill onto the stalk
+      if (p.pattern === 'leopard') {
+        // leopard: dark spots and broken rings over the rear body, with blue glints between them (the owner's leopard veiltail)
+        const w = worley(s * SL * 10, v * 5, 151), ringK = sm(0.05, 0.0, Math.abs(w.f1 - 0.2) - 0.035), blob = sm(0.15, 0.09, w.f1);
+        const zone = sm(0.26, 0.4, s) * (1 - sm(0.84, 0.95, v)) * sm(0.04, 0.14, v);
+        c = mix(c, albino ? hex(0xe8b080) : hex(0x101008), Math.max(w.id > 0.45 ? ringK : 0, w.id <= 0.45 ? blob : 0) * zone * 0.85);
+        if (!albino) c = mix(c, hex(0x58a0e0), sm(0.12, 0.05, worley(s * SL * 24, v * 11, 157).f1) * zone * 0.5);
+      }
       if (p.pattern === 'cobra') c = mix(c, albino ? hex(0xf0c890) : hex(0x14140c), sm(0.62, 0.7, vnoise(s * SL * 9, v * 2.2, 43)) * sm(0.2, 0.3, s) * (1 - sm(0.8, 0.92, v)) * 0.8);   // vertical cobra bars
       if (snake) {
         const w = worley(s * SL * 13, v * 8.5, 41), chain = sm(0.05, 0.0, w.f2 - w.f1) + sm(0.2, 0.12, w.f1) * 0.35;
@@ -177,9 +184,24 @@ function makePainter(look) {
   };
 
   // A fin in its own coordinates: x across the rays, y out along them; nRays for the ray streaks; kind for its colours.
-  const fin = (kind, x, y, nRays) => {
-    const rx = x * (nRays - 1), rj = Math.round(rx), ray = nRays ? 1 - sm(0.06, 0.2, Math.abs(rx - rj)) : 0;    // on a ray (0: the model's texture has its own)
-    const rid = ih(rj, 3, 61);
+  // strip: a texel of the male's tail strip (art-src/guppy/tails.py: x across the rays, y out along them over the whole tail), which
+  // has no rays of its own: real ones are drawn, 16 from the stalk, each forking twice on its way out (at about 0.45 and 0.75), jointed,
+  // wavering a little; the pigment sits on the rays and the membrane between them is clearer.
+  const fin = (kind, x, y, nRays, strip = false) => {
+    let ray, rid;
+    if (strip) {
+      const xr = x + 0.006 * Math.sin(y * 7 + x * 40) + 0.004 * (vnoise(x * 30, y * 6, 131) - 0.5);
+      const w = 0.16 * (1 - 0.35 * y);
+      const line = (v) => 1 - sm(w * 0.4, w, Math.abs(v - Math.round(v)));
+      const r0 = line(xr * 16), r1 = line(xr * 32 + 0.5) * sm(0.38, 0.5, y), r2 = line(xr * 64) * sm(0.68, 0.8, y) * 0.85;
+      const joint = 0.82 + 0.18 * sm(0.0, 0.25, Math.abs(((y * 26 + ih(Math.round(xr * 16), 5, 67)) % 1) - 0.5));
+      ray = Math.max(r0, r1 * 0.9, r2) * joint * sm(0.0, 0.06, y);
+      rid = ih(Math.round(xr * 32), 3, 61);
+    } else {
+      const rx = x * (nRays - 1), rj = Math.round(rx);
+      ray = nRays ? 1 - sm(0.06, 0.2, Math.abs(rx - rj)) : 0;                       // on a ray (0: the model's texture has its own)
+      rid = ih(rj, 3, 61);
+    }
     let c, a;
     if (kind === 'pectoral' || kind === 'pelvic' || (kind === 'anal' && male)) {
       // clear membranes; a big-ear fish's pectorals are white, a male's edged with its colour
@@ -193,14 +215,17 @@ function makePainter(look) {
     if (kind === 'anal') {                                                           // a female's anal fin: clear, faintly tinted
       c = mix(hex(0xdcdfd2), T.mid, 0.12 * show); return [...mix(c, mul(c, 0.82), ray), 0.42 + ray * 0.2];
     }
-    // tail and dorsal: the strain's colours
-    const edgeK = sm(0.8, 0.98, y);
+    // tail and dorsal: the strain's colours. On the long tails (swords, pin, lyre) the rays run out along the sword (t reaches 1 only
+    // at its tip, art-src/guppy/tails.py): a sword carries the strain colour to its tip, with only its last part deepening.
+    const long = kind === 'caudal' && LONG_TAILS.has(p.tail);
+    const edgeK = sm(0.8, 0.98, y) * (long ? 0.35 : 1);
     c = mix(T.root, T.mid, sm(0.05, 0.42, y));
-    c = mix(c, T.rim, sm(0.55, 1.0, y) * (0.75 + 0.25 * Math.abs(x * 2 - 1)));
+    c = mix(c, T.rim, (long ? sm(0.8, 1.0, y) * 0.45 : strip ? sm(0.7, 1.0, y) * 0.6 : sm(0.55, 1.0, y)) * (0.75 + 0.25 * Math.abs(x * 2 - 1)));
     // streaks along the rays and faint lighter membrane between them; each ray its own shade
     c = mix(c, T.ray, ray * 0.35);
     c = mul(c, 0.93 + 0.12 * rid);
-    const fx = x * (kind === 'caudal' ? 1.5 : 0.8) * SL, fy = y * (kind === 'caudal' ? 0.8 : 0.4) * SL;   // ~cm in the fin
+    // ~cm in the fin (the strip fans out: across the rays it is narrow at the stalk and wide at the rim, so spots stretch along the rays)
+    const fx = strip ? x * (0.3 + 1.3 * y) * 1.4 * SL : x * (kind === 'caudal' ? 1.5 : 0.8) * SL, fy = y * (kind === 'caudal' ? 0.8 : 0.4) * SL;
     if (male) {
       // light spangles near the root (iridophores), dark speckles further out
       const sp = worley(fx * 14, fy * 14, 71);
@@ -217,28 +242,54 @@ function makePainter(look) {
         c = mix(c, albino ? mul(T.rim, 0.8) : mix(T.dark, T.rim, 0.35), net * reach * 0.92);
         if (p.pattern === 'tiger') c = mix(c, T.dark, sm(0.62, 0.7, vnoise(fx * 1.2, fy * 7, 101)) * 0.7);
       }
-      if (leo) {
+      if (leo && strip) {
+        // leopard on a tail: dense dark rings, worm-shaped blotches and dots in rows that follow the fan (the owner's leopard veiltail)
+        const w = worley(fx * 3.8, fy * 5.2, 109);                                  // (~19 across at the rim, ~9 rows out)
+        const ringK = sm(0.07, 0.0, Math.abs(w.f1 - 0.3) - 0.07), blob = sm(0.34, 0.24, w.f1 * (0.85 + 0.3 * w.id));
+        const mark = w.id > 0.5 ? ringK : w.id > 0.12 ? blob : 0;
+        c = mix(c, albino ? mul(T.rim, 0.7) : mix(T.dark, hex(0x050505), 0.6), mark * sm(0.05, 0.18, y) * 0.95);
+      } else if (leo) {
         // leopard: bold dark spots and broken bars across the rays, larger toward the rim (the owner's leopard male, the yellow cobra)
         const w = worley(fx * 5.5, fy * 3.6, 109), spot = sm(0.3, 0.22, w.f1 * (0.85 + 0.3 * w.id)) * (w.id > 0.15 ? 1 : 0);
         c = mix(c, albino ? mul(T.rim, 0.7) : mix(T.dark, hex(0x050505), 0.6), spot * sm(0.08, 0.25, y) * 0.95);
       }
       if (grass) {
-        const w = worley(fx * 20, fy * 20, 113);                                     // grass: many fine dark dots
+        const w = worley(fx * (strip ? 8 : 20), fy * (strip ? 11 : 20), 113);         // grass: many fine dark dots (the strip spans more cm)
         c = mix(c, albino ? mul(T.rim, 0.8) : T.dark, sm(0.17, 0.09, w.f1) * (w.id > 0.35 ? 1 : 0) * sm(0.1, 0.3, y) * 0.85);
       }
       if (p.pattern === 'snakeskin') {
         // lace: a fine dark web over the whole fin
-        const w = worley(fx * 22, fy * 13, 103);
-        c = mix(mix(c, hex(0xe8e070), 0.15), albino ? mul(T.rim, 0.85) : T.dark, sm(0.05, 0.0, w.f2 - w.f1) * 0.7 * (0.6 + 0.4 * sm(0.0, 0.3, y)));
+        const w = worley(fx * (strip ? 9 : 22), fy * (strip ? 9 : 13), 103);
+        c = mix(mix(c, hex(0xe8e070), 0.15), albino ? mul(T.rim, 0.85) : T.dark, sm(strip ? 0.1 : 0.05, 0.0, w.f2 - w.f1) * (strip ? 0.85 : 0.7) * (0.6 + 0.4 * sm(0.0, 0.3, y)));
       }
       if (kind === 'dorsal' && !mos && !leo && !grass && p.pattern !== 'snakeskin') {
         const d = worley(fx * 10, fy * 10, 107);                                    // fancy dorsals: a few dark spots
         c = mix(c, T.dark, sm(0.18, 0.08, d.f1) * (d.id > 0.6 ? 1 : 0) * 0.6 * (albino ? 0.4 : 1));
       }
       if (p.tuxedo && black && kind === 'caudal') c = mix(c, black, (1 - sm(0.0, 0.16, y)) * 0.6);
-      if (kind === 'caudal' && p.tail === 'doublesword' && Math.abs(x * 2 - 1) > 0.72) c = mix(c, albino ? T.rim : black ?? T.rim, sm(0.8, 0.95, Math.abs(x * 2 - 1)) * 0.65);   // swords edged dark
+      if (kind === 'caudal' && p.tail === 'doublesword' && Math.abs(x * 2 - 1) > 0.9) c = mix(c, albino ? T.rim : black ?? T.rim, sm(0.93, 0.99, Math.abs(x * 2 - 1)) * 0.6);   // the swords' outer edges dark
       c = mix(c, mul(T.rim, 0.75), edgeK * 0.5);
       a = 0.95 - 0.2 * edgeK + 0.05 * ray;
+      if (strip) {
+        // the membrane between the rays clearer and lighter, the rays deeper; the root translucent, taking the stalk's colour; the margin
+        // paler (the game thins and frays it further: material.js finFray)
+        const memb = mix(c, mix(c, hex(0xffffff), 0.16), 0.6), deep = mul(mix(c, T.ray, 0.25), 0.92);
+        c = mix(memb, deep, ray * 0.8);
+        c = mix(mix(mix(T.root, G.flank, 0.35), c, 0.5), c, sm(0.03, 0.2, y));
+        if (!long) c = mix(c, mix(T.mid, hex(0xffffff), 0.3), sm(0.88, 1.0, y) * 0.25);
+        const pale = p.colour === 'white' || p.colour === 'pastel';
+        if (p.colour === 'black' && !albino) c = mix(c, T.spangle, Math.min(0.6, ray * 0.3 + (1 - sm(0.08, 0.5, y)) * 0.35));   // a black tail's blue sheen
+        a = (pale ? 0.5 + 0.35 * ray : 0.8 + 0.18 * ray) * (0.72 + 0.28 * sm(0.0, 0.2, y));
+        if (p.tail === 'doublesword' || p.tail === 'lyre') {
+          // the colour rides on the two lobes, brightest along their outer rays and paler toward the middle; between them the membrane
+          // is clear and the rays show (the owner's Endler albino double sword and lyretail photos)
+          const out = Math.abs(x * 2 - 1);                                             // 0 the middle … 1 the outer edge of a lobe
+          const lobe = sm(0.32, 0.62, out);
+          c = mix(c, mix(T.root, T.mid, sm(0.55, 0.95, out)), lobe * 0.55);
+          c = mix(mix(hex(0xe6ead8), G.flank, 0.3), c, Math.max(lobe, 1 - sm(0.1, 0.3, y)));
+          a = mix1(0.3 + 0.3 * ray, a, Math.max(lobe, 1 - sm(0.1, 0.3, y)));
+        }
+      }
     } else {
       // females and fry: a clear fin washed with the line's colour, a few dark speckles
       const clear = mix(hex(0xd4d8c8), G.flank, 0.3);
@@ -258,25 +309,28 @@ function makePainter(look) {
 const PART = { 255: 'body', 200: 'caudal', 160: 'dorsal', 120: 'pectoral', 80: 'ventral' };
 const lumOf = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 // A box blur of the luminance (radius r texels), separable: the local mean the detail is measured against.
-function blurLum(L, N, r) {
-  const tmp = new Float32Array(N * N), out = new Float32Array(N * N), w = 2 * r + 1;
-  for (let y = 0; y < N; y++) { let acc = 0; for (let x = -r; x <= r; x++) acc += L[y * N + Math.min(N - 1, Math.max(0, x))];
+function blurLum(L, N, r, H = N) {
+  const tmp = new Float32Array(N * H), out = new Float32Array(N * H), w = 2 * r + 1;
+  for (let y = 0; y < H; y++) { let acc = 0; for (let x = -r; x <= r; x++) acc += L[y * N + Math.min(N - 1, Math.max(0, x))];
     for (let x = 0; x < N; x++) { tmp[y * N + x] = acc / w; acc += L[y * N + Math.min(N - 1, x + r + 1)] - L[y * N + Math.max(0, x - r)]; } }
-  for (let x = 0; x < N; x++) { let acc = 0; for (let y = -r; y <= r; y++) acc += tmp[Math.min(N - 1, Math.max(0, y)) * N + x];
-    for (let y = 0; y < N; y++) { out[y * N + x] = acc / w; acc += tmp[Math.min(N - 1, y + r + 1) * N + x] - tmp[Math.max(0, y - r) * N + x]; } }
+  for (let x = 0; x < N; x++) { let acc = 0; for (let y = -r; y <= r; y++) acc += tmp[Math.min(H - 1, Math.max(0, y)) * N + x];
+    for (let y = 0; y < H; y++) { out[y * N + x] = acc / w; acc += tmp[Math.min(H - 1, y + r + 1) * N + x] - tmp[Math.max(0, y - r) * N + x]; } }
   return out;
 }
 const GOLD_RAMP = [hex(0x5a3c14), hex(0xc89a44), hex(0xfff0c0)], ALBINO_RAMP = [hex(0xd8a090), hex(0xf2d4c8), hex(0xfffaf6)];
+const mix1 = (a, b, t) => a + (b - a) * t;
+const LONG_TAILS = new Set(['topsword', 'bottomsword', 'doublesword', 'lyre', 'pin']);
 const ramp = (R, L) => (L < 0.5 ? mix(R[0], R[1], L * 2) : mix(R[1], R[2], (L - 0.5) * 2));
 
-// The texture of one look on one model: { N, rgba } (N x N, row 0 at the top, as the maps). maps: { N, coords, parts, base } (RGBA bytes).
+// The texture of one look on one model: { N, H, rgba } (N wide, H high, row 0 at the top, as the maps). maps: { N, H, coords, parts,
+// base } (RGBA bytes; H defaults to N: the male's maps are taller, his tails' strip below his own atlas: art-src/guppy/tails.py).
 export function paintGuppyModel(look, maps) {
-  const { N, coords, parts, base } = maps, P = makePainter(look), { p, T, male, juv, albino, black } = P;
-  const L = new Float32Array(N * N);
-  for (let i = 0; i < N * N; i++) L[i] = lumOf(base[i * 4], base[i * 4 + 1], base[i * 4 + 2]) / 255;
-  const M = blurLum(L, N, 2);
-  const out = new Uint8ClampedArray(N * N * 4);
-  for (let i = 0; i < N * N; i++) {
+  const { N, coords, parts, base } = maps, H = maps.H ?? N, P = makePainter(look), { p, T, male, juv, albino, black } = P;
+  const L = new Float32Array(N * H);
+  for (let i = 0; i < N * H; i++) L[i] = lumOf(base[i * 4], base[i * 4 + 1], base[i * 4 + 2]) / 255;
+  const M = blurLum(L, N, 2, H);
+  const out = new Uint8ClampedArray(N * H * 4);
+  for (let i = 0; i < N * H; i++) {
     const k = i * 4, pv = parts[k], part = pv < 40 ? null : PART[[255, 200, 160, 120, 80].reduce((m, q) => (Math.abs(q - pv) < Math.abs(m - pv) ? q : m), 255)];
     const b = [base[k] / 255, base[k + 1] / 255, base[k + 2] / 255];
     if (!part) { out[k] = base[k]; out[k + 1] = base[k + 1]; out[k + 2] = base[k + 2]; out[k + 3] = 255; continue; }
@@ -309,12 +363,12 @@ export function paintGuppyModel(look, maps) {
         c = mix(c, strain, over);
       }
     } else {
-      const f = P.fin(part === 'ventral' ? 'anal' : part, u, w, 0);
-      c = mul([f[0], f[1], f[2]], 0.92 + 0.16 * (detail - 0.65) / 0.7);              // the model's fine rays and edges, not its spots
+      const f = P.fin(part === 'ventral' ? 'anal' : part, u, w, 0, coords[k + 2] > 200);   // (blue 255: the male's tail strip)
+      c = mul([f[0], f[1], f[2]], 0.92 + (coords[k + 2] > 200 ? 0.06 : 0.16) * (detail - 0.65) / 0.7);   // the model's fine rays and edges, not its spots
       a = f[3];
       if (part === 'ventral' || part === 'pectoral') { c = mix(c, b, 0.5); }                 // small clear fins: mostly the model's own
     }
     out[k] = c[0] * 255; out[k + 1] = c[1] * 255; out[k + 2] = c[2] * 255; out[k + 3] = Math.max(0, Math.min(1, a)) * 255;
   }
-  return { N, rgba: out };
+  return { N, H, rgba: out };
 }

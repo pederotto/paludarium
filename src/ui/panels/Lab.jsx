@@ -127,6 +127,7 @@ function GeneticsTab() {
   return (
     <div>
       <p class="note" style={{ marginTop: 0 }}>Every animal has two copies of each gene. Choose two animals below to see what each can pass on and how likely each colour is among their babies. <a href="#" onClick={(e) => { e.preventDefault(); openModal('codex', 'concept:genetics'); }} style={{ color: 'var(--moss)' }}>Colour genetics</a></p>
+      {sp === 'guppy' ? <p class="note" style={{ marginTop: 0 }}>Guppies: the mother is always the female, the father the male. Moscow, swords, snakeskin, platinum and Japan blue go from a father to all his sons; mosaic, grass, half-black and neon come to a son from his mother. <a href="#" onClick={(e) => { e.preventDefault(); openModal('codex', 'concept:guppy-breeding'); }} style={{ color: 'var(--moss)' }}>Guppy breeding guide</a></p> : null}
       <div class="chips">
         {speciesIds.map((id) => <button key={id} class={'chip' + (sp === id ? ' on' : '')} onClick={() => setSp(id)}>{SPECIES[id].name} ({all.filter((a) => a.sp === id).length})</button>)}
       </div>

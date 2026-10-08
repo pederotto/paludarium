@@ -57,8 +57,11 @@ snakeskin + leopard = cobra, snakeskin + mosaic = tiger, leopard hides mosaic an
 gold, half-black, Moscow and black. Ribbon males cannot sire (real: the gonopodium is too long). Mutation per allele is the species rate
 x 3 / genes (so a baby carries a mutation about as often as in a three-gene species, ~6 %).
 Morph ids (the strain a male shows): ground · moscow · platinum · japan · neon · tuxedo · colour · pattern · tail · ribbon · swallow ·
-dumbo, defaults left out (`red` = a plain red delta). 47 strains sold (`GUPPY_STRAINS`); 430 080 male strains can be bred (107 520 drawn
-differently until the owner's tail models come: the 12 tails are drawn by size class, delta / fan / round). Odds: daughters and sons
+dumbo, defaults left out (`red` = a plain red delta). 47 strains sold (`GUPPY_STRAINS`); 430 080 male strains can be bred, all drawn
+differently: each male wears his own tail of the 12 (render/creatures/guppymodel.js, built by art-src/guppy/tails.py), a female her
+size class. In the game: the Field Guide page "Breeding guppies" (content/concepts.js `guppy-breeding`, its tables built from
+`GUPPY_LOCI` and `GUPPY_TAIL_RECIPES`, every recipe checked against guppyTraits in tests/genetics.test.mjs), linked from a guppy's info
+card and the Lab's Genetics tab. Odds: daughters and sons
 are enumerated apart; when a pair has over 40 000 phenotype classes the odds come from 20 000 seeded simulated births (`approx`).
 `genotypeForMorph(id, morph, rng, { female })` builds a strain's genotype gene by gene (`guppyGenotypeFor`). Old saves are made whole for
 the fish's sex (`sexGenes`). Tests: tests/genetics.test.mjs (incl. Y father-to-son, X mother-to-son, births vs exact odds, all 12 tails),

@@ -363,3 +363,17 @@ test('shrimp: a genotype saved before the blue and rili genes still resolves and
   const kid = breed('shrimp', ['Wr', 'Yy'], ['rr', 'yy', 'Bb', 'll'], makeRng(3));
   assert.equal(kid.length, 4);
 });
+
+test('the guppy breeding guide: every tail recipe makes its tail, and the guide page exists and is linked', async () => {
+  const { GUPPY_TAIL_RECIPES, GUPPY_TAILS, guppyRecipeGenes, guppyTraits } = await import('../src/content/guppy.js');
+  const { CONCEPTS } = await import('../src/content/concepts.js');
+  const { ANIMAL_INFO } = await import('../src/content/species-info.js');
+  assert.deepEqual(GUPPY_TAIL_RECIPES.map((r) => r.tail).sort(), [...GUPPY_TAILS].sort());
+  for (const r of GUPPY_TAIL_RECIPES) assert.equal(guppyTraits(guppyRecipeGenes(r)).tail, r.tail, r.recipe);
+  // a long tail hides the swords
+  assert.equal(guppyTraits(guppyRecipeGenes({ size: 'LL', top: true, bottom: true })).tail, 'delta');
+  const c = CONCEPTS['guppy-breeding'];
+  assert.ok(c && c.widget === 'guppy' && c.sections.length >= 5);
+  assert.equal(ANIMAL_INFO.guppy.lesson2, 'guppy-breeding');
+  for (const r of c.related) assert.ok(CONCEPTS[r], r);
+});

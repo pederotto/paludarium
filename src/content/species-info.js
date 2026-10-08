@@ -269,7 +269,7 @@ export const ANIMAL_INFO = {
     ],
     care: ['They breed without help. In a small tank, control the population by feeding little.', 'Fine at 22–28 °C.'],
     lesson: 'carrying-capacity',
-    lesson2: 'genetics',
+    lesson2: 'guppy-breeding',
   },
   cory: {
     sci: 'Corydoras aeneus', family: 'Callichthyidae', status: 'Least Concern', region: 'South America east of the Andes',
