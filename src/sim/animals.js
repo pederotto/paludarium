@@ -335,7 +335,7 @@ export const SPECIES = {
     body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
     note: 'Semi-aquatic: needs both land and open water. Spawns in the water.',
   },
-  // The European common frog (Rana temporaria, owner, 7 Oct 2026): IN PROGRESS on feat/commonfrog, not in the shop. ONE body for every pose (commonfrog.swim: the owner's
+  // The European common frog (Rana temporaria, owner, 7 Oct 2026; on sale from 8 Oct). ONE body for every pose (commonfrog.swim: the owner's
   // drop, corrected to the proportion table; skeleton in tools/rig/commonfrog-swim-joints.json). SVL 7 cm. A ground frog of damp places that swims well and spawns in water.
   commonfrog: {
     name: 'Common frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 2.2, speed: 1.3, wip: true,
@@ -361,7 +361,7 @@ export const SPECIES = {
     sit: { pitchDeg: 22, offsetCm: [0, 1.123, 0.237], pivotCm: [0, 1.076, -3.901], legKey: 'crouch', armDeg: [0, 0], armA: [83, -177, -170, -36, -77, -17, 74, -167, -171, -43, -68, -24], roll: [-46, -7, -14, 0, 0, 0], legA: [154, -22, 156, 127, -19, 10, -40, -19, -30], mouthCm: [0.028, 1.078, 3.076], tipCm: [0.028, -0.54, 3.87], insideCm: [0.028, 1.25, 2.4], jawOpenCm: [0.028, -0.2, 2.299] },
     minL: 80, temp: [8, 22], humidity: 70, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'flylarva', 'cricket', 'earthworm', 'waxworm'], cap: 4, breed: 0, adultDays: 40,
     land: 0.6, body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
-    note: 'Work in progress (feat/commonfrog): body, skeleton and mouth being built to the realism gates.',
+    note: 'A ground frog of cool, damp European woods and meadows. It hunts on land with a quick lunge and a flick of its short tongue, swims well and spawns in ponds. Wants 8–22 °C, damp ground and water to swim in.',
   },
   newt: {
     name: 'Paddle-tail newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.6, speed: 2,
@@ -716,6 +716,21 @@ export async function modelBuilder(id, meta = null) {
   return (scene, cap = sp.cap + 20) => new CreatureLOD(scene, g.lo, {
     cap, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
     finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...extra, ...(palette ? { palette } : {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}), ...turnRigFinish(sp) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+  });
+}
+
+// A species' pose model (`<id>.<pose>` in the manifest: a frog's swimming body) as a function that makes its mesh in a scene, built as loadPose builds it, or null.
+// The portraits draw a one-body frog (sp.oneBody: the common frog) with it, in its sitting stance, as the tank shows it.
+export async function poseModelBuilder(id, pose = 'swim') {
+  const key = `${id}.${pose}`, meta = (await loadManifest())[key], sp = SPECIES[id.split(':')[0]];
+  if (!sp || !meta || meta.disabled) return null;
+  if (!GLB_CACHE.has(key)) GLB_CACHE.set(key, loadCreatureGLB(key, { legs: false, ...meta }));
+  const g = await GLB_CACHE.get(key);
+  if (!g) return null;
+  const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
+  return (scene, cap = 2) => new CreatureLOD(scene, g.lo, {
+    cap, wave: 1, legLift: 0, legStride: 0,
+    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
   });
 }
 

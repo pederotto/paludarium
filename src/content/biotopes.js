@@ -153,7 +153,7 @@ export const BIOTOPES = {
   },
   teutoburg: {
     id: 'teutoburg', name: 'Central European beech wood', country: 'Germany', level: 5,
-    animals: ['firesal', 'springtail', 'isopod'], plants: ['fernph', 'weed', 'bilberry', 'grass', 'hartstongue'],
+    animals: ['firesal', 'commonfrog', 'springtail', 'isopod'], plants: ['fernph', 'weed', 'bilberry', 'grass', 'hartstongue'],
     climate: { temp: [12, 18], humidity: [75, 95] },
     features: ['leaflitter', 'cool', 'stream'],
     blurb: 'Old beech woods with springs and small streams, cool and damp all year. The fire salamander hides under logs and leaves by day and comes out on rainy nights; females put their larvae into clear springs.',
