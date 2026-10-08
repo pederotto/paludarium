@@ -94,6 +94,7 @@ export const ANIMALS = {
   skink: { name: 'Red-eyed crocodile skink', price: 85, rank: 7, resale: 0.5, source: 'captive', adult: 120, group: 'Reptiles' },
   panther: { name: 'Panther crab', price: 35, rank: 6, resale: 0.45, source: 'wild', adult: 60, group: 'Crustaceans' },
   toad: { name: 'Fire-bellied toad', price: 20, rank: 6, resale: 0.4, source: 'captive', adult: 30, group: 'Amphibians', frog: true },
+  commonfrog: { name: 'European common frog', price: 25, rank: 6, resale: 0.4, source: 'captive', adult: 40, group: 'Amphibians', frog: true },
   firesal: { name: 'Fire salamander', price: 60, rank: 8, resale: 0.45, source: 'wild', adult: 40, group: 'Amphibians' },
   newt: { name: 'Paddle-tail newt', price: 35, rank: 7, resale: 0.45, source: 'wild', adult: 30, group: 'Amphibians' },
   axolotl: { name: 'Axolotl', price: 60, rank: 8, resale: 0.5, source: 'captive', adult: 30, group: 'Amphibians' },

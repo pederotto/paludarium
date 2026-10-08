@@ -27,6 +27,7 @@ import { PLANS, bendAngle } from '../../util/bodyplan.js';
 import { strokeAngles, armAngles, HIND, FORE } from '../../util/gait.js';
 import { lizardRig } from './lizardpose.js';
 import { bellyRig, writeBellies, MUSCLE_TEXEL0, MUSCLE_PAIR } from './muscles.js';
+import { strikeCurves, tongueAngles, FROG_STRIKE } from '../../util/frogstrike.js';
 export { MUSCLE_TEXEL0, MUSCLE_PAIR };
 
 export const ROW_TEXELS = 94;                  // texels in an instance's row of the bone texture (RGBA float each): 24 frog bones (72 texels: 17 to 22, the red-eyed tree frog's fingers and shoulder girdle, 23 with its jaw) then 22 belly texels; a lizard's 25 bones fit too
@@ -415,8 +416,43 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
       hu[1][0] = c1[0]; hu[1][1] = c1[1]; hu[1][2] = c1[2]; hu[2][0] = c2[0]; hu[2][1] = c2[1]; hu[2][2] = c2[2];
     }
   }
+  if (rig.byName.jaw != null) poseHead(rig, s, R, H);
   writeBones(rig, R, H, out, o, s);
   return info;
+}
+
+// The head's own bones (gate 4, the common frog, 7 Oct 2026: a 24-bone swimming body with a jaw, a hyoid and a four-segment tongue, tools/rig/frogmouth-finish.mjs):
+// all carried with the head bone, then posed by the strike's ONE timeline (util/frogstrike.js; `st.strikeT` 0 .. 1, absent = at rest, byte for byte):
+//   jaw      turns about its own head (the quadrate-articular hinge) by the gape, about the lateral axis, chin down
+//   hyoid    drops by h (cm) in the head's frame: the floor of the mouth and the throat
+//   tongue   a chain from its attachment behind the symphysis, in the jaw's frame: each segment turned by its angle (base first: a whip) and stretched along
+//            itself by s while it thins across (1 / sqrt s: the volume kept); the next segment starts where the turned, stretched one ends
+const _sc = {}, _ta = new Float32Array(4);
+function poseHead(rig, st, R, H) {
+  const hb = rig.byName.head, jb = rig.byName.jaw, head = rig.head;
+  const c = strikeCurves(st?.strikeT ?? 0, rig.strikePlan ?? FROG_STRIKE, _sc);
+  const atHead = (p) => addv(H[hb], mv(R[hb], sub(p, head[hb])));
+  R[jb] = mm(R[hb], rotX(c.gape)); H[jb] = atHead(head[jb]);
+  const hy = rig.byName.hyoid;
+  if (hy != null) { R[hy] = R[hb]; H[hy] = atHead([head[hy][0], head[hy][1] - c.h, head[hy][2]]); }
+  const t1 = rig.byName.tongue1;
+  if (t1 == null) return;
+  const A = tongueAngles(c.p, rig.strikePlan ?? FROG_STRIKE, _ta), atJaw = (p) => addv(H[jb], mv(R[jb], sub(p, head[jb]))), ax = 1 / Math.sqrt(c.s);
+  let J = head[t1];
+  for (let k = 0; k < 4; k++) {
+    const b = rig.byName['tongue' + (k + 1)]; if (b == null) break;
+    const d = rig.dir[b], Q = rotX(A[k]), S = [0, 1, 2].flatMap((r) => [0, 1, 2].map((q) => (r === q ? ax : 0) + (c.s - ax) * d[r] * d[q]));
+    R[b] = mm(R[jb], mm(Q, S)); H[b] = atJaw(J);
+    J = addv(J, mv(Q, mul(d, rig.L[b] * c.s)));
+  }
+}
+
+// The rest pose with the head's bones posed by the strike (tools/rig/strike-check.mjs: the strike checked on the shipped file through this code)
+export function poseHeadAtRest(rig, st, out, o = 0) {
+  const R = [], H = [];
+  for (let b = 0; b < rig.n; b++) { R.push(I3()); H.push(rig.head[b]); }
+  if (rig.byName.jaw != null) poseHead(rig, st, R, H);
+  writeBones({ ...rig, muscles: [], belly: null }, R, H, out, o, st);
 }
 
 // A limb's bones (R, H, its tip J) turned up about the limb's root until no joint and not the tip lies below the floor (in the hop's
@@ -451,9 +487,12 @@ function plantDirs(rig, c, A, s) {
   const side = c.side < 0 ? 'L' : 'R', rel = s.release?.[side] ?? 0;
   if ((!s.plant?.[side] && !rel) || !s.frames) return null;
   const k = c.bones.length, L = c.bones.map((b) => rig.L[b]), hip = rig.head[c.bones[0]];
-  const tip0 = ((rig.crouchTip ??= {})[side] ??= (() => {
+  // (the crouch the toes were planted from: a stance's own legs, s.crouchA (util/frogstrike.js lungePose: the common frog sitting), else HIND.crouch)
+  const C0 = s.crouchA ?? HIND.crouch, cache = (rig.crouchTip ??= new Map());
+  if (!cache.has(C0)) cache.set(C0, {});
+  const tip0 = (cache.get(C0)[side] ??= (() => {
     let J = hip;
-    for (let i = 0; i < k; i++) J = addv(J, mul(segDir(HIND.crouch[i], HIND.crouch[k + i], c.side), L[i]));
+    for (let i = 0; i < k; i++) J = addv(J, mul(segDir(C0[i], C0[k + i], c.side), L[i]));
     return J;
   })());
   const f0 = s.frames.f0, ft = s.frames.ft, w0 = f0.toWorld(tip0);
@@ -464,7 +503,7 @@ function plantDirs(rig, c, A, s) {
   const e = s.plant?.[side] ?? 1, wdir = (fr, p, d) => { const a = fr.toWorld(p), b = fr.toWorld(addv(p, d)); return norm(sub(b, a)); };
   const mdir = (fr, d) => { const a = fr.toModel(fr.pos), b = fr.toModel(addv(fr.pos, d)); return norm(sub(b, a)); };
   const slant = (d0, deg) => { const h = norm([d0[0], 0, d0[2]]), r = (deg * Math.PI) / 180; return [h[0] * Math.cos(r), -Math.sin(r), h[2] * Math.cos(r)]; };
-  const C = HIND.crouch, cD = [0, 1, 2, 3].map((i) => segDir(C[i], C[k + i], c.side));
+  const C = C0, cD = [0, 1, 2, 3].map((i) => segDir(C[i], C[k + i], c.side));
   const cT = wdir(f0, tip0, cD[3]), sT = (Math.asin(Math.max(-1, Math.min(1, -cT[1]))) * 180) / Math.PI;
   const dT = mdir(ft, slant(cT, sT + (PEEL - sT) * e)), Bp = sub(T, mul(dT, L[3]));
   // The leg from the hip down, set in the world as clip A shows it from behind (0.97-1.29 s; the owner, 13:47, "pics 2,3,4 ... the

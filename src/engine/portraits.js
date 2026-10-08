@@ -7,7 +7,12 @@
 
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { SPECIES, createSpeciesMesh, modelBuilder } from '../sim/animals.js';
+import { SPECIES, createSpeciesMesh, modelBuilder, poseModelBuilder } from '../sim/animals.js';
+import { loadManifest } from '../render/creatures/glb.js';
+import { packAnim } from '../render/creatures/instanced.js';
+import { skeletonRig, poseStroke, ROW_FLOATS } from '../render/creatures/skeleton.js';
+import { lungePose } from '../util/frogstrike.js';
+import { HIND, FORE } from '../util/gait.js';
 import { PLANTS, Plants } from '../sim/plants.js';
 import { U } from '../render/uniforms.js';
 import { setFoliageMRT } from '../render/shaders.js';
@@ -94,6 +99,7 @@ export class Portraits {
 
   async animal(id) {
     if (!SPECIES[id]) return null;
+    if (SPECIES[id].oneBody) { const url = await this.oneBody(id).catch(() => null); if (url) return url; }
     // The scanned, textured model when the species has one (as in the tank), else its procedural body.
     const model = await modelBuilder(id).catch(() => null);
     const lod = model ? model(this.scene, 2) : createSpeciesMesh(this.scene, id, { cap: 2 });
@@ -105,6 +111,36 @@ export class Portraits {
     lod.lo.geometry.computeBoundingBox();
     const b = lod.lo.geometry.boundingBox.clone();
     b.translate(new THREE.Vector3(0, 300, 0));
+    this.frame(b);
+    const url = await this.shot();
+    lod.dispose();
+    return url;
+  }
+
+  // A one-body frog (sp.oneBody: the common frog) in its one body, sitting as in the tank (util/frogstrike.js lungePose at rest: the stance's tilt and lift, its
+  // folded legs and planted hands), framed on its posed bones, each with its radius.
+  async oneBody(id) {
+    const sp = SPECIES[id], build = await poseModelBuilder(id, 'swim'), man = build && (await loadManifest())[`${id}.swim`];
+    if (!build || !man?.skeleton || !sp.sit) return null;
+    const lod = build(this.scene, 2);
+    if (!lod.strokes) { lod.dispose(); return null; }
+    lod.refine(true);
+    lod.near2 = 1e12;
+    const ls = lungePose(sp.sit, 0, 0, 0, HIND, FORE, {}), R = ls.root;
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), R.pitch), at = new THREE.Vector3(R.off[0], R.off[1] + 300, R.off[2]);
+    lod.begin();
+    lod.put(at, q, 1, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, ls);
+    lod.end();
+    const rig = skeletonRig(man.skeleton, {}), row = new Float32Array(ROW_FLOATS), b = new THREE.Box3(), v = new THREE.Vector3();
+    poseStroke(rig, ls, row);
+    for (let i = 0; i < rig.n; i++) {
+      const m = i * 12, r = Math.min(rig.B[i].r ?? 0.3, 1.0);
+      if (/^tongue|^hyoid/.test(rig.B[i].name)) continue;
+      for (const p of [rig.head[i], rig.tail[i]]) {
+        v.set(row[m] * p[0] + row[m + 1] * p[1] + row[m + 2] * p[2] + row[m + 3], row[m + 4] * p[0] + row[m + 5] * p[1] + row[m + 6] * p[2] + row[m + 7], row[m + 8] * p[0] + row[m + 9] * p[1] + row[m + 10] * p[2] + row[m + 11]).applyQuaternion(q).add(at);
+        b.expandByPoint(v.clone().addScalar(r)); b.expandByPoint(v.clone().subScalar(r));
+      }
+    }
     this.frame(b);
     const url = await this.shot();
     lod.dispose();

@@ -93,7 +93,9 @@ test('left and right muscles match: exactly on a mirrored skeleton, within 3 % (
         const r = set.find((x) => x.side === 'R' && x.id === mu.id);
         // (the bones it spans, left against right)
         const own = Math.max(0, ...[...new Set(mu.pts.map((q) => B[q.bone].name))].filter((n) => n.endsWith('L')).map((n) => Math.abs(boneLen(B, B.findIndex((b) => b.name === n)) / boneLen(B, B.findIndex((b) => b.name === n.slice(0, -1) + 'R')) - 1)));
-        const tol = mirrored ? 0.001 : Math.max(0.03, own + 0.01);
+        // (and on a scan, the muscle's own left-right difference as the scan was bound, unposed: the common frog's scan has its right hip a little wider, 5 %)
+        const rest = mirrored ? 0 : Math.abs(musclePathLength(mu, skel, ID) / musclePathLength(r, skel, ID) - 1);
+        const tol = mirrored ? 0.001 : Math.max(0.03, own + 0.01, rest + 0.01);
         for (const at of poses) {
           const a = musclePathLength(mu, skel, at), b = musclePathLength(r, skel, at);
           if (Math.abs(a / b - 1) > tol) { bad.push(`${k}${mirrored ? ' (mirrored)' : ''} ${mu.id}: L ${a.toFixed(3)} R ${b.toFixed(3)} cm (allowed ${(tol * 100).toFixed(1)} %)`); break; }

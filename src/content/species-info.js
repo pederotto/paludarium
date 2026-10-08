@@ -404,6 +404,17 @@ export const ANIMAL_INFO = {
     care: ['Needs both land and open water.', 'Keep it below 25 °C.'],
     lesson: 'microclimate',
   },
+  commonfrog: {
+    sci: 'Rana temporaria', family: 'Ranidae', status: 'Least Concern', region: 'Most of Europe, east into western Siberia',
+    habitat: 'Damp woods, meadows and gardens near ponds, from lowlands up into the mountains.',
+    facts: [
+      'It hunts by a quick lunge: the short tongue is fixed at the front of the mouth and flips out over the jaw to catch a beetle, worm or fly.',
+      'In early spring the frogs gather in ponds, and each female lays a floating clump of one to four thousand eggs.',
+      'It spends the winter buried in the mud at the bottom of a pond or under logs and leaf litter.',
+    ],
+    care: ['Keep it cool: below 22 °C.', 'Needs damp ground and a pond to swim in.'],
+    lesson: 'microclimate',
+  },
   newt: {
     sci: 'Pachytriton labiatus', family: 'Salamandridae', status: 'Near Threatened', region: 'Mountain streams of southern and eastern China',
     habitat: 'Cool, fast, oxygen-rich streams under rocks and leaf litter.',

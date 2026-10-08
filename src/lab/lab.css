@@ -102,3 +102,11 @@
   .lab-tabs { display: flex; position: absolute; left: 0; right: 0; bottom: 0; height: 48px; gap: 6px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: rgba(8, 14, 11, .94); border-top: 1px solid #1e2f26; box-sizing: content-box; }
   .lab-tabs button { flex: 1; font-size: 12.5px; padding: 5px 2px; min-width: 0; }
 }
+
+/* The selection focus (index.js): outside a soft circle round the selected animal the picture is a little blurred and dimmed; inside it, untouched. */
+.lab-focus {
+  position: absolute; pointer-events: none; z-index: 1;
+  backdrop-filter: blur(1.6px) brightness(0.88); -webkit-backdrop-filter: blur(1.6px) brightness(0.88);
+  mask-image: radial-gradient(circle at var(--fx) var(--fy), transparent calc(var(--fr) * 1.0), rgba(0, 0, 0, 0.55) calc(var(--fr) * 1.6), #000 calc(var(--fr) * 2.6));
+  -webkit-mask-image: radial-gradient(circle at var(--fx) var(--fy), transparent calc(var(--fr) * 1.0), rgba(0, 0, 0, 0.55) calc(var(--fr) * 1.6), #000 calc(var(--fr) * 2.6));
+}
