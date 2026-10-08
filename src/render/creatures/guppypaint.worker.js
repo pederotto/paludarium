@@ -8,7 +8,7 @@ self.onmessage = (e) => {
   try {
     if (maps) MAPS[sex] = maps;
     const img = paintGuppyModel(look, MAPS[sex]);
-    self.postMessage({ id, rgba: img.rgba, N: img.N }, [img.rgba.buffer]);
+    self.postMessage({ id, rgba: img.rgba, N: img.N, H: img.H }, [img.rgba.buffer]);
   } catch (err) {
     self.postMessage({ id, error: String(err && err.stack || err) });
   }

@@ -59,6 +59,33 @@ const L = Object.fromEntries(GUPPY_LOCI.map((l, i) => [l.key, i]));
 export const GUPPY_COLOURS = ['red', 'purple', 'blue', 'yellow', 'lime', 'green', 'white', 'pastel', 'black'];
 // The twelve tails of the Encyclo-Fish sheet: tail size (LL long, LS medium, SS short) with the swords, the point and the flag gene.
 export const GUPPY_TAILS = ['delta', 'veil', 'flag', 'fan', 'spade', 'lyre', 'topsword', 'bottomsword', 'round', 'spear', 'pin', 'doublesword'];
+// How to breed each tail (the breeding guide, ui/panels/widgets.jsx; tests/genetics.test.mjs checks every recipe against guppyTraits):
+// tail size L/S (LL long, LS medium, SS short), the top and bottom sword genes (on the Y: from the father), the pointed tail gene (one
+// copy) and the flag gene (two copies).
+export const GUPPY_TAIL_RECIPES = [
+  { tail: 'delta', size: 'LL', recipe: 'long (LL); not pointed, no flag' },
+  { tail: 'veil', size: 'LL', point: true, recipe: 'long (LL) + pointed (C)' },
+  { tail: 'flag', size: 'LL', flag: true, recipe: 'long (LL) + flag (hh)' },
+  { tail: 'fan', size: 'LS', recipe: 'medium (LS); no swords, not pointed' },
+  { tail: 'spade', size: 'LS', point: true, recipe: 'medium (LS) + pointed (C)' },
+  { tail: 'lyre', size: 'LS', top: true, bottom: true, recipe: 'medium (LS) + top sword (W) + bottom sword (U)' },
+  { tail: 'round', size: 'SS', recipe: 'short (SS); no swords, not pointed' },
+  { tail: 'spear', size: 'SS', point: true, recipe: 'short (SS) + pointed (C)' },
+  { tail: 'pin', size: 'SS', point: true, flag: true, recipe: 'short (SS) + pointed (C) + flag (hh)' },
+  { tail: 'topsword', size: 'SS', top: true, recipe: 'short or medium + top sword (W) only' },
+  { tail: 'bottomsword', size: 'SS', bottom: true, recipe: 'short or medium + bottom sword (U) only' },
+  { tail: 'doublesword', size: 'SS', top: true, bottom: true, recipe: 'short (SS) + top sword (W) + bottom sword (U)' },
+];
+// A genotype (as content/guppy.js orders the genes) that makes a recipe, everything else plain: for the guide and its test.
+export function guppyRecipeGenes(r) {
+  const g = GUPPY_LOCI.map((l) => (l.mode === 'sex' ? 'XY' : l.mode === 'rec' ? l.alleles[0].repeat(2) : l.mode === 'inc' ? l.alleles[1].repeat(2) : l.link === 'y' ? '-' + l.alleles[1] : l.link === 'x' ? l.alleles[1] + '-' : l.alleles[1].repeat(2)));
+  g[L.colour] = 'RR'; g[L.size] = r.size;
+  if (r.top) g[L.sword] = '-W';
+  if (r.bottom) g[L.sword2] = '-U';
+  if (r.point) g[L.point] = 'Cc';
+  if (r.flag) g[L.flag] = 'hh';
+  return g;
+}
 const GROUNDS = ['gold', 'albino'], PATTERNS = ['mosaic', 'snakeskin', 'tiger', 'leopard', 'cobra', 'grass'];
 
 // Strains a dealer sells (the Animals tool and the shop): each a phenotype id. Founders of a strain get a genotype that shows it.

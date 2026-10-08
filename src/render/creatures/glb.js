@@ -39,7 +39,8 @@ const matIdFor = (name = '') => (/(^|[^a-z])eye/i.test(name) ? 1 : /fin|gill|win
 
 // Merge every mesh of a glTF scene into one geometry in centimetres, with a
 // per-vertex material id in `matId` (temporary, moved into rig.w by addRig).
-async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
+async function geometryFrom(url, { rotY = 0, scale = 1, keep = [] } = {}) {
+  const KEPT = keep.length ? [...KEEP, ...keep] : KEEP;
   const gltf = await loader.loadAsync(url);
   gltf.scene.updateMatrixWorld(true);
   const parts = [];
@@ -52,7 +53,7 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     // Meshopt/quantised files store positions as normalised integers: make them real floats before scaling.
     // (three.js names custom attributes in lower case: _SKINX -> _skinx; a name missing here was dropped below, so the game skinned
     // with two bones while the files carried four, 5 Oct; _musc / _musu: the muscle binding, tools/rig/muscles.mjs)
-    for (const k of KEEP) {
+    for (const k of KEPT) {
       const a = g.attributes[k];
       if (!a || a.array instanceof Float32Array) continue;
       const f = new Float32Array(a.count * a.itemSize);
@@ -61,7 +62,7 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
     }
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(sc, new THREE.Matrix4().multiplyMatrices(rot, o.matrixWorld)));
     // Keep only what the shader uses; a missing uv becomes zeros so parts can merge.
-    for (const k of Object.keys(g.attributes)) if (!KEEP.includes(k)) g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (!KEPT.includes(k)) g.deleteAttribute(k);
     if (g.attributes.color && g.attributes.color.itemSize === 4) {   // RGBA: keep RGB
       const c4 = g.attributes.color, c3 = new Float32Array(c4.count * 3);
       for (let i = 0; i < c4.count; i++) { c3[i * 3] = c4.getX(i); c3[i * 3 + 1] = c4.getY(i); c3[i * 3 + 2] = c4.getZ(i); }
@@ -82,6 +83,11 @@ async function geometryFrom(url, { rotY = 0, scale = 1 } = {}) {
   geo.computeBoundingBox();
   return { geo, material: body };
 }
+
+// One file's meshes as a single geometry in centimetres with its per-vertex material id (`matId`), no rig yet: for a model put
+// together from parts at run time (the guppy's tails, render/creatures/guppymodel.js). Paths are relative to the creatures folder;
+// opt.keep: more attributes to keep (the tails' second UV set, 'uv1', carries how near the rim a vertex is).
+export const creaturePartGeometry = (file, opt = {}) => geometryFrom(new URL(file, base).href, opt).then((r) => r.geo);
 
 // The baked rig (see the header): leg and material ids back to whole numbers. Leg ids are stored divided by 8, or by the manifest's
 // `rigLeg` for a rig with higher ids (a shrimp's pincers, 15 and 16).

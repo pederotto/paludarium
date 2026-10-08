@@ -2,12 +2,13 @@
 // the current tank where it makes sense.
 
 import { useState, useRef, useEffect } from 'preact/hooks';
-import { S, toast } from '../store.js';
+import { S, toast, openModal } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { Env } from '../../sim/env.js';
 import { LENSES } from '../../editor/controller.js';
 import { SPECIES } from '../../sim/animals.js';
-import { SPECIES_GENETICS, lociOf, describe, morphOf } from '../../sim/genetics.js';
+import { SPECIES_GENETICS, lociOf, describe, morphOf, sexedSpecies, sexGenes } from '../../sim/genetics.js';
+import { GUPPY_LOCI, GUPPY_TAIL_RECIPES } from '../../content/guppy.js';
 import { LOCI_TEXT, morphName } from '../../content/morphs.js';
 import { MorphDot, BreedingView } from '../GeneBits.jsx';
 
@@ -229,29 +230,44 @@ export function LensWidget() {
 export function PunnettWidget() {
   const W = ctx.game?.world;
   const tankAnimals = (id) => (W ? W.animals.by[id] ?? [] : []).filter((x) => x.genes);
-  const carrier = (id) => lociOf(id).map((l, i) => (i === 0 ? l.alleles[0] + l.alleles[1] : l.alleles[0] + l.alleles[0]));
+  // (a species with sex chromosomes, the guppy: parent 1 is the mother, parent 2 the father, and each is offered only the genotypes
+  // its sex can have: none on the Y for a mother, one copy on the X and the Y for a father)
+  const sexed = (id) => sexedSpecies(id);
+  const carrier0 = (id) => lociOf(id).map((l, i) => (i === 0 ? l.alleles[0] + l.alleles[1] : l.alleles[0] + l.alleles[0]));
+  // (a guppy starts as a plain purple fish: the common allele of every gene, sexGenes' default, with one of each tail colour)
+  const carrier = (id, who) => (sexed(id) ? sexGenes(id, lociOf(id).map((l, i) => (i === 0 ? l.alleles[0] + l.alleles[1] : undefined)), who === 0) : carrier0(id));
   const firstSp = ['axolotl', 'dartfrog', 'guppy', 'betta', 'shrimp'].find((id) => tankAnimals(id).length >= 2) ?? 'axolotl';
-  const init = (id) => { const t = tankAnimals(id); return t.length >= 2 ? [[...t[0].genes], [...t[1].genes], true] : [carrier(id), carrier(id), false]; };
+  const init = (id) => {
+    const t = tankAnimals(id), f = sexed(id) ? t.find((x) => x.female) : t[0], m = sexed(id) ? t.find((x) => x.female === false) : t[1];
+    return f && m ? [[...f.genes], [...m.genes], true] : [carrier(id, 0), carrier(id, 1), false];
+  };
   const [sp, setSp] = useState(firstSp);
   const [[a, b, fromTank], setAB] = useState(() => init(firstSp));
   const pick = (id) => { setSp(id); setAB(init(id)); };
-  const opts = (i) => { const l = lociOf(sp)[i]; const [x, y] = l.alleles; return [x + x, x + y, y + y]; };
-  const label = (i, g) => describe(sp, lociOf(sp).map((_, j) => (j === i ? g : opts(j)[0])))[i];
+  const opts = (i, who = 0) => {
+    const l = lociOf(sp)[i]; const [x, y] = l.alleles;
+    if (!sexed(sp)) return [x + x, x + y, y + y];
+    if (l.sex) return [who === 0 ? 'XX' : 'XY'];
+    if (l.link === 'y') return who === 0 ? ['--'] : ['-' + x, '-' + y];
+    if (l.link === 'x') return who === 0 ? [x + x, x + y, y + y] : [x + '-', y + '-'];
+    return [x + x, x + y, y + y];
+  };
+  const label = (i, g, who = 0) => describe(sp, lociOf(sp).map((_, j) => (j === i ? g : opts(j, who)[0])))[i];
   const set = (who, i, g) => setAB(([p, q]) => (who === 0 ? [p.map((x, j) => (j === i ? g : x)), q, false] : [p, q.map((x, j) => (j === i ? g : x)), false]));
-  const tank = tankAnimals(sp);
+  const tank = tankAnimals(sp), tankFor = (who) => (sexed(sp) ? tank.filter((x) => !!x.female === (who === 0)) : tank);
   const fromAnimal = (who, id) => { const an = tank.find((x) => String(x.id) === id); if (an) setAB(([p, q]) => (who === 0 ? [[...an.genes], q, true] : [p, [...an.genes], true])); };
   const parent = (who, genes) => (
     <div class="gen-parent">
-      <b>Parent {who + 1}</b>
-      {genes.map((g, i) => (
+      <b>{sexed(sp) ? (who === 0 ? 'Mother' : 'Father') : `Parent ${who + 1}`}</b>
+      {genes.map((g, i) => (opts(i, who).length < 2 ? null : (
         <select key={i} value={g} aria-label={LOCI_TEXT[sp][i].name} title={LOCI_TEXT[sp][i].name} onChange={(e) => set(who, i, e.currentTarget.value)}>
-          {opts(i).map((o) => <option key={o} value={o}>{LOCI_TEXT[sp][i].name.replace(' gene', '')} {o}: {label(i, o).label}</option>)}
+          {opts(i, who).map((o) => <option key={o} value={o}>{LOCI_TEXT[sp][i].name.replace(' gene', '')} {o}: {label(i, o, who).label}</option>)}
         </select>
-      ))}
-      {tank.length ? (
+      )))}
+      {tankFor(who).length ? (
         <select value="" aria-label="Use an animal from your tank" onChange={(e) => fromAnimal(who, e.currentTarget.value)}>
           <option value="">from my tank…</option>
-          {tank.map((x) => <option key={x.id} value={x.id}>{x.nick ?? '#' + x.id}: {morphName(sp, x.morph)}</option>)}
+          {tankFor(who).map((x) => <option key={x.id} value={x.id}>{x.nick ?? '#' + x.id}: {morphName(sp, x.morph)}</option>)}
         </select>
       ) : null}
       <span><MorphDot sp={sp} morph={morphOf(sp, genes)} /> {morphName(sp, morphOf(sp, genes))}</span>
@@ -270,5 +286,50 @@ export function PunnettWidget() {
   );
 }
 
-export const WIDGETS = { nitrogen: NitrogenWidget, dewpoint: DewWidget, watercycle: WaterCycleWidget, photoperiod: PhotoWidget, oxygen: OxygenWidget, feedback: FeedbackWidget, lens: LensWidget, punnett: PunnettWidget };
+// The guppy breeding guide's widget (Field Guide 'guppy-breeding'): the guppies in this tank, every gene with where it sits and how it
+// shows, and the recipe of each of the twelve tails, all read from content/guppy.js.
+const LINK_TEXT = { y: 'father to every son (Y)', x: 'son from his mother (X)' };
+const MODE_TEXT = { dom: 'one copy shows', rec: 'needs two copies', inc: 'blends: one of each is in between' };
+const TAIL_NAME = { delta: 'Delta', veil: 'Veil', flag: 'Flag', fan: 'Fan', spade: 'Spade', lyre: 'Lyre', round: 'Round', spear: 'Spear', pin: 'Pin', topsword: 'Top sword', bottomsword: 'Bottom sword', doublesword: 'Double sword' };
+export function GuppyWidget() {
+  S.live.value;
+  const all = ctx.game?.world?.animals?.by?.guppy ?? [];
+  const adult = (a) => a.age / 1440 >= (SPECIES.guppy.adultDays ?? 8);
+  const males = all.filter((a) => a.female === false && adult(a)), females = all.filter((a) => a.female && adult(a));
+  const fry = all.length - males.length - females.length, gravid = females.filter((a) => a.gv).length;
+  const strains = {}; for (const a of males) strains[a.morph] = (strains[a.morph] ?? 0) + 1;
+  const td = { padding: '3px 8px 3px 0', verticalAlign: 'top', borderBottom: '1px solid rgba(80,70,40,.15)' };
+  return (
+    <div class="gen">
+      {all.length ? (
+        <div>
+          <p style={{ margin: '4px 0' }}><b>In this tank:</b> {males.length} male{males.length === 1 ? '' : 's'}, {females.length} female{females.length === 1 ? '' : 's'}{gravid ? ` (${gravid} carrying a brood)` : ''}{fry ? `, ${fry} young` : ''}.</p>
+          <div class="chips" style={{ margin: '4px 0' }}>{Object.entries(strains).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([m, n]) => <span key={m} class="tag"><MorphDot sp="guppy" morph={m} /> {morphName('guppy', m)}{n > 1 ? ` × ${n}` : ''}</span>)}</div>
+          <button class="btn sm" style={{ color: '#2b2a1d', borderColor: '#a79d7a' }} onClick={() => openModal('lab', 'genetics')}>Odds for two of them in the Lab</button>
+        </div>
+      ) : <p style={{ margin: '4px 0' }}>No guppies in this tank yet: release a trio with the Animals tool (one male, two females).</p>}
+      <h3 style={{ marginTop: 12 }}>The twelve tails</h3>
+      <table style={{ borderCollapse: 'collapse', fontSize: 13, width: '100%' }}><tbody>
+        {GUPPY_TAIL_RECIPES.map((r) => <tr key={r.tail}><td style={{ ...td, fontWeight: 650, whiteSpace: 'nowrap' }}>{TAIL_NAME[r.tail]}</td><td style={td}>{r.recipe}</td></tr>)}
+      </tbody></table>
+      <h3 style={{ marginTop: 12 }}>The genes</h3>
+      <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}><tbody>
+        <tr><th style={{ ...td, textAlign: 'left' }}>Gene</th><th style={{ ...td, textAlign: 'left' }}>Letters</th><th style={{ ...td, textAlign: 'left' }}>Shows</th><th style={{ ...td, textAlign: 'left' }}>Passed on</th></tr>
+        {GUPPY_LOCI.filter((l) => l.mode !== 'sex').map((l) => {
+          const show = l.mode === 'rec' ? l.alleles[1] : l.mode === 'dom' ? l.alleles[0] : null;
+          return (
+            <tr key={l.key}>
+              <td style={td}><b>{l.name.replace(' gene', '')}</b>{show ? <div style={{ opacity: 0.75 }}>{l.traits[show]}</div> : <div style={{ opacity: 0.75 }}>{l.alleles.map((a) => l.traits[a]).join(' / ')}; {l.mixed}</div>}</td>
+              <td style={td}><code>{l.alleles.join(' ')}</code></td>
+              <td style={td}>{MODE_TEXT[l.mode]}</td>
+              <td style={td}>{LINK_TEXT[l.link] ?? 'one copy from each parent'}</td>
+            </tr>
+          );
+        })}
+      </tbody></table>
+    </div>
+  );
+}
+
+export const WIDGETS = { guppy: GuppyWidget, nitrogen: NitrogenWidget, dewpoint: DewWidget, watercycle: WaterCycleWidget, photoperiod: PhotoWidget, oxygen: OxygenWidget, feedback: FeedbackWidget, lens: LensWidget, punnett: PunnettWidget };
 export { toast };

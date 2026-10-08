@@ -64,6 +64,7 @@ function GeneCard({ a }) {
         {waiting ? <button class="btn sm amber" onClick={() => { S.pairing.value = null; }}>Cancel pairing</button> : null}
         {mate ? <button class="btn sm ghost" onClick={() => A.unpair(a)}>Unpair</button> : null}
         <button class="btn sm" onClick={lab}><Icon name="flask" size={14} />Odds in the Lab</button>
+        {a.sp === 'guppy' ? <button class="btn sm ghost" onClick={() => openModal('codex', 'concept:guppy-breeding')}><Icon name="book" size={14} />Breeding guide</button> : null}
       </div>
     </div>
   );

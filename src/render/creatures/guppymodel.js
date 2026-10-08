@@ -4,7 +4,8 @@
 //
 //   guppyModel(look, meta) -> Promise<{ lo, hi, textures, finish }>   (meta: the manifest's "guppy" entry)
 import * as THREE from 'three/webgpu';
-import { loadCreatureGLB } from './glb.js';
+import { loadCreatureGLB, creaturePartGeometry } from './glb.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { parseGuppyLook, tailSize } from '../../content/guppy.js';
 import { paintGuppyModel } from './guppypaint.js';
 
@@ -20,11 +21,11 @@ async function pixels(url) {
   const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(bmp.width, bmp.height) : Object.assign(document.createElement('canvas'), { width: bmp.width, height: bmp.height });
   const g = c.getContext('2d', { willReadFrequently: true });
   g.drawImage(bmp, 0, 0);
-  return { N: bmp.width, data: new Uint8Array(g.getImageData(0, 0, bmp.width, bmp.height).data.buffer) };
+  return { N: bmp.width, H: bmp.height, data: new Uint8Array(g.getImageData(0, 0, bmp.width, bmp.height).data.buffer) };
 }
 function maps(sex, m) {
   if (!MAPS.has(sex)) MAPS.set(sex, Promise.all([m.coords, m.parts, m.base].map((f) => pixels(new URL(f, base()).href)))
-    .then(([c, p, b]) => ({ N: c.N, coords: c.data, parts: p.data, base: b.data })));
+    .then(([c, p, b]) => ({ N: c.N, H: c.H, coords: c.data, parts: p.data, base: b.data })));
   return MAPS.get(sex);
 }
 
@@ -35,7 +36,7 @@ function paintOff(look, sex, mp) {
   if (!failed && !worker && typeof Worker !== 'undefined') {
     try {
       worker = new Worker(new URL('./guppypaint.worker.js', import.meta.url), { type: 'module' });
-      worker.onmessage = (e) => { const p = pending.get(e.data.id); pending.delete(e.data.id); if (!p) return; if (e.data.error) p.fallback(); else p.resolve({ N: e.data.N, rgba: e.data.rgba }); };
+      worker.onmessage = (e) => { const p = pending.get(e.data.id); pending.delete(e.data.id); if (!p) return; if (e.data.error) p.fallback(); else p.resolve({ N: e.data.N, H: e.data.H, rgba: e.data.rgba }); };
       worker.onerror = () => { failed = true; for (const p of pending.values()) p.fallback(); pending.clear(); };
     } catch { failed = true; }
   }
@@ -45,12 +46,12 @@ function paintOff(look, sex, mp) {
     const id = next++;
     pending.set(id, { resolve, fallback: local });
     const first = !sent.has(sex); sent.add(sex);
-    worker.postMessage({ id, look, sex, maps: first ? { N: mp.N, coords: mp.coords.slice(), parts: mp.parts.slice(), base: mp.base.slice() } : null });
+    worker.postMessage({ id, look, sex, maps: first ? { N: mp.N, H: mp.H, coords: mp.coords.slice(), parts: mp.parts.slice(), base: mp.base.slice() } : null });
   });
 }
 function texture(look, sex, m) {
-  if (!TEX.has(look)) TEX.set(look, maps(sex, m).then((mp) => paintOff(look, sex, mp)).then(({ N, rgba }) => {
-    const t = new THREE.DataTexture(rgba, N, N, THREE.RGBAFormat);
+  if (!TEX.has(look)) TEX.set(look, maps(sex, m).then((mp) => paintOff(look, sex, mp)).then(({ N, H, rgba }) => {
+    const t = new THREE.DataTexture(rgba, N, H ?? N, THREE.RGBAFormat);
     t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.anisotropy = 8; t.flipY = false; t.needsUpdate = true;
     return t;
@@ -67,11 +68,11 @@ function eyes(m, albino) {
     inner: albino ? lin(0xc83a3a) : lin(0xbfc4b8), outer: albino ? lin(0xf0a8a0) : lin(0x6a6c60), limb: albino ? lin(0x7a1c1c) : lin(0x141412) }];
 }
 
-// ---- tail shapes: the owner's tail, scaled ------------------------------------------------------------------------------------------
-// The owner's male has one tail, a broad rounded fan whose lobes reach forward over and under the stalk; it is drawn for the delta.
-// The fan and the round tail are that tail scaled about its root (length, height); a female's tail grows or shrinks with her line.
-// Swords and the lyre cannot be bent out of a round tail honestly: they need tails of their own from the owner (NOT DONE: until then a
-// double sword or lyre male is drawn with the delta tail, his genes and name unchanged). UVs stay, so the painted textures fit.
+// ---- tail shapes ----------------------------------------------------------------------------------------------------------------------
+// A male wears the tail of his strain: one of twelve tails built in Blender on the owner's male (art-src/guppy/tails.py, from the
+// Encyclo-Fish shapes sheet), in his own UVs, so the strain's painted texture lies on it as it lay on his own tail. His own tail (his
+// fin faces behind meta.tails.zCut) is taken off and the strain's put on; its rays start inside the stalk, so the join is hidden.
+// A female's tail is her own, grown or shrunk with her line (SCALE); so is a male's when the tail files are missing (an old manifest).
 const SCALE = { fan: [0.88, 0.78], round: [0.58, 0.6], female_delta: [1.2, 1.2], female_fan: [1.0, 1.0], female_round: [0.85, 0.85] };
 function warpTail(geo, shape) {
   const k = SCALE[shape];
@@ -93,14 +94,92 @@ function warpTail(geo, shape) {
   P.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingBox();
   return g;
 }
+const TAILS = new Map();
+const tailFile = (t, shape, lod) => (lod === 'lo' ? t.lo : t.file).replace('{shape}', shape);
+function tailGeometry(t, shape, lod) {
+  const k = `${shape}:${lod}`;
+  if (!TAILS.has(k)) TAILS.set(k, creaturePartGeometry(tailFile(t, shape, lod), { keep: ['uv1'] }).catch((e) => { console.warn('guppy tail failed', shape, e.message); return null; }));
+  return TAILS.get(k);
+}
+// His body without his own tail, with the strain's tail on: the tail's vertices get the rig the body's spine had (spine 0 at the snout,
+// 1 where his own tail ended, a little past it for a long sword), material id 2 (a membrane).
+function wearTail(body, tail, zCut, zEnd) {
+  const both = !!body.index && !!tail.index;
+  const g = both ? body.clone() : body.toNonIndexed(), t = both ? tail.clone() : tail.toNonIndexed();
+  const P = g.attributes.position, R = g.attributes.rig, I = g.index, nt = I ? I.count : P.count;
+  const at = (k) => (I ? I.getX(k) : k);
+  const keep = [];
+  for (let k = 0; k < nt; k += 3) {
+    const a = at(k), b = at(k + 1), c = at(k + 2);
+    const fin = Math.round(R.getW(a)) === 2 && Math.round(R.getW(b)) === 2 && Math.round(R.getW(c)) === 2;
+    if (!(fin && (P.getZ(a) + P.getZ(b) + P.getZ(c)) / 3 < zCut)) keep.push(a, b, c);
+  }
+  body.computeBoundingBox();
+  const zmax = body.boundingBox.max.z, zmin = body.boundingBox.min.z;
+  // (his own tail's vertices stay in the buffer, unused by any triangle)
+  if (I) g.setIndex(keep);
+  else { const s0 = keep; for (const name of Object.keys(g.attributes)) { const A = g.attributes[name], sz = A.itemSize, o = new Float32Array(s0.length * sz); s0.forEach((i, k) => o.set(A.array.subarray(i * sz, (i + 1) * sz), k * sz)); g.setAttribute(name, new THREE.BufferAttribute(o, sz)); } }
+  // the spine (0 snout … 1 tail tip: the shader's body wave, and it must not pass 1) runs on from the stalk's end to the tip of THIS
+  // tail, so a long sword and a short round tail both end at 1 and the body keeps the wave it had
+  const tp = t.attributes.position, tr = new Float32Array(tp.count * 4), E = t.attributes.uv1;
+  let ztip = Infinity; for (let i = 0; i < tp.count; i++) ztip = Math.min(ztip, tp.getZ(i));
+  const sEnd = (zmax - zEnd) / (zmax - zmin);
+  for (let i = 0; i < tp.count; i++) {
+    const z = tp.getZ(i), s = z > zEnd ? (zmax - z) / (zmax - zmin) : sEnd + (1 - sEnd) * (zEnd - z) / Math.max(1e-6, zEnd - ztip);
+    tr[i * 4] = Math.min(1, Math.max(0, s)); tr[i * 4 + 3] = 2;
+    tr[i * 4 + 1] = 21 + 0.98 * (E ? E.getX(i) : 0);              // the tail (21) + how near its rim (finRig, material.js finFray)
+  }
+  t.setAttribute('rig', new THREE.BufferAttribute(tr, 4));
+  for (const name of Object.keys(t.attributes)) if (!g.attributes[name]) t.deleteAttribute(name);
+  for (const name of Object.keys(g.attributes)) if (!t.attributes[name]) g.deleteAttribute(name);
+  const out = mergeGeometries([g, t], false);
+  out.computeBoundingBox();
+  return { geo: out, tailFrom: g.attributes.position.count };
+}
+
+// ---- fins in the water -----------------------------------------------------------------------------------------------------------------
+// The shader moves a membrane by how far it is from where it leaves the body and by which fin it is (instanced.js finFlow): rig.y = the
+// fin (21 tail, 22 dorsal, 23 pectoral, 24 belly fins: pelvic and gonopodium) plus, on a new tail, 0.98 x how near its rim (the
+// fraction: material.js finFray thins and frays the margin by it), rig.z = the distance from the nearest body vertex, cm.
+// The fin is read from the parts map at the vertex's UV (a vertex of a new tail is tail).
+const FIN_OF = [[200, 21], [160, 22], [120, 23], [80, 24]];
+export function finRig(geo, parts, tailFrom = Infinity) {
+  const P = geo.attributes.position, R = geo.attributes.rig, U = geo.attributes.uv, n = P.count;
+  const C = 0.08, cell = new Map(), key = (x, y, z) => `${Math.floor(x / C)},${Math.floor(y / C)},${Math.floor(z / C)}`;
+  for (let i = 0; i < n; i++) if (Math.round(R.getW(i)) === 0) {
+    const k = key(P.getX(i), P.getY(i), P.getZ(i)); if (!cell.has(k)) cell.set(k, []); cell.get(k).push(i);
+  }
+  for (let i = 0; i < n; i++) {
+    if (Math.round(R.getW(i)) !== 2) continue;
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    const cx = Math.floor(x / C), cy = Math.floor(y / C), cz = Math.floor(z / C);
+    let best = Infinity;
+    for (let r = 0; r < 40 && (best === Infinity || (r - 1) * C < Math.sqrt(best)); r++) {
+      for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) !== r) continue;
+        const l = cell.get(`${cx + dx},${cy + dy},${cz + dz}`);
+        if (l) for (const j of l) { const d = (P.getX(j) - x) ** 2 + (P.getY(j) - y) ** 2 + (P.getZ(j) - z) ** 2; if (d < best) best = d; }
+      }
+    }
+    let fin = 21;
+    if (i < tailFrom && parts) {
+      const u = U.getX(i), v = U.getY(i), N = parts.N, H = parts.H ?? N, px = Math.min(N - 1, Math.max(0, Math.floor(u * N))), py = Math.min(H - 1, Math.max(0, Math.floor(v * H)));
+      const c = parts.data[(py * N + px) * 4];
+      fin = FIN_OF.reduce((a, [code, id]) => (Math.abs(c - code) < Math.abs(c - a[0]) ? [code, id] : a), [999, 22])[1];
+    }
+    R.setY(i, i >= tailFrom && R.getY(i) >= 21 ? R.getY(i) : fin); R.setZ(i, Math.sqrt(best));
+  }
+  R.needsUpdate = true;
+  return geo;
+}
+
 const SHAPED = new Map();
 function shapeKey(look) {
   const p = parseGuppyLook(look);
   if (!p) return null;
-  // the twelve tails by size class until the owner's tail models come (veil and flag as the delta; spade, lyre and the single swords
-  // as the fan; spear, pin and the double sword as the round tail), plus the long fins of ribbon and swallow fish
+  // a male: his own tail of the twelve; a female: her size class; plus the long fins of ribbon and swallow fish
   const size = tailSize(p.tail), fins = (p.ribbon ? '+ribbon' : '') + (p.swallow ? '+swallow' : '');
-  if (p.sex === 'male') return (size === 'delta' ? '' : size) + fins || null;
+  if (p.sex === 'male') return (p.tail ?? 'delta') + fins;
   return `female_${p.sex === 'juv' ? 'round' : size}${fins}`;
 }
 
@@ -135,17 +214,29 @@ function warpFins(geo, ribbon, swallow) {
 export async function guppyModel(look, meta) {
   const sex = guppySexOf(look), m = meta.guppy[sex];
   if (!GEO.has(sex)) GEO.set(sex, loadCreatureGLB(`guppy-${sex}`, { ...meta, file: m.file, lo: m.lo, legs: false }));
-  const [g0, map] = await Promise.all([GEO.get(sex), texture(look, sex, m)]);
+  const [g0, map, mp] = await Promise.all([GEO.get(sex), texture(look, sex, m), maps(sex, m)]);
   if (!g0) return null;
-  const sk = shapeKey(look);
-  let g = g0;
-  if (sk) {
+  const sk = shapeKey(look) ?? '';
+  const key = `${sex}:${sk}`;
+  if (!SHAPED.has(key)) SHAPED.set(key, (async () => {
     // (loadCreatureGLB has added the rig with addRig: rig.w is the material id, 2 on the fins)
     const [tk, ...fins] = sk.split('+'), rib = fins.includes('ribbon'), swa = fins.includes('swallow');
-    const make = (geo) => warpFins(warpTail(geo, tk), rib, swa);
-    if (!SHAPED.has(`${sex}:${sk}`)) SHAPED.set(`${sex}:${sk}`, { lo: make(g0.lo), hi: g0.hi === g0.lo ? null : make(g0.hi) });
-    const w = SHAPED.get(`${sex}:${sk}`); g = { ...g0, lo: w.lo, hi: w.hi ?? w.lo };
-  }
+    const parts = { N: mp.N, H: mp.H, data: mp.parts };
+    const make = async (geo, lod) => {
+      let g = geo, tailFrom = Infinity;
+      if (sex === 'male' && m.tails && tk) {
+        const tail = await tailGeometry(m.tails, tk, lod);
+        if (tail) ({ geo: g, tailFrom } = wearTail(geo, tail, m.tails.zCut, m.tails.zEnd));
+        else g = warpTail(geo, tailSize(tk) === 'delta' ? '' : tailSize(tk));
+      } else if (sex === 'male') g = warpTail(geo, tailSize(tk) === 'delta' ? '' : tailSize(tk));
+      else g = warpTail(geo, tk);
+      if (g === geo) g = geo.clone();
+      return finRig(warpFins(g, rib, swa), parts, tailFrom);
+    };
+    const lo = await make(g0.lo, 'lo'), hi = g0.hi === g0.lo ? lo : await make(g0.hi, 'hi');
+    return { lo, hi };
+  })());
+  const w = await SHAPED.get(key);
   const e = eyes(m, parseGuppyLook(look)?.ground === 'albino');
-  return { lo: g.lo, hi: g.hi, textures: { map, normalMap: null, roughnessMap: null }, finish: e ? { eyes: e } : {} };
+  return { lo: w.lo, hi: w.hi, textures: { map, normalMap: null, roughnessMap: null }, finish: e ? { eyes: e } : {} };
 }

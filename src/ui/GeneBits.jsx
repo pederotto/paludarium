@@ -1,7 +1,7 @@
 // Small pieces of the genetics UI, shared by the info banner, the Animals tool, the Lab and the field guide:
 // morph dots and stars, Punnett squares, and the odds of every colour in the babies of two animals.
 
-import { punnett, describe, outcomeList, suggestPair, lociOf } from '../sim/genetics.js';
+import { punnett, describe, outcomeList, suggestPair, lociOf, mutationPerAllele } from '../sim/genetics.js';
 import { morphInfo, morphName, morphRarity, swatch } from '../content/morphs.js';
 import './genetics.css';
 
@@ -60,7 +60,7 @@ export function BreedingView({ sp, a, b }) {
       <div class="h3" style={{ fontWeight: 650, fontSize: 13, margin: '6px 0 0' }}>What the babies could look like</div>
       <Outcomes sp={sp} a={a} b={b} />
       <div class="gsuggest">{sug.text}</div>
-      <div class="gen-hint">Each gene is shuffled separately. About 1 baby gene in 100 flips by surprise: that is a mutation, and it can make a colour nobody in the family has.</div>
+      <div class="gen-hint">Each gene is shuffled separately. About 1 baby in {Math.max(2, Math.round(1 / (1 - (1 - mutationPerAllele(sp)) ** (2 * lociOf(sp).filter((l) => !l.sex).length))))} has a gene that flipped by surprise: that is a mutation, and it can make a colour nobody in the family has.</div>
     </div>
   );
 }
