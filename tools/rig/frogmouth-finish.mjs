@@ -2,7 +2,7 @@
 // the body's 18 bones (tools/bake-frogpose.mjs) + jaw (the quadrate-articular hinge to the chin), hyoid (the floor of the mouth: it drops as the mouth opens) and four tongue
 // segments (from the attachment behind the symphysis back to the notched tip, a chain: the strike rolls it over the jaw tip) = 24, the most a row of the bone texture holds
 // (render/creatures/skeleton.js ROW_TEXELS).
-//   node tools/rig/frogmouth-finish.mjs <mouth.glb> --id commonfrog.swim [--size 1024] [--lo 9000] [--plain out.glb] [--color color.webp]
+//   node tools/rig/frogmouth-finish.mjs <mouth.glb> --id commonfrog.swim [--size 1024] [--lo 9000] [--plain out.glb] [--color color.webp] [--arms <mouth.glb>.arms.json]
 //   --plain: a plain GLB of the near level with its UVs and the vertex colours (the mouth's marks), for Blender's texture bake onto this atlas
 //   --color: the baked colour map embedded in the near file (then no vertex colours); the UVs' hash is printed both times: it must not change between the two runs
 // <mouth.glb>: Blender's output, metres, baked frame, with _SKIN/_SKINX (the jaw already folded in as bone 18), _RIG, _HYOW (hyoid weight), _TONGW/_TONGT (tongue and where along
@@ -32,12 +32,17 @@ const take = (name, comps, must = true) => {
   for (let i = 0; i < n; i++) { acc.getElement(i, el); for (let c = 0; c < comps; c++) out[i * comps + c] = el[c] ?? 0; }
   return out;
 };
-const a = { pos: take('POSITION', 3), nor: take('NORMAL', 3), col: take('COLOR_0', 4) ?? take('COLOR_0', 3), rig: take('_RIG', 4), skin: take('_SKIN', 4), skinx: take('_SKINX', 4),
+const a = { orig: take('_ORIG', 3, false), pos: take('POSITION', 3), nor: take('NORMAL', 3), col: take('COLOR_0', 4) ?? take('COLOR_0', 3), rig: take('_RIG', 4), skin: take('_SKIN', 4), skinx: take('_SKINX', 4),
   hyo: take('_HYOW', 1), tw: take('_TONGW', 1), tt: take('_TONGT', 1), idx: Uint32Array.from(prim.getIndices().getArray()) };
 const n = a.pos.length / 3, cc = a.col.length / n;
 
 // --- the six head bones (baked cm), appended after the body's 18 ---------------------------------------------------------------------------------------------------------
 const B = entry.skeleton.bones.map((b) => ({ ...b }));
+// --arms <file>: the forelimbs' joints after tools/blender/arm-slab.py shortened them (cm, baked frame): the arm, forearm and hand bones follow the cut mesh
+if (opt('arms')) {
+  const AR = JSON.parse(fs.readFileSync(opt('arms'), 'utf8'));
+  for (const s of ['L', 'R']) { const g = (nm) => B.find((b) => b.name === nm + s); g('arm').tail = AR[s].elbow; g('forearm').head = AR[s].elbow; g('forearm').tail = AR[s].wrist; g('hand').head = AR[s].wrist; g('hand').tail = AR[s].finger; }
+}
 const lerp3 = (p, q, t) => p.map((v, i) => +(v + (q[i] - v) * t).toFixed(3));
 const T = J.tongue, zH = J.head[2], snoutZ = J.tail[2] + 0.15;
 const floorY = Math.min(T.attach[1], T.tip[1]) - 0.02;
@@ -104,6 +109,12 @@ if (opt('plain')) {
   const d = new Document(), bf = d.createBuffer(), ac = (t, r) => d.createAccessor().setType(t).setArray(r).setBuffer(bf);
   const pp = d.createPrimitive().setAttribute('POSITION', ac('VEC3', hi.pos)).setAttribute('NORMAL', ac('VEC3', hi.nor)).setAttribute('TEXCOORD_0', ac('VEC2', hi.uv)).setAttribute('COLOR_0', ac('VEC3', hi.col)).setIndices(ac('SCALAR', hi.idx));
   d.createScene().addChild(d.createNode(id).setMesh(d.createMesh(id).addPrimitive(pp))); await io.write(opt('plain'), d);
+  // (a body cut by tools/rig/arm-slab.mjs: the same mesh, its new layout, at the places its vertices had before the cut, for baking the colour from the uncut body)
+  if (a.orig) {
+    const d2 = new Document(), b2 = d2.createBuffer(), a2 = (t, r) => d2.createAccessor().setType(t).setArray(r).setBuffer(b2);
+    const p2 = d2.createPrimitive().setAttribute('POSITION', a2('VEC3', pick(a.orig, 3, u.from))).setAttribute('NORMAL', a2('VEC3', hi.nor)).setAttribute('TEXCOORD_0', a2('VEC2', hi.uv)).setAttribute('COLOR_0', a2('VEC3', hi.col)).setIndices(a2('SCALAR', hi.idx));
+    d2.createScene().addChild(d2.createNode(id).setMesh(d2.createMesh(id).addPrimitive(p2))); await io.write(opt('plain').replace(/\.glb$/, '') + '.orig.glb', d2);
+  }
 }
 entry.skeleton = { ...entry.skeleton, bones: B, head: { jaw: JAW, hyoid: HYO, tongue: [TG0, TG0 + 1, TG0 + 2, TG0 + 3], tongueLenCm: T.lengthCm, strike: { gapeDeg: 45, a0Deg: 150, dDeg: -5, lag: 0.22, stretch: 1.3, hyoidDropCm: 0.21 } } };
 entry.tris = { hi: hi.idx.length / 3, lo: lo.idx.length / 3 };

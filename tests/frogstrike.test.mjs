@@ -67,8 +67,8 @@ test('the muscles that make it: the jaw opener before the tongue thrower, the re
 test('the lunge: out by contact, back by the gulp; at rest the root is the sitting stance', async () => {
   const { lungeCurve, lungeRoot, lungePoint, FROG_LUNGE } = await import('../src/util/frogstrike.js');
   assert.equal(lungeCurve(0), 0); assert.ok(Math.abs(lungeCurve(FROG_LUNGE.contactT) - 1) < 1e-9); assert.ok(lungeCurve(0.84) < 1e-9 && lungeCurve(1) === 0);
-  const sit = { pitchDeg: 34, offsetCm: [0, 1.698, 0.237], pivotCm: [0, 0.792, -3.801] }, r = lungeRoot(sit, 0, 30, 1);
-  assert.ok(Math.abs(r.pitch + 34 * Math.PI / 180) < 1e-12 && r.off.every((v, i) => Math.abs(v - sit.offsetCm[i]) < 1e-12));
+  const sit = { pitchDeg: 22, offsetCm: [0, 1.123, 0.237], pivotCm: [0, 1.076, -3.901] }, r = lungeRoot(sit, 0, 30, 1);
+  assert.ok(Math.abs(r.pitch + 22 * Math.PI / 180) < 1e-12 && r.off.every((v, i) => Math.abs(v - sit.offsetCm[i]) < 1e-12));
   // the snout goes down as the body tips, and forward by the slide
   const nose = (t, d, s) => lungePoint(sit, t, d, s, [0, 1.3, 3.2]);
   assert.ok(nose(FROG_LUNGE.contactT, 20, 0)[1] < nose(0, 0, 0)[1] - 1, 'the snout comes down by more than 1 cm at a 20 deg dip');

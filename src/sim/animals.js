@@ -341,12 +341,17 @@ export const SPECIES = {
     // are floating": the hands flat on the ground, the elbows against the flanks, the forearms near upright, the knees beside the flanks below the back, the heels
     // by the vent, the feet flat with the toes forward, the hips, shins and feet carrying it; the first fit, on bone tips, had the skin 0.7-1.2 cm under the ground
     // and the arms out to the sides): the body tilted nose up by pitchDeg about its origin, then moved by offsetCm (model frame); the legs in legA and the arms in
-    // armA (util/gait.js angles, both sides alike). Its front sits high: this body's arms are long (about 5.8 cm shoulder to fingertip on a 7 cm frog; not yet
-    // corrected to the species). pivotCm: the vent where the stance puts it, the point the strike's lunge tips about (util/frogstrike.js lungeRoot).
+    // armA (util/gait.js angles, left then right) with roll (the forearms' and hands' turns). The arms were shortened to the species' proportions (the owner's table,
+    // 7 Oct: humerus 1.45, radioulna 1.25, hand 1.30 cm on a 7 cm frog; tools/rig/arm-slab.mjs, the left humerus 1.69: no clean place to cut more) and laid as in the
+    // owner's own SITTING model of the species (8 Oct, art-src/drop sample_...204453: the elbow beside the chest just below the shoulder, the forearm down and a little
+    // forward about 1.8 cm out, the hand flat ahead beside the head; tools/rig/lunge-check.mjs --target-arm), each arm refined on its own: at least 0.5 mm off the chest
+    // and throat outside the armpit's own crease, none inside, the hands flat (tools/rig/sit-check.mjs). pivotCm: the vent where the stance puts it, the point the
+    // strike's lunge tips about (util/frogstrike.js lungeRoot).
     // mouthCm: the jaw's tip at rest; tipCm: the tongue's tip at the strike's contact (both in the body's own frame, from the shipped rig: tests/frogstrike.test.mjs);
     // insideCm: inside the mouth, over the tongue's bed (where a catch is drawn to and swallowed); jawOpenCm: the lower jaw's tip at contact (wide open). (A shorter
-    // throw for prey under the chin was tried, 7 Oct: any throw short of 0.9 put the tongue into the upper jaw, tools/rig/strike-check.mjs; such prey is left until it moves.)
-    sit: { pitchDeg: 34, offsetCm: [0, 1.698, 0.237], pivotCm: [0, 0.792, -3.801], legKey: 'crouch', armDeg: [0, 0], armA: [179, -6, 120, -59, -51, 10, 179, -20, 120, -78, -58, -5], roll: [-46, 17, 48, 30, 0, 0], legA: [147, -25, 125, 131, -11, 2, -24, -33, -30], mouthCm: [0.028, 1.078, 3.076], tipCm: [0.028, -0.54, 3.87], insideCm: [0.028, 1.25, 2.4], jawOpenCm: [0.028, -0.2, 2.299] },
+    // throw for prey under the chin was tried, 7 Oct: any throw short of 0.9 put the tongue into the upper jaw, tools/rig/strike-check.mjs; for such prey the frog hops
+    // back to make room: oneBodyHunt.)
+    sit: { pitchDeg: 22, offsetCm: [0, 1.123, 0.237], pivotCm: [0, 1.076, -3.901], legKey: 'crouch', armDeg: [0, 0], armA: [83, -177, -170, -36, -77, -17, 74, -167, -171, -43, -68, -24], roll: [-46, -7, -14, 0, 0, 0], legA: [154, -22, 156, 127, -19, 10, -40, -19, -30], mouthCm: [0.028, 1.078, 3.076], tipCm: [0.028, -0.54, 3.87], insideCm: [0.028, 1.25, 2.4], jawOpenCm: [0.028, -0.2, 2.299] },
     minL: 80, temp: [8, 22], humidity: 70, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'flylarva', 'cricket', 'earthworm', 'waxworm'], cap: 4, breed: 0, adultDays: 40,
     land: 0.6, body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
     note: 'Work in progress (feat/commonfrog): body, skeleton and mouth being built to the realism gates.',
@@ -4166,7 +4171,7 @@ export class Animals {
     if (frog) {
       if (a.swimming || a.hop) return;
       if (d < reach * 2.5 && sp.kind === 'frog') a.tapT = 0.4;     // watching it: the hind toes twitch (dart frogs do this)
-      if (sp.oneBody) { this.oneBodyHunt(a, sp, o); return; }
+      if (sp.oneBody) { this.oneBodyHunt(a, sp, o, dt); return; }
       if (d > reach) return;
       const diff = angDiff(Math.atan2(tp.x - a.pos.x, tp.z - a.pos.z), a.yaw);
       if (Math.abs(diff) < 0.6 && (a.fs === 'sit' || a.fs === 'turn' || a.fs === 'walk')) this.beginStrike(a, sp, o);
@@ -4184,12 +4189,20 @@ export class Animals {
   // A frog with a true-to-size tongue (sp.oneBody: the common frog, 1.27 cm, its strike carried by a lunge: util/frogstrike.js) strikes when its lunge can put the
   // tongue's tip on the prey (lungeFit); otherwise it closes in first, as a common frog does: it turns to the prey and makes a short hop toward it, stopping
   // with the prey where a middling lunge reaches; then it strikes. (The other frogs' drawn tongues reach 3-6 cm and they wait.)
-  oneBodyHunt(a, sp, o) {
+  oneBodyHunt(a, sp, o, dt = 0) {
     const tp = o.target.pos, f = this.lungeFit(a, sp, o.target), sc = drawScale(a, sp);
     const diff = angDiff(Math.atan2(tp.x - a.pos.x, tp.z - a.pos.z), a.yaw);
-    if (f.ok && (a.fs === 'sit' || a.fs === 'turn')) { this.beginStrike(a, sp, o, f); return; }
-    if (a.fs !== 'sit' || a.plan) return;
+    if (f.ok && (a.fs === 'sit' || a.fs === 'turn')) { a.closeT = 0; this.beginStrike(a, sp, o, f); return; }
+    if (a.fs !== 'sit') return;      // (sitting: no hop under way; a.plan is the last hop's, kept for chaining, not a hop pending)
     const dist = Math.hypot(tp.x - a.pos.x, tp.z - a.pos.z), want = (sp.sit.tipCm[2] + FROG_LUNGE.maxSlideCm * 0.7) * sc, stop = dist - want;
+    // Too close to strike (under its chin: nearer than the tongue reaches the ground with the open jaw clear of it) for more than a moment: it makes room with a
+    // short hop away, to where the prey is a middling lunge ahead, and turns back to it, as a frog repositions (7 Oct 2026, the Lab: the prey's dead zone)
+    a.closeT = dist < want * 0.85 ? (a.closeT ?? 0) + dt : 0;
+    if (a.closeT > 1.2) {
+      const away = Math.atan2(a.pos.x - tp.x, a.pos.z - tp.z), to = V(tp.x + Math.sin(away) * want, 0, tp.z + Math.cos(away) * want), ang = Math.atan2(to.x - a.pos.x, to.z - a.pos.z);
+      const plan = Math.hypot(to.x - a.pos.x, to.z - a.pos.z) > 0.8 ? this.checkPlan(a, sp, 'hop', to, ang, false) : null;
+      if (plan) { a.closeT = 0; a.plan = plan; a.hd = ang; a.faceTo = ang; a.afterTurn = 'crouch'; a.fs = 'turn'; a.crouch = 0; a.chain = 0; plan.x0 = a.pos.x; plan.z0 = a.pos.z; return; }
+    }
     if (stop > 0.8 && dist < 16 * sc / 2.2) {
       const ang = Math.atan2(tp.x - a.pos.x, tp.z - a.pos.z);
       const plan = this.checkPlan(a, sp, 'hop', V(a.pos.x + Math.sin(ang) * stop, 0, a.pos.z + Math.cos(ang) * stop), ang, false);

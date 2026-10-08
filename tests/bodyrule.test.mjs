@@ -102,9 +102,9 @@ test('the strike lunge: the body moves over planted hind feet, and only while th
   const { lungePose, FROG_LUNGE } = await import('../src/util/frogstrike.js');
   const { HIND, FORE } = await import('../src/util/gait.js');
   const man = JSON.parse(fs.readFileSync('public/assets/creatures/manifest.json', 'utf8'))['commonfrog.swim'];
-  const sit = { pitchDeg: 34, offsetCm: [0, 1.698, 0.237], pivotCm: [0, 0.792, -3.801], legKey: 'crouch', armDeg: [0, 0], armA: [179, -6, 120, -59, -51, 10, 179, -20, 120, -78, -58, -5], roll: [-46, 17, 48, 30, 0, 0], legA: [147, -25, 125, 131, -11, 2, -24, -33, -30] };   // (SPECIES.commonfrog.sit: checked against it below)
+  const sit = { pitchDeg: 22, offsetCm: [0, 1.123, 0.237], pivotCm: [0, 1.076, -3.901], legKey: 'crouch', armDeg: [0, 0], armA: [83, -177, -170, -36, -77, -17, 74, -167, -171, -43, -68, -24], roll: [-46, -7, -14, 0, 0, 0], legA: [154, -22, 156, 127, -19, 10, -40, -19, -30] };   // (SPECIES.commonfrog.sit: checked against it below)
   const src = fs.readFileSync('src/sim/animals.js', 'utf8');
-  assert.ok(src.includes("sit: { pitchDeg: 34, offsetCm: [0, 1.698, 0.237], pivotCm: [0, 0.792, -3.801], legKey: 'crouch', armDeg: [0, 0], armA: [179, -6, 120, -59, -51, 10, 179, -20, 120, -78, -58, -5], roll: [-46, 17, 48, 30, 0, 0], legA: [147, -25, 125, 131, -11, 2, -24, -33, -30]"), 'this test\'s stance is the species\'');
+  assert.ok(src.includes("sit: { pitchDeg: 22, offsetCm: [0, 1.123, 0.237], pivotCm: [0, 1.076, -3.901], legKey: 'crouch', armDeg: [0, 0], armA: [83, -177, -170, -36, -77, -17, 74, -167, -171, -43, -68, -24], roll: [-46, -7, -14, 0, 0, 0], legA: [154, -22, 156, 127, -19, 10, -40, -19, -30]"), 'this test\'s stance is the species\'');
   const rig = skeletonRig(man.skeleton, {}), out = new Float32Array(ROW_FLOATS), N = rig.byName;
   const toes = (dip, slide, t) => { const st = lungePose(sit, t, dip, slide, HIND, FORE, {}); poseStroke(rig, st, out); const R = st.root, c = Math.cos(R.pitch), s = Math.sin(R.pitch);
     return { R, P: ['toesL', 'toesR'].map((k) => { const b = N[k], m = b * 12, p = rig.tail[b], x = out[m] * p[0] + out[m + 1] * p[1] + out[m + 2] * p[2] + out[m + 3], y = out[m + 4] * p[0] + out[m + 5] * p[1] + out[m + 6] * p[2] + out[m + 7], z = out[m + 8] * p[0] + out[m + 9] * p[1] + out[m + 10] * p[2] + out[m + 11];

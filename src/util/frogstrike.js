@@ -15,7 +15,9 @@ export const FROG_STRIKE = { gapeDeg: 45, a0Deg: 150, dDeg: -5, lag: 0.22, stret
 // dipDeg) and slide it forward (slideCm), the toes peeling a little (peel of a hop's peel), the arms leaving the ground and swinging forward (armMix of
 // FORE[armKey]), while the tongue goes out; it comes back up as the catch is drawn in. dip and slide are chosen per strike by the sim from where the prey is
 // (sim/animals.js lungeFit), within maxDipDeg and maxSlideCm; dipDeg and slideCm are the defaults for the tools. contactT: the timeline's contact (the end of `out`).
-export const FROG_LUNGE = { dipDeg: 15, slideCm: 1.0, maxDipDeg: 40, maxSlideCm: 1.4, peel: 0.6, short: 0, liftPerDeg: 0.02, armKey: 'reach', armMix: 0.5, contactT: 0.40 };
+// (peel 0.3 since the stance was refitted to the shortened arms, 7 Oct: at 0.6 the planted-leg solver ran out of reach past a lunge of 0.6 and the toes slid 0.5 cm,
+// the thighs 3 mm into the ground; tools/rig/lunge-check.mjs)
+export const FROG_LUNGE = { dipDeg: 15, slideCm: 1.0, maxDipDeg: 40, maxSlideCm: 1.4, peel: 0.3, short: 0, liftPerDeg: 0.02, armKey: 'reach', armMix: 0.5, contactT: 0.40 };
 
 const sm = (x) => { const c = x < 0 ? 0 : x > 1 ? 1 : x; return c * c * (3 - 2 * c); };
 const RAD = Math.PI / 180;
