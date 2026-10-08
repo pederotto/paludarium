@@ -107,3 +107,21 @@ the pieces and plants, flood test, pictures), `tools/steps/perch.mjs`, `tools/st
   fragment on a strip at the glass) and the feeders four small species meshes, built when first fed.
 - Feeders are not dusted or gut-loaded in the sim (calcium is not modelled); crickets do not bite sleeping animals.
 - The UVB tube has no visible fixture of its own; the soil profile is not drawn on the back glass (the background is there).
+
+## Second pass: stream, highland and Matano species (run "sets", 7 Oct 2026)
+All procedural bodies (SDF fish, shrimp/snail variants) and Builder plants; no scan, no claim of scan fidelity. Data is from the author's own knowledge: (known) = standard keeper/ichthyology references, (guess) = estimate. Bodies: `bodies/streamfish.js`, `crustaceans.js` (`shrimp('matano'|'cray')`), `small.js` (`tylomelania`).
+Care rule added: `flowMin` (least current a stream fish needs; `Sim.careStress` "needs a current"), the mirror of `flow`.
+
+| id | species | temp C | pH / GH | flow (min..max) | group | notes |
+|---|---|---|---|---|---|---|
+| tanichthys | Tanichthys albonubes | 14-24 (known 16-22 kept) | 6-8 / 5-19 (known) | ..0.6 (guess) | 6-40, school | 4 cm, 3-5 y; Baiyun Mountain, Guangdong |
+| zacco | Zacco platypus / Opsariichthys | 14-26 (known) | 6.5-7.8 / 4-15 (guess) | 0.3 (guess)..1 | 5-20, school | 10-15 cm, rapids hunter of S China, Taiwan, Korea; needs 120 L+ |
+| hillloach | Pseudogastromyzon spp. | 15-24 (known) | 6.5-7.8 / 4-15 (known-ish) | 0.5 (known)..1 | 2-8 | 6 cm, flat belly, grips rock; no cling behaviour in the game yet |
+| bullhead | Cottus gobio | 6-17 (known; dies >23) | 7-8.3 / 8-20 | 0.2 (guess)..0.7 | 1-3, territorial | 10 cm, eats shrimp; one male per cave |
+| bedotia | Bedotia geayi | 20-28 (known) | 6.5-8 / 5-15 (guess) | ..0.7 (guess) | 6-20, school | 8-10 cm, E Madagascar, endangered; two dorsals |
+| matanoshrimp | Caridina spp., Lake Matano (red-line type) | 26-30 (known: 27-30) | 7.5-8.5 / 5-10 | ..0.4 (guess) | 8-60 | 2.5 cm; the panther crab hunts it |
+| tylomelania | Tylomelania spp. (Matano/Poso/Towuti) | 24-30 (known) | 7.5-8.5 / 8-15 | ..0.3 (guess) | 2-8 | 5-7 cm, one live young at a time, scale 2.2 of the trumpet-snail build |
+| cambarellus | Cambarellus montezumae (Xochimilco) | 14-26 (known; 2,240 m lake) | 7-8 / 8-18 (guess) | ..0.3 (guess) | 2-10, mildly territorial | 3-4 cm, ~2.5 y; scale 1.5 of the shrimp build with two big claws |
+
+Plants: nidus (Asplenium nidus, land, 18-30 C, humid), crypt (Cryptocoryne wendtii, aquatic, 22-28 C), hartstongue (Asplenium scolopendrium, land, 5-20 C, lime), miscanthus (M. sinensis, land|emergent, sun), heliconia (H. rostrata, land, warm humid), aponogeton (A. madagascariensis, aquatic, 18-26 C, lattice leaves), pandanus (screw pine, land, warm), limnobium (L. spongia, floating), sago (Cycas revoluta young, land), tussock (Festuca/Nassella type, land, dry sun).
+- crowfoot: Ranunculus aquatilis, aquatic, 5-22 C, clean cool flowing water (known); oakpond set

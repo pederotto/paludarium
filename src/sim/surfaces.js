@@ -7,15 +7,16 @@
 // the movers (Animals.standOn), never raycast per frame.
 
 // How high a walker steps up (cm) and how far it drops, by what it is. A body longer than the log is thick, with limbs under it, steps over
-// it; a hopper does not walk over things (its hop is checked by the hop itself); a gecko climbs anything (it has its own wall movement).
+// it; a hopper does not walk over things (its hop is checked by the hop itself).
 export const CLIMB = {
   skink: { up: 4.5, down: 9, cost: 3 },       // `cost`: what a cell it climbs over costs the planner, in cells of plain ground (it goes round a log when that is cheaper)
   crab: { up: 4, down: 8, cost: 3 },
   newt: { up: 4.2, down: 8, cost: 4 },        // the salamanders and newts (a fire salamander is 16 cm long: it crosses a log with a 3.7 cm top)
   axolotl: { up: 1.5, down: 4, cost: 6 },
+  gecko: { up: 8, down: 14, cost: 2 },        // a gecko climbs (it has its own wall movement); on the floor it walks over a log or a root and takes the way over when round is much longer
 };
 // The kinds whose mover really climbs (Animals.standOn and the climber argument of okFor): the planner only routes these over a piece.
-export const SURFACE_WALKERS = new Set(['skink', 'crab', 'newt']);
+export const SURFACE_WALKERS = new Set(['skink', 'crab', 'newt', 'gecko']);
 
 export const MAX_LAYERS = 4;
 
@@ -87,7 +88,7 @@ export class SurfaceMap {
       if (w > bw) { bw = w; bo = o; }
     }
     if (bo < 0 || sw <= 0) return null;
-    out.y = sy / sw; out.piece = this.piece[bo] === 1;
+    out.y = sy / sw; out.ly = this.y[bo]; out.piece = this.piece[bo] === 1;   // (ly: the real layer under the nearest corner, no blend)
     out.nx = this.nrm[bo * 3]; out.ny = this.nrm[bo * 3 + 1]; out.nz = this.nrm[bo * 3 + 2];
     return out;
   }
@@ -99,6 +100,13 @@ export class SurfaceMap {
   }
 }
 const _t = {};
+
+// A walker's height follows its travel: from `y` towards `target`, at most 0.9 cm per cm walked (and a hair more), so a cliff of a log's end is
+// climbed over the distance walked and never taken in one frame (the radar's teleport).
+export function limitRise(y, target, travel) {
+  const lim = 0.9 * travel + 0.15;
+  return y + Math.max(-lim, Math.min(lim, target - y));
+}
 
 // Layers from a column of the occupancy grid: `runs` are the solid stretches [bottom, top] (cm, lowest first) of the cell, `ground` the height
 // of the ground there, `topAt(run)` the exact top and normal of a run ({ y, n } or null: use the run's own top), `height` the tank's height.
@@ -113,4 +121,13 @@ export function layersOf(ground, runs, height, topAt = () => null) {
     out.push({ y: t.y, clr: Math.max(0, next - t.y), n: t.n ?? [0, 1, 0], piece: true });
   }
   return out;
+}
+
+// Is the ground at an end of a surface walker's body (groundH) not a bank it is in (outOfBank, animals.js)? y0: the height of its middle.
+// Ground lower than the middle is a drop it overhangs (the footing plane at a rock's lip runs down steeper than the face and, extended to the
+// snout, lies under the floor: the gecko at a boulder's far face was pushed back 0.3 cm a tick for ever, R5b); a rise ahead (the snout, `snout`)
+// within its step limit is the foot of what it walks up onto, not a wall it is in (it stalled at the foot of a boulder 3 cm short, R5b).
+export function notABank(kind, groundH, y0, snout) {
+  if (!SURFACE_WALKERS.has(kind)) return false;
+  return groundH < y0 - 0.2 || (snout && groundH - y0 <= CLIMB[kind].up);
 }

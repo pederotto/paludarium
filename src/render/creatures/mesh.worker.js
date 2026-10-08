@@ -7,7 +7,8 @@
 import { BODIES } from './bodies/index.js';
 import { bodyShape, bodyArrays, shapeSignature } from './shape.js';
 
-const SHAPES = new Map();   // `${group}|${detail}` -> { sig, shape }, the last shape built for that species
+const SHAPES = new Map();   // `${group}|${detail}` -> Map(sig -> shape): the last few shapes built for that species (a guppy tank
+const KEEP = 8;             // holds males of several tail shapes, females and fry: each shape is meshed once and repainted per strain)
 
 self.onmessage = (e) => {
   const { id, key, detail } = e.data;
@@ -15,9 +16,14 @@ self.onmessage = (e) => {
     const def = BODIES[key]();
     const group = `${key.split(':')[0]}|${detail}`;
     const sig = shapeSignature(def, detail);
-    let hit = SHAPES.get(group);
-    if (!hit || hit.sig !== sig) { hit = { sig, shape: bodyShape(def, detail) }; SHAPES.set(group, hit); }
-    const a = bodyArrays(def, detail, hit.shape);
+    let byS = SHAPES.get(group);
+    if (!byS) SHAPES.set(group, (byS = new Map()));
+    let shape = byS.get(sig);
+    if (shape) byS.delete(sig);                       // (re-inserted below: the map's order is the order of use)
+    else shape = bodyShape(def, detail);
+    byS.set(sig, shape);
+    if (byS.size > KEEP) byS.delete(byS.keys().next().value);
+    const a = bodyArrays(def, detail, shape);
     // The cached shape keeps its own normals and indices: hand over copies of what is shared, the rest by transfer.
     const out = { ...a, normal: a.normal.slice(), index: a.index.slice() };
     self.postMessage({ id, arrays: out }, [out.position.buffer, out.normal.buffer, out.color.buffer, out.rig.buffer, out.index.buffer]);

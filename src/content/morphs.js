@@ -1,11 +1,15 @@
 // Names, one-line blurbs, rarity and price for every colour "morph" an animal can show, plus the
-// names of its genes. Pure data (no imports) so career code and Node tests can use it.
+// names of its genes. Pure data (only content/guppy.js, itself pure) so career code and Node tests can use it.
 // The logic (alleles, which genotype shows which morph) is in sim/genetics.js; see docs/GENETICS_SPEC.md.
 //
 //   MORPHS[species][morphId] = { name, blurb, rarity (1 common … 5 very rare), price (× the species' buy price) }
 //   LOCI_TEXT[species][locusIndex] = { name, traits: { allele: short word }, mixed?: word for an "in between" gene }
 //
 // Rarity drives the stars in the banner and the price: a rare morph costs (and sells for) more.
+//
+// The guppy's morphs are strains made of many genes (content/guppy.js): MORPHS.guppy lists the strains a dealer sells, and
+// morphInfo / morphName / morphRarity / swatch work out any other strain a tank breeds from its id.
+import { GUPPY_STRAINS, GUPPY_LOCI, parseGuppy, guppyName, guppyBlurb, guppyRarity, guppySwatch } from './guppy.js';
 
 export const RARITY_PRICE = { 1: 1, 2: 1.5, 3: 2.5, 4: 4, 5: 6 };
 const M = (name, blurb, rarity) => ({ name, blurb, rarity, price: RARITY_PRICE[rarity] });
@@ -24,12 +28,7 @@ export const MORPHS = {
     sky_spotted: M('Sky blue, many spots', 'A pale sky-blue frog with bold black spots.', 2),
     sky_clean: M('Sky blue, few spots', 'Pale sky blue and almost spotless. A real prize.', 4),
   },
-  guppy: {
-    red: M('Red tail', 'A fiery red guppy.', 1),
-    purple: M('Purple tail', 'Purple: a red gene and a blue gene blended together.', 2),
-    blue: M('Blue tail', 'A cool blue guppy.', 2),
-    gold: M('Gold', 'Shiny gold all over. The gold gene hides the tail colour.', 3),
-  },
+  guppy: {},          // filled from GUPPY_STRAINS below
   betta: {
     red: M('Red', 'A classic red betta with flowing fins.', 1),
     purple: M('Purple', 'Purple fins: one red gene and one blue gene.', 2),
@@ -65,10 +64,7 @@ export const LOCI_TEXT = {
     { name: 'Blue shade gene', traits: { B: 'cobalt', b: 'sky blue' } },
     { name: 'Spot gene', traits: { S: 'many spots', s: 'few spots' } },
   ],
-  guppy: [
-    { name: 'Tail colour gene', traits: { R: 'red', B: 'blue' }, mixed: 'purple (one of each)' },
-    { name: 'Gold gene', traits: { G: 'normal', g: 'gold' } },
-  ],
+  guppy: GUPPY_LOCI.map(({ name, traits, mixed }) => (mixed ? { name, traits, mixed } : { name, traits })),
   betta: [
     { name: 'Fin colour gene', traits: { R: 'red', B: 'blue' }, mixed: 'purple (one of each)' },
     { name: 'Cellophane gene', traits: { X: 'normal', x: 'cellophane' } },
@@ -85,7 +81,6 @@ export const LOCI_TEXT = {
 export const SWATCH = {
   axolotl: { wild: '#6b5a3a', leucistic: '#f2c6cd', golden: '#e6b935', melanoid: '#26252b', white_albino: '#f5eed9' },
   dartfrog: { cobalt_spotted: '#2f55c8', cobalt_clean: '#2a48b0', sky_spotted: '#72bdee', sky_clean: '#9bd3f5' },
-  guppy: { red: '#e04a3f', purple: '#8e5bc4', blue: '#3f7fe0', gold: '#ebc23d' },
   betta: { red: '#d8323a', purple: '#8a4fc0', blue: '#2f5fd0', cellophane: '#e8edf0' },
   shrimp: { wild: '#9b8364', red: '#d8323a', yellow: '#eed23a', orange: '#f08a2c', blue: '#2f5fd0', green: '#3f9a5a', chocolate: '#5a3424', black: '#1c1a22',
     red_rili: '#e8868a', yellow_rili: '#f2e08a', orange_rili: '#f4b07a', blue_rili: '#8aa8e8', green_rili: '#8ac49a', chocolate_rili: '#9a7a6a', black_rili: '#6a6872' },
@@ -108,12 +103,21 @@ export const shrimpPalette = (morph = 'red') => {
   const rili = /_rili$/.test(morph ?? '');
   return { ...(SHRIMP_PALETTE[(morph ?? 'red').replace(/_rili$/, '')] ?? SHRIMP_PALETTE.red), rili };
 };
-export const swatch = (sp, morph) => SWATCH[sp]?.[morph] ?? '#999';
+const guppyInfo = (id) => (parseGuppy(id) ? M(guppyName(id), guppyBlurb(id), guppyRarity(id)) : null);
+for (const id of GUPPY_STRAINS) MORPHS.guppy[id] = guppyInfo(id);
+const GUPPY_INFO = new Map();
+const info = (sp, morph) => {
+  const m = MORPHS[sp]?.[morph];
+  if (m || sp !== 'guppy' || !morph) return m ?? null;
+  if (!GUPPY_INFO.has(morph)) GUPPY_INFO.set(morph, guppyInfo(morph));
+  return GUPPY_INFO.get(morph);
+};
+export const swatch = (sp, morph) => (sp === 'guppy' ? guppySwatch(morph) : SWATCH[sp]?.[morph] ?? '#999');
 
-export const morphInfo = (sp, morph) => MORPHS[sp]?.[morph] ?? null;
-export const morphName = (sp, morph) => MORPHS[sp]?.[morph]?.name ?? morph ?? '';
+export const morphInfo = (sp, morph) => info(sp, morph);
+export const morphName = (sp, morph) => info(sp, morph)?.name ?? morph ?? '';
 export const morphIds = (sp) => Object.keys(MORPHS[sp] ?? {});
 // How much more (or less) a morph costs and sells for than the species' usual price.
-export const morphFactor = (sp, morph) => MORPHS[sp]?.[morph]?.price ?? 1;
-export const morphRarity = (sp, morph) => MORPHS[sp]?.[morph]?.rarity ?? 1;
+export const morphFactor = (sp, morph) => info(sp, morph)?.price ?? 1;
+export const morphRarity = (sp, morph) => info(sp, morph)?.rarity ?? 1;
 export const stars = (rarity, max = 5) => '★'.repeat(rarity) + '☆'.repeat(Math.max(0, max - rarity));

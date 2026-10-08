@@ -264,8 +264,19 @@ export function creatureMaterial(finish = {}, { map = null, normalMap = null, ro
   const glassSolid = (f.glassOpacity ?? 0.55) >= 0.9;                       // an almost opaque shell (shrimp) is drawn as solid
   const trans = glassSolid ? fin : fin.or(glass);
   const rimK = float(1).sub(ndv);
-  const finOp = float(f.finOpacity ?? 0.5).mul(rimK.mul(0.5).add(0.8)), glassOp = float(f.glassOpacity ?? 0.55).mul(rimK.mul(0.5).add(0.8));
-  const tOp = select(fin, finOp, glassOp).min(0.92);
+  // finAlpha: the texture's alpha says how dense the membrane is (a painted guppy tail: render/creatures/guppypaint.js)
+  const finOp = float(f.finOpacity ?? 0.5).mul(rimK.mul(0.5).add(0.8)).mul(f.finAlpha && map ? texture(map, uv()).a : float(1)), glassOp = float(f.glassOpacity ?? 0.55).mul(rimK.mul(0.5).add(0.8));
+  // finFray (the guppy's tails, render/creatures/guppymodel.js): rig.y's fraction is how near the tail's rim a point is. The margin
+  // thins and frays: the rays (dense texels) reach further than the membrane between them, so their tips stand out ragged.
+  let fray = float(1);
+  if (f.finFray) {
+    const ry = attribute('rig', 'vec4').y;
+    const e = select(ry.greaterThan(20.5), ry.fract().div(0.98), float(0)).min(1);
+    const dens = map ? texture(map, uv()).a : float(0.8);
+    const start = float(f.finFray.start ?? 0.8).add(dens.sub(0.6).mul(0.35)).add(noise3(positionLocal.mul(f.finFray.scale ?? 14)).sub(0.5).mul(0.08));
+    fray = float(1).sub(smoothstep(start, float(1.0), e).mul(0.92));
+  }
+  const tOp = select(fin, finOp.mul(fray), glassOp).min(0.92);
   if (pass === 'opaque') {
     m.opacityNode = select(trans, float(0), float(1));
     m.alphaTest = 0.5;

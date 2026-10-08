@@ -9,7 +9,7 @@ import { strikeGape } from '../util/lizardgait.js';
 import { strikeTime, strikeMuscles, strikeCurves, FROG_LUNGE, lungePose, lungePoint } from '../util/frogstrike.js';
 import { bodyFootprint } from '../util/body.js';
 import { surfaceFrame, pitchFrame, glassPush, feetPlane, steadyNormal, easeAngle } from '../util/contain.js';
-import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells } from '../render/creatures.js';
+import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells, guppyModel } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, kickHeave, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
@@ -24,7 +24,8 @@ import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
 import { driveStep, skipWaypoint, crossTrack, panePoint } from './labdrive.js';
 import { Grid, planRoute } from './labroute.js';
-import { CLIMB as STEP_LIMIT, SURFACE_WALKERS } from './surfaces.js';
+import { CLIMB as STEP_LIMIT, SURFACE_WALKERS, limitRise, notABank } from './surfaces.js';
+import { faceRise, isCliff } from './facerise.js';
 import { THREAT, MOVERS, threatScore, sizeFactor, escapeScore } from './threat.js';
 import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
@@ -39,7 +40,9 @@ import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
 import { PIECES } from './decor.js';
 import { PLANTS } from './plants.js';
-import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf, morphList } from './genetics.js';
+import { hasGenetics, randomGenotype, genotypeForMorph, morphOf, lociOf, morphList, sexedSpecies } from './genetics.js';
+import { initLivebearer, livebearerFemale } from './livebearer.js';
+import { guppyFertile } from '../content/guppy.js';
 import { shrimpPalette } from '../content/morphs.js';
 import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
 import { filterDrift, filterAvoid } from './filterflow.js';
@@ -231,7 +234,7 @@ function frogGeo({ back, belly, spots = null, eye = 0x111111, size = 1 }) {
 //   ph [lo, hi] and gh [lo, hi] (°dH) of the water it lives in or soaks in; flow: the most current it bears (0 still … 1 any,
 //   see WaterBodies flow); bask: °C it wants at its warm spot; uvb: the UV index it needs (0: none); land: the share of the
 //   tank that should be land (0 … 1, a hint only); flock: [fewest, most] of its kind that keep it well (lonely below, crowded
-//   above); territorial: males fight (two adult males in one tank stress each other); crew: how much it cleans as a
+//   above); flowMin: the least current it needs (stream fish stress in still water; the mirror of flow); territorial: males fight (two adult males in one tank stress each other); crew: how much it cleans as a
 //   bioactive crew member (1 = a dwarf isopod; mould and litter); drowns: it cannot swim and drowns in water deeper than its
 //   habitat maxDepth (content/habitats.js) with no way out; minL / minH: the smallest tank (litres) and height (cm) it is kept
 //   in (Sim.tankRules: a cramped animal is mildly stressed, and the Field guide shows it against this tank).
@@ -248,9 +251,13 @@ export const SPECIES = {
   },
   guppy: {
     name: 'Guppy', scale: 1, group: 'Fish', kind: 'swim', band: 'top', school: false, size: 3.0, speed: 4.5,
-    temp: [22, 28], hungerHours: 120, lifeDays: 700, eats: ['flake'], cap: 40, breed: 0.05, adultDays: 8,
+    temp: [22, 28], hungerHours: 120, lifeDays: 700, eats: ['flake'], cap: 40, breed: 0.35, adultDays: 8,
+    // Livebearer (sim/livebearer.js): a female with a male conceives at `breed` a day (a brood every ~6 game days, as a real female's
+    // ~30 days on the game's clock), carries it for `gestDays` and drops `brood` fry; one mating fills her store
+    // for `store` more broods; fry are born at `growFrom` of the adult size; a young male grows to `maleK` of the female body.
+    livebearer: { gestDays: 3, brood: [3, 8], store: 3, growFrom: 0.2, maleK: 2.2 / 3.2, fertile: guppyFertile },
     body: sdfBody('guppy'), anim: { amp: 0.25, wave: 1.6 },
-    note: 'Livebearer: breeds on its own when well fed.',
+    note: 'Livebearer: the female gives birth to live fry and keeps a male\'s sperm for several broods (use a virgin female for a known father). Males show the colours; females carry the genes.',
   },
   cory: {
     name: 'Corydoras', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: true, size: 4.0, speed: 3,
@@ -451,7 +458,7 @@ export const SPECIES = {
   },
   panther: {
     name: 'Panther crab', group: 'Crustaceans', kind: 'crab', crabProfile: PANTHER, size: 2.4, speed: 3,
-    minL: 100, temp: [24, 28], humidity: 70, hungerHours: 220, lifeDays: 1500, eats: ['detritus', 'flake', 'shrimp', 'snail', 'springtail'], cap: 4, breed: 0,
+    minL: 100, temp: [24, 28], humidity: 70, hungerHours: 220, lifeDays: 1500, eats: ['detritus', 'flake', 'shrimp', 'matanoshrimp', 'snail', 'springtail'], cap: 4, breed: 0,
     ph: [7.5, 8.5], gh: [8, 15], land: 0.2, territorial: true, flock: [1, 2],
     anim: { lift: 0.3, stride: 0.47, legAxis: 'x', limb: 1 },
     body: () => (BODIES.panther ?? BODIES.crab)(),
@@ -524,6 +531,63 @@ export const SPECIES = {
   // Feeders (2026-10): bought by the cup from the Care panel's Feeding tab (Care.feeders) for the animals that eat them. They
   // do not breed in the tank and live days to weeks; whatever is not eaten hides (crickets, roaches) or digs in (earthworms,
   // which work the soil like the crew). They never count as losses.
+  // ---- Stream fish (run "sets", S2): procedural bodies, bodies/streamfish.js. flow = the most current borne, flowMin = the least needed. ----
+  tanichthys: {
+    name: 'White Cloud Mountain minnow', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 3.5, speed: 4.5,
+    minL: 30, temp: [14, 24], hungerHours: 120, lifeDays: 1500, eats: ['flake'], cap: 50, breed: 0.01, adultDays: 40,
+    ph: [6, 8], gh: [5, 19], flow: 0.6, flock: [6, 40],
+    body: sdfBody('tanichthys'), anim: { amp: 0.22, wave: 1.6 },
+    note: 'A 4 cm minnow from the cool hill streams of Guangdong: gold flanks, a dark stripe with a blue-green shimmer and a red tail base. Hardy, happy at room temperature and in a gentle current. Keep six or more.',
+  },
+  zacco: {
+    name: 'Pale chub', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 11, speed: 6.5,
+    minL: 120, temp: [14, 26], hungerHours: 140, lifeDays: 2200, eats: ['flake', 'bloodworm'], cap: 20, breed: 0,
+    ph: [6.5, 7.8], gh: [4, 15], flow: 1, flowMin: 0.3, flock: [5, 20],
+    body: sdfBody('zacco'), anim: { amp: 0.3, wave: 1.5 },
+    note: 'A strong 10 to 15 cm schooling fish of the fast, clear hill streams of southern China, Taiwan and Korea: brassy flanks with blue-green bars, males with a long orange anal fin. It hunts insects and small crustaceans in the riffles and needs a current and room to swim.',
+  },
+  hillloach: {
+    name: 'Hillstream loach', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: false, size: 5.5, speed: 1.8,
+    minL: 60, temp: [15, 24], hungerHours: 130, lifeDays: 2200, eats: ['biofilm', 'detritus', 'flake'], cap: 8, breed: 0,
+    ph: [6.5, 7.8], gh: [4, 15], flow: 1, flowMin: 0.5, flock: [2, 8],
+    body: sdfBody('hillloach'), anim: { amp: 0.12, wave: 1.2 },
+    note: 'A flat little loach of fast mountain streams in southern China and Taiwan. Huge paired fins and a flat belly let it grip rock in the current while it scrapes off biofilm. It needs cool, clean, oxygen-rich, moving water and dies in still, warm water.',
+  },
+  bullhead: {
+    name: 'European bullhead', scale: 1, group: 'Fish', kind: 'swim', band: 'bottom', school: false, size: 9, speed: 2.2,
+    minL: 80, temp: [6, 17], hungerHours: 160, lifeDays: 2000, eats: ['bloodworm', 'shrimp'], cap: 4, breed: 0,
+    ph: [7, 8.3], gh: [8, 20], flow: 0.7, flowMin: 0.2, territorial: true, flock: [1, 3],
+    body: sdfBody('bullhead'), anim: { amp: 0.18, wave: 1.1 },
+    note: 'A 10 cm bottom fish of clear, cool European brooks, with a broad flat head and big fan fins. It hides under a stone by day, hunts insect larvae, small crustaceans and shrimp at dusk, and a male guards his cave from other males. It cannot stand warm water.',
+  },
+  bedotia: {
+    name: 'Madagascar rainbowfish', scale: 1, group: 'Fish', kind: 'swim', band: 'mid', school: true, size: 8, speed: 5,
+    minL: 100, temp: [20, 28], hungerHours: 140, lifeDays: 1800, eats: ['flake', 'bloodworm'], cap: 20, breed: 0,
+    ph: [6.5, 8], gh: [5, 15], flow: 0.7, flock: [6, 20],
+    body: sdfBody('bedotia'), anim: { amp: 0.26, wave: 1.5 },
+    note: 'A slim 8 to 10 cm rainbowfish from the clear streams and pools of eastern Madagascar: olive-gold with a soft blue sheen, two dorsal fins and yellow fins edged in black on the male. A school of six or more, a lid, and clean, well-oxygenated water; it is endangered at home.',
+  },
+  matanoshrimp: {
+    name: 'Matano shrimp', group: 'Crustaceans', kind: 'crawlWater', shrimp: true, swims: true, flicks: true, size: 1.0, speed: 1.0,
+    minL: 20, temp: [26, 30], hungerHours: 200, lifeDays: 700, eats: ['detritus', 'biofilm', 'flake'], cap: 60, breed: 0.02, adultDays: 60,
+    ph: [7.5, 8.5], gh: [5, 10], flow: 0.4, flock: [8, 60],
+    anim: { lift: 0.06, stride: 0.1 },
+    body: () => BODIES.matanoshrimp(), note: 'A glassy red-lined Caridina shrimp of Lake Matano, Sulawesi. It wants warm (27 to 30 C), hard, alkaline water and a colony of eight or more. Grazes biofilm on rock and wood; the panther crab hunts it.',
+  },
+  tylomelania: {
+    name: 'Matano rabbit snail', scale: 1, group: 'Molluscs', kind: 'crawlWater', size: 2.5, speed: 0.4,
+    minL: 60, temp: [24, 30], hungerHours: 220, lifeDays: 1800, eats: ['detritus', 'biofilm', 'flake'], cap: 12, breed: 0.01, adultDays: 120,
+    ph: [7.5, 8.5], gh: [8, 15], flow: 0.3, flock: [2, 8],
+    body: () => BODIES.tylomelania(), anim: { amp: 0, wave: 1 },
+    note: 'A 5 to 7 cm snail of the Sulawesi lakes, a tall dark spire over an orange foot and two long feelers like rabbit ears. Hard, warm, alkaline water; it bears single live young, so a colony grows slowly. Eats biofilm and soft algae and leaves plants alone.',
+  },
+  cambarellus: {
+    name: 'Mexican dwarf crayfish', scale: 1.5, group: 'Crustaceans', kind: 'crawlWater', shrimp: true, flicks: true, size: 1.5, speed: 0.9,
+    minL: 40, temp: [14, 26], hungerHours: 180, lifeDays: 900, eats: ['detritus', 'biofilm', 'flake', 'bloodworm'], cap: 20, breed: 0.01, adultDays: 90,
+    ph: [7, 8], gh: [8, 18], flow: 0.3, territorial: true, flock: [2, 10],
+    anim: { lift: 0.06, stride: 0.1 },
+    body: () => BODIES.cambarellus(), note: 'A 3 to 4 cm crayfish (Cambarellus montezumae) from the canals of Xochimilco in the Valley of Mexico. Cool water, hiding places and room: it pinches its neighbours but rarely harms plants. Keep a small group with many caves.',
+  },
   cricket: {
     name: 'Crickets', group: 'Insects', kind: 'crawlLand', feeder: true, hop: true, size: 1, speed: 2.4,
     crawlOpt: { restP: 0.55, rest: [2, 9], speed: 1 },
@@ -633,9 +697,16 @@ export async function modelBuilder(id, meta = null) {
   meta ??= (await loadManifest())[id];
   const sp = SPECIES[id.split(':')[0]];                // 'dartfrog:sky_clean': a morph's own model, drawn like its species
   if (!sp || !meta || meta.disabled || meta.pose) return null;
-  const ck = meta.file ?? id;                          // (by file: a morph that is the species' default look shares its files)
-  if (!GLB_CACHE.has(ck)) GLB_CACHE.set(ck, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
-  const g = await GLB_CACHE.get(ck);
+  let g, extra = {};
+  if (meta.guppy && id.startsWith('guppy:')) {
+    const gm = await guppyModel(id.slice(6), meta);
+    if (!gm) return null;
+    g = gm; extra = gm.finish;
+  } else {
+    const ck = meta.file ?? id;                        // (by file: a morph that is the species' default look shares its files)
+    if (!GLB_CACHE.has(ck)) GLB_CACHE.set(ck, loadCreatureGLB(id, { legs: WALKERS.includes(sp.kind), ...meta }));
+    g = await GLB_CACHE.get(ck);
+  }
   if (!g) return null;
   const a = sp.anim ?? {};
   const group = sp.group === 'Fish' ? 'fish' : sp.group === 'Amphibians' ? 'amphibian' : sp.group === 'Reptiles' ? 'reptile' : 'invert';
@@ -644,7 +715,7 @@ export async function modelBuilder(id, meta = null) {
   const palette = meta.palette ? paletteFinish(id.includes(':') ? id.split(':')[1] : meta.paletteMorph ?? 'red', meta) : null;
   return (scene, cap = sp.cap + 20) => new CreatureLOD(scene, g.lo, {
     cap, wave: a.wave ?? 1, legLift: a.lift ?? 0.25, legStride: a.stride ?? 0.35, legAxis: a.legAxis ?? 'z', limb: a.limb ?? 1,
-    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...(palette ? { palette } : {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}), ...turnRigFinish(sp) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
+    finish: { ...FINISH[group], bump: 0, tone: 0.02, grain: 1, ...(meta.finish ?? {}), ...extra, ...(palette ? { palette } : {}), ...(a.waveHead != null ? { waveHead: a.waveHead } : {}), ...(a.rig2 ? { rig2: a.rig2 } : {}), ...turnRigFinish(sp) }, near: 34 + sp.size * 10, hiGeometry: g.hi === g.lo ? null : g.hi, textures: g.textures,
   });
 }
 
@@ -717,6 +788,8 @@ export class Animals {
       if (meta.pose) { const [b, p] = id.split('.'); (this.poseMeta[b] ??= {})[p] = { key: id, meta }; if (this.meshes[b]) this.ensurePose(b, p); continue; }
       if (SPECIES[id.split(':')[0]] && !meta.disabled) (this.modelMeta ??= {})[id] = meta;
       if (this.meshes[id]) this.loadModel(id);
+      // The guppy's looks ('guppy:<look>') already drawn with their procedural stand-in switch to the owner's models.
+      if (meta.guppy) for (const k of Object.keys(this.meshes)) if (k.startsWith('guppy:')) this.loadModel(k);
       // A palette model serves every colour line of its species (the genetics' morphs) from the one file.
       if (meta.palette && !id.includes(':') && SPECIES[id] && hasGenetics(id)) for (const m of morphList(id)) {
         const k = `${id}:${m}`;
@@ -730,7 +803,8 @@ export class Animals {
   // together is over 1.5 MB and fetching them all held the loading screen 4 to 5 s on the live site. Once loaded (READY,
   // shared by every tank) a new tank builds the model directly; until then the procedural body stands in and is swapped.
   loadModel(id) {
-    const meta = this.modelMeta?.[id];
+    // (a guppy look, 'guppy:<look>', is drawn on the owner's male or female model with a texture painted for it: render/creatures/guppymodel.js)
+    const meta = this.modelMeta?.[id] ?? (id.startsWith('guppy:') && this.modelMeta?.guppy?.guppy ? this.modelMeta.guppy : null);
     if (!meta || this.models[id] || this._loadingModel?.has(id)) return;
     (this._loadingModel ??= new Set()).add(id);
     this.modelsLoading = (this.modelsLoading ?? 0) + 1;   // the loading veil waits for these (ui/Veil.jsx)
@@ -924,12 +998,16 @@ export class Animals {
     if (hasGenetics(id)) {
       const ok = Array.isArray(opt.genes) && opt.genes.length === SPECIES_LOCI(id);
       let genes = ok ? [...opt.genes] : null;
-      if (!genes && opt.morph) { try { genes = genotypeForMorph(id, opt.morph); } catch { genes = null; } }
-      a.genes = genes ?? randomGenotype(id);
+      // A species with sex chromosomes (the guppy) is sexed by its genes: a founder's sex is chosen first (a dealer's trio), and its
+      // genes are made for that sex (a female carries no Y genes)
+      const fem = sexedSpecies(id) && !genes ? livebearerFemale(opt, this.by[id]) : undefined;
+      if (!genes && opt.morph) { try { genes = genotypeForMorph(id, opt.morph, Math.random, { female: fem }); } catch { genes = null; } }
+      a.genes = genes ?? randomGenotype(id, Math.random, { female: fem });
       a.morph = morphOf(id, a.genes);
     } else if (opt.genes && opt.gsp) {
       a.genes = [...opt.genes]; a.morph = opt.morph ?? morphOf(opt.gsp, a.genes); a.gsp = opt.gsp;
     }
+    if (sp.livebearer) initLivebearer(a, sp, opt, this.by[id]);
     // Territorial species (males fight) come as a sexed group, as a dealer sells them: one male, the rest females.
     if (sp.territorial) a.male = opt.male ?? !this.by[id].some((b) => b.male);
     this.by[id].push(a);
@@ -1185,18 +1263,24 @@ export class Animals {
   standOn(a, sp) {
     const T = this.world.terrain, x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z), c = SURFACE_WALKERS.has(sp.kind) ? STEP_LIMIT[sp.kind] : null;
     if (!c || !this.avoid || !this.occ.count) { a.pos.y = g; a.normal = T.normalAt(x, z); return; }
-    const S = this.surfaces(), room = Math.max(0.8, a.bh ?? 1), y0 = a.pos.y, mid = S.heightAt(x, z, y0, c.up, c.down, room, _sh);
-    if (!mid) { a.pos.y = g; a.normal = T.normalAt(x, z); a.pitch = 0; return; }
+    // (the height it stands at now: a.pos.y, or, when a mover reset a.pos.y to the ground since (the gecko's herpStep), the one this function left it at last,
+    // a._soy; admission of a layer is measured from the real layer it stood on, a._soly, not from the blended height, which fed itself at a log's end)
+    const S = this.surfaces(), room = Math.max(0.8, a.bh ?? 1), fresh = a._soy !== undefined && this.t - a._sot < 0.5 && Math.hypot(x - a._sox, z - a._soz) < 3;
+    const y0 = fresh ? a._soy : a.pos.y, yl = fresh && a._soly !== undefined ? a._soly : y0, mid = S.heightAt(x, z, yl, c.up, c.down, room, _sh);
+    if (!mid) { a.pos.y = g; a.normal = T.normalAt(x, z); a.pitch = 0; a._soy = undefined; return; }
     const piece = _sh.piece, nx = _sh.nx, ny = _sh.ny, nz = _sh.nz, yc = mid.y;
     const b = this.bodyOf(a.sp), f = b ? b.hlen * drawScale(a, sp) * 0.6 : 0, fx = Math.sin(a.yaw ?? 0), fz = Math.cos(a.yaw ?? 0);
     let yf = yc, yr = yc;
     if (f > 0.3) {
-      const hf = S.heightAt(x + fx * f, z + fz * f, y0, c.up, c.down, room, _shF), hr = S.heightAt(x - fx * f, z - fz * f, y0, c.up, c.down, room, _shR);
+      const hf = S.heightAt(x + fx * f, z + fz * f, yl, c.up, c.down, room, _shF), hr = S.heightAt(x - fx * f, z - fz * f, yl, c.up, c.down, room, _shR);
       yf = hf ? hf.y : T.heightAt(x + fx * f, z + fz * f); yr = hr ? hr.y : T.heightAt(x - fx * f, z - fz * f);
     }
     // (the surface under its middle, as a.pos.y is everywhere: footing() poses the body on its feet; a hair above a piece's, PIECE_LIFT: the blended surface can
     // sit a little under a bumpy trunk's real mesh and the engine then takes the body for inside it and relocates it)
-    a.pos.y = yc + (piece ? PIECE_LIFT : 0);
+    let yt = yc + (piece ? PIECE_LIFT : 0);
+    // The rise or fall follows the travel: a step of a log's end is climbed over the distance walked, not taken in one frame.
+    if (fresh) yt = limitRise(y0, yt, Math.hypot(x - a._sox, z - a._soz));
+    a._soy = a.pos.y = yt; a._sox = x; a._soz = z; a._sot = this.t; a._soly = _sh.ly;
     a.pitch = f > 0.3 ? clamp(-Math.atan2(yf - yr, 2 * f), -0.7, 0.7) : 0;
     a.normal = piece ? V(nx, ny, nz) : T.normalAt(x, z);
   }
@@ -1309,14 +1393,20 @@ export class Animals {
   // bank: it was drawn tipped on its side with half its body in the bank), nor push its nose into one. It stays where it was; its
   // walk then turns or gives up as it does at a rock. Off such a face it may always step.
   // (A gecko climbs: steep ground is a surface to it, drawn on the plane under its feet.)
-  cliffAt(x, z) { const [gx, gz] = this.world.terrain.field.gradient(x, z); return gx * gx + gz * gz > 3; }      // (ground normal y < 0.5)
+  // (`a`, for a skink, crab or newt: a face it can step onto, rising no more than its step limit, is not a cliff to it, sim/facerise.js)
+  cliffAt(x, z, a = null) {
+    const T = this.world.terrain, [gx, gz] = T.field.gradient(x, z), g2 = gx * gx + gz * gz;      // (ground normal y < 0.5)
+    if (g2 <= 3) return false;
+    const kind = a ? SPECIES[a.sp]?.kind : null;
+    return kind && SURFACE_WALKERS.has(kind) ? isCliff(g2, faceRise((px, pz) => T.heightAt(px, pz), x, z), STEP_LIMIT[kind].up) : true;
+  }
   offCliff(a, sp, px, py, pz) {
     if (a.hop || a.perch || a.onWall || a.wallMode || a.swimming || sp.kind === 'gecko' || a.relocT === this.t) return;
     const T = this.world.terrain, bx = this.bodyBox(a, sp), ux = Math.sin(a.yaw ?? 0), uz = Math.cos(a.yaw ?? 0), nose = bx.z1 * 0.8;
-    const bad = (x, z) => this.cliffAt(x, z) || this.cliffAt(x + ux * nose, z + uz * nose);
+    const bad = (x, z) => this.cliffAt(x, z, a) || this.cliffAt(x + ux * nose, z + uz * nose, a);
     if ((a.pos.x !== px || a.pos.z !== pz) && bad(a.pos.x, a.pos.z) && !bad(px, pz)) { a.pos.set(px, py, pz); return; }
     // Standing on a cliff face however it got there (put there, the ground dug or raised under it): it slides down off it.
-    if (this.cliffAt(a.pos.x, a.pos.z) && sp.kind !== 'crab') {
+    if (this.cliffAt(a.pos.x, a.pos.z, a) && sp.kind !== 'crab') {
       const [gx, gz] = T.field.gradient(a.pos.x, a.pos.z), l = Math.hypot(gx, gz), nx = a.pos.x - gx / l * 0.3, nz = a.pos.z - gz / l * 0.3;
       // (a frog does not slide off into water deeper than half its body: it scrambles to a place it can sit instead, frogOut)
       if ((sp.kind === 'frog' || sp.kind === 'toad') && this.tooDeep(a, sp, nx, nz)) { this.frogOut(a, sp); return; }
@@ -1352,7 +1442,11 @@ export class Animals {
         const tail = i++ === 1 && hips != null, px = x0 + ox, pz = z0w + oz;
         // (and lies up a gentle rise behind it, its tip lifted, groundBend: only ground rising more steeply than about 20 degrees is a bank)
         const e = T.heightAt(px, pz) - (tail ? Math.max(plane(px, pz), plane(x0 + ux * hips, z0w + uz * hips)) + Math.max(H * 0.5, -z0 * 0.4) : plane(px, pz) + H * 0.5);
-        if (e > 0) { d += e; if (away) { mx -= ox; mz -= oz; n++; } }
+        // (a surface walker at the lip of a rock or log: the footing plane under its fore feet runs steeply down and, extended to the snout, lies
+        // under the floor below; ground that is lower than the body's own height is a drop it overhangs, not a bank it is in. R5b: the gecko at a boulder's
+        // far face was pushed back 0.3 cm a tick for ever, 'stuck' on the middle boulder)
+        // (and a rise ahead that it can climb, within its step limit, is the foot of what it is walking up onto, not a bank it is in)
+        if (e > 0 && !notABank(sp.kind, T.heightAt(px, pz), y0, i === 1)) { d += e; if (away) { mx -= ox; mz -= oz; n++; } }
       }
       return d;
     };
@@ -3742,7 +3836,7 @@ export class Animals {
         // (a long body cannot face a waypoint nearer the side glass than its nose reaches: the waypoint is moved in to where the nose fits, and
         // counts as reached there; R3. Short bodies: the clamp is outside the grid's own margin, so nothing changes.)
         const cg = path ? this.noseClamp(a, sp, r.goal) : r.goal;
-        if (path && cg !== r.goal && Math.hypot(cg.x - a.pos.x, cg.z - a.pos.z) < 1.2) { skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall); if (++skips > D.pts.length) break; continue; }
+        if (path && cg !== r.goal && Math.hypot(cg.x - a.pos.x, cg.z - a.pos.z) < 2.5) { skipWaypoint(D); r = driveStep(D, a.pos, this.labDots ?? {}, 0, onWall); if (++skips > D.pts.length) break; continue; }
         goal = path && m.blockedAt(cg.x, cg.z) ? null : this.labSteer(a, sp, m, cg, dt);
         if (goal || !path) break;
         if (++skips > D.pts.length) { [D.laps, D.skipped, D.i, D.dir] = lap; r = { goal: null, done: false }; break; }
@@ -3852,11 +3946,11 @@ export class Animals {
       // body's back, and the movers refuse to go under it (a hop's back-height test). A cell the body does not fit under is shut, as the planner must see it: a toad sent
       // to a point under a propped slate hopped round it, refused again and again, and was relocated. (A climber is let under or over by its surface layers.)
       if (!S && this.occ.count && this.occ.solidAt(x, gy + top, z)) return true;
-      // Steep ground: the newt, salamander and axolotl walker is refused a steep face by walkBlocked (a gecko climbs it, and the skink's and the
-      // crab's movers never look: they cross a low step or wall, as the lab's obstacle courses show). A hopper hops up a rise within what a hop
+      // Steep ground: the newt, salamander and axolotl walker is refused a steep face by walkBlocked, and the skink and crab by offCliff (a gecko climbs it); the
+      // three that climb (S) only a face above their step limit (cliffAt with the animal), the axolotl any steep one. A hopper hops up a rise within what a hop
       // lands on and clears (the courses: a 3 cm step is hopped, a 6 cm wall is not), so a raised cell more than HOP_RISE over its neighbours is shut.
       if (hops) { const lo = Math.min(T.heightAt(x - 1.5, z), T.heightAt(x + 1.5, z), T.heightAt(x, z - 1.5), T.heightAt(x, z + 1.5)); if (gy - lo > Math.min(5 * sp.size, HOP_RISE)) return true; }
-      else if (steep && this.cliffAt(x, z)) return true;
+      else if ((steep || S) && this.cliffAt(x, z, S ? probe : null)) return true;      // (a skink, crab or newt: only a face above its step limit, as offCliff and walkBlocked)
       if (this.occ.count) for (let k = 0; k < 8; k++) { const rx = x + Math.sin(k * 0.785) * gap, rz = z + Math.cos(k * 0.785) * gap; if ((this.occ.solidAt(rx, gy + 0.5, rz) || (!S && this.occ.solidAt(rx, gy + top, rz))) && !(S && over(rx, rz, gy))) return true; }
       return this.stemDepth(a, x, gy, z, 0) > 0.02;
     }, () => cc);
@@ -4320,7 +4414,8 @@ export class Animals {
   }
 
   radiusOf(a, sp) {
-    const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
+    const g0 = sp.livebearer?.growFrom ?? 0.35;
+  const grow = clamp(g0 + (a.age / 1440) / (sp.adultDays ?? 10) * (1 - g0), g0, 1);
     return (RADIUS[sp.kind] ?? 0.4) * (sp.r ?? sp.size) * (0.5 + 0.5 * grow);
   }
 
@@ -4496,7 +4591,7 @@ export class Animals {
   walkBlocked(a, nx, nz) {
     const d1 = this.stemDepth(a, nx, a.pos.y, nz, a.yaw);
     if (d1 > 0.02 && d1 > this.stemDepth(a, a.pos.x, a.pos.y, a.pos.z, a.yaw) + 1e-3) return true;
-    return SPECIES[a.sp].kind !== 'gecko' && this.cliffAt(nx, nz) && !this.cliffAt(a.pos.x, a.pos.z);
+    return SPECIES[a.sp].kind !== 'gecko' && this.cliffAt(nx, nz, a) && !this.cliffAt(a.pos.x, a.pos.z, a);
   }
 
   // Would a step to (nx, nz) take this walker further into a neighbour's body? Crawlers go round one another the way they go round
@@ -5002,8 +5097,7 @@ export class Animals {
       this.herpStep(a, sp, P, { x: a.pos.x, z: wz + 1.5 }, goal ? it.speed : P.walk, dt, 'land', 5);
     } else if (goal && it.speed > 0.1) this.herpStep(a, sp, P, goal, it.speed, dt, 'land', 0.3);
     else { a.hsp = (a.hsp ?? 0) * Math.max(0, 1 - dt * 8); if (it.face) this.turnTo(a, sp, Math.atan2(it.face.x - a.pos.x, it.face.z - a.pos.z), dt, 5); }
-    a.pos.y = T.heightAt(a.pos.x, a.pos.z);
-    a.normal = T.normalAt(a.pos.x, a.pos.z);
+    this.standOn(a, sp);                  // (on the floor, or on the log or root it has stepped onto: sim/surfaces.js)
     a.wallMode = false; a._wn = null;
   }
 
@@ -5273,7 +5367,7 @@ export class Animals {
   footH(a, sp, x, z) {
     const T = this.world.terrain;
     if (!SURFACE_WALKERS.has(sp.kind) || !this.avoid || !this.occ.count) return T.heightAt(x, z);
-    const c = STEP_LIMIT[sp.kind], h = this.surfaces().heightAt(x, z, a.pos.y, c.up, c.down, Math.max(0.8, a.bh ?? 1), _shH);
+    const c = STEP_LIMIT[sp.kind], h = this.surfaces().heightAt(x, z, a._soly ?? a.pos.y, c.up, c.down, Math.max(0.8, a.bh ?? 1), _shH);
     return h ? h.y + (h.piece ? PIECE_LIFT : 0) : T.heightAt(x, z);
   }
 
@@ -5377,7 +5471,7 @@ export class Animals {
       const invRig = !!dm?.opts?.finish?.invert;          // insects, isopods and shrimp with antennae, wings, swimmerets … (invertPose)
       for (const k of this.keys[id]) this.meshes[k].begin();
       for (const a of arr) {
-        const cm = morphs && a.morph ? this.meshFor(id, a.morph) : dm;
+        const cm = morphs && a.morph ? this.meshFor(id, a.look ?? a.morph) : dm;     // (a livebearer: its sex and age's look)
         const sc = drawScale(a, sp);
         const swimming = sp.kind === 'swim' || a.swimming;
         // A swimming frog or toad is drawn in the breaststroke pose (forelegs along the flanks, hind legs kicking), level, bobbing on the water.
@@ -5651,7 +5745,7 @@ export class Animals {
   }
 
   serialize() {
-    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK', 'male']) }));
+    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK', 'male', 'gv', 'st', 'mated', 'sk0']) }));
   }
 }
 
@@ -5670,7 +5764,8 @@ export function drawScale(a, sp) {
   // drawn at `cm / cmAt1` (cmAt1: the drawn length of the body at scale 1, measured by tools/steps/amph-life-day.mjs AMPH_LARVA=1).
   const L = sp.sizeBy && (sp.sizeBy[a.parent] ?? sp.sizeBy.newt);
   if (L) return (L[0] + (L[1] - L[0]) * clamp(a.age / 1440 / sp.metamorphDays, 0, 1)) / sp.cmAt1;
-  const grow = clamp(0.35 + (a.age / 1440) / (sp.adultDays ?? 10) * 0.65, 0.35, 1);
+  const g0 = sp.livebearer?.growFrom ?? 0.35;
+  const grow = clamp(g0 + (a.age / 1440) / (sp.adultDays ?? 10) * (1 - g0), g0, 1);
   return (sp.scale ?? sp.size) * grow * (a.sizeK ?? 1);
 }
 

@@ -5,6 +5,7 @@
 // first ('Aa'); incomplete-dominance loci sort alphabetically ('BR'). `morphOf` turns it into a morph id.
 
 import { LOCI_TEXT, MORPHS, morphName, morphRarity } from '../content/morphs.js';
+import { GUPPY_LOCI, GUPPY_STRAINS, guppyPhenotype, guppyGenotypeFor } from '../content/guppy.js';
 
 // Chance that an inherited allele flips to the other allele of its locus. Changeable: `config.mutation = 0`
 // switches mutations off, or pass `{ mutation }` to `breed`.
@@ -29,6 +30,14 @@ export function makeRng(seed = 1) {
 
 const rec = (dom, low, freq) => ({ alleles: [dom, low], incomplete: false, freqAllele: low, freq });
 const tail = (freq) => ({ alleles: ['B', 'R'], incomplete: true, freqAllele: 'R', freq });
+// A locus whose dominant allele is the trait (mosaic, swords …): one copy shows it, and the plain fish is the double recessive.
+// `dom` only changes the words (describe) and which births count as "a hidden gene showed up"; the arithmetic is rec's.
+const dom = (a, low, freq) => ({ ...rec(a, low, freq), dom: true });
+const fromSpec = (l) => ({
+  ...(l.mode === 'sex' ? { alleles: ['X', 'Y'], sex: true, freqAllele: 'Y', freq: 0.25 }
+    : l.mode === 'inc' ? { alleles: l.alleles, incomplete: true, freqAllele: l.freqAllele, freq: l.freq } : l.mode === 'dom' ? dom(l.alleles[0], l.alleles[1], l.freq) : rec(l.alleles[0], l.alleles[1], l.freq)),
+  ...(l.link ? { link: l.link } : {}),
+});
 const hom = (g, a) => g[0] === a && g[1] === a;
 
 export const SPECIES_GENETICS = {
@@ -45,10 +54,14 @@ export const SPECIES_GENETICS = {
     morphs: ['cobalt_spotted', 'cobalt_clean', 'sky_spotted', 'sky_clean'],
     resolve: (g) => `${hom(g[0], 'b') ? 'sky' : 'cobalt'}_${hom(g[1], 's') ? 'clean' : 'spotted'}`,
   },
+  // The fancy guppy: eleven genes (content/guppy.js), the strain a male shows read off them; females carry the same genes and
+  // show little of them (the look, content/guppy.js guppyLook). `morphs` here is what a dealer sells; a tank breeds many more.
   guppy: {
-    loci: [tail(0.6), rec('G', 'g', 0.1)],
-    morphs: ['red', 'purple', 'blue', 'gold'],
-    resolve: (g) => (hom(g[1], 'g') ? 'gold' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
+    loci: GUPPY_LOCI.map(fromSpec),
+    morphs: GUPPY_STRAINS,
+    resolve: guppyPhenotype,
+    forMorph: guppyGenotypeFor,           // (too many classes to list: the strain's traits give each gene)
+    sexed: true,                          // XY sex chromosomes: genes on the X (link 'x') and the Y (link 'y'); see 'Sex chromosomes' below
   },
   betta: {
     loci: [tail(0.6), rec('X', 'x', 0.1)],
@@ -87,6 +100,37 @@ function need(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Sex chromosomes (a species with `sexed: true`, the guppy). The last locus is the sex: 'XX' a female, 'XY' a male. A gene on the X
+// (locus.link 'x') is written with both X alleles in a female ('Mm') and the male's one X allele and a '-' ('M-'); a gene on the Y
+// (link 'y') is '--' in a female (she has no Y) and '-' with the male's Y allele in a male ('-W'). A father gives his X to his
+// daughters and his Y to his sons; a son's X genes come from his mother alone. Gene on the Y: father to son, never through a female.
+const sexIndex = (sp) => (sp.sexed ? sp.loci.findIndex((l) => l.sex) : -1);
+export const isMaleGenes = (id, genes) => { const sp = SPECIES_GENETICS[id], k = sp ? sexIndex(sp) : -1; return k >= 0 && genes?.[k] === 'XY'; };
+export const sexedSpecies = (id) => !!SPECIES_GENETICS[id]?.sexed;
+const real = (a) => a !== '-';
+// The genotype a locus takes for a sex: the common allele(s) (an old save's missing gene), or a written one moved onto the chromosomes.
+function sexedLocus(locus, g, male) {
+  const common = locus.freq >= 0.5 ? locus.freqAllele : other(locus, locus.freqAllele);
+  if (locus.sex) return male ? 'XY' : 'XX';
+  if (locus.link === 'x') {
+    if (!g) return male ? common + '-' : norm(locus, common, common);
+    const al = [...g].filter(real);
+    return male ? (al[0] ?? common) + '-' : norm(locus, al[0] ?? common, al[1] ?? al[0] ?? common);
+  }
+  if (locus.link === 'y') {
+    if (!male) return '--';
+    const al = [...(g ?? '')].filter(real);
+    return '-' + (al.includes(locus.alleles[0]) ? locus.alleles[0] : al[0] ?? common);
+  }
+  return g ?? norm(locus, common, common);
+}
+// A genotype written before the sex chromosomes (or with genes missing) made whole for an animal of that sex.
+export function sexGenes(id, genes, female) {
+  const sp = need(id);
+  return sp.loci.map((l, i) => sexedLocus(l, genes?.[i], !female));
+}
+
+// ---------------------------------------------------------------------------
 // Genotypes and morphs.
 
 export function morphOf(id, genes) {
@@ -99,6 +143,7 @@ export function morphOf(id, genes) {
 export function complete(id, genes) {
   const sp = SPECIES_GENETICS[id];
   if (!sp || !genes || genes.length >= sp.loci.length) return genes;
+  if (sp.sexed) return sexGenes(id, genes, !(genes[sexIndex(sp)] === 'XY'));
   return sp.loci.map((locus, i) => genes[i] ?? (() => { const c = locus.freq >= 0.5 ? locus.freqAllele : other(locus, locus.freqAllele); return norm(locus, c, c); })());
 }
 
@@ -119,37 +164,91 @@ export function allGenotypes(id) {
 }
 
 // A random wild-type founder: each allele drawn from the species' allele frequencies, so it may be a hidden carrier.
-export function randomGenotype(id, rng = Math.random) {
+export function randomGenotype(id, rng = Math.random, { female } = {}) {
   const sp = need(id);
+  const fem = female ?? rng() < 0.5;
   return sp.loci.map((locus) => {
     const draw = () => (rng() < locus.freq ? locus.freqAllele : other(locus, locus.freqAllele));
+    if (sp.sexed && (locus.sex || locus.link)) return sexedLocus(locus, locus.sex ? null : draw() + draw(), !fem);
     return norm(locus, draw(), draw());
   });
 }
 
+// Phenotype classes: at a complete-dominance locus 'Aa' looks like 'AA', so the two are one class (written 'AA'); an in-between
+// locus keeps its three genotypes. Every resolver treats 'Aa' and 'AA' alike, so enumerating classes gives the same morphs and
+// probabilities as enumerating genotypes, far faster for a species with many genes (the guppy: 4 608 classes, 177 147 genotypes).
+// `dist` is one locus's genotype distribution { 'Aa': p, … }; returns [[class, p, { genotype: p within the class }], …].
+function classes(locus, dist) {
+  if (locus.incomplete) return Object.entries(dist).filter(([, p]) => p > 0).map(([g, p]) => [g, p, { [g]: 1 }]);
+  const [a0] = locus.alleles, top = a0 + a0, out = [];
+  const pd = Object.entries(dist).filter(([g, p]) => p > 0 && g[0] === a0), ps = pd.reduce((s, [, p]) => s + p, 0);
+  if (ps > 0) out.push([top, ps, Object.fromEntries(pd.map(([g, p]) => [g, p / ps]))]);
+  for (const [g, p] of Object.entries(dist)) if (p > 0 && g[0] !== a0) out.push([g, p, { [g]: 1 }]);
+  return out;
+}
+const priorDist = (locus) => {
+  const q = locus.freq, [a0, a1] = locus.alleles, p0 = locus.freqAllele === a0 ? q : 1 - q;
+  return { [a0 + a0]: p0 * p0, [a0 + a1]: 2 * p0 * (1 - p0), [a1 + a1]: (1 - p0) * (1 - p0) };
+};
+// Enumerate the product of per-locus class lists: [{ genes (class representatives), p, within (per locus) }].
+function enumerate(lists) {
+  let list = [{ genes: [], p: 1, within: [] }];
+  for (const cl of lists) list = list.flatMap((x) => cl.map(([g, p, w]) => ({ genes: [...x.genes, g], p: x.p * p, within: [...x.within, w] })));
+  return list;
+}
+const CLASS_PRIORS = {};
+function priorClasses(id) {
+  if (CLASS_PRIORS[id]) return CLASS_PRIORS[id];
+  const sp = need(id);
+  return (CLASS_PRIORS[id] = enumerate(sp.loci.map((l) => classes(l, priorDist(l)))).map((x) => ({ ...x, morph: sp.resolve(x.genes) })));
+}
+const drawFrom = (w, rng) => {
+  let r = rng();
+  const e = Object.entries(w);
+  for (const [g, p] of e) { r -= p; if (r < 0) return g; }
+  return e[e.length - 1][0];
+};
+
 // A genotype that shows `morph`. Recessive morphs are homozygous; other morphs may carry hidden genes
 // (chosen with the wild frequencies, so a "cobalt, many spots" frog is usually but not always pure).
-export function genotypeForMorph(id, morph, rng = Math.random) {
-  const cands = allGenotypes(id).filter((x) => x.morph === morph);
+export function genotypeForMorph(id, morph, rng = Math.random, { female } = {}) {
+  if (need(id).forMorph) return need(id).forMorph(morph, rng, { female: female ?? false });
+  const cands = priorClasses(id).filter((x) => x.morph === morph);
   if (!cands.length) throw new Error(`Unknown morph "${morph}" for ${id}`);
   const total = cands.reduce((s, x) => s + x.p, 0);
-  let r = rng() * total;
-  for (const x of cands) { r -= x.p; if (r < 0) return [...x.genes]; }
-  return [...cands[cands.length - 1].genes];
+  let r = rng() * total, pick = cands[cands.length - 1];
+  for (const x of cands) { r -= x.p; if (r < 0) { pick = x; break; } }
+  return pick.within.map((w) => drawFrom(w, rng));
 }
 
 // ---------------------------------------------------------------------------
 // Inheritance.
 
-// One child: a random allele from each parent at every locus, each flipping with probability `mutation`.
+// One child: a random allele from each parent at every locus, each flipping with probability `mutation`. A species with many genes
+// mutates each one less, so that a baby is about as likely to carry a mutation as one of a three-gene species (the guppy's 24 genes
+// at the full rate would give one baby in three a mutation, and selective breeding would drown in surprises).
+export const mutationPerAllele = (id, mutation = config.mutation) => mutation * Math.min(1, 3 / need(id).loci.filter((l) => !l.sex).length);
 export function breed(id, genesA, genesB, rng = Math.random, { mutation = config.mutation } = {}) {
-  const sp = need(id);
+  const sp = need(id), mu = mutationPerAllele(id, mutation);
   genesA = complete(id, genesA); genesB = complete(id, genesB);
+  if (sp.sexed) {
+    const k = sexIndex(sp), aMale = genesA[k] === 'XY';
+    const mother = aMale ? genesB : genesA, father = aMale ? genesA : genesB;
+    const son = rng() < 0.5;
+    return sp.loci.map((locus, i) => {
+      const flip = (x) => (real(x) && rng() < mu ? other(locus, x) : x);
+      if (locus.sex) return son ? 'XY' : 'XX';
+      const m = mother[i], f = father[i];
+      if (locus.link === 'x') { const mx = flip(m[rng() < 0.5 ? 0 : 1]); return son ? mx + '-' : norm(locus, mx, flip(f[0])); }
+      if (locus.link === 'y') return son ? '-' + flip(f[1]) : '--';
+      return norm(locus, flip(m[rng() < 0.5 ? 0 : 1]), flip(f[rng() < 0.5 ? 0 : 1]));
+    });
+  }
   return sp.loci.map((locus, i) => {
     let x = genesA[i][rng() < 0.5 ? 0 : 1];
     let y = genesB[i][rng() < 0.5 ? 0 : 1];
-    if (rng() < mutation) x = other(locus, x);
-    if (rng() < mutation) y = other(locus, y);
+    if (rng() < mu) x = other(locus, x);
+    if (rng() < mu) y = other(locus, y);
     return norm(locus, x, y);
   });
 }
@@ -159,10 +258,25 @@ function gametes(g) {
   return g[0] === g[1] ? [{ allele: g[0], p: 1 }] : [{ allele: g[0], p: 0.5 }, { allele: g[1], p: 0.5 }];
 }
 
-// Distribution of the child's genotype at one locus: { 'Aa': 0.5, ... }. Exact.
-export function locusOutcomes(id, i, genesA, genesB) {
-  const locus = need(id).loci[i];
+// Distribution of the child's genotype at one locus: { 'Aa': 0.5, ... }. Exact. In a sexed species `son` (true / false) asks for one
+// sex; without it the two are mixed half and half.
+export function locusOutcomes(id, i, genesA, genesB, son = null) {
+  const sp = need(id), locus = sp.loci[i];
   genesA = complete(id, genesA); genesB = complete(id, genesB);
+  if (sp.sexed && son == null && (locus.sex || locus.link)) {
+    const a = locusOutcomes(id, i, genesA, genesB, false), b = locusOutcomes(id, i, genesA, genesB, true), out = {};
+    for (const [g, p] of Object.entries(a)) out[g] = (out[g] ?? 0) + p / 2;
+    for (const [g, p] of Object.entries(b)) out[g] = (out[g] ?? 0) + p / 2;
+    return out;
+  }
+  if (sp.sexed && (locus.sex || locus.link)) {
+    const k = sexIndex(sp), aMale = genesA[k] === 'XY', mother = aMale ? genesB : genesA, father = aMale ? genesA : genesB;
+    if (locus.sex) return { [son ? 'XY' : 'XX']: 1 };
+    const out = {}, add = (g, p) => { out[g] = (out[g] ?? 0) + p; };
+    if (locus.link === 'y') { add(son ? '-' + father[i][1] : '--', 1); return out; }
+    for (const x of gametes(mother[i])) add(son ? x.allele + '-' : norm(locus, x.allele, father[i][0]), x.p);
+    return out;
+  }
   const out = {};
   for (const x of gametes(genesA[i])) for (const y of gametes(genesB[i])) {
     const k = norm(locus, x.allele, y.allele);
@@ -177,21 +291,55 @@ export function punnett(id, i, genesA, genesB) {
   const sp = need(id), locus = sp.loci[i];
   genesA = complete(id, genesA); genesB = complete(id, genesB);
   const two = (g) => [g[0], g[1]];
+  if (sp.sexed && (locus.link || locus.sex)) {
+    // mother's two X down the side; father's X (daughters) and Y (sons) across the top
+    const k = sexIndex(sp), aMale = genesA[k] === 'XY', mother = aMale ? genesB : genesA, father = aMale ? genesA : genesB;
+    const rows = locus.sex ? ['X', 'X'] : locus.link === 'y' ? ['-', '-'] : two(mother[i]), cols = locus.sex ? ['X', 'Y'] : [father[i][0], father[i][1]];
+    const grid = rows.map((r) => [locus.sex ? 'XX' : locus.link === 'y' ? '--' : norm(locus, r, cols[0]), locus.sex ? 'XY' : locus.link === 'y' ? '-' + cols[1] : r + '-']);
+    return { name: LOCI_TEXT[id]?.[i]?.name ?? `Gene ${i + 1}`, locus: i, rows, cols, grid, cellP: 0.25, totals: locusOutcomes(id, i, genesA, genesB), sexed: true, colLabels: ['daughters (his X)', 'sons (his Y)'] };
+  }
   const rows = two(genesA[i]), cols = two(genesB[i]);
   const grid = rows.map((r) => cols.map((c) => norm(locus, r, c)));
   return { name: LOCI_TEXT[id]?.[i]?.name ?? `Gene ${i + 1}`, locus: i, rows, cols, grid, cellP: 0.25, totals: locusOutcomes(id, i, genesA, genesB) };
 }
 
-// The exact probability of each morph in the offspring of two animals (no mutation), by enumerating the loci.
+// The exact probability of each morph in the offspring of two animals (no mutation), by enumerating the loci's phenotype classes.
+// With many genes two parents can make too many classes to list (the guppy: up to 589 824): then the odds are estimated from 20 000
+// seeded simulated births (`approx` in the result's prototype-free marker `outcomes.approx`); 0.5 % is the usual error.
+export const OUTCOME_LIMIT = 40000;
 export function outcomes(id, genesA, genesB) {
   const sp = need(id);
-  let list = [{ genes: [], p: 1 }];
-  sp.loci.forEach((_, i) => {
-    const dist = Object.entries(locusOutcomes(id, i, genesA, genesB));
-    list = list.flatMap((x) => dist.map(([g, p]) => ({ genes: [...x.genes, g], p: x.p * p })));
-  });
+  if (sp.sexed) {
+    // daughters and sons apart (their X and Y genes differ), half each
+    const out = {};
+    let approx = false;
+    for (const son of [false, true]) {
+      const o = outcomesOf(id, sp, (i) => locusOutcomes(id, i, genesA, genesB, son), genesA, genesB, son);
+      approx ||= !!o.approx;
+      for (const [m, p] of Object.entries(o)) out[m] = (out[m] ?? 0) + p / 2;
+    }
+    if (approx) Object.defineProperty(out, 'approx', { value: true });
+    return out;
+  }
+  return outcomesOf(id, sp, (i) => locusOutcomes(id, i, genesA, genesB), genesA, genesB, null);
+}
+function outcomesOf(id, sp, dist, genesA, genesB, son) {
   const out = {};
-  for (const x of list) { const m = sp.resolve(x.genes); out[m] = (out[m] ?? 0) + x.p; }
+  const lists = sp.loci.map((l, i) => classes(l, dist(i)));
+  if (lists.reduce((n, l) => n * l.length, 1) > OUTCOME_LIMIT) {
+    const rng = makeRng(7), n = 20000;
+    for (let k = 0, got = 0; got < n && k < n * 4; k++) {
+      const c = breed(id, genesA, genesB, rng, { mutation: 0 });
+      if (son != null && isMaleGenes(id, c) !== son) continue;
+      const m = sp.resolve(c); out[m] = (out[m] ?? 0) + 1 / n; got++;
+    }
+    Object.defineProperty(out, 'approx', { value: true });
+    return out;
+  }
+  for (const x of enumerate(lists)) {
+    const m = sp.resolve(x.genes);
+    out[m] = (out[m] ?? 0) + x.p;
+  }
   return out;
 }
 
@@ -212,7 +360,7 @@ export function recessiveFromCarriers(id, genesA, genesB, child) {
   genesA = complete(id, genesA); genesB = complete(id, genesB); child = complete(id, child);
   const mc = sp.resolve(child);
   if (mc === sp.resolve(genesA) || mc === sp.resolve(genesB)) return false;
-  return sp.loci.some((locus, i) => !locus.incomplete && genesA[i][0] !== genesA[i][1] && genesB[i][0] !== genesB[i][1] && hom(child[i], locus.alleles[1]));
+  return sp.loci.some((locus, i) => !locus.incomplete && !locus.dom && !locus.link && !locus.sex && genesA[i][0] !== genesA[i][1] && genesB[i][0] !== genesB[i][1] && hom(child[i], locus.alleles[1]));
 }
 
 // ---------------------------------------------------------------------------
@@ -222,14 +370,33 @@ export function recessiveFromCarriers(id, genesA, genesB, child) {
 // genes, 'first' | 'mixed' | 'second' for in-between genes. Example text: "Albino gene: Aa, carrier".
 export function describe(id, genes) {
   const sp = need(id);
+  genes = complete(id, genes);
   return sp.loci.map((locus, i) => {
     const info = LOCI_TEXT[id]?.[i] ?? { name: `Gene ${i + 1}`, traits: {} };
     const g = genes[i];
     const t = (a) => info.traits[a] ?? a;
     let state, label;
+    if (locus.sex) { state = 'normal'; label = g === 'XY' ? 'male (XY)' : 'female (XX)'; return { name: 'Sex chromosomes', genotype: g, state, label, text: `Sex chromosomes: ${g}, ${label}` }; }
+    if (locus.link) {
+      const on = locus.link === 'x' ? 'on the X' : 'on the Y', al = [...g].filter(real), name = `${info.name} (${on})`;
+      if (!al.length) { state = 'normal'; label = 'none (a female has no Y)'; }
+      else if (al.length === 1) {                                     // one copy: a male's X, or his Y
+        const shows = locus.dom ? al[0] === locus.alleles[0] : al[0] === locus.alleles[1];
+        state = shows ? 'shows' : 'normal'; label = shows ? `shows ${t(al[0])} (${locus.link === 'y' ? 'from his father, to all his sons' : 'his one X, from his mother'})` : t(al[0]);
+      } else if (locus.dom) {
+        if (al[0] === locus.alleles[0]) { state = 'shows'; label = `${t(al[0])} (${al[1] === al[0] ? 'two copies' : 'one copy'}; a female hardly shows it)`; }
+        else { state = 'normal'; label = t(al[0]); }
+      } else if (al[0] !== al[1]) { state = 'carrier'; label = 'carrier'; }
+      else { state = al[0] === locus.alleles[0] ? 'normal' : 'shows'; label = state === 'shows' ? `shows ${t(al[0])}` : t(al[0]); }
+      return { name, genotype: g, state, label, text: `${name}: ${g}, ${label}` };
+    }
     if (locus.incomplete) {
       state = g[0] !== g[1] ? 'mixed' : g[0] === locus.alleles[0] ? 'first' : 'second';
       label = state === 'mixed' ? (info.mixed ?? 'mixed') : t(g[0]);
+    } else if (locus.dom) {
+      // The trait is the dominant allele: one copy shows it, two copies breed true.
+      if (g[0] === locus.alleles[0]) { state = 'shows'; label = g[1] === locus.alleles[0] ? `shows ${t(g[0])} (two copies: breeds true)` : `shows ${t(g[0])} (one copy)`; }
+      else { state = 'normal'; label = t(g[0]); }
     } else if (g[0] !== g[1]) { state = 'carrier'; label = 'carrier'; }
     else if (g[0] === locus.alleles[0]) { state = 'normal'; label = t(g[0]); }
     else { state = 'shows'; label = `shows ${t(g[0])}`; }

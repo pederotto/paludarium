@@ -1,1 +1,133 @@
-{"loach":{"rotY":90,"scale":0.07,"ignoreRoughMap":true,"finish":{"rough":0.85,"coat":0.02,"coatRough":0.6,"grainAmt":0.3}},"pygmy":{"finish":{"finOpacity":0.72,"rough":0.35,"coat":0.5,"coatRough":0.2,"grainAmt":0.1,"eyes":[{"c":[0.06,0.09,1.05],"r":0.14,"axis":[0.9467393641215711,0.11958813020483003,0.2989703255120751],"h":[-0.3011313679370974,0,0.9535826651341417],"w":[0.11403716791913054,-0.9928235891205006,0.036011737237620176],"pupil":[0.46,0.46],"inner":[0.01,0.05,0.12],"outer":[0.004,0.012,0.03],"limb":[0.02,0.12,0.3],"cap":0.86,"seed":7}]}}}
+{
+ "loach": {
+  "rotY": 90,
+  "scale": 0.07,
+  "ignoreRoughMap": true,
+  "finish": {
+   "rough": 0.85,
+   "coat": 0.02,
+   "coatRough": 0.6,
+   "grainAmt": 0.3
+  }
+ },
+ "pygmy": {
+  "finish": {
+   "finOpacity": 0.72,
+   "rough": 0.35,
+   "coat": 0.5,
+   "coatRough": 0.2,
+   "grainAmt": 0.1,
+   "eyes": [
+    {
+     "c": [
+      0.06,
+      0.09,
+      1.05
+     ],
+     "r": 0.14,
+     "axis": [
+      0.9467393641215711,
+      0.11958813020483003,
+      0.2989703255120751
+     ],
+     "h": [
+      -0.3011313679370974,
+      0,
+      0.9535826651341417
+     ],
+     "w": [
+      0.11403716791913054,
+      -0.9928235891205006,
+      0.036011737237620176
+     ],
+     "pupil": [
+      0.46,
+      0.46
+     ],
+     "inner": [
+      0.01,
+      0.05,
+      0.12
+     ],
+     "outer": [
+      0.004,
+      0.012,
+      0.03
+     ],
+     "limb": [
+      0.02,
+      0.12,
+      0.3
+     ],
+     "cap": 0.86,
+     "seed": 7
+    }
+   ]
+  }
+ },
+ "guppy": {
+  "finish": {
+   "rough": 0.38,
+   "coat": 0.3,
+   "coatRough": 0.25,
+   "grainAmt": 0.15,
+   "finOpacity": 0.85,
+   "finAlpha": 1,
+   "flutter": 0.03,
+   "finFlow": {
+    "lag": 0.45,
+    "ripple": 0.022,
+    "wave": 7,
+    "rate": 7,
+    "pect": 0.45,
+    "pectRate": 26
+   },
+   "finFray": {
+    "start": 0.62,
+    "scale": 14
+   }
+  },
+  "guppy": {
+   "male": {
+    "file": "guppy.glb",
+    "lo": "guppy.lo.glb",
+    "coords": "guppy/male-coords.png",
+    "parts": "guppy/male-parts.png",
+    "base": "guppy/male-base.webp",
+    "slCm": 2.2,
+    "totalCm": 3.321,
+    "eye": {
+     "c": [
+      0.1836,
+      0.0756,
+      1.3362
+     ],
+     "r": 0.0634
+    },
+    "tails": {
+     "file": "guppy/tail-{shape}.glb",
+     "lo": "guppy/tail-{shape}.lo.glb",
+     "zEnd": -0.5729,
+     "zCut": -0.1729
+    }
+   },
+   "female": {
+    "file": "guppy-female.glb",
+    "lo": "guppy-female.lo.glb",
+    "coords": "guppy/female-coords.png",
+    "parts": "guppy/female-parts.png",
+    "base": "guppy/female-base.webp",
+    "slCm": 3.2,
+    "totalCm": 4.129,
+    "eye": {
+     "c": [
+      0.1133,
+      0.1275,
+      1.6775
+     ],
+     "r": 0.088
+    }
+   }
+  }
+ }
+}

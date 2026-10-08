@@ -3,7 +3,7 @@
 // the game can check, and may show a live widget wired to the current tank.
 //
 // section = { h?, p?: string[], ul?: string[], fact?: string, tryit?: string }
-// widget  = 'nitrogen' | 'watercycle' | 'dewpoint' | 'photoperiod' | 'oxygen' | 'feedback' | 'lens' | 'punnett'
+// widget  = 'nitrogen' | 'watercycle' | 'dewpoint' | 'photoperiod' | 'oxygen' | 'feedback' | 'lens' | 'punnett' | 'guppy'
 
 export const CONCEPTS = {
   'water-hardness': {
@@ -323,6 +323,47 @@ export const CONCEPTS = {
       { tryit: 'Release two golden or carrier axolotls, pair them up, and watch the Genetics tab. Which colours can their babies have? Count what really hatches.' },
     ],
     related: ['conservation'],
+  },
+  // The guppy breeding guide (owner, 7 Oct 2026). Every rule here is the game's own: sim/genetics.js (sex chromosomes), content/guppy.js
+  // (the 24 genes, guppyTraits, GUPPY_TAIL_RECIPES), sim/livebearer.js (pregnancy, broods, stored sperm), sim/animals.js (the guppy's
+  // numbers). The widget's tables are built from content/guppy.js, so they cannot drift from the genes.
+  'guppy-breeding': {
+    title: 'Breeding guppies', icon: 'heart', widget: 'guppy',
+    blurb: 'Live babies, genes that follow the father or the mother, and how to breed the strain you want.',
+    sections: [
+      { h: 'Males and females', p: [
+        'A male is small (about 2 cm) with a big coloured tail; that is where a strain shows. A female is bigger (about 3 cm), olive and silver, with a clear or lightly tinted tail.',
+        'A female shows only some of her genes: gold or albino, half-black, a hint of tail colour, the size of her tail, swallow fins and big ears. Everything else she carries without showing it, and her sons can show it. Dealers sell guppies as trios: one male for two females.',
+      ] },
+      { h: 'Live babies', ul: [
+        'Guppies give birth to swimming fry instead of laying eggs. A grown female with a male conceives, carries her brood for about 3 game days (her dark belly spot grows) and drops 3 to 8 fry.',
+        'One mating fills her with sperm for 3 more broods: she can have fry with no male in the tank, and they are still his. A new mating with a male replaces the old sperm.',
+        'Fry are silver and plain until they grow up, at about 8 days. Then the young males colour up and you see what you bred.',
+        'Fed, healthy females in a tank with room have the most fry. Broods get smaller as the tank fills, and a filter intake sucks fry in: a prefilter sponge keeps them safe.',
+      ] },
+      { h: 'Which parent passes what', p: ['Guppies have sex chromosomes like ours: a female is XX, a male XY. Where a gene sits decides who can pass it on.'], ul: [
+        'On the Y (only males have one): Moscow, top sword, bottom sword, snakeskin, platinum and Japan blue. A father gives them to every son and never to a daughter. To keep them, keep a male of the line.',
+        'On the X: mosaic, grass, half-black and neon. A son gets his X from his mother, so he shows these only if she carries them. A father gives his X to every daughter, who carries it on to her sons.',
+        'On the other chromosomes, one copy from each parent: tail colour, tail size, gold, albino, yellow, white, black, leopard, big ears, pointed tail, flag, ribbon and swallow.',
+      ] },
+      { h: 'Colours and patterns', ul: [
+        'Tail colour blends: red × blue gives purple; two purples give red, purple and blue fry, 1 : 2 : 1.',
+        'Yellow takes the red out (red becomes yellow, purple lime, blue green) and white takes all colour out (white, or pastel with yellow). Both need two copies, one from each parent.',
+        'One black gene blackens the fins; with Moscow the whole fish is black.',
+        'Gold and albino need two copies. An albino has red eyes and no dark colour at all, so it hides half-black, Moscow and black.',
+        'Patterns: mosaic, snakeskin (lace), leopard and grass. Snakeskin with leopard is a cobra, with mosaic a tiger.',
+      ] },
+      { h: 'Tails', p: ['Five genes make the twelve tails: tail size (long, medium or short), the top and bottom swords, a pointed tail and the flag. The table below has each recipe. A long tail hides the swords: a long-tailed male carrying swords shows a delta, veil or flag. Ribbon males, with long belly fins, cannot father fry: the ribbon gene is kept through females, who carry it without showing it.'] },
+      { h: 'Breeding on purpose', ul: [
+        'Pair two guppies (tap one, Pair up, then tap the other): a paired female conceives only with her mate. Without a pair she takes any grown male in the tank.',
+        'Open the Lab, Genetics tab, and choose two guppies: every gene\'s square and the odds of every strain, for sons and for daughters.',
+        'For a recessive (gold, albino, yellow, white, flag, swallow, big ears), breed two carriers: about one fry in four shows it. Then pair those together and every fry shows it.',
+        'Rare strains (more stars) are worth more. A line of carriers lets you make a rare strain again and again.',
+      ] },
+      { fact: 'Moscow and swords are passed from father to son, so a breeder can keep a strain going with males alone, while the X genes travel through the females. Real female guppies store sperm for months, so a female bought from a mixed tank can give birth to fry of a male you never saw.' },
+      { tryit: 'Pair a Moscow double-sword male with any female. Wait for the brood to grow up: every son is a Moscow double sword, and no daughter is.' },
+    ],
+    related: ['genetics', 'carrying-capacity'],
   },
 };
 

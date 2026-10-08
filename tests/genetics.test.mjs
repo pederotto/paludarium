@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseGuppy } from '../src/content/guppy.js';
 import {
-  SPECIES_GENETICS, hasGenetics, randomGenotype, genotypeForMorph, morphOf, breed, describe, punnett, outcomes, outcomeList,
+  isMaleGenes, SPECIES_GENETICS, hasGenetics, randomGenotype, genotypeForMorph, morphOf, breed, describe, punnett, outcomes, outcomeList,
   rarity, allGenotypes, makeRng, config, MUTATION, isSurprise, recessiveFromCarriers, suggestPair, carriedGenes, locusOutcomes,
 } from '../src/sim/genetics.js';
-import { MORPHS, LOCI_TEXT, morphFactor } from '../src/content/morphs.js';
+import { MORPHS, LOCI_TEXT, morphFactor, morphInfo } from '../src/content/morphs.js';
 
 const N = 20000;
 const near = (got, want, tol, msg) => assert.ok(Math.abs(got - want) <= tol, `${msg ?? ''} got ${got.toFixed(4)}, want ${want} ± ${tol}`);
@@ -15,7 +16,33 @@ const H = (g, a) => g[0] === a && g[1] === a;
 const SPEC = {
   axolotl: (g) => (H(g[1], 'm') ? 'melanoid' : H(g[0], 'a') && H(g[2], 'l') ? 'white_albino' : H(g[0], 'a') ? 'golden' : H(g[2], 'l') ? 'leucistic' : 'wild'),
   dartfrog: (g) => (H(g[0], 'b') ? (H(g[1], 's') ? 'sky_clean' : 'sky_spotted') : (H(g[1], 's') ? 'cobalt_clean' : 'cobalt_spotted')),
-  guppy: (g) => (H(g[1], 'g') ? 'gold' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
+  // the guppy's genes (content/guppy.js), restated: colour BR, gold g, albino a, tail size LS, top sword W (Y), mosaic M (X), snakeskin K
+  // (Y), half-black T (X), Moscow F (Y), platinum P (Y), big ear e, yellow y, white v, black N, leopard D, grass Q (X), Japan blue J (Y),
+  // neon O (X), bottom sword U (Y), point C, flag h, ribbon I, swallow z, sex; albino hides gold, half-black, Moscow and black; long tails
+  // hide the swords
+  guppy: (g) => {
+    const D = (x, a) => x.includes(a), albino = H(g[2], 'a'), black = !albino && D(g[13], 'N'), yellow = H(g[11], 'y'), white = H(g[12], 'v');
+    const t = [];
+    if (albino) t.push('albino'); else if (H(g[1], 'g')) t.push('gold');
+    if (!albino && D(g[8], 'F')) t.push('moscow');
+    if (D(g[9], 'P')) t.push('platinum');
+    if (D(g[16], 'J')) t.push('japan');
+    if (D(g[17], 'O')) t.push('neon');
+    if (!albino && D(g[7], 'T')) t.push('tuxedo');
+    const base = g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple';
+    t.push(black ? 'black' : white ? (yellow ? 'pastel' : 'white') : yellow ? { red: 'yellow', purple: 'lime', blue: 'green' }[base] : base);
+    const mo = D(g[5], 'M'), sn = D(g[6], 'K'), le = D(g[14], 'D'), gr = D(g[15], 'Q');
+    const pat = sn && le ? 'cobra' : sn && mo ? 'tiger' : sn ? 'snakeskin' : le ? 'leopard' : mo ? 'mosaic' : gr ? 'grass' : null;
+    if (pat) t.push(pat);
+    const top = D(g[4], 'W'), bot = D(g[18], 'U'), pt = D(g[19], 'C'), fl = H(g[20], 'h');
+    const tail = g[3] === 'LL' ? (fl ? 'flag' : pt ? 'veil' : 'delta') : top && bot ? (g[3] === 'LS' ? 'lyre' : 'doublesword') : top ? 'topsword' : bot ? 'bottomsword'
+      : g[3] === 'LS' ? (pt ? 'spade' : 'fan') : pt ? (fl ? 'pin' : 'spear') : 'round';
+    if (tail !== 'delta') t.push(tail);
+    if (D(g[21], 'I')) t.push('ribbon');
+    if (H(g[22], 'z')) t.push('swallow');
+    if (H(g[10], 'e')) t.push('dumbo');
+    return t.join('_');
+  },
   betta: (g) => (H(g[1], 'x') ? 'cellophane' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
   shrimp: (g) => {
     const r = H(g[0], 'r'), y = H(g[1], 'y'), b = H(g[2], 'b'), rili = g[3] === 'LL' || g[3] === 'Ll';
@@ -33,7 +60,7 @@ test('the five species have genetics, everything else does not', () => {
 });
 
 test('morph resolution matches the spec table for every species and every genotype', () => {
-  for (const id of ids) {
+  for (const id of ids.filter((x) => x !== 'guppy')) {          // (the guppy's 177 147 genotypes: next test)
     const all = allGenotypes(id);
     const nLoci = SPECIES_GENETICS[id].loci.length;
     assert.equal(all.length, 3 ** nLoci, id);
@@ -52,6 +79,44 @@ test('morph resolution matches the spec table for every species and every genoty
   }
 });
 
+test('guppy: the strain matches the rules for random genotypes, every strain sold is reachable, and every strain has words', () => {
+  const rng = makeRng(3);
+  for (let k = 0; k < 4000; k++) {
+    const g = randomGenotype('guppy', rng), m = morphOf('guppy', g);
+    assert.equal(m, SPEC.guppy(g), String(g));
+    const info = morphInfo('guppy', m);
+    assert.ok(info && info.name && info.blurb.length > 10 && info.blurb.length < 140 && info.rarity >= 1 && info.rarity <= 5, m);
+  }
+  for (const m of SPECIES_GENETICS.guppy.morphs) assert.equal(morphOf('guppy', genotypeForMorph('guppy', m, rng)), m);
+  assert.equal(SPECIES_GENETICS.guppy.loci.length, 24);
+  const tails = new Set();
+  for (let k = 0; k < 20000; k++) tails.add(parseGuppy(morphOf('guppy', randomGenotype('guppy', rng, { female: false }))).tail);
+  assert.equal(tails.size, 12, `all twelve tails of the sheet appear: ${[...tails]}`);
+});
+
+test('guppy sex chromosomes: Y genes go father to son only, a son\'s X genes come from his mother, sex is half and half', () => {
+  const rng = makeRng(9);
+  const father = genotypeForMorph('guppy', 'moscow_blue_doublesword', rng, { female: false });    // Moscow and both swords on his Y
+  const mother = genotypeForMorph('guppy', 'blue_mosaic_round', rng, { female: true });            // mosaic on her X, a short tail
+  assert.ok(isMaleGenes('guppy', father) && !isMaleGenes('guppy', mother));
+  let sons = 0, daughters = 0, sonsMoscow = 0, daughtersMoscow = 0, sonsMosaic = 0;
+  const seen = {};
+  for (let k = 0; k < 4000; k++) {
+    const c = breed('guppy', mother, father, rng, { mutation: 0 }), p = parseGuppy(morphOf('guppy', c));
+    seen[morphOf('guppy', c)] = (seen[morphOf('guppy', c)] ?? 0) + 1 / 4000;
+    if (isMaleGenes('guppy', c)) { sons++; sonsMoscow += p.moscow ? 1 : 0; sonsMosaic += p.pattern === 'mosaic' ? 1 : 0; assert.equal(p.tail, 'doublesword'); }
+    else { daughters++; daughtersMoscow += p.moscow ? 1 : 0; assert.notEqual(p.tail, 'doublesword'); }
+  }
+  near(sons / 4000, 0.5, 0.03, 'sons');
+  assert.equal(sonsMoscow, sons, 'every son has his father\'s Y');
+  assert.equal(daughtersMoscow, 0, 'no daughter has a Y gene');
+  const mx = mother[5];                                                       // the mosaic gene on her two X
+  near(sonsMosaic / sons, mx === 'MM' ? 1 : mx === 'Mm' ? 0.5 : 0, 0.05, 'a son\'s X from his mother');
+  // the exact odds agree with the births, strain by strain
+  const o = outcomes('guppy', mother, father);
+  for (const m of new Set([...Object.keys(o), ...Object.keys(seen)])) near(seen[m] ?? 0, o[m] ?? 0, 0.025, m);
+});
+
 test('spec examples', () => {
   assert.equal(morphOf('axolotl', ['AA', 'MM', 'LL']), 'wild');
   assert.equal(morphOf('axolotl', ['AA', 'MM', 'll']), 'leucistic');
@@ -62,7 +127,7 @@ test('spec examples', () => {
   assert.equal(morphOf('dartfrog', ['bb', 'ss']), 'sky_clean');
   assert.equal(morphOf('dartfrog', ['Bb', 'Ss']), 'cobalt_spotted');
   assert.equal(morphOf('guppy', ['BR', 'GG']), 'purple');
-  assert.equal(morphOf('guppy', ['RR', 'gg']), 'gold');
+  assert.equal(morphOf('guppy', ['RR', 'gg']), 'gold_red');        // (a save from before the eleven genes: the others are completed)
   assert.equal(morphOf('betta', ['BB', 'xx']), 'cellophane');
   assert.equal(morphOf('shrimp', ['rr', 'yy']), 'orange');
   assert.equal(morphOf('shrimp', ['Wr', 'YY']), 'wild');
@@ -112,7 +177,7 @@ test('incomplete dominance: RR x BB gives all BR, BR x BR gives 1 : 2 : 1', () =
 
 test('homozygous parents always breed true (with no mutation)', () => {
   const rng = makeRng(14);
-  for (const id of ids) {
+  for (const id of ids.filter((x) => !SPECIES_GENETICS[x].sexed)) {
     const g = genotypeForMorph(id, SPECIES_GENETICS[id].morphs[0], rng);
     const hom = g.map((x) => x[0] + x[0]);
     for (let i = 0; i < 50; i++) assert.deepEqual(breed(id, hom, hom, rng, { mutation: 0 }), hom);
@@ -121,7 +186,7 @@ test('homozygous parents always breed true (with no mutation)', () => {
 
 test('alleles are conserved: every child allele comes from one parent, one from each', () => {
   const rng = makeRng(15);
-  for (const id of ids) {
+  for (const id of ids.filter((x) => !SPECIES_GENETICS[x].sexed)) {
     for (let k = 0; k < 400; k++) {
       const a = randomGenotype(id, rng), b = randomGenotype(id, rng);
       const c = breed(id, a, b, rng, { mutation: 0 });
@@ -151,7 +216,7 @@ test('mutation: alleles flip at about the default rate and never when it is 0', 
   for (let i = 0; i < 2000; i++) assert.deepEqual(breed('axolotl', ['AA', 'MM', 'LL'], ['AA', 'MM', 'LL'], rng, { mutation: 0 }), ['AA', 'MM', 'LL']);
   // A mutation flips to the other allele of that locus, including in-between genes.
   let sawBlue = 0;
-  for (let i = 0; i < 2000; i++) if (breed('guppy', ['RR', 'GG'], ['RR', 'GG'], rng, { mutation: 0.5 })[0].includes('B')) sawBlue++;
+  for (let i = 0; i < 2000; i++) if (breed('betta', ['RR', 'XX'], ['RR', 'XX'], rng, { mutation: 0.5 })[0].includes('B')) sawBlue++;
   assert.ok(sawBlue > 1000);
   // The same seed gives the same babies.
   assert.deepEqual(breed('shrimp', ['Wr', 'Yy'], ['Wr', 'Yy'], makeRng(5)), breed('shrimp', ['Wr', 'Yy'], ['Wr', 'Yy'], makeRng(5)));
@@ -165,7 +230,7 @@ test('outcomes() sum to 1 and match Punnett arithmetic', () => {
       const o = outcomes(id, a, b);
       const sum = Object.values(o).reduce((s, p) => s + p, 0);
       near(sum, 1, 1e-9, `${id} ${a} x ${b}`);
-      for (const m of Object.keys(o)) assert.ok(Object.hasOwn(MORPHS[id], m));
+      for (const m of Object.keys(o)) assert.ok(morphInfo(id, m), `${id}:${m}`);
       const l = outcomeList(id, a, b);
       assert.equal(l.length, Object.keys(o).length);
       for (let i = 1; i < l.length; i++) assert.ok(l[i - 1].p >= l[i].p);
@@ -268,7 +333,7 @@ test('economy: a rare morph costs more to buy and sells for more, and buying the
   const { ANIMALS, SELL_CAP } = await import('../src/content/economy.js');
   const c = new Career();
   assert.equal(c.cost('animal', 'guppy', 1), 2);
-  assert.ok(c.cost('animal', 'guppy', 1, 'gold') > c.cost('animal', 'guppy', 1, 'red'));
+  assert.ok(c.cost('animal', 'guppy', 1, 'gold_red') > c.cost('animal', 'guppy', 1, 'red'));
   assert.equal(c.cost('animal', 'axolotl', 1, 'white_albino'), Math.ceil(60 * morphFactor('axolotl', 'white_albino')));
   assert.equal(c.cost('animal', 'neon', 6, 'whatever'), c.cost('animal', 'neon', 6));
   const common = { sp: 'axolotl', morph: 'wild', age: 100 * 1440, health: 1 };
@@ -297,4 +362,18 @@ test('shrimp: a genotype saved before the blue and rili genes still resolves and
   assert.equal(morphOf('shrimp', ['rr', 'yy', 'bb', 'll']), 'black');
   const kid = breed('shrimp', ['Wr', 'Yy'], ['rr', 'yy', 'Bb', 'll'], makeRng(3));
   assert.equal(kid.length, 4);
+});
+
+test('the guppy breeding guide: every tail recipe makes its tail, and the guide page exists and is linked', async () => {
+  const { GUPPY_TAIL_RECIPES, GUPPY_TAILS, guppyRecipeGenes, guppyTraits } = await import('../src/content/guppy.js');
+  const { CONCEPTS } = await import('../src/content/concepts.js');
+  const { ANIMAL_INFO } = await import('../src/content/species-info.js');
+  assert.deepEqual(GUPPY_TAIL_RECIPES.map((r) => r.tail).sort(), [...GUPPY_TAILS].sort());
+  for (const r of GUPPY_TAIL_RECIPES) assert.equal(guppyTraits(guppyRecipeGenes(r)).tail, r.tail, r.recipe);
+  // a long tail hides the swords
+  assert.equal(guppyTraits(guppyRecipeGenes({ size: 'LL', top: true, bottom: true })).tail, 'delta');
+  const c = CONCEPTS['guppy-breeding'];
+  assert.ok(c && c.widget === 'guppy' && c.sections.length >= 5);
+  assert.equal(ANIMAL_INFO.guppy.lesson2, 'guppy-breeding');
+  for (const r of c.related) assert.ok(CONCEPTS[r], r);
 });

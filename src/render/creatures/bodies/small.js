@@ -9,14 +9,14 @@ const fract = (v) => v - Math.floor(v);
 // Malaysian trumpet snail (Melanoides tuberculata), ~2.5 cm. A tall turreted shell of
 // nine whorls, cocked up and back over the foot, with the soft body reaching forward.
 // ---------------------------------------------------------------------------------
-function snail() {
+function snail(V = {}) {
   // Shell frame: A points from the aperture to the apex and leans back, E1 is the
   // animal's right, E2 = A x E1 completes a right-handed set (the shell is dextral).
   const AL = 50 * PI / 180, sa = Math.sin(AL), ca = Math.cos(AL);
   const O = [0.0, 0.5, 0.0];                       // centre of the shell's mouth
   const GAM = 18 * PI / 180, BETA = AL - GAM;      // the mouth looks forward and a little down
   const nrm = [0, -Math.sin(GAM), Math.cos(GAM)];
-  const Lc = 2.55, Rb = 0.4, Ut = 2.34;            // cone length, base radius, apex position (cm)
+  const Lc = V.Lc ?? 2.55, Rb = V.Rb ?? 0.4, Ut = V.Ut ?? 2.34;            // cone length, base radius, apex position (cm)
   const P0 = 0.62, P1 = 0.54;                      // whorl pitch: P0 at the mouth, shrinking up the spire
   const N_RIB = 15;
 
@@ -74,24 +74,26 @@ function snail() {
     const uu = Math.min(u, Ut), phi = Math.atan2(b, a);
     const w = turns(uu) - phi / TAU, s = fract(w);
     const rib = 0.5 + 0.5 * Math.cos(TAU * (N_RIB * phi / TAU + 0.8 * s));
-    let c = lerp3(C(0xb59a66), C(0xd2b984), 0.5 + 0.5 * Math.sin(TAU * s * 2));
+    const SP = V.shell ?? [0xb59a66, 0xd2b984, 0x4b2a16, 0x33200f, 0x5d4b38];
+    let c = lerp3(C(SP[0]), C(SP[1]), 0.5 + 0.5 * Math.sin(TAU * s * 2));
     const dash = smoothstep(0.25, 0.75, rib);
     const band = (c0, wd) => smoothstep(wd, 0, Math.abs(s - c0));
     const bands = Math.max(band(0.42, 0.13) * (0.45 + 0.55 * dash), band(0.78, 0.09) * (0.3 + 0.7 * dash));
-    c = lerp3(c, C(0x4b2a16), clamp01(bands));
-    c = lerp3(c, C(0x33200f), smoothstep(0.12, 0.02, Math.min(s, 1 - s)) * 0.9);
-    c = lerp3(c, C(0x5d4b38), smoothstep(1.75, 2.3, uu));
+    c = lerp3(c, C(SP[2]), clamp01(bands));
+    c = lerp3(c, C(SP[3]), smoothstep(0.12, 0.02, Math.min(s, 1 - s)) * 0.9);
+    c = lerp3(c, C(SP[4]), smoothstep(1.75, 2.3, uu));
     return c;
   };
   const skinColor = (x, y, z) => {
     const belly = smoothstep(0.16, 0.02, y);
-    let c = lerp3(C(0x9a9384), C(0xb9b1a0), belly);
-    c = lerp3(c, C(0x6d675b), smoothstep(0.85, 1.4, z) * 0.5);
+    const SK = V.skin ?? [0x9a9384, 0xb9b1a0, 0x6d675b];
+    let c = lerp3(C(SK[0]), C(SK[1]), belly);
+    c = lerp3(c, C(SK[2]), smoothstep(0.85, 1.4, z) * 0.5);
     return c;
   };
   return {
     sdf,
-    lo: [-0.75, -0.06, -1.6], hi: [0.75, 2.55, 1.9], cell: 0.04, hiScale: 0.5,
+    lo: [-0.75, -0.06, -1.9], hi: [0.75, 2.75, 1.9], cell: 0.04, hiScale: 0.5,
     // Colour blends across the seam; the two materials are neighbours in the id list (4 and 5), because ids are
     // interpolated across triangles and skin (0) to chitin (4) would pass through the eye, fin and film materials.
     color: (x, y, z) => {
@@ -536,4 +538,8 @@ function waxworm() {
   };
 }
 
-export const SMALL = { snail, springtail: () => springtail(), springpink: () => springtail('pink'), springsea: () => springtail('sea'), fly, flylarva, flypupa, cricket, dubia, earthworm, waxworm };
+// Matano rabbit snail (Tylomelania): the trumpet snail's build, taller and darker, with a bright orange-yellow foot; scaled up in SPECIES.
+// The body is scaled inside the definition (a species `scale` is not seen by the portrait framing).
+const scaled = (d, k) => ({ ...d, sdf: (x, y, z) => k * d.sdf(x / k, y / k, z / k), color: (x, y, z) => d.color(x / k, y / k, z / k), mat: (x, y, z) => d.mat(x / k, y / k, z / k), rig: (x, y, z) => d.rig(x / k, y / k, z / k), lo: d.lo.map((v) => v * k), hi: d.hi.map((v) => v * k), cell: d.cell * k });
+const tylomelania = () => scaled(snail({ Lc: 2.5, Rb: 0.55, Ut: 2.3, shell: [0x252420, 0x3d3b36, 0x171612, 0x080905, 0x6b5e46], skin: [0x252420, 0x3d3b36, 0x171612] }), 2.0);
+export const SMALL = { snail: () => snail(), tylomelania, springtail: () => springtail(), springpink: () => springtail('pink'), springsea: () => springtail('sea'), fly, flylarva, flypupa, cricket, dubia, earthworm, waxworm };

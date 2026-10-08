@@ -46,7 +46,7 @@
 //             instead of in diagonal pairs (seven pairs of isopod legs or five of a shrimp's walking in two groups shuffled).
 
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, positionLocal, normalLocal, float, vec3, vec4, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView, varyingProperty } from 'three/tsl';
+import { Fn, attribute, positionLocal, normalLocal, float, vec3, vec4, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView, varyingProperty, time } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
 import { packAnim, unpackAnim, rig2Pack, TURN_Q } from '../../util/gait.js';
 import { limbFrame, turnFrame } from '../../util/turn.js';
@@ -236,6 +236,13 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
   const matId = rig.w;
   const iPos = attribute('iPos', 'vec4');
   const flutter = float(finish.flutter ?? 0.04);
+  // finFlow (the guppy, render/creatures/guppymodel.js finRig): each fin vertex carries its fin in rig.y (21 tail, 22 dorsal, 23 pectoral,
+  // 24 belly fins) and its distance from where the fin leaves the body in rig.z (cm). A membrane is passive: the tail trails the body
+  // wave by a lag that grows out along it (the edge follows the stalk instead of swinging as a plate), ripples run out along the rays
+  // from a still root (on their own clock, so a hovering fish's fins still move), and the pectorals beat all the time.
+  //   { lag: rad of wave phase per cm out along a fin, ripple: cm of ripple per cm out, wave: rad per cm along the rays, rate: rad/s,
+  //     pect: rad of pectoral beat, pectRate: rad/s }
+  const flow = finish.finFlow ?? null;
   const waveHead = finish.waveHead ?? 0;
   const rig2 = finish.rig2 ?? null;
   const swimmer = !!(rig2?.len && !finish.invert && legAxis !== 'x' && !skin);   // a newt, salamander or axolotl (legs, a tail; swims)
@@ -309,7 +316,8 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
         k = k.add(pose.mul(SWIM_WAVE * 3.14159 - wave * 3.14159));
         profile = profile.add(pose.mul(spineW.mul(spineW.mul(0.65).add(0.35)).sub(profile)));
       }
-      p.x.addAssign(sin(spineW.mul(k).sub(anim.x)).mul(anim.y).mul(profile));
+      const lagF = flow ? abs(matId.sub(2)).lessThan(0.5).select(legT.mul(flow.lag ?? 1.2), float(0)) : float(0);
+      p.x.addAssign(sin(spineW.mul(k).add(lagF).sub(anim.x)).mul(anim.y).mul(profile));
     }
     // Legs: diagonal pairs (front left + back right) move together. The foot is up while sin(phase) > 0 and swings forward
     // then, so it is on the ground the other half of the cycle, when it moves back relative to the body at a constant speed
@@ -436,7 +444,15 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     }
     // Membranes (fins, gills, tail fringes) ripple along the normal.
     const isFin = abs(matId.sub(2)).lessThan(0.5);
-    p.addAssign(normalLocal.mul(sin(anim.x.mul(1.7).add(positionLocal.z.mul(4)).add(positionLocal.y.mul(3))).mul(flutter).mul(isFin.select(float(1), float(0)))));
+    if (flow) {
+      const d = legT, finK = isFin.select(float(1), float(0));
+      const root = smoothstep(0.0, 0.3, d);                                             // still where the fin leaves the body
+      const clock = time.mul(flow.rate ?? 7).add(anim.x.mul(0.5)).add(spine.mul(5));
+      const rip = sin(clock.sub(d.mul(flow.wave ?? 7)).add(positionLocal.y.mul(2.2))).mul(d.mul(flow.ripple ?? 0.035)).mul(root);
+      const isPect = abs(floor(leg).sub(23)).lessThan(0.5).select(float(1), float(0));   // (floor: a tail's rig.y carries its rim closeness)
+      const beat = sin(time.mul(flow.pectRate ?? 26).add(anim.x.mul(0.3)).add(sign(positionLocal.x).mul(0.6))).mul(d).mul(flow.pect ?? 0.45);
+      p.addAssign(normalLocal.mul(rip.mul(float(1).sub(isPect.mul(0.6))).add(beat.mul(isPect)).mul(finK)));
+    } else p.addAssign(normalLocal.mul(sin(anim.x.mul(1.7).add(positionLocal.z.mul(4)).add(positionLocal.y.mul(3))).mul(flutter).mul(isFin.select(float(1), float(0)))));
     if (skin) {
       const sv = skinVertex(p, normalLocal, skin === 'musc');
       vSkinN.assign(sv.nrm);

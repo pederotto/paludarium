@@ -60,6 +60,7 @@ export class Env {
     this.moonlight = true;
     this.fan = 0;               // 0 … 1 airflow
     this.fogger = 0;            // 0 … 1
+    this.air = 0;               // 0 … 1 air pump and airstone (content/equipment.js airpump): oxygen for the main pool
     this.basking = 0;           // 0 … 1, basking lamp power
     this.chill = 0;             // 1 while the cooling unit is on
     this.coolSet = 20;          // °C the cooling unit holds
@@ -105,7 +106,7 @@ export class Env {
 
   static KEYS = ['minute', 'temp', 'humidity', 'ammonia', 'nitrite', 'nitrate', 'oxygen', 'cycle', 'detritus', 'biofilm', 'lights', 'heater',
     'setpoint', 'lid', 'filter', 'room', 'roomHumidity', 'autoFeed', 'lastFed', 'culture', 'lastCulture', 'algae', 'diatoms', 'rockMoss', 'tankDays',
-    'lampPower', 'lampWarmth', 'moonlight', 'fan', 'fogger', 'basking', 'rainProgram', 'drainage', 'mediaBio', 'soil', 'mold', 'season',
+    'lampPower', 'lampWarmth', 'moonlight', 'fan', 'fogger', 'air', 'basking', 'rainProgram', 'drainage', 'mediaBio', 'soil', 'mold', 'season',
     'lightsOn', 'lightsOff', 'chill', 'coolSet', 'filterKind', 'prefilter', 'filterDirt', 'waterSource', 'ph', 'gh', 'uvb', 'film', 'plenumH', 'substrate', 'backdrop',
     'plenumLevel', 'plenumSoak', 'groundLevel', 'groundSoak'];
 
