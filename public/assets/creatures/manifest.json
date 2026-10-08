@@ -2225,5 +2225,30 @@
     "totalCm": 4.129
    }
   }
+ },
+ "bedotia": {
+  "file": "bedotia.glb",
+  "tris": {
+   "hi": 5098,
+   "lo": 5098
+  },
+  "sizeCm": [
+   3.04,
+   3.66,
+   9.6
+  ]
+ },
+ "bullhead": {
+  "file": "bullhead.glb",
+  "lo": "bullhead.lo.glb",
+  "tris": {
+   "hi": 9795,
+   "lo": 7000
+  },
+  "sizeCm": [
+   3.49,
+   3.51,
+   10.8
+  ]
  }
 }
