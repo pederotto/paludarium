@@ -59,13 +59,52 @@ function texture(look, sex, m) {
   return TEX.get(look);
 }
 
-// The analytic eye (render/creatures/material.js) at the eye the prep found: a dark iris ring round a black pupil, red in an albino.
-function eyes(m, albino) {
+// The analytic eye (render/creatures/material.js) at the eye the prep found, coloured from the owner's photos: a large black pupil in a
+// silvery-gold iris with a darker rim (red in an albino). `c` may be moved in by seatEyes.
+function eyes(m, albino, c = m.eye?.c) {
   if (!m.eye) return null;
-  const c = m.eye.c, n = new THREE.Vector3(1, 0.12, 0.35).normalize(), h = new THREE.Vector3().crossVectors(n, new THREE.Vector3(0, 1, 0)).normalize(), w = new THREE.Vector3().crossVectors(n, h).normalize();
+  const n = new THREE.Vector3(1, 0.12, 0.35).normalize(), h = new THREE.Vector3().crossVectors(n, new THREE.Vector3(0, 1, 0)).normalize(), w = new THREE.Vector3().crossVectors(n, h).normalize();
   const lin = (x) => { const k = new THREE.Color(x); return [k.r, k.g, k.b]; };
-  return [{ c, r: m.eye.r, axis: n.toArray(), h: h.toArray(), w: w.toArray(), pupil: [0.5, 0.5], cap: 0.9, seed: 5,
-    inner: albino ? lin(0xc83a3a) : lin(0xbfc4b8), outer: albino ? lin(0xf0a8a0) : lin(0x6a6c60), limb: albino ? lin(0x7a1c1c) : lin(0x141412) }];
+  return [{ c, r: m.eye.r, axis: n.toArray(), h: h.toArray(), w: w.toArray(), pupil: [0.6, 0.6], cap: 0.92, seed: 5,
+    inner: albino ? lin(0xd04040) : lin(0xc9bd8a), outer: albino ? lin(0xf0a8a0) : lin(0x8a8058), limb: albino ? lin(0x7a1c1c) : lin(0x23211a),
+    ...(albino ? { rim: lin(0x5a0808) } : {}) }];                                  // (an albino's pupil shows the blood behind it: dark red)
+}
+
+// The owner's male has eyeballs of their own (separate little spheres), standing out of the head by most of their size: a real
+// guppy's eye sits almost flush under its cornea. Each ball (a small piece of the mesh round the eye) is moved in until it stands
+// SEAT x its radius proud of the head beside it; returns the eye centre moved with it (the shader draws the eye there).
+const SEAT = 0.22;
+function seatEyes(geo, eye) {
+  if (!eye) return null;
+  const P = geo.attributes.position, I = geo.index, n = P.count, [cx, cy, cz] = eye.c, r = eye.r / 0.9;
+  const near = (i) => Math.hypot(Math.abs(P.getX(i)) - Math.abs(cx), P.getY(i) - cy, P.getZ(i) - cz) < r * 1.6;
+  // pieces of the mesh near the eye (union of triangles sharing a vertex index)
+  const par = new Int32Array(n).map((_, i) => i), root = (i) => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
+  const tri = I ? I.count : n, at = (k) => (I ? I.getX(k) : k);
+  for (let k = 0; k < tri; k += 3) { const a = at(k), b = at(k + 1), c = at(k + 2); if (near(a) || near(b) || near(c)) { par[root(b)] = root(a); par[root(c)] = root(a); } }
+  const groups = new Map();
+  for (let i = 0; i < n; i++) if (near(i)) { const g = root(i); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(i); }
+  let moved = 0;
+  for (const [, list] of groups) {
+    // a ball: every vertex of its piece within 1.4 r of the eye centre (the head's skin piece reaches far beyond)
+    let all = 0, inside = 0;
+    for (let i = 0; i < n; i++) if (root(i) === root(list[0])) { all++; if (Math.hypot(Math.abs(P.getX(i)) - Math.abs(cx), P.getY(i) - cy, P.getZ(i) - cz) < r * 1.4) inside++; }
+    if (all > 400 || inside < all * 0.98) continue;
+    const side = Math.sign(P.getX(list[0])) || 1;
+    // the head's surface beside it: the outermost skin vertex in a ring just outside the ball, seen from the side
+    let skin = 0;
+    for (let i = 0; i < n; i++) {
+      if (root(i) === root(list[0]) || Math.sign(P.getX(i)) !== side) continue;
+      const d = Math.hypot(P.getY(i) - cy, P.getZ(i) - cz);
+      if (d > r * 0.9 && d < r * 1.5) skin = Math.max(skin, Math.abs(P.getX(i)));
+    }
+    let outer = 0; for (let i = 0; i < n; i++) if (root(i) === root(list[0])) outer = Math.max(outer, Math.abs(P.getX(i)));
+    const depth = Math.max(0, outer - (skin + SEAT * r));
+    for (let i = 0; i < n; i++) if (root(i) === root(list[0])) P.setX(i, P.getX(i) - side * depth);
+    moved = Math.max(moved, depth);
+  }
+  P.needsUpdate = true; geo.computeBoundingBox();
+  return moved ? [Math.sign(cx) * (Math.abs(cx) - moved), cy, cz] : eye.c;
 }
 
 // ---- tail shapes ----------------------------------------------------------------------------------------------------------------------
@@ -231,12 +270,15 @@ export async function guppyModel(look, meta) {
       } else if (sex === 'male') g = warpTail(geo, tailSize(tk) === 'delta' ? '' : tailSize(tk));
       else g = warpTail(geo, tk);
       if (g === geo) g = geo.clone();
-      return finRig(warpFins(g, rib, swa), parts, tailFrom);
+      const c = seatEyes(g, m.eye);
+      const out = finRig(warpFins(g, rib, swa), parts, tailFrom);
+      out.userData.eyeC = c;
+      return out;
     };
     const lo = await make(g0.lo, 'lo'), hi = g0.hi === g0.lo ? lo : await make(g0.hi, 'hi');
     return { lo, hi };
   })());
   const w = await SHAPED.get(key);
-  const e = eyes(m, parseGuppyLook(look)?.ground === 'albino');
+  const e = eyes(m, parseGuppyLook(look)?.ground === 'albino', w.hi.userData.eyeC ?? m.eye?.c);
   return { lo: w.lo, hi: w.hi, textures: { map, normalMap: null, roughnessMap: null }, finish: e ? { eyes: e } : {} };
 }
