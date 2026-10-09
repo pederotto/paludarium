@@ -250,7 +250,29 @@ function warpFins(geo, ribbon, swallow) {
   return g;
 }
 
+// A strain the owner sent a model of (meta.guppy.strains, tools/guppy-import.mjs): an adult male of exactly that strain is drawn with
+// it and its own colour, normal and roughness maps; his fins move as the painted ones (finRig from the model's parts map).
+const STRAIN = new Map();
+async function strainModel(look, st, meta) {
+  if (!STRAIN.has(look)) STRAIN.set(look, (async () => {
+    const [g, parts] = await Promise.all([loadCreatureGLB(`guppy-${look}`, { ...meta, file: st.file, lo: st.lo, legs: false }), pixels(new URL(st.parts, base()).href)]);
+    if (!g) return null;
+    const P = { N: parts.N, H: parts.H, data: parts.data };
+    const lo = finRig(g.lo.clone(), P), hi = g.hi === g.lo ? lo : finRig(g.hi.clone(), P);
+    return { lo, hi, textures: g.textures };
+  })());
+  const w = await STRAIN.get(look);
+  if (!w) return null;
+  const e = st.eye ? eyes(st, false) : null;
+  return { lo: w.lo, hi: w.hi, textures: w.textures, finish: e ? { eyes: e } : {} };
+}
+
 export async function guppyModel(look, meta) {
+  const st = meta.guppy.strains?.[look];
+  if (st && parseGuppyLook(look)?.sex === 'male') {
+    const r = await strainModel(look, st, meta);
+    if (r) return r;
+  }
   const sex = guppySexOf(look), m = meta.guppy[sex];
   if (!GEO.has(sex)) GEO.set(sex, loadCreatureGLB(`guppy-${sex}`, { ...meta, file: m.file, lo: m.lo, legs: false }));
   const [g0, map, mp] = await Promise.all([GEO.get(sex), texture(look, sex, m), maps(sex, m)]);

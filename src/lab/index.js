@@ -1,10 +1,10 @@
 // The test lab (lab.html): a plain arena where animals are released, selected and watched, with the clock under your hand.
-// This file wires the arena, the pointer, the selection ring and the readout together and publishes `window.lab`, the same
+// This file wires the arena, the pointer, the selection focus and the readout together and publishes `window.lab`, the same
 // handle a headless run (tools/steps/lab.mjs) drives.
 
 import * as THREE from 'three/webgpu';
 import { effect } from '@preact/signals';
-import { SPECIES } from '../sim/animals.js';
+import { SPECIES, drawScale } from '../sim/animals.js';
 import { TANK } from '../sim/tank.js';
 import { L } from './state.js';
 import { buildArena, shapeGround, setDepth, setView, setPaused, setRate, stepFrames } from './arena.js';
@@ -20,18 +20,16 @@ import { createObstacles } from './obstacles.js';
 import { buildReport, copyText } from './report.js';
 
 export async function start(game, params) {
-  let ring = null;
   const obstacles = createObstacles(game);
   const driver = createDriver(game, { obstacles: () => obstacles.items });
   const radar = createRadar(game);
 
-  const makeRing = () => {
-    const m = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 48), new THREE.MeshBasicNodeMaterial({ color: 0xffd34d, depthTest: false, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
-    m.rotation.x = -Math.PI / 2; m.renderOrder = 30; m.visible = false; m.frustumCulled = false;
-    game.scene.add(m);
-    return m;
-  };
-  ring = makeRing();
+  // The selection is shown by softening what is around it, nothing drawn on the animal (the owner, 7 Oct 2026: no yellow ring): a layer over the canvas that blurs and
+  // dims the picture a little outside a soft circle round the selected animal, clear inside it (CSS backdrop-filter through a radial mask; lab.css .lab-focus).
+  const focusEl = document.createElement('div');
+  focusEl.className = 'lab-focus'; focusEl.hidden = true;
+  game.renderer.domElement.parentElement.appendChild(focusEl);
+  const _c = new THREE.Vector3(), _e = new THREE.Vector3();
 
   let shownDrive = 'free';
   // A message stays on screen for six seconds.
@@ -48,14 +46,18 @@ export async function start(game, params) {
     refresh();
   };
 
-  // The selection ring follows its animal every frame; the panels refresh at the game's 4 Hz tick.
+  // The focus follows its animal every frame (its circle about the size the animal is drawn at); the panels refresh at the game's 4 Hz tick.
   game.frameHooks.push(() => {
     const a = L.sel.value;
-    if (!a || a.dead || !game.world) { ring.visible = false; return; }
-    const r = Math.max(1.2, SPECIES[a.sp].size * 1.1);
-    ring.visible = true;
-    ring.position.set(a.pos.x, a.pos.y + 0.2, a.pos.z);
-    ring.scale.setScalar(r);
+    if (!a || a.dead || !game.world) { focusEl.hidden = true; return; }
+    const sp = SPECIES[a.sp], cv = game.renderer.domElement, R = cv.getBoundingClientRect(), r = Math.max(1.5, drawScale(a, sp) * (sp.kind === 'swim' ? 1.2 : 3.2));
+    _c.set(a.pos.x, a.pos.y + r * 0.3, a.pos.z).project(game.camera);
+    if (_c.z > 1) { focusEl.hidden = true; return; }                     // (behind the camera)
+    _e.set(a.pos.x, a.pos.y + r * 0.3, a.pos.z).addScaledVector(game.camera.up, r).project(game.camera);
+    const x = (_c.x + 1) / 2 * R.width, y = (1 - _c.y) / 2 * R.height, rp = Math.max(40, Math.hypot((_e.x - _c.x) / 2 * R.width, (_e.y - _c.y) / 2 * R.height));
+    focusEl.hidden = false;
+    focusEl.style.left = cv.offsetLeft + 'px'; focusEl.style.top = cv.offsetTop + 'px'; focusEl.style.width = R.width + 'px'; focusEl.style.height = R.height + 'px';
+    focusEl.style.setProperty('--fx', x.toFixed(0) + 'px'); focusEl.style.setProperty('--fy', y.toFixed(0) + 'px'); focusEl.style.setProperty('--fr', rp.toFixed(0) + 'px');
   });
   const refresh = () => {
     const W = game.world;

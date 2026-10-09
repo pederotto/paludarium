@@ -46,6 +46,11 @@ const JOBS = {
   // `conform` (owner, 6 Oct 2026, after a swimming body derived from the sitting one looked terrible: "adapt the swimming body we have to match dimensions"): the scan's
   // girth is taken to the sitting toad's (conformTo below). The same scan will also serve the European edible/common frog, reskinned (the owner), at its own size.
   'toad.swim': { conform: 'toad', src: 'toad_swim_mesh', rotY: -90, cmPerUnit: 3.285, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'bombina', eyes: 'toad', skel: 'TOAD', vent: -0.40, trunkZ: [-0.2, 0.4], sHalf: 0.2, eye: { c: [0.086, 0.0, 0.76], r: 0.065 }, eyeCm: { c: [0.50, 1.63, 1.30], r: 0.27, axis: [0.62, 0.55, 0.56], dome: true }, split: true },
+  // The European common frog (Rana temporaria, owner, 7 Oct 2026): ONE body for every pose, from the owner's drop (an image-to-3D model of their reference, limbs apart),
+  // corrected against the owner's proportion table (head width, head depth, femur, foot, tympanum: .agents/skin/eu1007/GATE-3.md, correct.py) and scaled x2 to the scans'
+  // usual size. SVL 7 cm (1.012 units). `skel`: the joints measured on mm grids and carried through the correction, levelled as the bake levels it
+  // (tools/rig/commonfrog-swim-joints.json). paint: a stand-in until the owner's texture (colours from the reference images) is baked onto the atlas (set-texture.mjs).
+  'commonfrog.swim': { src: 'commonfrog_swim_mesh', cmPerUnit: 6.917, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'bombina', eyes: 'commonfrog', skel: 'COMMONFROG', vent: -0.19, trunkZ: [-0.15, 0.42], sHalf: 0.2, eye: { c: [0.088, 0.028, 0.658], r: 0.05 }, eyeCm: { c: [0.642, 1.899, 2.003], r: 0.40, axis: [0.90, 0.15, 0.41] }, split: true },   // (eyeCm: the eye sphere fitted to the body's dome, its axis mostly sideways, a little up and forward (the cap's middle, 0.69/0.58/0.43, put the pupil too high against the reference's side view); 7 Oct, the owner: "pupils wrong compared to ref img")
   // The red-eyed tree frog does not swim, but it leaps, and its own scan sits with its hind legs folded in one lump: in the air it is
   // drawn in this body (Animals.draw, util/gait.js leapStroke), painted as itself.
   // The red-eyed tree frog does not swim: this is its CLIMBING and WALKING body (the stroke-posed, limbs-apart variant the game loads as `<id>.swim`), made from the
@@ -82,7 +87,9 @@ const TOAD_SWIM_SKELETON = {
 // (PASSES=<n>: the red-eye's four-bone diffusion passes, for trying how far the weights may spread over its fused folds)
 const REDEYE_JOINTS = JSON.parse(fs.readFileSync(new URL('./rig/redeye-walk-joints.json', import.meta.url), 'utf8'));
 const { mid2: _mid2, ...REDEYE_J } = REDEYE_JOINTS.joints;       // (the split's mid2 is the middle of mid and chest, as for the toad)
-const SKELS = { TOAD: TOAD_SWIM_SKELETON, REDEYE: { joints: REDEYE_J, radius: REDEYE_JOINTS.radius } };
+const CF_JOINTS = JSON.parse(fs.readFileSync(new URL('./rig/commonfrog-swim-joints.json', import.meta.url), 'utf8'));
+const { mid2: _cfmid2, ...CF_J } = CF_JOINTS.joints;
+const SKELS = { TOAD: TOAD_SWIM_SKELETON, REDEYE: { joints: REDEYE_J, radius: REDEYE_JOINTS.radius }, COMMONFROG: { joints: CF_J, radius: CF_JOINTS.radius } };
 if (process.env.PASSES) JOBS['redeye.swim'].skinPasses = +process.env.PASSES;
 const { EYES } = await import('./paint/eyes.mjs');
 await MeshoptSimplifier.ready; await MeshoptEncoder.ready; await MeshoptDecoder.ready;

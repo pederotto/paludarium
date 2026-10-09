@@ -15,6 +15,7 @@ import { PLANTS } from '../../sim/plants.js';
 import { PIECES } from '../../sim/decor.js';
 import { hasGenetics, morphList } from '../../sim/genetics.js';
 import { morphInfo } from '../../content/morphs.js';
+import { GUPPY_GROUPS, guppyGroup } from '../../content/guppy.js';
 import { MorphDot, Stars } from '../GeneBits.jsx';
 
 // How many of a species fit in this tank before they crowd (game/stocking.js: the simulation's own room per species).
@@ -374,18 +375,36 @@ const lightWord = (l) => (l <= 0.25 ? 'shade' : l <= 0.45 ? 'part shade' : l <= 
 // The sticky footer of a card (outside the scrolling body).
 function Foot({ children }) { return <div class="oc-foot">{children}</div>; }
 
-// Which colour morph to release, for species with genetics. A rare morph costs more in a career.
+// Which colour morph to release, for species with genetics. A rare morph costs more in a career. A species with many sold lines
+// (the guppy's 59 strains) shows them by family: a row of family tabs, then the strains of the open family.
+const MORPH_GROUPS = { guppy: { groups: GUPPY_GROUPS, of: guppyGroup } };
 function MorphPicker({ id }) {
   const chosen = S.morph.value[id] === '*' ? '*' : morphChoice(id);
   const info = ctx.career?.info('animal', id);
   const base = info && !info.locked ? info.price : null;
   const set = (m) => { S.morph.value = { ...S.morph.value, [id]: m }; };
   const cur = chosen !== '*' ? morphInfo(id, chosen) : null;
+  const G = MORPH_GROUPS[id], all = morphList(id);
+  const [open, setOpen] = useState(null);
+  const grp = G ? (open ?? (chosen !== '*' ? G.of(chosen) : G.groups[0][0])) : null;
+  const shown = G ? all.filter((m) => G.of(m) === grp) : all;
   return (
     <div class="morph-pick">
       <div class="grp">Colour morph</div>
+      {G ? (
+        <div class="morph-fams" role="tablist">
+          {G.groups.map(([k, name]) => {
+            const n = all.filter((m) => G.of(m) === k).length, has = chosen !== '*' && G.of(chosen) === k;
+            return n ? (
+              <button key={k} role="tab" class={'fam' + (grp === k ? ' on' : '') + (has ? ' has' : '')} aria-selected={grp === k} title={has ? `${name}: the chosen strain is here` : name} onClick={() => setOpen(k)}>
+                {name} <small>{n}</small>
+              </button>
+            ) : null;
+          })}
+        </div>
+      ) : null}
       <div class="chips">
-        {morphList(id).map((m) => {
+        {shown.map((m) => {
           const mi = morphInfo(id, m);
           return (
             <button key={m} class={'chip' + (chosen === m ? ' on' : '')} title={mi.blurb} aria-pressed={chosen === m} onClick={() => set(m)}>

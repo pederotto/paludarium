@@ -205,6 +205,14 @@ const NEW_SETS = {
     animals: ['firesal', 'springtail', 'isopod'], stock: [['firesal', 2, 'land']],
     blockedBy: ['N9'], needs: ["hart's-tongue fern", 'European forest moss', 'wood sorrel'], tags: ['salamander', 'cool', 'ferns'], adjectives: ['Cool', 'Beech', 'Shaded', 'Mossy'], noun: 'Seep',
   },
+  frogpond: {
+    name: 'Woodland frog pond', biotope: 'teutoburg', layout: 'blackwater', featured: ['commonfrog'], ref: 'wide',
+    place: 'Pond in a beech wood, Teutoburg Forest, Germany', water: 0.4, climate: { temp: [12, 18], rh: [75, 95] }, env: { setpoint: 16 },
+    blurb: 'A cool pond in a German beech wood, ferns and bilberry on the damp bank: common frogs hunt on the litter and swim out into the water.',
+    plants: ['fernph', 'weed', 'bilberry', 'grass', 'hartstongue'], swap: { fern: 'fernph' },
+    animals: ['commonfrog', 'springtail', 'isopod'], stock: [['commonfrog', 2, 'bank'], ['isopod', 8, 'land'], ['springtail', 20, 'land']],
+    tags: ['frogs', 'pond', 'cool'], adjectives: ['Cool', 'Beech', 'Shaded', 'Still'], noun: 'Pond',
+  },
   oakpond: {
     name: 'Oak-wood pond', biotope: 'galicia', layout: 'blackwater', featured: ['marbled'], ref: 'standard',
     place: 'Pond in an oak wood, Galicia, Spain', water: 0.5, climate: { temp: [14, 21], rh: [70, 95] }, env: { setpoint: 18 },
@@ -288,6 +296,18 @@ const NEW_SETS = {
     animals: ['guppy', 'springtail', 'isopod'], stock: [['guppy', 8, 'deep:3']],
     needs: ['Heliconia'], tags: ['fish', 'stream', 'wild guppies'], adjectives: ['Clear', 'Rocky', 'Sunlit', 'Island'], noun: 'Stream',
   },
+  guppyroom: {
+    name: 'Guppy breeder\'s tank', biotope: 'guppyfarm', layout: 'blackwater', featured: ['guppy'], ref: 'wide',
+    place: 'A fancy-guppy breeder\'s tank (cultivated strains; the wild guppy lives in Trinidad and Venezuela)', water: 0.85, climate: { temp: [23, 27], rh: [70, 90] }, env: { setpoint: 25.5 },
+    blurb: 'Warm, still water thick with java moss and frogbit, a foam filter that cannot take the fry, and six show strains as trios (a male and two females each), ready to breed and select.',
+    plants: ['javamoss', 'frogbit', 'vallisneria', 'rotala', 'javafern', 'crypt', 'grass', 'fern'], swap: { fernph: 'fern' },
+    flora: [['javamoss', 10, 'deep:4'], ['frogbit', 8, 'deep:4'], ['vallisneria', 6, 'deep:8'], ['rotala', 5, 'deep:6'], ['crypt', 4, 'deep:5'], ['javafern', 3, 'deep:6']],
+    animals: ['guppy', 'blueshrimp', 'snail', 'springtail', 'isopod'],
+    // six of the strains drawn with the owner's own models, a trio of each (sim/generator.js Gen.stock: `morphs`, `per`); counts are per
+    // standard tank: 10 makes the 18 fish of six trios in the wide reference tank (101 L), fewer trios in a smaller one
+    stock: [['guppy', 10, 'deep:3', { morphs: ['red_mosaic', 'tuxedo_blue', 'yellow_leopard', 'green_snakeskin', 'albino_red', 'platinum_tuxedo_red_mosaic'], per: 3 }], ['snail', 4, 'deep:2'], ['blueshrimp', 8, 'deep:3']],
+    needs: [], tags: ['fish', 'guppies', 'breeding', 'still water'], adjectives: ['Bright', 'Busy', 'Mossy', 'Show'], noun: 'Breeding tank',
+  },
   sandbank: {
     name: 'Clearwater sandbank', biotope: 'tapajos', layout: 'blackwater', featured: ['cory'], ref: 'wide',
     place: 'Sandbank of the Rio Tapajós, Pará, Brazil (the game\'s corydoras stands for the genus)', water: 0.8, climate: { temp: [24, 29], rh: [65, 95] }, env: { setpoint: 26 },
@@ -347,6 +367,7 @@ const S1 = {
   sierrapools: { plus: { plants: ['bromeliad', 'tillandsia', 'fern'], flora: [['bromeliad', 3, 'flat'], ['tillandsia', 3, 'wall'], ['fern', 2, 'flat']], stock: [['bumblebee', 5, 'bank']] } },
   beechseep: { ...COOL(18), env: { setpoint: 18, chill: 1, coolSet: 18, fogger: 0.5 }, gear: ['chiller', 'fogger'], pool: 0.5, plus: { plants: ['hartstongue'], flora: [['weed', 5, 'flat'], ['bilberry', 3, 'flat'], ['fernph', 4, 'flat'], ['hartstongue', 4, 'flat']] } },
   oakpond: { ...COOL(18), plus: { stock: [['marbled', 3, 'bank']] } },
+  frogpond: { ...COOL(18), pool: 1.0 },
   chinampa: { ...COOL(17), level: 0.5, pool: 1.2, rate: 60, bed: 'soil', plus: { plants: ['cattail'], flora: [['cattail', 4, 'edge'], ['frogbit', 6, 'deep:4'], ['vallisneria', 8, 'deep:8']] } },
   riverbank: { level: 0.45, rate: 420, rocks: 6, bed: 'gravel', plus: { plants: ['pothos', 'rotala', 'vallisneria', 'crypt'], flora: [['pothos', 6, 'wall'], ['vallisneria', 8, 'deep:8'], ['javamoss', 5, 'edge'], ['rotala', 6, 'deep:6'], ['crypt', 6, 'deep:6']] } },
   klong: { rate: 50, bed: 'soil', plus: { plants: ['pothos', 'vallisneria', 'crypt', 'javamoss'], flora: [['vallisneria', 6, 'deep:6'], ['javamoss', 4, 'edge'], ['pothos', 3, 'wall'], ['fern', 3, 'flat'], ['crypt', 5, 'deep:6']] } },
@@ -394,6 +415,7 @@ applyS1({
 const LOOK = {
   blackwater: { clump: 4 },
   riverbank: { wall: { style: 'strata', moss: 0.75, rock: 0.35 }, mix: { logs: 1, roots: 4, boulders: 1 }, rocks: 3, bed: 'sand', ground: { gravelBand: 0.8 }, clump: 5 },
+  guppyroom: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'blocks', relief: 0.25, moss: 0.85, rock: 0.5 }, mix: { logs: 1, roots: 2, boulders: 0 }, bed: 'sand', level: 0.4, clump: 6 },
   klong: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'blocks', relief: 0.3, moss: 0.7, rock: 0.8 }, mix: { logs: 0, roots: 0, boulders: 0 }, bed: 'soil', level: 0.4, clump: 6 },
   shanpond: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'crag', relief: 0.55, moss: 0.45, rock: 0.6 }, mix: { logs: 0, roots: 0, boulders: 2 }, bed: 'gravel', level: 0.3, ground: { gravelBand: 2.5 }, clump: 6 },
   mosspool: { wall: { style: 'boulders', relief: 1.2, moss: 0.3, rock: 0.4 }, mix: { logs: 0, roots: 0, boulders: 3 }, rocks: 7, clump: 5 },
@@ -404,6 +426,7 @@ const LOOK = {
   atlantic: { wall: { style: 'crag', relief: 1.3, moss: 0.45, rock: 0.45 }, mix: { logs: 0, roots: 0, boulders: 3 }, rocks: 5, clump: 3 },
   keralapool: { wall: { style: 'blocks', relief: 0.25, moss: 1.2, rock: 0.9 }, mix: { logs: 0, roots: 0, boulders: 0 }, bed: 'soil', level: 0.3, ground: { moss: 0.3, gravelBand: 0.3 }, clump: 6 },
   oakpond: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'boulders', moss: 0.55, rock: 0.4 }, mix: { logs: 2, roots: 1, boulders: 1 }, bed: 'soil', clump: 4 },
+  frogpond: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'boulders', moss: 0.6, rock: 0.4 }, mix: { logs: 3, roots: 1, boulders: 1 }, bed: 'soil', clump: 4 },
   chinampa: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'blocks', relief: 0.25, moss: 0.5, rock: 0.5 }, mix: { logs: 0, roots: 3, boulders: 0 }, bed: 'soil', clump: 8 },
   matano: { wall: { style: 'strata', moss: 1.1, rock: 0.3 }, mix: { logs: 1, roots: 0, boulders: 3 }, rocks: 7, bed: 'gravel', clump: 4 },
   everglades: { wall: { style: 'crag', relief: 0.4, moss: 0.6 }, mix: { logs: 1, roots: 2, boulders: 0 }, bed: 'soil', clump: 5 },

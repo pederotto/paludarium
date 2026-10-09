@@ -96,6 +96,9 @@ export const GUPPY_STRAINS = [
   'yellow', 'green', 'white', 'black', 'moscow_black', 'red_leopard', 'yellow_cobra', 'blue_grass', 'japan_red', 'neon_red',
   'platinum_yellow', 'tuxedo_yellow', 'tuxedo_pastel', 'albino_platinum_white', 'japan_red_doublesword', 'white_lyre',
   'blue_veil', 'red_flag', 'red_spade', 'yellow_topsword', 'albino_red_bottomsword', 'blue_spear', 'red_pin', 'yellow_leopard_veil_ribbon', 'black_swallow',
+  // the owner's strain models (8 Oct 2026, 16 with albino_red, tuxedo_red, tuxedo_blue and red_mosaic above; drawn with their own models: render/creatures/guppymodel.js strainModel)
+  'blue_leopard_fan', 'platinum_tuxedo_red_mosaic', 'green_snakeskin', 'yellow_tiger', 'moscow_red_fan', 'japan_red_mosaic', 'yellow_mosaic',
+  'red_snakeskin_fan', 'platinum_red_tiger', 'gold_red_snakeskin', 'red_cobra', 'yellow_leopard',
 ];
 
 // ---- Genotype -> phenotype ------------------------------------------------------------------------------------------------
@@ -371,3 +374,18 @@ export function guppyGenotypeFor(id, rng = Math.random, { female = false } = {})
 
 // A ribbon male cannot sire (his gonopodium is too long to use: breeders keep ribbon lines through ribbon females).
 export const guppyFertile = (genes) => !has(genes?.[L.ribbon] ?? 'ii', 'I');
+
+// The families the release picker (ui/hud/ToolOptions.jsx MorphPicker) sorts the sold strains into, the way a breeder's list does:
+// an albino first, then a fish whose fin shape is its point, then a body pattern, then the overlays (tuxedo, Moscow, metal), the rest solid.
+export const GUPPY_GROUPS = [
+  ['solid', 'Solid colours'], ['overlay', 'Tuxedo, Moscow & metal'], ['pattern', 'Patterns'], ['fins', 'Fin shapes'], ['albino', 'Albinos'],
+];
+export function guppyGroup(id) {
+  const p = parseGuppy(id);
+  if (!p) return 'solid';
+  if (p.ground === 'albino') return 'albino';
+  if ((p.tail !== 'delta' && p.tail !== 'fan') || p.dumbo || p.ribbon || p.swallow) return 'fins';
+  if (p.pattern !== 'plain') return 'pattern';
+  if (p.tuxedo || p.moscow || p.platinum || p.japan || p.neon) return 'overlay';
+  return 'solid';
+}

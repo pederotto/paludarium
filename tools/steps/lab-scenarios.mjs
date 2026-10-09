@@ -31,13 +31,15 @@ export default async (page, shot, name) => {
   for (const sp of used) {
     const w = await page.evaluate(async (sp) => {
       const lab = window.lab, t0 = performance.now();
-      await lab.apply({ v: 1, tank: 'column', ground: 'flat', depth: 0, obstacles: [], dots: [], rate: 4, animals: [lab.SPECIES[sp]?.kind === 'gecko' ? { sp, x: 0, y: 20, z: -19.9, yaw: 0, wall: true, drive: null } : { sp, x: 0, z: 0, yaw: 0, drive: null }] });
+      const swimmer = lab.SPECIES[sp]?.kind === 'swim';      // (R6a: a fish needs water to be present: a depth-0 arena made the warm-up of cory/loach/guppy time out silently)
+      await lab.apply({ v: 1, tank: swimmer ? 'standard' : 'column', ground: 'flat', depth: swimmer ? 18 : 0, obstacles: [], dots: [], rate: 4, animals: [lab.SPECIES[sp]?.kind === 'gecko' ? { sp, x: 0, y: 20, z: -19.9, yaw: 0, wall: true, drive: null } : { sp, x: 0, z: 0, yaw: 0, drive: null }] });
       lab.rate(4); lab.pause(false);
       const A = lab.game.world.animals;      // (read AFTER apply: it rebuilds the world, and the old world's animals are not the ones in the arena)
       while (!A.all.some((a) => a.sp === sp && !a.dead) && performance.now() - t0 < 90000) await new Promise((r) => setTimeout(r, 200));
       return { ok: A.all.some((a) => a.sp === sp && !a.dead), s: (performance.now() - t0) / 1000 };
     }, sp);
     console.log(`warm ${sp}: ${w.ok ? 'present' : 'NOT PRESENT'} after ${w.s.toFixed(1)} s`);
+    if (!w.ok) { console.log(`WARM-UP FAIL: ${sp} did not appear (a fish needs water, a species needs to be in this build): scenarios using it do not count`); process.exitCode = 3; }
   }
   for (const sc of scen) {
     if (process.env.SECS) sc.seconds = +process.env.SECS;      // (SECS=12: every scenario 12 real seconds = 48 animal seconds at rate 4)
@@ -53,6 +55,14 @@ export default async (page, shot, name) => {
       const have = () => { const need = {}; for (const a of sc.spec.animals ?? []) need[a.sp] = (need[a.sp] ?? 0) + 1; let n = 0; for (const [sp, k] of Object.entries(need)) n += Math.min(k, A.all.filter((a) => a.sp === sp && !a.dead).length); return n; };
       while (have() < want && performance.now() - w0 < 30000) await new Promise((r) => setTimeout(r, 200));
       lab.radar.clear();
+      // R6a: every stuck decision and every relocation of a swimmer, by the fish's own intent (hold / creep / go / inside) at that moment. Inline, so it
+      // runs on a build without src/sim/stuckintent.js (the "before" number) and does not share the game's predicate.
+      const CLS = {}, cls = (a) => { const m = a.fm; if (a.rest?.resting) return 'hold'; if (a.lab?.drive) return a.lab.goal ? 'go' : 'hold'; if (!m) return 'go'; if (a.dart || m.fleeT > 0 || m.I?.escape) return 'go'; if (a.nib || m.resting) return 'hold'; const d = m.goal ? Math.hypot(m.goal.x - a.pos.x, m.goal.z - a.pos.z) : 0; return d > 2.5 ? 'go' : d >= 1 ? 'creep' : 'hold'; };
+      const bump = (a, ev, c) => { const o = ((CLS[a.sp] ??= {})[ev] ??= {}); o[c] = (o[c] ?? 0) + 1; };
+      const proto = Object.getPrototypeOf(A);
+      A.relocate = function (a, sp, ...rest) { if (sp.kind === 'swim') bump(a, 'reloc', rest[1] ? 'inside' : cls(a)); return proto.relocate.call(this, a, sp, ...rest); };
+      A.keepFree = function (a, sp, dt) { const pre = sp.kind === 'swim' && a.anchor && (a.stillT ?? 0) + dt >= 3.5 && this.wantsMove(a, sp) ? cls(a) : null, ls = a.lastStuck; const r = proto.keepFree.call(this, a, sp, dt); if (pre && a.lastStuck !== ls) bump(a, 'stuck', pre); return r; };
+      const st0 = JSON.parse(JSON.stringify(A.stuckStats ?? {})), diff = (n, o) => { const d = {}; for (const [k, v] of Object.entries(n ?? {})) { const q = o?.[k]; if (typeof v === 'number') { if (v - (q ?? 0)) d[k] = +(v - (q ?? 0)).toFixed(1); } else if (v && typeof v === 'object') { const x = diff(v, q); if (Object.keys(x).length) d[k] = x; } } return d; };
       const W = lab.game.world, all = A.all.filter((a) => !a.dead);
       const ang = (d) => { while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
       const mode = (a) => (a.fear ? 'fear' : a.perch ? 'perch-' + a.perch.ph : a.swimming ? 'swim' : (a.si?.mode ?? a.ci?.mode ?? a.cb?.mode ?? a.hm?.mode ?? a.fs ?? a.state ?? '?'));
@@ -90,14 +100,16 @@ export default async (page, shot, name) => {
         if (sc.turn) { const tot = Object.values(s.ys).reduce((p, v) => p + v, 0) || 1; o.yawShare = Object.fromEntries(Object.entries(s.ys).map(([k, v]) => [k, +(v / tot).toFixed(2)])); o.yawDeg = +tot.toFixed(0); }
         return o;
       });
-      return { animals, want, minD, radar: kinds, planner: typeof A.labGrid === 'function' ? 'yes' : 'no', clock: +A.t.toFixed(0) };
+      const samples = st.map((s) => Object.values(s.modes).reduce((p, v) => p + v, 0));
+      delete A.relocate; delete A.keepFree;
+      return { cls: CLS, animals, want, minD, radar: kinds, stuck: diff(A.stuckStats, st0), samples, planner: typeof A.labGrid === 'function' ? 'yes' : 'no', clock: +A.t.toFixed(0) };
     }, sc);
-    const row = { name: sc.name, minD: r.minD, origin, planner: r.planner, spawned: r.animals.length, expected: r.want, animalSeconds: r.clock, radar: r.radar, errors: errs.slice(e0), animals: r.animals };
+    const row = { name: sc.name, minD: r.minD, origin, planner: r.planner, spawned: r.animals.length, expected: r.want, animalSeconds: r.clock, radar: r.radar, stuck: r.stuck, cls: r.cls, samples: r.samples, errors: errs.slice(e0), animals: r.animals };
     if (out) fs.appendFileSync(out, JSON.stringify(row) + '\n');
     const an = r.animals;
     const sum = (k) => an.reduce((p, a) => p + (a[k] ?? 0), 0);
     if (r.minD?.length || an0(r)) console.log(`   ${r.minD?.length ? 'closest ' + r.minD.map((v) => v.toFixed(1)).join('/') + ' cm; ' : ''}modes: ${r.animals.map((a) => a.sp + ' ' + Object.entries(a.modes).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([k, v]) => k + ':' + v).join(',')).join(' | ')}`);
     if (sc.trace) r.animals.forEach((a, i) => { if (sc.trace.includes(i)) console.log(`   trace ${a.sp}#${i}: ${a.trace.join(' > ')}`); });
-    console.log(`${sc.name.padEnd(34)} planner=${r.planner} n=${an.length}${an.length !== r.want ? ' SPAWN ' + an.length + '/' + r.want + ' (refused: a spot inside a piece, or a species that is not in this build)' : ''} reached=${an.map((a) => a.reached ?? '-').join('/')} skipped=${sum('skipped')} walked=${an.map((a) => a.walked ?? '-').join('/')} fastest=${Math.max(...an.map((a) => a.fastest))}cm/s maxY=${Math.max(...an.map((a) => a.maxY))} minRelief=${Math.min(...an.map((a) => a.margin ?? 99))} radar=${JSON.stringify(r.radar)}${row.errors.length ? ' ERR ' + row.errors[0] : ''}${an.some((a) => !a.finite) ? ' NONFINITE' : ''}`);
+    console.log(`${sc.name.padEnd(34)} planner=${r.planner} n=${an.length}${an.length !== r.want ? ' SPAWN ' + an.length + '/' + r.want + ' (refused: a spot inside a piece, or a species that is not in this build)' : ''} reached=${an.map((a) => a.reached ?? '-').join('/')} skipped=${sum('skipped')} walked=${an.map((a) => a.walked ?? '-').join('/')} fastest=${Math.max(...an.map((a) => a.fastest))}cm/s maxY=${Math.max(...an.map((a) => a.maxY))} minRelief=${Math.min(...an.map((a) => a.margin ?? 99))} radar=${JSON.stringify(r.radar)} stuck=${JSON.stringify(r.stuck)} cls=${JSON.stringify(r.cls)} samples/animal=${Math.min(...r.samples)}-${Math.max(...r.samples)}${row.errors.length ? ' ERR ' + row.errors[0] : ''}${an.some((a) => !a.finite) ? ' NONFINITE' : ''}`);
   }
 };

@@ -74,7 +74,12 @@ const JOBS = {
   firesal: { src: 'salamander_mesh', rotY: 90, lengthCm: 18, headZ: 6.2, tris: [32000, 8000], paint: 'firesal', legs: true },
   // Vampire crab: carapace 2.1 cm wide (the procedural body's size, so the sim's spacing is unchanged), legs about 6 cm across.
   // matId 0 (skin) not 4 (chitin): the chitin id has a fixed clear coat that ignores finish and looked like plastic on the scan.
-  crab: { src: 'crab_mesh', rotY: 0, shellWidthCm: 2.1, tris: [10000, 3200], paint: 'crab', rig: 'crab', legs: true, matId: 0, texture: 1024 },
+  crab: { src: 'crab_mesh', rotY: 0, shellWidthCm: 2.1, claws: true, tris: [10000, 3200], paint: 'crab', rig: 'crab', legs: true, matId: 0, texture: 1024 },
+  // Panther crab: the owner's Meshy model (7 Oct 2026 drop, 763k triangles, a patchwork colour texture): welded by position (its UV seams
+  // split every vertex), decimated to `pre`, rigged by the crab rig retuned to it (`rigOpt`, eyes are part of the shell), and painted with
+  // the colours of the original carried over by nearest surface point (tools/rig/colorsrc.mjs, `colorSrc`). The shell is 2.1 cm wide, as the
+  // vampire crab's: the species' `size` 2.4 (src/sim/animals.js) draws it 5 cm, and every sim number keeps its meaning. `claws`: fit the pincers (tools/rig/claws.mjs).
+  panther: { src: 'panther_textured_mesh', posWeld: true, pre: 16000, colorSrc: 'art-src/raw/panther_textured_mesh.glb', rotY: 0, shellWidthCm: 2.1, claws: true, tris: [16000, 5000], paint: 'crab', rig: 'panther', legs: true, matId: 0, texture: 1024 },
   // Red-eyed tree frog: its own scan (redeye_frog_mesh, standing alert with the limbs clear of the body and the toe discs spread),
   // rigged like the other frogs and painted from the reference pictures (tools/paint/callidryas.mjs). 6.4 cm nose to toe tips
   // as it stands (a female's body is about 6 cm, a male's 5).
@@ -189,7 +194,7 @@ async function build(id, job, paint, level, geo, fullNormals, rig = null, spineZ
   if (rig) {
     const r = new Float32Array(n * 4);
     const [sz0, sz1] = spineZ ?? [z0, z1];
-    for (let i = 0; i < n; i++) { const j = src(i); r[i*4] = Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
+    for (let i = 0; i < n; i++) { const j = src(i); r[i*4] = rig.dact ? rig.dact[j] : Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
     prim.setAttribute('_RIG', doc.createAccessor().setType('VEC4').setArray(r).setBuffer(buf));
   }
   const mesh = doc.createMesh(id).addPrimitive(prim);
@@ -208,7 +213,7 @@ async function buildTextured(id, job, level, g, rig, image, spineZ = null, skin 
   for (let i = 0; i < n; i++) { x0 = Math.min(x0, pos[i*3]); x1 = Math.max(x1, pos[i*3]); y0 = Math.min(y0, pos[i*3+1]); y1 = Math.max(y1, pos[i*3+1]); z0 = Math.min(z0, pos[i*3+2]); z1 = Math.max(z1, pos[i*3+2]); }
   const r = new Float32Array(n * 4);
   const [sz0, sz1] = spineZ ?? [z0, z1];
-  for (let i = 0; i < n; i++) { const j = from[i]; r[i*4] = Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
+  for (let i = 0; i < n; i++) { const j = from[i]; r[i*4] = rig.dact ? rig.dact[j] : Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
   const doc = new Document();
   const buf = doc.createBuffer();
   const mat = doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.7).setMetallicFactor(0);
@@ -303,9 +308,16 @@ for (const [id, job] of Object.entries(JOBS)) {
   const ckey = `${job.src}@${job.pre ?? 0}`;
   if (!cache[ckey]) {
     const doc = await io.read(`art-src/raw/${job.src}.glb`);
-    await doc.transform(weld());
+    if (!job.posWeld) await doc.transform(weld());
     const p = doc.getRoot().listMeshes()[0].listPrimitives()[0];
     cache[ckey] = { pos: Float32Array.from(p.getAttribute('POSITION').getArray()), idx: Uint32Array.from(p.getIndices().getArray()) };
+    // `posWeld`: a textured model has a vertex per UV seam; the rig and the unwrap want one surface, so merge by position alone.
+    if (job.posWeld) {
+      const { pos: P, idx: I } = cache[ckey], at = new Map(), map = new Uint32Array(P.length / 3), out = [];
+      for (let i = 0; i < P.length / 3; i++) { const kk = `${Math.round(P[i*3] * 1e6)},${Math.round(P[i*3+1] * 1e6)},${Math.round(P[i*3+2] * 1e6)}`; let j = at.get(kk); if (j === undefined) { j = out.length / 3; at.set(kk, j); out.push(P[i*3], P[i*3+1], P[i*3+2]); } map[i] = j; }
+      const idx = []; for (let t = 0; t < I.length; t += 3) { const a = map[I[t]], b = map[I[t+1]], c = map[I[t+2]]; if (a !== b && b !== c && a !== c) idx.push(a, b, c); }
+      cache[ckey] = { pos: Float32Array.from(out), idx: Uint32Array.from(idx) };
+    }
     // `pre`: decimate a dense scan first (the frog scan has 400k triangles: too many to rig, unwrap and texture).
     if (job.pre) { const s = simplified(cache[ckey].pos, cache[ckey].idx, job.pre); cache[ckey] = { pos: s.pos, idx: s.idx }; }
   }
@@ -391,6 +403,12 @@ for (const [id, job] of Object.entries(JOBS)) {
     q.ymin = ymin;
   }
   for (let i = 0; i < pos.length; i += 3) { pos[i] = (pos[i] - cx) * k; pos[i + 1] = (pos[i + 1] - y0) * k; pos[i + 2] = (pos[i + 2] - cz) * k; }
+  // `colorSrc`: the colour of the owner's textured original, found at the nearest point of its surface (same rotation and frame as `pos`).
+  if (job.colorSrc) {
+    const { colorSource } = await import('./rig/colorsrc.mjs');
+    const sample = await colorSource(job.colorSrc, ([x, y, z]) => [(x * ca + z * sa - cx) * k, (y - y0) * k, (-x * sa + z * ca - cz) * k]);
+    job.texelFn = (v) => sample(v.x / 100, v.y / 100, v.z / 100);
+  }
   // `warp`: reshape one scan into a related species (a flatter toad, a slimmer, longer-legged reed frog), in metres of the baked
   // frame, per vertex with the rig: warp([x, y, z] in cm, { leg, legT, part }) -> [x, y, z] in cm. The eyes move with it.
   let warpEye = null;
@@ -420,6 +438,7 @@ for (const [id, job] of Object.entries(JOBS)) {
   if (job.eyeCm && Array.isArray(extra.finish?.eyes)) { const e0 = extra.finish.eyes[0]; e0.c = job.eyeCm.c.map((v) => +v.toFixed(3)); e0.r = job.eyeCm.r; }      // (the skin session's fit on the mesh and the owner's photos, cm of the baked frame: overrides `eye`)
   if (eyesOut && typeof extra.finish?.eyes === 'function') extra.finish = { ...extra.finish, eyes: extra.finish.eyes(eyesOut) };
   if (warpEye && Array.isArray(extra.finish?.eyes)) for (const e of extra.finish.eyes) e.c = warpEye(e.c).map((v) => +v.toFixed(3));
+  if (job.claws && rig) { const { fitClaws } = await import('./rig/claws.mjs'); const cf = fitClaws(pos, rig); rig.dact = cf.dact; extra.finish = { ...(extra.finish ?? {}), claws: cf.claws }; console.log('  claws', JSON.stringify(cf.claws)); }
   const fullN = normals(pos, idx0);
   const { hi, lo, posed = {} } = job.texture && rig
     ? await bakeTextured(id, job, pos, idx0, fullN, rig, extra.finish?.eyes?.[0] ?? null, spineZ, poseSrc, skinBind)

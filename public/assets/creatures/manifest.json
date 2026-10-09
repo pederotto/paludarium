@@ -341,7 +341,69 @@
    "coat": 0.08,
    "coatRough": 0.55,
    "grainAmt": 0,
-   "tone": 0.02
+   "tone": 0.02,
+   "claws": {
+    "5": {
+     "h": [
+      -0.909,
+      1.396,
+      0.981
+     ],
+     "a": [
+      -0.82,
+      -0.133,
+      0.556
+     ],
+     "shut": 0.296,
+     "t0": 0.45,
+     "tip": [
+      -0.317,
+      0.579,
+      1.515
+     ],
+     "ground": [
+      -0.174,
+      0.203,
+      1.851
+     ],
+     "mouth": [
+      0,
+      0.71,
+      0.807
+     ],
+     "len": 1.2
+    },
+    "6": {
+     "h": [
+      0.871,
+      1.34,
+      1.057
+     ],
+     "a": [
+      -0.833,
+      0.185,
+      -0.521
+     ],
+     "shut": 0.29,
+     "t0": 0.45,
+     "tip": [
+      0.311,
+      0.605,
+      1.495
+     ],
+     "ground": [
+      0.171,
+      0.212,
+      1.828
+     ],
+     "mouth": [
+      0,
+      0.71,
+      0.807
+     ],
+     "len": 1.187
+    }
+   }
   }
  },
  "leucomelas.swim": {
@@ -2105,6 +2167,69 @@
   ],
   "skeleton": {"plan":"lizard","bones":[{"name":"pelvis","parent":null,"head":[0,2.371,0.783],"tail":[0,2.447,2.611],"limb":0,"r":1.284},{"name":"spine","parent":"pelvis","head":[0,2.447,2.611],"tail":[0,2.782,4.439],"limb":0,"r":1.364},{"name":"neck","parent":"spine","head":[0,2.782,4.439],"tail":[0,2.921,6.473],"limb":0,"r":1.204},{"name":"head","parent":"neck","head":[0,2.921,6.473],"tail":[0,3.235,8.401],"limb":0,"r":1.204},{"name":"tail1","parent":"pelvis","head":[0,2.371,0.783],"tail":[0,1.593,-1.421],"limb":0,"r":0.674},{"name":"tail2","parent":"tail1","head":[0,1.593,-1.421],"tail":[0.002,1.486,-3.434],"limb":0,"r":0.546},{"name":"tail3","parent":"tail2","head":[0.002,1.486,-3.434],"tail":[-0.004,1.579,-5.277],"limb":0,"r":0.433},{"name":"tail4","parent":"tail3","head":[-0.004,1.579,-5.277],"tail":[-0.001,1.688,-6.931],"limb":0,"r":0.321},{"name":"tail5","parent":"tail4","head":[-0.001,1.688,-6.931],"tail":[0,1.83,-8.401],"limb":0,"r":0.209},{"name":"thighL","parent":"pelvis","head":[-0.824,1.53,0.786],"tail":[-1.883,1.767,0.762],"limb":3,"r":0.482},{"name":"shinL","parent":"thighL","head":[-1.883,1.767,0.762],"tail":[-2.349,0.74,0.706],"limb":3,"r":0.353},{"name":"footL","parent":"shinL","head":[-2.349,0.74,0.706],"tail":[-2.932,0.665,0.598],"limb":3,"r":0.209},{"name":"thighR","parent":"pelvis","head":[0.824,1.543,0.78],"tail":[1.899,1.696,0.786],"limb":4,"r":0.482},{"name":"shinR","parent":"thighR","head":[1.899,1.696,0.786],"tail":[2.271,0.632,0.712],"limb":4,"r":0.353},{"name":"footR","parent":"shinR","head":[2.271,0.632,0.712],"tail":[2.855,0.55,0.618],"limb":4,"r":0.209},{"name":"armL","parent":"spine","head":[-0.824,1.489,4.433],"tail":[-2.017,1.573,4.279],"limb":1,"r":0.353},{"name":"forearmL","parent":"armL","head":[-2.017,1.573,4.279],"tail":[-2.446,0.383,5.141],"limb":1,"r":0.289},{"name":"handL","parent":"forearmL","head":[-2.446,0.383,5.141],"tail":[-2.893,0.314,5.055],"limb":1,"r":0.193},{"name":"armR","parent":"spine","head":[0.824,1.511,4.446],"tail":[2.02,1.573,4.301],"limb":2,"r":0.353},{"name":"forearmR","parent":"armR","head":[2.02,1.573,4.301],"tail":[2.45,0.368,5.141],"limb":2,"r":0.289},{"name":"handR","parent":"forearmR","head":[2.45,0.368,5.141],"tail":[2.904,0.294,5.115],"limb":2,"r":0.193},{"name":"fingersL","parent":"handL","head":[-2.893,0.314,5.055],"tail":[-3.139,0.062,5.445],"limb":1,"r":0.112},{"name":"fingersR","parent":"handR","head":[2.904,0.294,5.115],"tail":[3.18,0.048,5.487],"limb":2,"r":0.112},{"name":"toesL","parent":"footL","head":[-2.932,0.665,0.598],"tail":[-3.387,0.543,0.264],"limb":3,"r":0.128},{"name":"toesR","parent":"footR","head":[2.855,0.55,0.618],"tail":[3.301,0.425,0.272],"limb":4,"r":0.128}]}
  },
+ "commonfrog.swim": {
+  "file": "commonfrog.swim.glb",
+  "lo": "commonfrog.swim.lo.glb",
+  "legs": false,
+  "pose": "swim",
+  "tris": {
+   "hi": 38524,
+   "lo": 9000
+  },
+  "sizeCm": [
+   10.02,
+   5.03,
+   13.1
+  ],
+  "finish": {
+   "eyes": [
+    {
+     "c": [
+      0.642,
+      1.899,
+      2.003
+     ],
+     "r": 0.4,
+     "axis": [
+      0.8997301214392819,
+      0.1499550202398803,
+      0.4098770553223395
+     ],
+     "h": [
+      -0.4145646120999256,
+      0,
+      0.9100198802193491
+     ],
+     "w": [
+      0.1364620495569859,
+      -0.9886928197902809,
+      0.06216604479818246
+     ],
+     "pupil": [
+      0.66,
+      0.4
+     ],
+     "inner": [
+      0.6383,
+      0.448,
+      0.1065
+     ],
+     "outer": [
+      0.1626,
+      0.0835,
+      0.0245
+     ]
+    }
+   ],
+   "rough": 0.5,
+   "coat": 0.3,
+   "coatRough": 0.4,
+   "grain": 9,
+   "grainAmt": 0,
+   "bump": 0.03
+  },
+  "skeleton": {"plan":"anuran","bind":"swim","bones":[{"name":"pelvis","parent":null,"head":[0.028,1.507,-3.854],"tail":[0.028,1.296,-1.488],"limb":0,"r":1.383},{"name":"spine","parent":"pelvis","head":[0.028,1.296,-1.488],"tail":[0.028,1.324,-0.506],"limb":0,"r":1.522},{"name":"spineB","parent":"spine","head":[0.028,1.324,-0.506],"tail":[0.028,1.353,0.477],"limb":0,"r":1.522},{"name":"head","parent":"spineB","head":[0.028,1.588,1.354],"tail":[0.028,1.304,3.188],"limb":0,"r":1.176},{"name":"thighL","parent":"pelvis","head":[-0.472,1.5,-3.302],"tail":[-3.404,1.266,-4.278],"limb":3,"r":0.519},{"name":"shinL","parent":"thighL","head":[-3.404,1.266,-4.278],"tail":[-1.217,2.268,-6.368],"limb":3,"r":0.38},{"name":"footL","parent":"shinL","head":[-1.217,2.268,-6.368],"tail":[-2.23,2.074,-7.516],"limb":3,"r":0.277},{"name":"toesL","parent":"footL","head":[-2.23,2.074,-7.516],"tail":[-4.912,1.594,-8.073],"limb":3,"r":0.242},{"name":"armL","parent":"spineB","head":[-0.872,0.888,0.881],"tail":[-2.4981,0.4623,0.6692],"limb":1,"r":0.311},{"name":"forearmL","parent":"armL","head":[-2.4981,0.4623,0.6692],"tail":[-2.435,-0.0068,1.8262],"limb":1,"r":0.277},{"name":"handL","parent":"forearmL","head":[-2.435,-0.0068,1.8262],"tail":[-2.5158,-0.6757,2.9379],"limb":1,"r":0.242},{"name":"thighR","parent":"pelvis","head":[0.555,1.395,-3.298],"tail":[3.51,1.301,-4.203],"limb":4,"r":0.519},{"name":"shinR","parent":"thighR","head":[3.51,1.301,-4.203],"tail":[1.542,2.295,-6.493],"limb":4,"r":0.38},{"name":"footR","parent":"shinR","head":[1.542,2.295,-6.493],"tail":[2.433,1.976,-7.418],"limb":4,"r":0.277},{"name":"toesR","parent":"footR","head":[2.433,1.976,-7.418],"tail":[5.04,2.133,-8.71],"limb":4,"r":0.242},{"name":"armR","parent":"spineB","head":[0.928,0.888,0.881],"tail":[2.2654,0.5219,0.4569],"limb":2,"r":0.311},{"name":"forearmR","parent":"armR","head":[2.2654,0.5219,0.4569],"tail":[2.6779,-0.0757,1.4743],"limb":2,"r":0.277},{"name":"handR","parent":"forearmR","head":[2.6779,-0.0757,1.4743],"tail":[2.7917,-0.6332,2.6432],"limb":2,"r":0.242},{"name":"jaw","parent":"head","head":[0.028,1.377,1.145],"tail":[0.028,1.078,3.076],"limb":0,"r":0.16},{"name":"hyoid","parent":"head","head":[0.028,1.07,1.195],"tail":[0.028,1.07,2.081],"limb":0,"r":0.14},{"name":"tongue1","parent":"jaw","head":[0.028,1.09,3.01],"tail":[0.028,1.125,2.692],"limb":0,"r":0.06},{"name":"tongue2","parent":"tongue1","head":[0.028,1.125,2.692],"tail":[0.028,1.159,2.374],"limb":0,"r":0.06},{"name":"tongue3","parent":"tongue2","head":[0.028,1.159,2.374],"tail":[0.028,1.194,2.057],"limb":0,"r":0.06},{"name":"tongue4","parent":"tongue3","head":[0.028,1.194,2.057],"tail":[0.028,1.228,1.739],"limb":0,"r":0.06}],"head":{"jaw":18,"hyoid":19,"tongue":[20,21,22,23],"tongueLenCm":1.271,"strike":{"gapeDeg":45,"a0Deg":150,"dDeg":-5,"lag":0.22,"stretch":1.3,"hyoidDropCm":0.21}}}
+ },
  "hillloach": {
   "file": "hillloach.glb",
   "lo": "hillloach.lo.glb",
@@ -2249,6 +2374,128 @@
      ],
      "r": 0.088
     }
+   },
+   "strains": {
+    "albino_red": {
+     "file": "guppy/strain-albino_red.glb",
+     "lo": "guppy/strain-albino_red.lo.glb",
+     "parts": "guppy/strain-albino_red-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.667
+    },
+    "blue_leopard_fan": {
+     "file": "guppy/strain-blue_leopard_fan.glb",
+     "lo": "guppy/strain-blue_leopard_fan.lo.glb",
+     "parts": "guppy/strain-blue_leopard_fan-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.385
+    },
+    "gold_red_snakeskin": {
+     "file": "guppy/strain-gold_red_snakeskin.glb",
+     "lo": "guppy/strain-gold_red_snakeskin.lo.glb",
+     "parts": "guppy/strain-gold_red_snakeskin-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.667
+    },
+    "green_snakeskin": {
+     "file": "guppy/strain-green_snakeskin.glb",
+     "lo": "guppy/strain-green_snakeskin.lo.glb",
+     "parts": "guppy/strain-green_snakeskin-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.826
+    },
+    "japan_red_mosaic": {
+     "file": "guppy/strain-japan_red_mosaic.glb",
+     "lo": "guppy/strain-japan_red_mosaic.lo.glb",
+     "parts": "guppy/strain-japan_red_mosaic-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.667
+    },
+    "moscow_red_fan": {
+     "file": "guppy/strain-moscow_red_fan.glb",
+     "lo": "guppy/strain-moscow_red_fan.lo.glb",
+     "parts": "guppy/strain-moscow_red_fan-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.321
+    },
+    "platinum_red_tiger": {
+     "file": "guppy/strain-platinum_red_tiger.glb",
+     "lo": "guppy/strain-platinum_red_tiger.lo.glb",
+     "parts": "guppy/strain-platinum_red_tiger-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.451
+    },
+    "platinum_tuxedo_red_mosaic": {
+     "file": "guppy/strain-platinum_tuxedo_red_mosaic.glb",
+     "lo": "guppy/strain-platinum_tuxedo_red_mosaic.lo.glb",
+     "parts": "guppy/strain-platinum_tuxedo_red_mosaic-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.385
+    },
+    "red_cobra": {
+     "file": "guppy/strain-red_cobra.glb",
+     "lo": "guppy/strain-red_cobra.lo.glb",
+     "parts": "guppy/strain-red_cobra-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.385
+    },
+    "red_mosaic": {
+     "file": "guppy/strain-red_mosaic.glb",
+     "lo": "guppy/strain-red_mosaic.lo.glb",
+     "parts": "guppy/strain-red_mosaic-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.52
+    },
+    "red_snakeskin_fan": {
+     "file": "guppy/strain-red_snakeskin_fan.glb",
+     "lo": "guppy/strain-red_snakeskin_fan.lo.glb",
+     "parts": "guppy/strain-red_snakeskin_fan-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.385
+    },
+    "tuxedo_blue": {
+     "file": "guppy/strain-tuxedo_blue.glb",
+     "lo": "guppy/strain-tuxedo_blue.lo.glb",
+     "parts": "guppy/strain-tuxedo_blue-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.592
+    },
+    "tuxedo_red": {
+     "file": "guppy/strain-tuxedo_red.glb",
+     "lo": "guppy/strain-tuxedo_red.lo.glb",
+     "parts": "guppy/strain-tuxedo_red-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.321,
+     "eye": {
+      "c": [
+       0.2658,
+       0.0198,
+       1.003
+      ],
+      "r": 0.1894
+     }
+    },
+    "yellow_leopard": {
+     "file": "guppy/strain-yellow_leopard.glb",
+     "lo": "guppy/strain-yellow_leopard.lo.glb",
+     "parts": "guppy/strain-yellow_leopard-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.259
+    },
+    "yellow_mosaic": {
+     "file": "guppy/strain-yellow_mosaic.glb",
+     "lo": "guppy/strain-yellow_mosaic.lo.glb",
+     "parts": "guppy/strain-yellow_mosaic-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.592
+    },
+    "yellow_tiger": {
+     "file": "guppy/strain-yellow_tiger.glb",
+     "lo": "guppy/strain-yellow_tiger.lo.glb",
+     "parts": "guppy/strain-yellow_tiger-parts.png",
+     "slCm": 2.2,
+     "totalCm": 3.911
+    }
    }
   }
  },
@@ -2284,20 +2531,88 @@
    "finOpacity": 0.8
   }
  },
- "tanichthys": {
-  "file": "tanichthys.glb",
-  "lo": "tanichthys.lo.glb",
+ "panther": {
+  "file": "panther.glb",
+  "lo": "panther.lo.glb",
+  "legs": true,
+  "rig": "baked",
   "tris": {
-   "hi": 4998,
-   "lo": 1998
+   "hi": 15920,
+   "lo": 5000
   },
   "sizeCm": [
-   0.91,
-   1.46,
-   4.2
+   5.17,
+   1.29,
+   3.11
   ],
   "finish": {
-   "finOpacity": 0.6
+   "rough": 0.62,
+   "coat": 0.1,
+   "coatRough": 0.5,
+   "grainAmt": 0,
+   "tone": 0.02,
+   "claws": {
+    "5": {
+     "h": [
+      -0.831,
+      0.548,
+      1.065
+     ],
+     "a": [
+      -0.511,
+      -0.514,
+      0.689
+     ],
+     "shut": 0.272,
+     "t0": 0.47,
+     "tip": [
+      -0.158,
+      0.17,
+      1.216
+     ],
+     "ground": [
+      -0.087,
+      0.059,
+      1.527
+     ],
+     "mouth": [
+      0,
+      0.412,
+      0.683
+     ],
+     "len": 1.109
+    },
+    "6": {
+     "h": [
+      0.89,
+      0.624,
+      1.09
+     ],
+     "a": [
+      -0.535,
+      0.478,
+      -0.696
+     ],
+     "shut": 0.183,
+     "t0": 0.45,
+     "tip": [
+      0.198,
+      0.119,
+      1.209
+     ],
+     "ground": [
+      0.109,
+      0.042,
+      1.537
+     ],
+     "mouth": [
+      0,
+      0.412,
+      0.683
+     ],
+     "len": 1.172
+    }
+   }
   }
  },
  "zacco": {
@@ -2311,6 +2626,22 @@
    2.66,
    4.43,
    12.5
+  ],
+  "finish": {
+   "finOpacity": 0.6
+  }
+ },
+ "tanichthys": {
+  "file": "tanichthys.glb",
+  "lo": "tanichthys.lo.glb",
+  "tris": {
+   "hi": 4998,
+   "lo": 1998
+  },
+  "sizeCm": [
+   0.91,
+   1.46,
+   4.2
   ],
   "finish": {
    "finOpacity": 0.6

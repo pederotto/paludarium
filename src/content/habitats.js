@@ -48,6 +48,8 @@ export const HABITAT = {
   crab: { noun: 'vampire crab', zone: 'shore', water: 14, maxDepth: 6, rhMin: 65, rhIdeal: 85, tMax: 30, need: 'damp land (80-90% humidity) with shallow water within reach (14 cm), no deeper than 6 cm, and a ramp out' },
   newt: { noun: 'paddle-tail newt', zone: 'shore', water: 8, maxDepth: Infinity, tMax: 28, need: 'cool water, or land beside it (within 8 cm)' },
   toad: { noun: 'fire-bellied toad', zone: 'shore', water: 25, maxDepth: Infinity, reach: 30, rhMin: 40, tMax: 30, need: 'open water to swim in and a bank to climb out on' },
+  // (the European common frog, Rana temporaria: on damp ground near water most of the year, into it to hunt, cool off and breed; it does not stand heat)
+  commonfrog: { noun: 'common frog', zone: 'shore', water: 30, maxDepth: Infinity, reach: 30, rhMin: 60, tMax: 24, need: 'cool, damp ground with water to swim in and a bank to climb out on' },
 
   dartfrog: { noun: 'blue dart frog', zone: 'land', maxDepth: 1.2, rhMin: 50, tMax: 31, need: 'damp, dry-footed ground (it swims only briefly)' },
   strawberry: { noun: 'strawberry dart frog', zone: 'land', maxDepth: 1.0, rhMin: 55, tMax: 31, need: 'damp, dry-footed ground (it swims only briefly)' },

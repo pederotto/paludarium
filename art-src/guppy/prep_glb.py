@@ -10,6 +10,7 @@
     <name>.json (eye centre and radius in game cm, standard length, the tail root).
 
   blender -b --factory-startup -P art-src/guppy/prep_glb.py -- <src.glb> <out dir> <name> --sl=2.2 --headAxis=-x [--tris=12000,4000]
+      [--root=height|width|<share of the length>]   (where the tail starts: height (default), thickness, or by hand)
 
 headAxis: where the head points in the file as Blender imports it (+x, -x, +y, -y). sl: real standard length in cm.
 """
@@ -51,7 +52,20 @@ for i in range(NS):
     prof.append((th[:, 2].min(), th[:, 2].max(), w.max()))
 half = np.array([p[2] if p else 0 for p in prof])
 # the tail root: where the body has thinned to a stalk and the slices behind are thin (the tail fin)
-peak = half.max(); root_i = next(i for i in range(int(NS * 0.4), NS) if half[i] < 0.28 * peak)
+peak = half.max()
+ROOT = OPT.get('root', 'height')
+if ROOT == 'height':                                              # (the owner's first male: the body's height falls to a stalk)
+    root_i = next(i for i in range(int(NS * 0.4), NS) if half[i] < 0.28 * peak)
+elif ROOT == 'width':
+    # deep-bodied males with tall fins (the 8 Oct models): the height never falls far, so look at the thickness instead: the body is
+    # thick sideways, a tail fin thin; the root is the first slice behind 0.4 of the length that stays under 22 % of the thickest
+    wx = np.array([np.ptp(P[((P[:, 1] - lo[1]) / LEN >= i / NS) & ((P[:, 1] - lo[1]) / LEN < (i + 1) / NS)][:, 0]) if np.any(((P[:, 1] - lo[1]) / LEN >= i / NS) & ((P[:, 1] - lo[1]) / LEN < (i + 1) / NS)) else 0 for i in range(NS)])
+    top_w = wx[int(NS * 0.1):int(NS * 0.5)].max()
+    # (a tail that billows sideways never gets that thin: relax the share step by step)
+    root_i = next(next((i for i in range(int(NS * 0.4), NS - 3) if all(wx[j] < f_ * top_w for j in range(i, i + 3))), None)
+                  for f_ in (0.22, 0.28, 0.35, 0.45) if any(all(wx[j] < f_ * top_w for j in range(i, i + 3)) for i in range(int(NS * 0.4), NS - 3)))
+else:
+    root_i = int(float(ROOT) * NS)                               # measured by hand on a side view
 S_ROOT = root_i / NS                                              # share of the total length at the tail root
 SL_UNITS = S_ROOT * LEN
 k = SL_CM / SL_UNITS                                              # file units -> cm

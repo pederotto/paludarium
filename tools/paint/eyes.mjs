@@ -34,6 +34,9 @@ export const EYES = {
   reedfrog: frogAs(3.0 / 4.5, { inner: lin([0.42, 0.3, 0.14]), outer: lin([0.14, 0.09, 0.04]), pupil: [0.5, 0.34] }, { rough: 0.38, coat: 0.45, coatRough: 0.28 }),
   toad: frogAs(1, { inner: lin([0.62, 0.40, 0.14]), outer: lin([0.24, 0.14, 0.07]), pupil: [0.5, 0.42], shape: 'tri' },   // owner's photos (6 Oct): a coppery ring round the pupil, the rest of the globe chocolate brown (was gold/amber, much too orange)
     { rough: 0.55, coat: 0.2, coatRough: 0.45, grain: 9, bump: 0.05, grainAmt: 0 }),   // grainAmt 0: the relief is the baked normal map now (the noise grain would double it and costs 4 noise3 a fragment)
+  // European common frog (Rana temporaria, 7 Oct 2026): a gold-bronze iris finely veined dark, a horizontal pupil; wet, satiny (the skin session's lab values, linear)
+  commonfrog: frogAs(1, { inner: [0.6383, 0.448, 0.1065], outer: [0.1626, 0.0835, 0.0245], pupil: [0.66, 0.40] },   // (the reference: a pale-gold ring round a wide horizontal pupil, a speckled bronze-brown iris)
+    { rough: 0.5, coat: 0.3, coatRough: 0.4, grain: 9, bump: 0.03, grainAmt: 0 }),
   // Red-eyed tree frog: big bulging eyes (a sphere fitted to the scan's eye, 0.4 cm), an orange-red iris going darker at the rim and a
   // narrow vertical slit pupil (shape 'slit'); moist, satiny, finely granular skin (a lacquered coat read as plastic).
   redeye: { finish: { eyes: [eye([0.7, 2.21, 1.8], 0.4, [0.74, 0.36, 0.57], { shape: 'slit', pupil: [0.15, 0.6], inner: lin([1.0, 0.34, 0.08]), outer: lin([0.88, 0.14, 0.03]), limb: lin([0.32, 0.03, 0.01]), rim: lin([0.01, 0.006, 0.004]), cap: 0.9, seed: 9 })], rough: 0.52, coat: 0.3, coatRough: 0.34, grain: 9, grainAmt: 0.22 } },
@@ -56,5 +59,7 @@ export const EYES = {
     rough: 0.4, coat: 0.32, coatRough: 0.18, grainAmt: 0, tone: 0.02, glassOpacity: 0.95,
     invert: { antenna: 1, wave: 7, curl: SHRIMP_CURL, eggs: SHRIMP_EGGS },
   } }])),
+  // Panther crab (the owner's Meshy model): its eyes are part of the painted texture (black beads); satin shell like the vampire crab's.
+  panther: { finish: { rough: 0.62, coat: 0.1, coatRough: 0.5, grainAmt: 0, tone: 0.02 } },
   crab: { finish: { eyes: (e) => [eye(e.c, e.r, e.axis, { pupil: [0.34, 0.34], inner: lin([0.96, 0.82, 0.19]), outer: lin([0.83, 0.6, 0.08]), rim: lin([0.04, 0.03, 0.02]), limb: lin([0.61, 0.42, 0.05]), cap: 0.97, seed: 4 })], rough: 0.68, coat: 0.08, coatRough: 0.55, grainAmt: 0, tone: 0.02 } },   // satin, not lacquered
 };

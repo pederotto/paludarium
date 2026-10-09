@@ -79,6 +79,27 @@ for (const [sex, name] of Object.entries(files)) {
   meta.male.tails = { file: 'guppy/tail-{shape}.glb', lo: 'guppy/tail-{shape}.lo.glb', zEnd: +(-tj.stalkEnd).toFixed(4), zCut: +(-(tj.stalkEnd - tj.caudalAhead)).toFixed(4) };
   console.log('tails', bytes, 'bytes in 24 files');
 }
+// Strains the owner sent models of (8 Oct 2026: Meshy models from his pictures, prepared by art-src/guppy/prep_glb.py --root=width,
+// the four-fish group split by art-src/guppy/split_group.py): a male of exactly that strain is drawn with the model and its own
+// colour, normal and roughness maps instead of a painted texture (render/creatures/guppymodel.js); the parts map tells his fins apart.
+{
+  const S = `${SRC}/strains`, ids = fs.readdirSync(S).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5));
+  meta.strains = {};
+  let bytes = 0;
+  for (const id of ids) {
+    for (const lod of ['', '.lo']) {
+      const doc = await io.read(`${S}/${id}${lod}.glb`);
+      for (const n of doc.getRoot().listScenes()[0].listChildren()) n.setScale([0.01, 0.01, 0.01]);
+      await doc.transform(dedup({ propertyTypes: [PropertyType.ACCESSOR, PropertyType.MESH, PropertyType.TEXTURE] }), prune(), textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [lod ? 512 : 1024, lod ? 512 : 1024] }), quantize(), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+      const f = `${OUT}/guppy/strain-${id}${lod}.glb`;
+      await io.write(f, doc); bytes += fs.statSync(f).size;
+    }
+    await sharp(`${S}/${id}-parts.png`).resize(512, 512, { kernel: 'nearest' }).ensureAlpha().png({ compressionLevel: 9 }).toFile(`${OUT}/guppy/strain-${id}-parts.png`);
+    const j = JSON.parse(fs.readFileSync(`${S}/${id}.json`, 'utf8'));
+    meta.strains[id] = { file: `guppy/strain-${id}.glb`, lo: `guppy/strain-${id}.lo.glb`, parts: `guppy/strain-${id}-parts.png`, slCm: j.slCm, totalCm: j.totalCm, ...(j.eye ? { eye: j.eye } : {}) };
+  }
+  console.log('strains', ids.length, bytes, 'bytes');
+}
 const ov = 'art-src/creatures/overrides.json', o = JSON.parse(fs.readFileSync(ov, 'utf8'));
 o.guppy = { ...(o.guppy ?? {}), finish: { rough: 0.38, coat: 0.3, coatRough: 0.25, grainAmt: 0.15, finOpacity: 0.85, finAlpha: 1, flutter: 0.03, finFlow: { lag: 0.45, ripple: 0.022, wave: 7, rate: 7, pect: 0.45, pectRate: 26 }, finFray: { start: 0.62, scale: 14 } }, guppy: meta };
 fs.writeFileSync(ov, JSON.stringify(o, null, 1) + '\n');

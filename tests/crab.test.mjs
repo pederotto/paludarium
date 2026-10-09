@@ -89,6 +89,18 @@ test('food within reach: it stops, faces it and eats bite by bite', () => {
   const it = run(m, base({ food: { x: 0.5, z: 0.5, d: 0.7, kind: 'flake' } }), 4, seq(17));
   assert.ok(it.every((i) => i.mode === 'eat' && i.speed === 0 && i.face));
   assert.equal(it.filter((i) => i.eat).length, 2);
+  assert.ok(it.every((i) => i.feed === 1 && i.claw === 0), 'the feeding cycle runs (claws down, snap, to the mouth), not a plain raise');
+});
+
+test('foraging: it picks at the ground between bursts, claws ready while it walks; a display holds the pincers open', () => {
+  const m = crabMind(seq(3));
+  const it = run(m, base(), 30, seq(4)).filter((i) => i.mode === 'forage');
+  const still = it.filter((i) => i.calm === 1), moving = it.filter((i) => i.speed > 0);
+  assert.ok(still.length > 20 && still.every((i) => i.feed > 0.5), 'picks at food while it stands');
+  assert.ok(moving.length > 20 && moving.every((i) => i.feed === 0 && i.pinch > 0 && i.pinch < 0.5), 'claws half open while it walks');
+  const d = run(crabMind(seq(18)), base({ male: true, other: { x: 4, z: 0, d: 4, male: false } }), 2, seq(19));
+  assert.ok(d.every((i) => i.pinch >= 0.8), 'a threat display shows open pincers');
+  assert.ok(run(crabMind(seq(7)), base({ food: null, hunger: 0 }), 5, seq(8)).every((i) => i.feed <= 1 && i.pinch <= 1), 'in range');
 });
 
 test('a male waves its claws at a female and charges a rival that stays', () => {
@@ -136,4 +148,22 @@ test('the leg cycle matches the stride (no foot slip) and the keeper capacity', 
   assert.equal(crabCapacity(50 * 25 * 0.8), 3);                  // a 10 gallon tank, 80% land: 3 crabs
   assert.equal(crabGroupIssue(1, 2), null);
   assert.ok(crabGroupIssue(2, 2));
+});
+
+test('the baked crabs carry their claw rig: hinge, opening axis and feeding targets, well formed', async () => {
+  const fs = await import('node:fs');
+  const man = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8'));
+  for (const id of ['crab', 'panther']) {
+    const C = man[id]?.finish?.claws;
+    assert.ok(C && C[5] && C[6], `${id}: claws 5 and 6 fitted (tools/rig/claws.mjs)`);
+    for (const k of [5, 6]) {
+      const c = C[k], u = (v) => Math.hypot(...v);
+      for (const f of ['h', 'a', 'tip', 'ground', 'mouth']) assert.ok(c[f].length === 3 && c[f].every(Number.isFinite), `${id} ${k} ${f}`);
+      assert.ok(Math.abs(u(c.a) - 1) < 0.02, `${id} ${k}: unit hinge axis`);
+      assert.ok(c.shut >= 0.05 && c.shut <= 0.6, `${id} ${k}: the angle that shuts the pincer is small and positive`);
+      assert.ok(c.t0 > 0.3 && c.t0 < 0.95, `${id} ${k}: fingers part past the palm`);
+      assert.ok(Math.abs(c.mouth[0]) < 1e-6 && c.mouth[1] < 1, `${id} ${k}: the mouth is low on the midline`);
+      assert.ok(Math.hypot(c.ground[0] - c.tip[0], c.ground[2] - c.tip[2]) < 1.5 * c.len, `${id} ${k}: it reaches a claw's length, not across the tank`);
+    }
+  }
 });
