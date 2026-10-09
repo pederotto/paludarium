@@ -1658,12 +1658,17 @@ export class Animals {
     }
     if (sp.kind === 'egg') return;
     if (freeWalledIn(this, a, sp, dt)) return;                    // N11c: walled in by solid cells (walledin.js)
+    let sleeping = false;
     if (BY_INTENT.has(sp.kind)) {                                  // R6a: seconds in an asleep intent in a row (stuckintent.js); counted, never silent
       const k0 = stuckIntent(a, sp, _ctx0);
-      if (asleep(k0)) { a.holdS = (a.holdS ?? 0) + dt; if (a.holdS <= HOLD_CAP) { const h = this.stuckStats.held ??= {}; h[a.sp] = (h[a.sp] ?? 0) + dt; } }
+      sleeping = asleep(k0);
+      if (sleeping) { a.holdS = (a.holdS ?? 0) + dt; if (a.holdS <= HOLD_CAP) { const h = this.stuckStats.held ??= {}; h[a.sp] = (h[a.sp] ?? 0) + dt; } }
       else a.holdS = 0;
     }
-    if (!this.wantsMove(a, sp)) { a.stillT = 0; a.anchor = null; return; }
+    // (a SHORT hold, rest, graze or creep sleeps the timer, it does not reset it: a fish pinned 2.5 cm from its spot flickered between 'go' and
+    // 'creep' every few frames and the reset never let 3.5 s of 'go' add up; it pushed against a rock for 44 s. A hold longer than the window
+    // itself (STILL_S) is a real stop and resets it, as does nothing to travel to: a fish that held a minute was called stuck as it set off.)
+    if (!this.wantsMove(a, sp)) { if (!sleeping || a.holdS > STILL_S) { a.stillT = 0; a.anchor = null; } return; }
     if (!a.anchor) { a.anchor = a.pos.clone(); a.stillT = 0; return; }
     // (a swimmer pinned against a rock is carried to and fro by the water, further the bigger it is; a walker pressed to a log stands still)
     if (a.pos.distanceTo(a.anchor) > STILL_CM + (sp.kind === 'swim' || a.swimming ? STILL_PER_SIZE * sp.size : 0)) { a.anchor.copy(a.pos); a.stillT = 0; return; }
@@ -2166,6 +2171,9 @@ export class Animals {
   shrimpWalk(a, goal, speed, dt, m) {
     const dx = goal.x - a.pos.x, dz = goal.z - a.pos.z, d = Math.hypot(dx, dz);
     if (d < 0.05) return;
+    // (no nearer in 2 s: a spot a few millimetres off is circled for ever by a body that turns about its legs; give it up and graze here)
+    if (a.sGoal !== goal || d < a.sBest - 0.05) { a.sGoal = goal; a.sBest = d; a.sBestT = 0; }
+    else if ((a.sBestT += dt) > 2) { a.sBestT = 0; a.abortGoal('no progress'); return; }
     const want = Math.atan2(dx, dz), diff = ((want - (a.yaw ?? 0) + Math.PI) % TAU + TAU) % TAU - Math.PI;
     this.turnTo(a, SPECIES[a.sp], want, dt, 6);
     const fwd = clamp(1 - Math.abs(diff) / 1.2, 0, 1), step = Math.min(d, speed * dt * fwd);
@@ -5894,7 +5902,7 @@ export class Animals {
   }
 
   serialize() {
-    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK', 'male', 'gv', 'st', 'mated', 'sk0']) }));
+    return this.all.map((a) => ({ sp: a.sp, p: a.pos.toArray().map((v) => +v.toFixed(2)), h: +a.hunger.toFixed(3), hp: +a.health.toFixed(3), age: Math.round(a.age), x: pick(a, ['id', 'parent', 'into', 'n', 'hatch', 'where', 'onWall', 'genes', 'morph', 'gsp', 'gen', 'parents', 'nick', 'mate', 'pg', 'gp', 'mut', 'dev', 'female', 'sizeK', 'male', 'gv', 'sperm', 'mated', 'sk0']) }));
   }
 }
 

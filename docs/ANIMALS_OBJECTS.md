@@ -148,7 +148,9 @@ bodies pushed apart), `outOfStems`, `outOfBank`, a leap's landing, `walledin.js`
 **Watchdog.** `stuckintent.js` covers swimmers, crawlers and grazers: the displacement timer runs only while the animal travels to a spot
 ('go': a spot more than 0.5 cm away for a crawler, a grazing shuffle included: a shuffle that is blocked has no speed but is still travel);
 holding station, resting, nibbling, grazing where it stands or creeping the last of the way sleeps it for at most HOLD_CAP (150 s); it
-wakes when 'go' moves the body less than 0.25 cm in 3.5 s, plus 0.1 cm per unit of size for a body in the water (a pinned fish is carried to and fro by the water and evaded a flat 0.25; for walkers the size term put relocations up 33 %: a maggot crawls only 0.56 cm in 3.5 s).
+wakes when 'go' moves the body less than 0.25 cm in 3.5 s, plus 0.1 cm per unit of size for a body in the water (a pinned fish is carried to and fro by the water and evaded a flat 0.25; for walkers the size term put relocations up 33 %: a maggot crawls only 0.56 cm in 3.5 s). A short hold, rest, graze or creep (under 3.5 s) PAUSES the timer and a longer one resets it: a fish pinned 2.5 cm from its spot flickered between 'go' and 'creep' every few frames and a reset on every flicker let it push against a rock for 44 s; a pause that outlived a minute's legitimate hold called the fish stuck as it set off (fish relocations +43 %, back to par with the reset).
+
+**Two bugs the stand-still probe found (9 Oct).** A female guppy that had mated kept her stored sperm in `a.st`, the strike field, and `Animals.move` skips an animal with a strike: she froze for good (now `a.sperm`; a save from before is read the new way, world.js). A shrimp shuffling to a spot a few millimetres off circled it for ever (its body turns about its legs): `shrimpWalk` gives a spot up after 2 s without getting nearer.
 
 **Test:** `tools/steps/stuck.mjs` now calls an animal inside only when it is really in a piece's mesh (rays), not in one of its thickened
 voxels (which every animal on a log is: base and new both showed `insideTicks` = every tick), has two skinks, and prints a verdict for the

@@ -389,6 +389,7 @@ export class World {
       if (!SPECIES[id]) continue;
       const n = this.animals.add(id, new THREE.Vector3(...a.p), { hunger: a.h, health: a.hp, age: a.age });
       if (n && a.x) Object.assign(n, id === a.sp ? a.x : { ...a.x, id: n.id });
+      if (n?.st?.genes) { n.sperm = n.st; n.st = null; }            // (a save from before 9 Oct kept a guppy's stored sperm in `st`, the strike field: she was frozen)
       if (n?.onWall) { n.wallMode = true; n.normal = new THREE.Vector3(0, 0, 1); }
     }
     this.env.load(o.env);

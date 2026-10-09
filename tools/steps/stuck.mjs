@@ -61,6 +61,8 @@ export default async (page, shot, name) => {
         const ownWants = (a) => {
           if (a.dead || a.hop || a.onWall || a.stranded) return false;
           const m = a.fm; if (m) return !!(a.dart || m.fleeT > 0 || m.I?.escape || (m.goal && Math.hypot(m.goal.x - a.pos.x, m.goal.z - a.pos.z) > 2.5));
+          // (a mover that publishes its destination, a.dest (the skink), is going where that says: the hunter leaves a.state 'walk' on a skink frozen in fear)
+          if (a.dest !== undefined) return !!a.dest;
           return (a.state === 'walk' && !!a.target) || !!a.swimming || (!!a.herp && !!a.wantMove);
         };
         const n0 = all().length;
