@@ -2501,28 +2501,35 @@
  },
  "bedotia": {
   "file": "bedotia.glb",
+  "lo": "bedotia.lo.glb",
   "tris": {
    "hi": 5098,
-   "lo": 5098
+   "lo": 2798
   },
   "sizeCm": [
    3.04,
    3.66,
    9.6
-  ]
+  ],
+  "finish": {
+   "finOpacity": 0.6
+  }
  },
  "bullhead": {
   "file": "bullhead.glb",
   "lo": "bullhead.lo.glb",
   "tris": {
    "hi": 9795,
-   "lo": 7000
+   "lo": 4998
   },
   "sizeCm": [
    3.49,
    3.51,
    10.8
-  ]
+  ],
+  "finish": {
+   "finOpacity": 0.8
+  }
  },
  "panther": {
   "file": "panther.glb",
@@ -2606,6 +2613,38 @@
      "len": 1.172
     }
    }
+  }
+ },
+ "zacco": {
+  "file": "zacco.glb",
+  "lo": "zacco.lo.glb",
+  "tris": {
+   "hi": 6999,
+   "lo": 2998
+  },
+  "sizeCm": [
+   2.66,
+   4.43,
+   12.5
+  ],
+  "finish": {
+   "finOpacity": 0.6
+  }
+ },
+ "tanichthys": {
+  "file": "tanichthys.glb",
+  "lo": "tanichthys.lo.glb",
+  "tris": {
+   "hi": 4998,
+   "lo": 1998
+  },
+  "sizeCm": [
+   0.91,
+   1.46,
+   4.2
+  ],
+  "finish": {
+   "finOpacity": 0.6
   }
  }
 }

@@ -22,6 +22,11 @@
 
 /* Animals tool: the morph picker */
 .morph-pick { margin: 2px 0 8px; }
+.morph-fams { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px; }
+.morph-fams .fam { font: inherit; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: inherit; opacity: 0.8; cursor: pointer; }
+.morph-fams .fam small { opacity: 0.6; font-size: 10px; }
+.morph-fams .fam.on { opacity: 1; color: var(--moss); border-color: var(--moss); background: rgba(255, 255, 255, 0.06); }
+.morph-fams .fam.has::after { content: ''; display: inline-block; width: 5px; height: 5px; margin-left: 4px; border-radius: 50%; background: currentColor; vertical-align: middle; }
 .morph-pick .chip { padding: 4px 9px 4px 7px; }
 .morph-pick .chip small { opacity: 0.75; font-size: 10.5px; }
 .morph-pick .chip .gstars { font-size: 10px; }

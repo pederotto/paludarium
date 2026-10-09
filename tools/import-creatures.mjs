@@ -24,9 +24,9 @@ const SRC = arg('src', 'art-src/creatures'), OUT = arg('out', 'public/assets/cre
 const ALIAS = { guppy_male: 'guppy', axolotl_leucistic: 'axolotl' };
 const SMALL = new Set(['neon', 'cardinal', 'ember', 'guppy', 'springtail', 'fly', 'isopod', 'oto', 'shrimp', 'tadpole', 'eggs']);
 const BUDGET = { hero: { hi: 40000, lo: 7000 }, small: { hi: 9000, lo: 2500 } };
-const BUDGET_ID = { loach: { hi: 12000, lo: 4000 }, pygmy: { hi: 12000, lo: 4000 }, hillloach: { hi: 14000, lo: 5000 } };      // per-species overrides: thin fins and barbels need more triangles
+const BUDGET_ID = { loach: { hi: 12000, lo: 4000 }, pygmy: { hi: 12000, lo: 4000 }, hillloach: { hi: 14000, lo: 5000 }, bullhead: { hi: 9800, lo: 5000 }, bedotia: { hi: 5100, lo: 2800 }, zacco: { hi: 7000, lo: 3000 }, tanichthys: { hi: 5000, lo: 2000 } };      // per-species overrides: thin fins and barbels need more triangles
 // The animal's real longest dimension in cm, to catch models exported at the wrong scale.
-const REAL_CM = { hillloach: 6.5, bullhead: 10.8, bedotia: 9.6, dartfrog: 4.5, strawberry: 2.3, toad: 4.5, leucomelas: 4.5, auratus: 4, axolotl: 14, newt: 12, firesal: 18, loach: 10, gecko: 9, crab: 2.2, shrimp: 2.5, snail: 2.5, isopod: 0.7, tadpole: 1.8, springtail: 0.25, fly: 0.3, neon: 3.2, cardinal: 4, ember: 2, guppy: 3, cory: 5.5, oto: 3.5, betta: 6, pygmy: 3 };
+const REAL_CM = { hillloach: 6.5, bullhead: 10.8, bedotia: 9.6, zacco: 12.5, tanichthys: 4.2, dartfrog: 4.5, strawberry: 2.3, toad: 4.5, leucomelas: 4.5, auratus: 4, axolotl: 14, newt: 12, firesal: 18, loach: 10, gecko: 9, crab: 2.2, shrimp: 2.5, snail: 2.5, isopod: 0.7, tadpole: 1.8, springtail: 0.25, fly: 0.3, neon: 3.2, cardinal: 4, ember: 2, guppy: 3, cory: 5.5, oto: 3.5, betta: 6, pygmy: 3 };
 const KNOWN = Object.keys(REAL_CM);
 
 await MeshoptSimplifier.ready; await MeshoptEncoder.ready; await MeshoptDecoder.ready;
@@ -35,7 +35,7 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
 const tris = (doc) => doc.getRoot().listMeshes().reduce((n, m) => n + m.listPrimitives().reduce((k, p) => k + (p.getIndices()?.getCount() ?? p.getAttribute('POSITION').getCount()) / 3, 0), 0);
 
 async function prepare(doc, targetTris, texSize, error = 0.005) {
-  await doc.transform(flatten(), dedup(), weld(), prune());
+  await doc.transform(flatten(), dedup({ keepUniqueNames: true }), weld(), prune());   // (keepUniqueNames: a model's "fin" material must not be merged back into its skin material when the two are alike)
   const t = tris(doc);
   if (t > targetTris) await doc.transform(simplify({ simplifier: MeshoptSimplifier, ratio: targetTris / t, error, lockBorder: false }));
   await doc.transform(textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [texSize, texSize] }), quantize(), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
