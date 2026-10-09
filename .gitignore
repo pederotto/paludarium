@@ -23,3 +23,4 @@ art-src/guppy/out/
 
 # reference crops of the owner's sheets (run "sets"): kept out of git, regenerate with art-src/plants/*_bake.py (HART_REF) from .agents/refs/new-species-1007/
 art-src/plants/*-ref-crop.png
+art-src/meshy/work/
