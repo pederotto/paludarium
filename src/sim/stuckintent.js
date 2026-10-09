@@ -16,6 +16,8 @@ export const HOLD_CAP = 150;           // s (RECOVER_S 120 + 30; the owner appro
 export const CREEP_CM = 2.5;           // a fish: beyond this the mind's spot is a real goal
 export const CRAWL_CREEP_CM = 0.5;     // a crawler: within this of its spot it is there (the walkers' old "there: not stuck")
 export const STILL_CM = 0.25;          // the watchdog wakes when 'go' moves the body less than this ...
+export const STILL_PER_SIZE = 0.1;     // ... plus this per unit of size for a body in the water (a pinned neon drifts 0.3-0.5 cm and evaded a flat 0.25; a walker
+                                       // keeps 0.25: a maggot crawls 0.56 cm in 3.5 s, and 0.25 + 0.1 x size put walkers' relocations up 33 %) ...
 export const STILL_S = 3.5;            // ... in this many seconds
 export const asleep = (k) => k === 'rest' || k === 'hold' || k === 'creep';
 

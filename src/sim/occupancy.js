@@ -167,6 +167,16 @@ export class Occupancy {
     return this.roomAt(x, z, y, y + bellyOf(b), y + clearNeed(b));
   }
 
+  // Room for body `b` clinging to a surface at (x, y, z) whose outward normal is n: along n from the contact, at its belly and at most of its
+  // height (as insideBody samples a standing body upward), no piece but `skip` (the one it clings to) is really there. The contract for a
+  // climb: a frog's climb route asks it of every point (Animals.perchRoute) and insideSolid asks it of a perched frog (perchInside).
+  roomAlong(x, y, z, n, b = ANON, skip = null) {
+    if (!this.count) return true;
+    const h = Math.max(0.2, b.bh ?? 0.5);
+    for (const d of [Math.min(0.5, h * 0.5), h * 0.8]) if (this.inside(x + n.x * d, y + n.y * d, z + n.z * d, skip)) return false;
+    return true;
+  }
+
   // Room in the column at (x, z) for a body's flank from its feet at y0 up to `top`: free voxels there, or a piece's top it stands level with.
   roomAt(x, z, y0, lo, top) {
     if (this.columnFree(x, z, lo, top)) return true;

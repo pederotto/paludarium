@@ -37,7 +37,7 @@ import { HABITAT } from '../content/habitats.js';
 import { restStep, isNight, REST_LABEL, LARVA_REST } from './swimrest.js';
 import { SKINK, skinkMind, skinkThink, skinkRefugeOk } from './skink.js';
 import { freeWalledIn } from './walledin.js';
-import { stuckIntent, asleep, HOLD_CAP, STILL_CM, STILL_S } from './stuckintent.js';
+import { stuckIntent, asleep, HOLD_CAP, STILL_CM, STILL_PER_SIZE, STILL_S } from './stuckintent.js';
 import { SHRIMP, shrimpMind, shrimpThink, shrimpDoing } from './shrimp.js';
 import { herpMindFor, herpThink, profileFor, doing } from './herp.js';
 import { BURROW, burrowSpot, pitDepth, digRate, excavate } from './burrow.js';
@@ -1230,7 +1230,7 @@ export class Animals {
     // (the contract's predicate first, as canStep asks it: a walker in a layer with room for it is not inside; a swimmer's middle in no solid cell)
     // (a frog clinging to a stem, a piece or the glass (its perch): its body stands out from the contact along the contact's normal, not up
     // from it; the piece it clings to is its floor, so only another piece can be where its body is)
-    if (a.perch && a.perch.ph !== 'go') return !!a.normal && this.perchInside(a, h);
+    if (a.perch && a.perch.ph !== 'go') return !!a.normal && this.perchInside(a);
     if (swim ? !this.occ.solidAt(x, y, z) : (this.ensureSurf(), this.occ.canOccupy(x, z, this.layerUnder(a), a, a.pos.y))) return false;
     // (in a solid cell: is the body really in the piece? asked again only once it has moved, the rays cost)
     const c = a._ins;
@@ -1316,11 +1316,8 @@ export class Animals {
   }
 
   // Is a perching frog's body (from its contact point out along the contact normal: belly, middle, back) inside a piece other than its perch?
-  perchInside(a, h) {
-    const N = a.normal, skip = a.perch.piece ?? null;
-    for (const d of [Math.min(0.5, h * 0.5), h * 0.8]) if (this.occ.inside(a.pos.x + N.x * d, a.pos.y + N.y * d, a.pos.z + N.z * d, skip)) return true;
-    return false;
-  }
+  // (the climb route's own test, Occupancy.roomAlong: a route accepted point by point is not found inside on the way)
+  perchInside(a) { return !this.occ.roomAlong(a.pos.x, a.pos.y, a.pos.z, a.normal, a, a.perch.piece ?? null); }
 
   // Keeps the whole body in front of the background relief: the far end of its capsule (or its circle) and its radius, at the
   // height of its body, not only its middle (a crab walking sideways along the back put its legs into the wall). Swimmers too.
@@ -1668,7 +1665,8 @@ export class Animals {
     }
     if (!this.wantsMove(a, sp)) { a.stillT = 0; a.anchor = null; return; }
     if (!a.anchor) { a.anchor = a.pos.clone(); a.stillT = 0; return; }
-    if (a.pos.distanceTo(a.anchor) > STILL_CM) { a.anchor.copy(a.pos); a.stillT = 0; return; }
+    // (a swimmer pinned against a rock is carried to and fro by the water, further the bigger it is; a walker pressed to a log stands still)
+    if (a.pos.distanceTo(a.anchor) > STILL_CM + (sp.kind === 'swim' || a.swimming ? STILL_PER_SIZE * sp.size : 0)) { a.anchor.copy(a.pos); a.stillT = 0; return; }
     a.stillT = (a.stillT ?? 0) + dt;
     this.stuckStats.worst = Math.max(this.stuckStats.worst, a.stillT);
     if (a.stillT < STILL_S) return;
@@ -2785,7 +2783,7 @@ export class Animals {
     }
     // The foot, and the straight way to it from here.
     const rb = (a.rad ?? 0.5) * 0.9 + 0.1;                              // (clear of the background by its body, as clearOfWall keeps it)
-    if (!this.okFor(medium, base.x, base.z, 99, rb)) return why(`the foot of the climb (${base.x.toFixed(1)}, ${base.z.toFixed(1)}) cannot be stood on`);
+    if (!this.okFor(medium, base.x, base.z, 99, rb, 0, a)) return why(`the foot of the climb (${base.x.toFixed(1)}, ${base.z.toFixed(1)}) cannot be stood on`);
     // A swimmer starts a climb from the water at the surface; for a tree frog no point of the climb may be under water.
     for (const q of path) {
       const s = W.water.surfaceAt(q.x, q.z, 0.2);
@@ -2794,7 +2792,10 @@ export class Animals {
       q.y = Math.max(q.y, s - 0.35 * sp.size);
     }
     const d = Math.hypot(base.x - a.pos.x, base.z - a.pos.z), n = Math.ceil(d / 0.8);
-    for (let i = 1; i < n; i++) if (!this.okFor(medium, lerp(a.pos.x, base.x, i / n), lerp(a.pos.z, base.z, i / n), 99, rb)) return why(`the way from here to the foot is blocked ${(i / n * d).toFixed(1)} cm along`);
+    for (let i = 1; i < n; i++) if (!this.okFor(medium, lerp(a.pos.x, base.x, i / n), lerp(a.pos.z, base.z, i / n), 99, rb, 0, a)) return why(`the way from here to the foot is blocked ${(i / n * d).toFixed(1)} cm along`);
+    // Room for its body at every point of the climb, out from the surface it clings to (the spatial contract: Occupancy.roomAlong; a frog
+    // went up a log's side under a second log, its body in the wood)
+    if (this.avoid) for (const q of path) if (!this.occ.roomAlong(q.x, q.y, q.z, q.n ?? UP, a, c.piece ?? null)) return why(`no room for its body ${(q.y - base.y).toFixed(1)} cm up the climb`);
     return { p: top, plant: c.plant ?? null, piece: c.piece ?? null, glassN: c.glassN ?? null, glassYaw: c.glassYaw ?? 0, up: c.up ?? null, base, path };
   }
 

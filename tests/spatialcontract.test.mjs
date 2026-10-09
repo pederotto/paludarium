@@ -67,6 +67,18 @@ test('the real top under a body, and inside = the nearest face seen from behind'
   assert.equal(occ.inside(0.3, 6, 0.2, occ.shells[0].piece), false, 'the piece skipped');
 });
 
+test('a clinging body: room along the contact normal, its own perch skipped', () => {
+  const occ = ledge(3);                    // slab x -3..3, y 5..7
+  const frog = { bh: 2.8 }, piece = occ.shells[0].piece;
+  // on the slab's side (x = 3), facing +x: the body stands out into free air
+  assert.ok(occ.roomAlong(3.05, 6, 0, { x: 1, y: 0, z: 0 }, frog, piece));
+  // facing back into the slab (a wrong normal): inside it, unless that is the perch it clings to
+  assert.equal(occ.roomAlong(3.05, 6, 0, { x: -1, y: 0, z: 0 }, frog), false);
+  assert.ok(occ.roomAlong(3.05, 6, 0, { x: -1, y: 0, z: 0 }, frog, piece));
+  // under the slab, facing down from the ground: free
+  assert.ok(occ.roomAlong(0, 2.05, 0, { x: 0, y: 1, z: 0 }, { bh: 1 }, null));
+});
+
 test('a wide body needs the room at its radius too (beyond the shells\' one-cell margin)', () => {
   const occ = ledge(0.2);                   // a slab lying almost on the ground: its cells are a wall
   const x = 3 + 4;                          // 4 cm off the slab's side
@@ -115,7 +127,9 @@ test('animals.js: one predicate, the protocol, and the boundary invariant', () =
   const src = fs.readFileSync(new URL('../src/sim/animals.js', import.meta.url), 'utf8');
   const body = (name) => { const i = src.indexOf(`\n  ${name}(`); return src.slice(i, src.indexOf('\n  }\n', i)); };
   assert.match(body('insideSolid'), /this\.occ\.canOccupy\(x, z, this\.layerUnder\(a\), a, a\.pos\.y\)/);
-  assert.match(body('insideSolid'), /a\.perch && a\.perch\.ph !== 'go'\) return !!a\.normal && this\.perchInside\(a, h\)/);
+  assert.match(body('insideSolid'), /a\.perch && a\.perch\.ph !== 'go'\) return !!a\.normal && this\.perchInside\(a\)/);
+  assert.match(body('perchInside'), /!this\.occ\.roomAlong\(/);
+  assert.match(body('perchRoute'), /this\.occ\.roomAlong\(q\.x, q\.y, q\.z, q\.n \?\? UP, a, c\.piece \?\? null\)/);
   for (const f of ['nudge', 'outOfStems']) assert.match(body(f), /canStep|okFor\([^)]*, 0, a\)/, `${f} steps by the contract`);
   assert.match(body('canStep'), /this\.occ\.canOccupy\(x, z, this\.stepLayer\(a, x, z\), a, g\)/);
   assert.match(body('okFor'), /this\.canStep\(body, x, z\)/);

@@ -139,7 +139,7 @@ A mover that cannot get on calls `a.abortGoal('blocked')`.
 real bark or stone under it: `max(baked layer, Occupancy.topBelow)` + PIECE_LIFT, one ray down, cast again only when it has moved
 (`contactTop`). "Really inside" (`Occupancy.inside`) is the nearest face seen from behind in 3 of 5 directions, not a count of crossings:
 open and hollow meshes fooled the count. A frog on a perch (a stem, a piece, the glass) is tested along its contact normal, not straight up,
-and never against the piece it clings to (`perchInside`). Every mover that sets a body down asks canStep: the walk, the slide, `nudge` (two
+and never against the piece it clings to: `Occupancy.roomAlong` (out from the contact along the contact normal, at its belly and most of its height), asked of every point of a climb route (`perchRoute`) and of a perched frog (`perchInside`), the same predicate both ways. A sit spot (a piece top, a broad leaf) needs `roomFor` above it (`perchFits`). Every mover that sets a body down asks canStep: the walk, the slide, `nudge` (two
 bodies pushed apart), `outOfStems`, `outOfBank`, a leap's landing, `walledin.js`.
 
 **Glass.** `inGlass` moves a body in X and Z only; its height belongs to the movers (terrain clamp, standOn). Swimmers get swim()'s floor
@@ -148,7 +148,7 @@ bodies pushed apart), `outOfStems`, `outOfBank`, a leap's landing, `walledin.js`
 **Watchdog.** `stuckintent.js` covers swimmers, crawlers and grazers: the displacement timer runs only while the animal travels to a spot
 ('go': a spot more than 0.5 cm away for a crawler, a grazing shuffle included: a shuffle that is blocked has no speed but is still travel);
 holding station, resting, nibbling, grazing where it stands or creeping the last of the way sleeps it for at most HOLD_CAP (150 s); it
-wakes when 'go' moves the body less than 0.25 cm in 3.5 s.
+wakes when 'go' moves the body less than 0.25 cm in 3.5 s, plus 0.1 cm per unit of size for a body in the water (a pinned fish is carried to and fro by the water and evaded a flat 0.25; for walkers the size term put relocations up 33 %: a maggot crawls only 0.56 cm in 3.5 s).
 
 **Test:** `tools/steps/stuck.mjs` now calls an animal inside only when it is really in a piece's mesh (rays), not in one of its thickened
 voxels (which every animal on a log is: base and new both showed `insideTicks` = every tick), has two skinks, and prints a verdict for the
