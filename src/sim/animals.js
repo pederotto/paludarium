@@ -5607,9 +5607,13 @@ export class Animals {
           // anim.y: the direction of travel along the body's x (the leading side), anim.x: the claw wave phase; claw pose and
           // still legs ride in the packed word; a crab in its burrow sinks until only the eye stalks show.
           const cb = a.cb, i = a.ci ?? {};
-          cb.wph = (cb.wph ?? 0) + dt * (i.mode === 'eat' ? 4 : 2.6);
+          // (feed and pinch ease in and out so a claw does not jump between the cycle and its rest: the rig reads them as `eye` and `throat`)
+          const k = Math.min(1, dt / this.tf * 6);
+          cb.feedNow = (cb.feedNow ?? 0) + ((i.feed ?? 0) - (cb.feedNow ?? 0)) * k;
+          cb.pinchNow = (cb.pinchNow ?? 0) + ((i.pinch ?? 0) - (cb.pinchNow ?? 0)) * k;
+          cb.wph = (cb.wph ?? 0) + dt * (cb.feedNow > 0.3 ? 4 : 2.6);
           amp = -cb.lead; a.wph = cb.wph;
-          packed = packAnim(0, 0, 0, 0, i.claw ?? 0, Math.min(i.calm ?? 1, 1 - Math.min(1, Math.abs(a.turnW ?? 0) / 0.6)));   // (the legs step while it turns)
+          packed = packAnim(0, 0, cb.pinchNow, cb.feedNow, i.claw ?? 0, Math.min(i.calm ?? 1, 1 - Math.min(1, Math.abs(a.turnW ?? 0) / 0.6)));   // (the legs step while it turns)
           if (cb.sinkNow > 0.01) { pos = _p.copy(pos); pos.y -= cb.sinkNow * 1.35 * sc; }
         }
         // The swimming-pose model flexes a little in time with the stroke; everything else is the rig's business.

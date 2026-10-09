@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import sharp from 'sharp';
 const [, , file, out, view = 'side'] = process.argv, E = process.env, W = +(E.W ?? 900);
 const d = JSON.parse(fs.readFileSync(file, 'utf8')), pos = d.pos, idx = d.idx, n = pos.length / 3;
+const COL = E.COL ? JSON.parse(fs.readFileSync(E.COL, 'utf8')) : null;   // COL=<json: per-vertex [r, g, b] 0..255>: colour the surface (a rig's limbs, say) instead of the grey-green
 const BOX = E.BOX ? E.BOX.split(',').map(Number) : null, inB = (i) => !BOX || (pos[i * 3] >= BOX[0] && pos[i * 3] <= BOX[1] && pos[i * 3 + 1] >= BOX[2] && pos[i * 3 + 1] <= BOX[3] && pos[i * 3 + 2] >= BOX[4] && pos[i * 3 + 2] <= BOX[5]);
 const EYE = { side: [1, 0.05, 0], top: [0, 1, 0.001], back: [0.001, 0.15, -1], front: [0, 0.15, 1], '3q': [0.8, 0.55, -0.6], '3qb': [-0.8, 0.55, 0.6] }[view] ?? [1, 0, 0];
 const el = Math.hypot(...EYE), ey = EYE.map((v) => v / el), UP = view === 'top' ? [0, 0, 1] : [0, 1, 0];
@@ -31,7 +32,8 @@ for (let t = 0; t < idx.length; t += 3) {
     const z = w0 * Z[a] + w1 * Z[b] + w2 * Z[c], k = y * W + x; if (z <= zb[k]) continue; zb[k] = z;
     let nx = w0 * N3[a * 3] + w1 * N3[b * 3] + w2 * N3[c * 3], ny = w0 * N3[a * 3 + 1] + w1 * N3[b * 3 + 1] + w2 * N3[c * 3 + 1], nz = w0 * N3[a * 3 + 2] + w1 * N3[b * 3 + 2] + w2 * N3[c * 3 + 2]; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
     const lit = Math.max(0.12, nx * L[0] + ny * L[1] + nz * L[2]), s = front ? 0.35 + 0.65 * lit : 0.18 * lit;
-    img[k * 3] = Math.min(255, 150 * s + 20); img[k * 3 + 1] = Math.min(255, 190 * s + 20); img[k * 3 + 2] = Math.min(255, 140 * s + 20);
+    const bc = COL ? [0, 1, 2].map((q) => w0 * COL[a][q] + w1 * COL[b][q] + w2 * COL[c][q]) : [150, 190, 140];
+    img[k * 3] = Math.min(255, bc[0] * s + 20); img[k * 3 + 1] = Math.min(255, bc[1] * s + 20); img[k * 3 + 2] = Math.min(255, bc[2] * s + 20);
     if (!front) { img[k * 3] = 120; img[k * 3 + 1] = 20; img[k * 3 + 2] = 20; }
   }
 }

@@ -149,6 +149,8 @@ const POSES = {
     return { calm: 1, hop: 0, pose: 0, gait: 0, x: f.pos[0], y: f.pos[1], z: f.pos[2] - hop.d / 2, pitch: f.pitch, roll: f.roll, stroke: st };
   },   // the game's leg timing (util/gait.js hopLegs) on a 1.2 cm arc
   claw: (t) => ({ calm: 1, pose: 1, phase: t * TAU * 3, gait: 0 }),
+  feed: (t, x) => ({ calm: 1, pose: 0, eye: 1, phase: t * TAU * 2, gait: 0, ...x }),                      // the feeding cycle: both claws, one cycle over t 0 … 1 (phase 4 pi: a claw's cycle is half the clock)
+  pinch: (t, x) => ({ calm: 1, pose: 0, throat: x.open ?? 1, phase: t * TAU, gait: 0 }),
   // (&body=swim, a one-body frog: the common frog) sitting in its own body (the stroke's sit) and striking with its own jaw, hyoid and tongue bones: the strip is the
   // strike's timeline (util/frogstrike.js), drawn as the game draws a one-body frog on land (sim/animals.js oneMesh)
   // (a one-body frog sitting, then striking with its lunge: util/frogstrike.js lungePose at the tools' default dip and slide)
@@ -196,7 +198,7 @@ window.bench = {
   water: (on) => { U.waterLevel.value = on ? 1000 : -1000; },
   anim: (on) => { animOn = on; },
   state, setState: (o) => { Object.assign(state, o); animOn = false; },
-  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0, x: 0, z: 0, yaw: 0, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0, turn: 0, gape: 0, stroke: null }, POSES[name]?.(t, extra) ?? {}, extra); animOn = false; },
+  pose: (name, t = 0, extra = {}) => { Object.assign(state, { hop: 0, breath: 0, throat: 0, eye: 0, pose: 0, calm: 1, amp: 0, gait: 0, phase: 0, pitch: 0, roll: 0, y: 0, x: 0, z: 0, yaw: 0, hy: 0, hp: 0, bend: 0, tail: 0, tf: 1, dull: 0, piece: 0, turn: 0, gape: 0, stroke: null }, POSES[name]?.(t, extra) ?? {}, extra); animOn = false; },
   ready: true,
 };
 setView(q.get('view') ?? 'three');

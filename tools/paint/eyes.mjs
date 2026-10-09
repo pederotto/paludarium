@@ -59,5 +59,7 @@ export const EYES = {
     rough: 0.4, coat: 0.32, coatRough: 0.18, grainAmt: 0, tone: 0.02, glassOpacity: 0.95,
     invert: { antenna: 1, wave: 7, curl: SHRIMP_CURL, eggs: SHRIMP_EGGS },
   } }])),
+  // Panther crab (the owner's Meshy model): its eyes are part of the painted texture (black beads); satin shell like the vampire crab's.
+  panther: { finish: { rough: 0.62, coat: 0.1, coatRough: 0.5, grainAmt: 0, tone: 0.02 } },
   crab: { finish: { eyes: (e) => [eye(e.c, e.r, e.axis, { pupil: [0.34, 0.34], inner: lin([0.96, 0.82, 0.19]), outer: lin([0.83, 0.6, 0.08]), rim: lin([0.04, 0.03, 0.02]), limb: lin([0.61, 0.42, 0.05]), cap: 0.97, seed: 4 })], rough: 0.68, coat: 0.08, coatRough: 0.55, grainAmt: 0, tone: 0.02 } },   // satin, not lacquered
 };

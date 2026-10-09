@@ -46,7 +46,7 @@
 //             instead of in diagonal pairs (seven pairs of isopod legs or five of a shrimp's walking in two groups shuffled).
 
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, positionLocal, normalLocal, float, vec3, vec4, sin, cos, max, min, abs, floor, fract, select, sign, cross, smoothstep, transformNormalToView, varyingProperty, time } from 'three/tsl';
+import { Fn, attribute, positionLocal, normalLocal, float, vec3, vec4, sin, cos, max, min, abs, floor, fract, select, sign, cross, dot, pow, mix, smoothstep, transformNormalToView, varyingProperty, time } from 'three/tsl';
 import { bodyGeometry } from './mesher.js';
 import { packAnim, unpackAnim, rig2Pack, TURN_Q } from '../../util/gait.js';
 import { limbFrame, turnFrame } from '../../util/turn.js';
@@ -360,6 +360,29 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       p.y.addAssign(claw.mul(wv.mul(0.55).add(0.35)).mul(limb));
       p.x.addAssign(sgn.mul(claw).mul(sin(anim.x.mul(0.5)).mul(0.3)).mul(limb));
       p.z.addAssign(claw.mul(0.25).mul(limb));
+      // Pinching and feeding (finish.claws, fitted by tools/rig/claws.mjs): `throat` is how wide the claws are held and snapped
+      // (a threat display), `eyeRet` how much the feeding cycle runs. The movable finger turns about its hinge; in the cycle each
+      // claw in turn goes down to the ground, opens, snaps shut on food, carries it to the mouth, nibbles with small pinches and
+      // goes back, the two half a cycle apart (anim.x is the clock). A claw's vertices travel by legT: the shoulder stays.
+      const CL = finish.claws;
+      if (CL) {
+        const isR = leg.greaterThan(5.5), isC = leg.greaterThan(4.5);
+        const V = (k) => select(isR, vec3(...CL[6][k]), vec3(...CL[5][k]));
+        const Fv = (k) => select(isR, float(CL[6][k]), float(CL[5][k]));
+        const H = V('h'), A = V('a'), tipP = V('tip'), grP = V('ground'), moP = V('mouth');
+        const cu = fract(anim.x.mul(0.5 / 6.283185).add(isR.select(float(0.5), float(0))));      // 0 at the ground, 0.5 at the mouth
+        const sRaw = float(0.5).sub(cos(cu.mul(6.283185)).mul(0.5));
+        const reach = smoothstep(0.1, 0.9, sRaw);
+        const opening = max(smoothstep(0.78, 0.95, cu), float(1).sub(smoothstep(0.03, 0.14, cu)));
+        const nibble = smoothstep(0.42, 0.46, cu).mul(float(1).sub(smoothstep(0.66, 0.7, cu))).mul(sin(cu.sub(0.44).mul(37.7)).mul(0.5).add(0.5)).mul(0.35);
+        const snap = throat.mul(sin(anim.x.mul(5)).mul(0.3).add(0.7));
+        const wide = max(snap, eyeRet.mul(max(opening, nibble)));
+        // the movable finger (its weight is baked in the spine channel: tools/rig/claws.mjs) turns from shut on the fixed finger (-shut)
+        // to wide open (+0.5 rad) about the hinge
+        const ang = mix(Fv('shut').negate(), float(0.5), wide).mul(spine).mul(isC.select(float(1), float(0))), ca = cos(ang), sa = sin(ang), rel = p.sub(H);
+        p.assign(H.add(rel.mul(ca)).add(cross(A, rel).mul(sa)).add(A.mul(dot(A, rel).mul(float(1).sub(ca)))));
+        p.addAssign(mix(grP, moP, reach).sub(tipP).mul(pow(legT, 1.3)).mul(eyeRet).mul(isC.select(float(1), float(0))));
+      }
     } else if (inv) {
       const act = breath.mul(0.85).add(0.15), beat = throat, feed = eyeRet, spread = pose;
       // Antennae (7 left, 8 right): a slow sweep and dip, out of step with each other, livelier the busier the animal is.
@@ -434,7 +457,7 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     // Breathing: the flanks swell and sink; throat: the underside of the head bulges (to 0.32 cm: a calling frog's vocal sac; the
     // everyday throat pumping uses about 0.6 of that, util/gait.js callSac and Animals.vis); eyes sink into the head.
     const flank = sin(min(max(spine.sub(0.15).mul(2), float(0)), float(1)).mul(3.14159));
-    if (!inv) {
+    if (!inv && !side) {   // (not a crab: its `throat` and `eye` bits are the pinch and the feeding cycle)
       const k = breath.mul(0.045).mul(flank).mul(isWalk.select(float(0), float(1)));
       p.x.addAssign(p.x.mul(k)); p.y.addAssign(p.y.mul(k));
       const head = max(float(1).sub(spine.mul(3.3)), float(0));

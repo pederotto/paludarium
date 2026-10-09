@@ -48,7 +48,7 @@
 //   male, morph       this crab
 // Every random choice goes through `rnd()` (Math.random by default) so tests can fix it.
 
-import { scuttleSpeed, crabStride, clawRaise, smooth, frac } from '../util/gait.js';
+import { scuttleSpeed, crabStride, clawRaise, smooth } from '../util/gait.js';
 import { nightActivity, hideScore } from './habitat.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -130,14 +130,15 @@ const away = (s, p, dist) => { const dx = s.x - p.x, dz = s.z - p.z, l = Math.hy
 
 // One step. Updates the memory `m` and returns the intent:
 //   { mode, goal: {x, z} | null, speed (cm/s), face: {x, z} | null (turn the front toward it, standing),
-//     claw 0 … 1 (claw raise for the rig's pose), calm 0 … 1 (legs still), sink 0 … 1 (into the burrow: 1 eyes only),
+//     claw 0 … 1 (claw raise for the rig's pose), feed 0 … 1 (the feeding cycle: claws pick up and carry to the mouth in turn),
+//     pinch 0 … 1 (how wide the pincers are held open and snapped), calm 0 … 1 (legs still), sink 0 … 1 (into the burrow: 1 eyes only),
 //     eat: true when a bite lands this step, drown: true when it has been unable to get out for too long, say: a log line or null,
 //     dig: true when a load of soil is dropped on the spoil heap this step (animals.js moves it), nose: head down (scraping),
 //     badHome: true when it gives up digging here (animals.js picks another home) }
 export function crabThink(m, s, rnd = Math.random, P = CRAB) {
   const dt = s.dt ?? 0, dtMin = s.dtMin ?? dt / 60;
   const inWater = (s.depth ?? 0) > 0.2;
-  const out = { mode: m.mode, goal: null, speed: 0, face: null, claw: 0, calm: 1, sink: 0, eat: false, drown: false, say: null, dig: false, nose: false, badHome: false };
+  const out = { mode: m.mode, goal: null, speed: 0, face: null, claw: 0, feed: 0, pinch: 0, calm: 1, sink: 0, eat: false, drown: false, say: null, dig: false, nose: false, badHome: false };
 
   // --- Drives ---------------------------------------------------------------------------------------------------------
   if (inWater) m.wet = Math.min(1, m.wet + dtMin / 3);
@@ -201,7 +202,7 @@ export function crabThink(m, s, rnd = Math.random, P = CRAB) {
     }
     case 'flee': {
       if (m.modeT < dt + 1e-9) m.freezeT = P.freeze[0] + rnd() * (P.freeze[1] - P.freeze[0]);
-      if ((m.freezeT -= dt) > 0) { out.calm = 1; out.claw = 0.35; break; }   // frozen, claws half up
+      if ((m.freezeT -= dt) > 0) { out.calm = 1; out.claw = 0.35; out.pinch = 0.6; break; }   // frozen, claws half up and open
       const safe = s.home && (!s.threat || Math.hypot(s.home.x - s.threat.x, s.home.z - s.threat.z) > (s.threat.d ?? 0)) ? s.home : null;
       out.goal = safe ? toward(s, safe) : s.threat ? away(s, s.threat, 12) : null;
       out.speed = P.speed * 1.6; out.calm = 0;
@@ -222,15 +223,14 @@ export function crabThink(m, s, rnd = Math.random, P = CRAB) {
       break;
     }
     case 'soak': {
-      if (inWater && (s.depth ?? 0) >= P.soakDepth[0] && (s.depth ?? 0) <= P.soakDepth[1]) { out.calm = 1; out.claw = 0.15 + 0.1 * Math.sin((s.t ?? 0) * 3); break; }   // sitting in the shallows, bailing water over its mouthparts
+      if (inWater && (s.depth ?? 0) >= P.soakDepth[0] && (s.depth ?? 0) <= P.soakDepth[1]) { out.calm = 1; out.claw = 0.15 + 0.1 * Math.sin((s.t ?? 0) * 3); out.feed = 0.35; break; }   // sitting in the shallows, bailing water over its mouthparts
       run(toward(s, s.shore), P.speed * 0.8, [0.2, 0.8]);
       break;
     }
     case 'eat': {
       out.face = { x: s.food.x, z: s.food.z };
       m.bite += dt;
-      const u = frac(m.bite / P.biteS);
-      out.claw = 0.25 + 0.35 * Math.sin(u * Math.PI);                  // claw to mouth and back
+      out.feed = 1;                                                    // each claw in turn: down, open, snap shut on it, to the mouth, nibble (instanced.js)
       if (m.bite >= P.biteS) { m.bite = 0; out.eat = true; }
       break;
     }
@@ -239,7 +239,7 @@ export function crabThink(m, s, rnd = Math.random, P = CRAB) {
       out.face = { x: o.x, z: o.z };
       if (m.waveT < 0 || m.waveT > m.waveDur + 2) { m.waveT = 0; m.waveDur = 1.2 + rnd() * 1.8; }
       m.waveT += dt;
-      out.claw = clawRaise(m.waveT, m.waveDur);
+      out.claw = clawRaise(m.waveT, m.waveDur); out.pinch = 0.85;               // raised and held open: the threat
       // A rival male that does not back off gets a short charge; morph strangers are always rivals.
       const rival = o.male || (s.morph != null && o.morph != null && o.morph !== s.morph);
       if (rival && m.modeT > 3 && o.d < P.rivalCm * 0.7) { out.goal = toward(s, o); out.speed = P.speed * 1.2; out.calm = 0; out.claw = 1; }
@@ -267,11 +267,15 @@ export function crabThink(m, s, rnd = Math.random, P = CRAB) {
         m.modeT = 0;
       }
       run(m.goal, P.speed * (0.55 + 0.45 * awake));
+      // Between bursts it picks at the ground with both claws, a bit at a time to the mouth; walking, it holds them half open, ready.
+      if (out.calm >= 1) out.feed = 0.55 + 0.45 * clamp(s.hunger ?? 0.5, 0, 1);
+      else out.pinch = 0.3;
       break;
     }
     default: {   // rest: still, with small claw taps and eye grooming
       m.look += dt * 0.7;
       out.claw = 0.08 * Math.max(0, Math.sin(m.look * 2.3)) ** 6;
+      out.pinch = out.claw * 6;
     }
   }
   return out;
