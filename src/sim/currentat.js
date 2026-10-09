@@ -47,12 +47,13 @@ export function flowSenses(top) {
   S.ok = (x, y, z) => {
     if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2) return false;
     const f = S.W.terrain.heightAt(x, z), L = top(x, z);
-    return L - f >= 1.5 && y > f + 0.4 && y < L - 0.4 && !S.occ?.solidAt(x, y, z);
+    return L - f >= 1.5 && y > f + 0.4 && y < L - 0.4 && !S.occ?.solidAt(x, y, z) && (!S.a?.validGoal || S.a.validGoal(x, z, y));   // (the goal contract: Animals.isValidGoal)
   };
   S.edge = (x, y, z, m) => nearEdge(S.W, x, y, z, m);
   S.s = { dt: 0, x: 0, y: 0, z: 0, w: null, want: { x: 0, z: 0 }, probe: S.probe, ok: S.ok, edge: S.edge };
   S.sense = (a, w, want, dt) => {
     const s = S.s;
+    S.a = a;
     s.dt = dt; s.x = a.pos.x; s.y = a.pos.y; s.z = a.pos.z; s.w = w; s.want.x = want.x; s.want.z = want.z;
     return s;
   };

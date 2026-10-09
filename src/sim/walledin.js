@@ -1,5 +1,5 @@
 // N11c: a walker walled in by solid cells. A crab spawned in a pocket under a piece (swamp crab-0, matano panther-0, S1) found
-// every step direction refused by okFor's solid test (the cell at ground + 0.5) while its own spot was not inside a solid, so
+// every step direction refused by the step test while its own spot was not inside a solid, so
 // keepFree never moved it and it stood there the whole day. A real crab crawls out of such a gap: here it is set on the nearest
 // open ground within a few cm (the last resort, as before, is relocate).
 export const WALLED = { dirs: 8, every: 1, maxR: 6, ring: 0.5 };   // directions tested, s between tests, cm searched, cm per ring
@@ -28,8 +28,9 @@ export function freeWalledIn(A, a, sp, dt) {
   if (a.wiT > 0) return false;
   a.wiT = WALLED.every;
   const T = A.world.terrain, step = Math.max(0.15, (a.rad ?? 0.5) * 0.5);
-  // (a log a climbing walker can step onto is not a wall to it: standing on one, it is not walled in by the logs round it)
-  const blocked = (px, pz) => A.occ.solidAt(px, T.heightAt(px, pz) + 0.5, pz) && !A.canClimb(a, px, pz);
+  // (blocked = the movers' own step test, the spatial contract's canStep: a log a climber can step onto is not a wall to it, a ledge too low
+  // for its body is; R8)
+  const blocked = (px, pz) => !A.canStep(a, px, pz);
   if (!walledIn(a.pos.x, a.pos.z, step, blocked)) return false;
   const st = A.stuckStats; st.walled = (st.walled ?? 0) + 1; (st.walledBy ??= {})[a.sp] = (st.walledBy[a.sp] ?? 0) + 1;
   // (a land walker is never set down in water: water only for one already standing in it, a panther crab in its lake)
