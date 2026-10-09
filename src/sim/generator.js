@@ -352,8 +352,10 @@ class Gen {
       if (!p) continue;
       const pl = W.animals.placement(id, { point: p, surface: 'terrain' });
       if (!pl.pos) continue;
-      const a = W.animals.add(id, pl.pos, { age: (sp.adultDays ?? 10) * 1440 * (1 + this.r()), hunger: o.hunger ?? 0.15 });
-      if (a) made++;
+      // a set's strains (`o.morphs`): `per` fish of each in turn, so founders arriving as trios get one strain per trio
+      const morph = o.morphs?.length ? o.morphs[Math.floor((o.k ?? 0) / (o.per ?? 1)) % o.morphs.length] : undefined;
+      const a = W.animals.add(id, pl.pos, { age: (sp.adultDays ?? 10) * 1440 * (1 + this.r()), hunger: o.hunger ?? 0.15, morph });
+      if (a) { made++; o.k = (o.k ?? 0) + 1; }
     }
     return made;
   }
@@ -380,8 +382,9 @@ class Gen {
   }
   allowAnimal(id) { return !this.P.animals || this.P.animals.includes(id); }
 
-  // The set's own stock (`stock: [[id, n, zone]]`, zone a zones() predicate name, 'deep:4' or 'wet:1:6'), for animals its
-  // layout builder does not place. Species already in the tank are left alone.
+  // The set's own stock (`stock: [[id, n, zone, opt]]`, zone a zones() predicate name, 'deep:4' or 'wet:1:6'), for animals its
+  // layout builder does not place. Species already in the tank are left alone. `opt.morphs` names the colour lines (strains) to
+  // release, `opt.per` of each in turn (3: a dealer's trio of one strain).
   // `flora: [[id, n, zone]]` adds native plants where a shared layout's own plants were dropped (n per standard tank).
   stock() {
     const P = this.P;
@@ -395,15 +398,16 @@ class Gen {
       if (zone === 'wall') this.wallScatter(id, Math.max(1, Math.round(n * this.wallA)), (x, y) => y > L + 6, { gap: 10 });
       else this.scatter(id, this.cnt(n), where(zone), { gap: 4 });
     }
-    for (const [id, n, zone = 'land'] of P.stock ?? []) {
+    for (const [id, n, zone = 'land', opt] of P.stock ?? []) {
+      const o = opt?.morphs ? { morphs: opt.morphs, per: opt.per ?? 1, k: 0 } : {};
       const have = this.W.animals.by[id]?.length ?? 0, want = this.cnt(n);
       if (have >= want) continue;   // S1: the recipe tops a species up to its count (a layout may have placed fewer)
       let need = want - have;
       const front = (x, y, z, s) => Math.abs(x) < this.w * 0.3 && z > this.Z(0.3);   // S1 hero placement: the featured animal starts in the front-middle of the default view
       const z0 = where(zone);
-      if (P.featured?.includes(id)) need -= this.animal(id, need, (x, y, z, s) => front(x, y, z, s) && z0(x, y, z, s));
-      if (need > 0) need -= this.animal(id, need, z0);
-      if (need > 0 && zone !== 'land' && !zone.startsWith('deep') && !zone.startsWith('wet')) this.animal(id, need, Z.land);
+      if (P.featured?.includes(id)) need -= this.animal(id, need, (x, y, z, s) => front(x, y, z, s) && z0(x, y, z, s), o);
+      if (need > 0) need -= this.animal(id, need, z0, o);
+      if (need > 0 && zone !== 'land' && !zone.startsWith('deep') && !zone.startsWith('wet')) this.animal(id, need, Z.land, o);
     }
   }
 

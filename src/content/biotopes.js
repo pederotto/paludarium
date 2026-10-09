@@ -268,6 +268,15 @@ export const BIOTOPES = {
     facts: ['Isopods breathe through gill-like organs and need damp air.', 'Limestone gives them the calcium for their shells.'],
     hint: 'Damp limestone, moss, litter and a seep.',
   },
+  guppyfarm: {
+    id: 'guppyfarm', name: 'Fancy guppy breeding tank (cultivated strains)', country: 'cultivated (wild guppies: Trinidad and Venezuela)', level: 5,
+    animals: ['guppy', 'blueshrimp', 'snail', 'springtail', 'isopod'], plants: ['javamoss', 'frogbit', 'vallisneria', 'rotala', 'javafern', 'crypt', 'grass', 'fern'],
+    climate: { temp: [23, 27], humidity: [70, 90] },
+    features: ['stillwater', 'moss15'],
+    blurb: 'Fancy guppies are bred in tanks and farm ponds all over the world. A breeder keeps the water warm and still, the filter gentle (no suction that takes fry) and the plants thick, so the newborn fry can hide from the adults.',
+    facts: ['A female guppy stores sperm and can drop several broods from one mating: a breeder who wants a known father starts with a virgin female.', 'Many male colours are carried on the Y chromosome and pass from father to son.'],
+    hint: 'Warm, still water, a foam filter, java moss and floating plants for the fry.',
+  },
   litterjar: {
     id: 'litterjar', name: 'Forest-floor litter (hobby cultures)', country: 'origin not verified', level: 5,
     animals: ['purpleiso', 'springpink', 'isopod', 'springtail'], plants: ['fern', 'grass', 'javamoss'],

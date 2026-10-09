@@ -296,6 +296,18 @@ const NEW_SETS = {
     animals: ['guppy', 'springtail', 'isopod'], stock: [['guppy', 8, 'deep:3']],
     needs: ['Heliconia'], tags: ['fish', 'stream', 'wild guppies'], adjectives: ['Clear', 'Rocky', 'Sunlit', 'Island'], noun: 'Stream',
   },
+  guppyroom: {
+    name: 'Guppy breeder\'s tank', biotope: 'guppyfarm', layout: 'blackwater', featured: ['guppy'], ref: 'wide',
+    place: 'A fancy-guppy breeder\'s tank (cultivated strains; the wild guppy lives in Trinidad and Venezuela)', water: 0.85, climate: { temp: [23, 27], rh: [70, 90] }, env: { setpoint: 25.5 },
+    blurb: 'Warm, still water thick with java moss and frogbit, a foam filter that cannot take the fry, and six show strains as trios (a male and two females each), ready to breed and select.',
+    plants: ['javamoss', 'frogbit', 'vallisneria', 'rotala', 'javafern', 'crypt', 'grass', 'fern'], swap: { fernph: 'fern' },
+    flora: [['javamoss', 10, 'deep:4'], ['frogbit', 8, 'deep:4'], ['vallisneria', 6, 'deep:8'], ['rotala', 5, 'deep:6'], ['crypt', 4, 'deep:5'], ['javafern', 3, 'deep:6']],
+    animals: ['guppy', 'blueshrimp', 'snail', 'springtail', 'isopod'],
+    // six of the strains drawn with the owner's own models, a trio of each (sim/generator.js Gen.stock: `morphs`, `per`); counts are per
+    // standard tank: 10 makes the 18 fish of six trios in the wide reference tank (101 L), fewer trios in a smaller one
+    stock: [['guppy', 10, 'deep:3', { morphs: ['red_mosaic', 'tuxedo_blue', 'yellow_leopard', 'green_snakeskin', 'albino_red', 'platinum_tuxedo_red_mosaic'], per: 3 }], ['snail', 4, 'deep:2'], ['blueshrimp', 8, 'deep:3']],
+    needs: [], tags: ['fish', 'guppies', 'breeding', 'still water'], adjectives: ['Bright', 'Busy', 'Mossy', 'Show'], noun: 'Breeding tank',
+  },
   sandbank: {
     name: 'Clearwater sandbank', biotope: 'tapajos', layout: 'blackwater', featured: ['cory'], ref: 'wide',
     place: 'Sandbank of the Rio Tapajós, Pará, Brazil (the game\'s corydoras stands for the genus)', water: 0.8, climate: { temp: [24, 29], rh: [65, 95] }, env: { setpoint: 26 },
@@ -403,6 +415,7 @@ applyS1({
 const LOOK = {
   blackwater: { clump: 4 },
   riverbank: { wall: { style: 'strata', moss: 0.75, rock: 0.35 }, mix: { logs: 1, roots: 4, boulders: 1 }, rocks: 3, bed: 'sand', ground: { gravelBand: 0.8 }, clump: 5 },
+  guppyroom: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'blocks', relief: 0.25, moss: 0.85, rock: 0.5 }, mix: { logs: 1, roots: 2, boulders: 0 }, bed: 'sand', level: 0.4, clump: 6 },
   klong: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'blocks', relief: 0.3, moss: 0.7, rock: 0.8 }, mix: { logs: 0, roots: 0, boulders: 0 }, bed: 'soil', level: 0.4, clump: 6 },
   shanpond: { env: { filterKind: 'matten' }, gear: ['filterMatten'], wall: { style: 'crag', relief: 0.55, moss: 0.45, rock: 0.6 }, mix: { logs: 0, roots: 0, boulders: 2 }, bed: 'gravel', level: 0.3, ground: { gravelBand: 2.5 }, clump: 6 },
   mosspool: { wall: { style: 'boulders', relief: 1.2, moss: 0.3, rock: 0.4 }, mix: { logs: 0, roots: 0, boulders: 3 }, rocks: 7, clump: 5 },
