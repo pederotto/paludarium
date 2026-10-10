@@ -153,7 +153,7 @@ test('the leg cycle matches the stride (no foot slip) and the keeper capacity', 
 test('the baked crabs carry their claw rig: hinge, opening axis and feeding targets, well formed', async () => {
   const fs = await import('node:fs');
   const man = JSON.parse(fs.readFileSync(new URL('../public/assets/creatures/manifest.json', import.meta.url), 'utf8'));
-  for (const id of ['crab', 'panther']) {
+  for (const id of ['crab', 'panther', 'cambarellus']) {      // (the crayfish's claws are rig ids 15 and 16, the fit is keyed 5 and 6 by side all the same)
     const C = man[id]?.finish?.claws;
     assert.ok(C && C[5] && C[6], `${id}: claws 5 and 6 fitted (tools/rig/claws.mjs)`);
     for (const k of [5, 6]) {

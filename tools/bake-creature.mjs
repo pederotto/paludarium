@@ -122,6 +122,23 @@ const JOBS = {
   // One file for every colour line: the texture is a pigment mask (tools/paint/shrimp.mjs maskTexel) that the game colours per line
   // (`palette` in the manifest: the morphs of the species' genetics; blue dream is the same shrimp in blue).
   shrimp: { ...SHRIMP, paint: 'shrimp#mask', palette: true },
+  // The Mexican dwarf crayfish: the owner's Meshy "Orange Crayfish" (geometry only, 1.1k triangles, 8 Oct 2026 drop), smoothed by one subdivision,
+  // rigged by its own pieces (tools/rig/meshycray.mjs: claws 15 / 16 with the crab's pinch and feeding cycle, legs, antennae, tail flick), painted from
+  // the photographic skin projected onto it. 2.3 cm carapace to telson, claws and antennae extra; species `scale` 1.5 draws it 3.5 cm.
+  cambarellus: { src: 'meshy_cambarellus_generate', rotY: 0, lengthCm: 2.3, subdiv: 1, tris: [9000, 3200], rig: 'meshycray', rigLeg: 16, legs: true, matId: 0, texture: 1024, aoReach: 0.1, paint: 'shrimp#mask',
+    claws: true, clawIds: [15, 16], colorSrc: 'art-src/raw/meshy_cambarellus_textured_by_projection.glb', colorPre: ([x, y, z]) => [z, y, -x] },
+  // The hillstream loach: the owner's Meshy model (8 Oct 2026 drop, 150k triangles, a patchwork of texture charts that the importer's decimation
+  // smears), welded by position, decimated to `pre`, unwrapped afresh and painted from the original's texture (`colorSrc`, as the panther crab).
+  // Its fins' membranes carry material id 2 (tools/rig/fish.mjs, from the marked copy art-src/meshy/work/hillloach_fin.glb: art-src/meshy/build_fish.sh).
+  // 6.5 cm nose to tail tip, centred on its body (a fish's origin is its middle).
+  // The Matano shrimp: the owner's Meshy "Scarlet Spotted Shrimp" (geometry only, 8 Oct 2026 drop), its geometry rigged by its own pieces
+  // (tools/rig/meshyshrimp.mjs: pincers, walking legs, antennae, swimmerets, eyes, tail flick, eggs, as the dwarf shrimp's), painted from the
+  // photographic skin projected onto it (art-src/raw/meshy_matanoshrimp_textured_by_projection.glb, art-src/meshy/). 2.4 cm rostrum to telson (a
+  // Matano Caridina is 2.5 cm): species `size` 1.0 draws it as baked.
+  matanoshrimp: { src: 'meshy_matanoshrimp_generate', rotY: 0, lengthCm: 2.4, tris: [11000, 3200], rig: 'meshyshrimp', rigLeg: 16, legs: true, matId: 7, texture: 1024, aoReach: 0.1, paint: 'shrimp#mask',
+    colorSrc: 'art-src/raw/meshy_matanoshrimp_textured_by_projection.glb', colorPre: ([x, y, z]) => [z, y, -x] },
+  hillloach: { src: 'meshy_hillloach_texture', posWeld: true, pre: 14000, colorSrc: 'art-src/raw/meshy_hillloach_texture.glb', rotY: 0, lengthCm: 6.5, centerY: true, tris: [14000, 5000], paint: 'crab',
+    rig: 'fish', rigOpt: { finsFrom: 'art-src/meshy/work/hillloach_fin.glb' }, legs: false, matId: 0, texture: 1024, aoReach: 0.1 },
   // `texture: 1024`: a painted UV texture instead of vertex colours (tools/rig/texture.mjs). The old "tan patches" were faces that
   // xatlas squashed to a point because the crab was unwrapped in metres; unwrap now rescales (see unwrap()).
 };
@@ -154,6 +171,35 @@ function simplified(pos, idx, targetTris) {
   const from = new Uint32Array(count);                         // new vertex -> the original vertex it came from
   for (let i = 0; i < pos.length / 3; i++) if (remap[i] !== 0xffffffff) { const j = remap[i] * 3; np[j] = pos[i * 3]; np[j + 1] = pos[i * 3 + 1]; np[j + 2] = pos[i * 3 + 2]; from[remap[i]] = i; }
   return { pos: np, idx: out, from };
+}
+
+// One level of midpoint subdivision, then Taubin smoothing (volume-keeping: a thin leg does not shrink): a low-poly model (the Meshy crayfish
+// has 1.1k triangles) reads as facets, and its claws have too few vertices to fit a pincer on.
+function subdivided(pos, idx, iterations = 4) {
+  const nv = pos.length / 3, mid = new Map(), P = Array.from(pos), I = [];
+  const mp = (a, b) => {
+    const k = a < b ? a * nv + b : b * nv + a; let m = mid.get(k);
+    if (m === undefined) { m = P.length / 3; mid.set(k, m); P.push((pos[a * 3] + pos[b * 3]) / 2, (pos[a * 3 + 1] + pos[b * 3 + 1]) / 2, (pos[a * 3 + 2] + pos[b * 3 + 2]) / 2); }
+    return m;
+  };
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t], b = idx[t + 1], c = idx[t + 2], ab = mp(a, b), bc = mp(b, c), ca = mp(c, a);
+    I.push(a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca);
+  }
+  const n = P.length / 3, adj = Array.from({ length: n }, () => new Set());
+  for (let t = 0; t < I.length; t += 3) for (let k = 0; k < 3; k++) { adj[I[t + k]].add(I[t + (k + 1) % 3]); adj[I[t + k]].add(I[t + (k + 2) % 3]); }
+  let cur = Float32Array.from(P);
+  for (let it = 0; it < iterations * 2; it++) {
+    const f = it % 2 ? -0.53 : 0.5, nx = new Float32Array(cur.length);
+    for (let i = 0; i < n; i++) {
+      const A = adj[i]; let sx = 0, sy = 0, sz = 0;
+      for (const j of A) { sx += cur[j * 3]; sy += cur[j * 3 + 1]; sz += cur[j * 3 + 2]; }
+      const m = A.size || 1;
+      nx[i * 3] = cur[i * 3] + f * (sx / m - cur[i * 3]); nx[i * 3 + 1] = cur[i * 3 + 1] + f * (sy / m - cur[i * 3 + 1]); nx[i * 3 + 2] = cur[i * 3 + 2] + f * (sz / m - cur[i * 3 + 2]);
+    }
+    cur = nx;
+  }
+  return { pos: cur, idx: Uint32Array.from(I) };
 }
 
 async function build(id, job, paint, level, geo, fullNormals, rig = null, spineZ = null) {
@@ -194,7 +240,7 @@ async function build(id, job, paint, level, geo, fullNormals, rig = null, spineZ
   if (rig) {
     const r = new Float32Array(n * 4);
     const [sz0, sz1] = spineZ ?? [z0, z1];
-    for (let i = 0; i < n; i++) { const j = src(i); r[i*4] = rig.dact ? rig.dact[j] : Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
+    for (let i = 0; i < n; i++) { const j = src(i); r[i*4] = rig.dact ? rig.dact[j] : Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (rig.matId ? rig.matId[j] : job.matId ?? M_CHITIN) / 8; }
     prim.setAttribute('_RIG', doc.createAccessor().setType('VEC4').setArray(r).setBuffer(buf));
   }
   const mesh = doc.createMesh(id).addPrimitive(prim);
@@ -213,7 +259,7 @@ async function buildTextured(id, job, level, g, rig, image, spineZ = null, skin 
   for (let i = 0; i < n; i++) { x0 = Math.min(x0, pos[i*3]); x1 = Math.max(x1, pos[i*3]); y0 = Math.min(y0, pos[i*3+1]); y1 = Math.max(y1, pos[i*3+1]); z0 = Math.min(z0, pos[i*3+2]); z1 = Math.max(z1, pos[i*3+2]); }
   const r = new Float32Array(n * 4);
   const [sz0, sz1] = spineZ ?? [z0, z1];
-  for (let i = 0; i < n; i++) { const j = from[i]; r[i*4] = rig.dact ? rig.dact[j] : Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (job.matId ?? M_CHITIN) / 8; }
+  for (let i = 0; i < n; i++) { const j = from[i]; r[i*4] = rig.dact ? rig.dact[j] : Math.max(0, Math.min(1, (sz1 - pos[i*3+2]) / (sz1 - sz0))); r[i*4+1] = rig.leg[j] / (job.rigLeg ?? 8); r[i*4+2] = rig.legT[j]; r[i*4+3] = (rig.matId ? rig.matId[j] : job.matId ?? M_CHITIN) / 8; }
   const doc = new Document();
   const buf = doc.createBuffer();
   const mat = doc.createMaterial(id).setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.7).setMetallicFactor(0);
@@ -270,6 +316,14 @@ async function bakeTextured(id, job, pos, srcIdx, fullN, rig, eye = null, spineZ
   fs.mkdirSync('test-output/bake', { recursive: true });
   await sharp(Buffer.from(img.buffer), { raw: { width: job.texture, height: job.texture, channels: 4 } }).png().toFile(`test-output/bake/${id.replace(':', '-')}_color.png`);
   console.log(`  texture ${job.texture}px painted in ${Date.now() - t0} ms, ${(webp.length / 1024) | 0} KB webp (preview test-output/bake/${id}_color.png)`);
+  // `rig.postBaked`: a part of the model turned about the x axis after the colour is painted (the crayfish's tail fan, tools/rig/meshycray.mjs `post`)
+  if (rig.postBaked) {
+    const { part, pivot: [py, pz], angle } = rig.postBaked, c = Math.cos(angle), s = Math.sin(angle);
+    for (let i = 0; i < n; i++) if (rig.part[U.from[i]] === part) {
+      const dy = P[i*3+1] - py, dz = P[i*3+2] - pz; P[i*3+1] = py + dy * c - dz * s; P[i*3+2] = pz + dy * s + dz * c;
+      const ny = N[i*3+1], nz = N[i*3+2]; N[i*3+1] = ny * c - nz * s; N[i*3+2] = ny * s + nz * c;
+    }
+  }
   const hi = await buildTextured(id, job, 'hi', { pos: P, nor: N, uv: U.uv, idx: U.idx, from: U.from }, rig, webp, spineZ, skin);
   const L = simplifyKeepingSeams(P, U.idx, job.tris[1], U.uv);
   const m = L.from.length, LP = new Float32Array(m * 3), LN = new Float32Array(m * 3), LU = new Float32Array(m * 2), LF = new Uint32Array(m);
@@ -318,6 +372,8 @@ for (const [id, job] of Object.entries(JOBS)) {
       const idx = []; for (let t = 0; t < I.length; t += 3) { const a = map[I[t]], b = map[I[t+1]], c = map[I[t+2]]; if (a !== b && b !== c && a !== c) idx.push(a, b, c); }
       cache[ckey] = { pos: Float32Array.from(out), idx: Uint32Array.from(idx) };
     }
+    // `subdiv`: smooth a low-poly model first (see subdivided)
+    if (job.subdiv) { let c = cache[ckey]; for (let k = 0; k < job.subdiv; k++) c = subdivided(c.pos, c.idx); cache[ckey] = c; }
     // `pre`: decimate a dense scan first (the frog scan has 400k triangles: too many to rig, unwrap and texture).
     if (job.pre) { const s = simplified(cache[ckey].pos, cache[ckey].idx, job.pre); cache[ckey] = { pos: s.pos, idx: s.idx }; }
   }
@@ -326,15 +382,16 @@ for (const [id, job] of Object.entries(JOBS)) {
   let pos = Float32Array.from(src.pos), idx0 = src.idx;
   const a = job.rotY * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
   for (let i = 0; i < pos.length; i += 3) { const x = pos[i], z = pos[i + 2]; pos[i] = x * ca + z * sa; pos[i + 2] = -x * sa + z * ca; }
-  let x0 = 1e9, x1 = -1e9, y0 = 1e9, z0 = 1e9, z1 = -1e9;
-  for (let i = 0; i < pos.length; i += 3) { x0 = Math.min(x0, pos[i]); x1 = Math.max(x1, pos[i]); y0 = Math.min(y0, pos[i + 1]); z0 = Math.min(z0, pos[i + 2]); z1 = Math.max(z1, pos[i + 2]); }
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1m = -1e9, z0 = 1e9, z1 = -1e9;
+  for (let i = 0; i < pos.length; i += 3) { x0 = Math.min(x0, pos[i]); x1 = Math.max(x1, pos[i]); y0 = Math.min(y0, pos[i + 1]); y1m = Math.max(y1m, pos[i + 1]); z0 = Math.min(z0, pos[i + 2]); z1 = Math.max(z1, pos[i + 2]); }
+  if (job.centerY) y0 = (y0 + y1m) / 2;                       // (a fish: the model's origin is the middle of its body, not its belly)
   let k = (job.lengthCm / 100) / (z1 - z0), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   let rig = null, eyesOut = null;
   if (job.rig) {
     // Segment and shade in the scan's own units (the thresholds are tuned to it), then scale by the shell.
     const { [`${job.rig}Rig`]: makeRig } = await import(`./rig/${job.rig}.mjs`);
     const { ambientOcclusion, normals: nrm } = await import('./rig/appendages.mjs');
-    rig = makeRig(pos, idx0, job.rigOpt ?? {});
+    rig = await makeRig(pos, idx0, job.rigOpt ?? {});
     // A rig may add geometry the scan lacks (a shrimp's antennae whips and swimmerets): appended here, with its rig data.
     if (rig.extra) {
       const X = rig.extra, n0 = pos.length / 3, P2 = new Float32Array(pos.length + X.pos.length), I2 = new Uint32Array(idx0.length + X.idx.length);
@@ -370,6 +427,7 @@ for (const [id, job] of Object.entries(JOBS)) {
   }
   // (the rig's own extent along z, in cm of the baked frame: the spine runs over the body, not over the whips ahead of it)
   const spineZ = rig?.length ? [(rig.length.z0 - cz) * k, (rig.length.z1 - cz) * k] : null;
+  if (rig?.post) rig.postBaked = { ...rig.post, pivot: [(rig.post.pivot[0] - y0) * k, (rig.post.pivot[1] - cz) * k] };
   const curlCm = rig?.curl ? { z0: +((rig.curl.z0 - cz) * k * 100).toFixed(3), y0: +((rig.curl.y0 - y0) * k * 100).toFixed(3), len: +(rig.curl.len * k * 100).toFixed(3) } : null;
   if (curlCm) console.log('  tail flick pivot (cm)', JSON.stringify(curlCm));
   if (rig?.eggs) console.log('  egg fold point (cm)', JSON.stringify({ y: +((rig.eggs.y - y0) * k * 100).toFixed(3), z: +((rig.eggs.z - cz) * k * 100).toFixed(3) }));
@@ -406,7 +464,8 @@ for (const [id, job] of Object.entries(JOBS)) {
   // `colorSrc`: the colour of the owner's textured original, found at the nearest point of its surface (same rotation and frame as `pos`).
   if (job.colorSrc) {
     const { colorSource } = await import('./rig/colorsrc.mjs');
-    const sample = await colorSource(job.colorSrc, ([x, y, z]) => [(x * ca + z * sa - cx) * k, (y - y0) * k, (-x * sa + z * ca - cz) * k]);
+    // (`colorPre`: the textured copy's own frame -> the source model's, when they differ: a Blender round trip turned the Meshy shrimp's head from +z to -x)
+    const sample = await colorSource(job.colorSrc, (q) => { const [x, y, z] = job.colorPre ? job.colorPre(q) : q; return [(x * ca + z * sa - cx) * k, (y - y0) * k, (-x * sa + z * ca - cz) * k]; });
     job.texelFn = (v) => sample(v.x / 100, v.y / 100, v.z / 100);
   }
   // `warp`: reshape one scan into a related species (a flatter toad, a slimmer, longer-legged reed frog), in metres of the baked
@@ -438,7 +497,7 @@ for (const [id, job] of Object.entries(JOBS)) {
   if (job.eyeCm && Array.isArray(extra.finish?.eyes)) { const e0 = extra.finish.eyes[0]; e0.c = job.eyeCm.c.map((v) => +v.toFixed(3)); e0.r = job.eyeCm.r; }      // (the skin session's fit on the mesh and the owner's photos, cm of the baked frame: overrides `eye`)
   if (eyesOut && typeof extra.finish?.eyes === 'function') extra.finish = { ...extra.finish, eyes: extra.finish.eyes(eyesOut) };
   if (warpEye && Array.isArray(extra.finish?.eyes)) for (const e of extra.finish.eyes) e.c = warpEye(e.c).map((v) => +v.toFixed(3));
-  if (job.claws && rig) { const { fitClaws } = await import('./rig/claws.mjs'); const cf = fitClaws(pos, rig); rig.dact = cf.dact; extra.finish = { ...(extra.finish ?? {}), claws: cf.claws }; console.log('  claws', JSON.stringify(cf.claws)); }
+  if (job.claws && rig) { const { fitClaws } = await import('./rig/claws.mjs'); const cf = fitClaws(pos, rig, job.clawIds ? { ids: job.clawIds } : {}); rig.dact = cf.dact; extra.finish = { ...(extra.finish ?? {}), claws: cf.claws }; console.log('  claws', JSON.stringify(cf.claws)); }
   const fullN = normals(pos, idx0);
   const { hi, lo, posed = {} } = job.texture && rig
     ? await bakeTextured(id, job, pos, idx0, fullN, rig, extra.finish?.eyes?.[0] ?? null, spineZ, poseSrc, skinBind)

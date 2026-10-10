@@ -366,6 +366,28 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     const hopL = swimmer ? hopv.mul(float(1).sub(pose)) : hopv;
     p.z.subAssign(hind.mul(hopL).mul(legT).mul(1.6 * limb));
     p.y.subAssign(hind.mul(hopL).mul(legT).mul(0.4 * limb));
+    // Pinching and feeding (finish.claws, fitted by tools/rig/claws.mjs): `threat` is how wide the claws are held and snapped
+    // (a crab's `throat`, a threat display), `eyeRet` how much the feeding cycle runs. The movable finger turns about its hinge; in the cycle each
+    // claw in turn goes down to the ground, opens, snaps shut on food, carries it to the mouth, nibbles with small pinches and
+    // goes back, the two half a cycle apart (anim.x is the clock). A claw's vertices travel by legT: the shoulder stays. Shared by a crab's
+    // claws (ids 5 left, 6 right) and a crayfish's (15, 16): `isC` picks the claw vertices, `isR` the right one.
+    const pinchFeed = (CL, isC, isR, threat) => {
+      const V = (k) => select(isR, vec3(...CL[6][k]), vec3(...CL[5][k]));
+      const Fv = (k) => select(isR, float(CL[6][k]), float(CL[5][k]));
+      const H = V('h'), A = V('a'), tipP = V('tip'), grP = V('ground'), moP = V('mouth');
+      const cu = fract(anim.x.mul(0.5 / 6.283185).add(isR.select(float(0.5), float(0))));      // 0 at the ground, 0.5 at the mouth
+      const sRaw = float(0.5).sub(cos(cu.mul(6.283185)).mul(0.5));
+      const reach = smoothstep(0.1, 0.9, sRaw);
+      const opening = max(smoothstep(0.78, 0.95, cu), float(1).sub(smoothstep(0.03, 0.14, cu)));
+      const nibble = smoothstep(0.42, 0.46, cu).mul(float(1).sub(smoothstep(0.66, 0.7, cu))).mul(sin(cu.sub(0.44).mul(37.7)).mul(0.5).add(0.5)).mul(0.35);
+      const snap = threat.mul(sin(anim.x.mul(5)).mul(0.3).add(0.7));
+      const wide = max(snap, eyeRet.mul(max(opening, nibble)));
+      // the movable finger (its weight is baked in the spine channel: tools/rig/claws.mjs) turns from shut on the fixed finger (-shut)
+      // to wide open (+0.5 rad) about the hinge
+      const ang = mix(Fv('shut').negate(), float(0.5), wide).mul(spine).mul(isC.select(float(1), float(0))), ca = cos(ang), sa = sin(ang), rel = p.sub(H);
+      p.assign(H.add(rel.mul(ca)).add(cross(A, rel).mul(sa)).add(A.mul(dot(A, rel).mul(float(1).sub(ca)))));
+      p.addAssign(mix(grP, moP, reach).sub(tipP).mul(pow(legT, 1.3)).mul(eyeRet).mul(isC.select(float(1), float(0))));
+    };
     if (side) {
       // A crab's claws (ids 5, 6): raised and waved while `pose` is up (anim.x is the wave phase).
       const claw = leg.greaterThan(4.5).select(float(1), float(0)).mul(pose).mul(legT);
@@ -373,29 +395,7 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       p.y.addAssign(claw.mul(wv.mul(0.55).add(0.35)).mul(limb));
       p.x.addAssign(sgn.mul(claw).mul(sin(anim.x.mul(0.5)).mul(0.3)).mul(limb));
       p.z.addAssign(claw.mul(0.25).mul(limb));
-      // Pinching and feeding (finish.claws, fitted by tools/rig/claws.mjs): `throat` is how wide the claws are held and snapped
-      // (a threat display), `eyeRet` how much the feeding cycle runs. The movable finger turns about its hinge; in the cycle each
-      // claw in turn goes down to the ground, opens, snaps shut on food, carries it to the mouth, nibbles with small pinches and
-      // goes back, the two half a cycle apart (anim.x is the clock). A claw's vertices travel by legT: the shoulder stays.
-      const CL = finish.claws;
-      if (CL) {
-        const isR = leg.greaterThan(5.5), isC = leg.greaterThan(4.5);
-        const V = (k) => select(isR, vec3(...CL[6][k]), vec3(...CL[5][k]));
-        const Fv = (k) => select(isR, float(CL[6][k]), float(CL[5][k]));
-        const H = V('h'), A = V('a'), tipP = V('tip'), grP = V('ground'), moP = V('mouth');
-        const cu = fract(anim.x.mul(0.5 / 6.283185).add(isR.select(float(0.5), float(0))));      // 0 at the ground, 0.5 at the mouth
-        const sRaw = float(0.5).sub(cos(cu.mul(6.283185)).mul(0.5));
-        const reach = smoothstep(0.1, 0.9, sRaw);
-        const opening = max(smoothstep(0.78, 0.95, cu), float(1).sub(smoothstep(0.03, 0.14, cu)));
-        const nibble = smoothstep(0.42, 0.46, cu).mul(float(1).sub(smoothstep(0.66, 0.7, cu))).mul(sin(cu.sub(0.44).mul(37.7)).mul(0.5).add(0.5)).mul(0.35);
-        const snap = throat.mul(sin(anim.x.mul(5)).mul(0.3).add(0.7));
-        const wide = max(snap, eyeRet.mul(max(opening, nibble)));
-        // the movable finger (its weight is baked in the spine channel: tools/rig/claws.mjs) turns from shut on the fixed finger (-shut)
-        // to wide open (+0.5 rad) about the hinge
-        const ang = mix(Fv('shut').negate(), float(0.5), wide).mul(spine).mul(isC.select(float(1), float(0))), ca = cos(ang), sa = sin(ang), rel = p.sub(H);
-        p.assign(H.add(rel.mul(ca)).add(cross(A, rel).mul(sa)).add(A.mul(dot(A, rel).mul(float(1).sub(ca)))));
-        p.addAssign(mix(grP, moP, reach).sub(tipP).mul(pow(legT, 1.3)).mul(eyeRet).mul(isC.select(float(1), float(0))));
-      }
+      if (finish.claws) pinchFeed(finish.claws, leg.greaterThan(4.5), leg.greaterThan(5.5), throat);
     } else if (inv) {
       const act = breath.mul(0.85).add(0.15), beat = throat, feed = eyeRet, spread = pose;
       // Antennae (7 left, 8 right): a slow sweep and dip, out of step with each other, livelier the busier the animal is.
@@ -417,9 +417,12 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
       p.y.addAssign(plp.mul(beat).mul(pw.mul(0.4).add(0.2)));
       // Pincers (15 left, 16 right): down to the ground and back up to the mouth, one side then the other, while it feeds.
       const chL = idIs(15), ch = chL.or(idIs(16)).select(legT, float(0)), pk = sin(anim.x.mul(0.9).add(chL.select(float(0), float(3.14159))));
-      p.y.addAssign(ch.mul(feed).mul(pk.mul(0.5).add(0.1)));
-      p.z.subAssign(ch.mul(feed).mul(pk.mul(0.3)));
-      p.x.subAssign(sgn.mul(ch).mul(feed).mul(max(pk, 0)).mul(0.3));
+      if (finish.claws) pinchFeed(finish.claws, leg.greaterThan(14.5), leg.greaterThan(15.5), float(0));        // (a crayfish's claws: ids 15, 16, the crab's cycle)
+      else {
+        p.y.addAssign(ch.mul(feed).mul(pk.mul(0.5).add(0.1)));
+        p.z.subAssign(ch.mul(feed).mul(pk.mul(0.3)));
+        p.x.subAssign(sgn.mul(ch).mul(feed).mul(max(pk, 0)).mul(0.3));
+      }
       // Eggs (14): a berried shrimp's clutch under the tail; folded to a point inside the abdomen (invert.eggs) unless `spread` is up.
       if (inv.eggs) {
         const eg = idIs(14);

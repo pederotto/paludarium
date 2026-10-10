@@ -31,3 +31,12 @@ meshy() {
 meshy bullhead meshy_bullhead_texture.glb 10.8
 meshy bedotia  meshy_bedotia_texture.glb  9.6 1.0:0.3
 echo "prepared: art-src/creatures-sets/{zacco,tanichthys,bullhead,bedotia}.glb"
+
+# --- the hillstream loach (9 Oct): the owner's textured model, whose texture is a patchwork of charts that the importer's decimation smears.
+# It is not imported: the fins are marked here (the marked copy tells tools/rig/fish.mjs which vertices are membrane), then tools/bake-creature.mjs
+# re-meshes it, unwraps it afresh and paints it from the original's texture: node tools/bake-creature.mjs hillloach
+$BL art-src/meshy/mark_fins.py -- art-src/raw/meshy_hillloach_texture.glb "$W/hillloach_fin.glb"
+echo "marked: $W/hillloach_fin.glb  (now: node tools/bake-creature.mjs hillloach)"
+
+# --- the shrimp and the crayfish need no preparation here: node tools/bake-creature.mjs matanoshrimp cambarellus (rigs tools/rig/meshyshrimp.mjs, meshycray.mjs;
+# colours from art-src/raw/meshy_*_textured_by_projection.glb)
