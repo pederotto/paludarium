@@ -10,6 +10,8 @@
 //    by low-frequency waves, here stretched upwards, tapered and cut with
 //    horizontal strata.
 //  - Moss tufts, scattered wherever moss grows.
+//  - Generated scans (Meshy, 2026-10-08, from the owner's prompts): desert mesas, rock pillars and an arch, limestone slabs, stone
+//    scatter, a mossy rock mass, fallen and hollow logs, sculpted driftwood, a log pile and a dead branch. They are `lazy` (below).
 //
 // Every solid piece is stamped into the substrate: the ground under it is
 // raised to its top surface (found by casting rays down onto the mesh), so
@@ -23,7 +25,7 @@ import * as THREE from 'three/webgpu';
 import { float, vec2, vec3, vec4, normalView, normalize, cameraViewMatrix, positionWorld, positionView, smoothstep, normalWorld, mix, texture, uv, modelScale, varying, normalMap, attribute } from 'three/tsl';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { computeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
-import { TEX, modelParts, loadBinary } from '../render/assets.js';
+import { TEX, modelParts, loadBinary, setGroundSet } from '../render/assets.js';
 import { plantMaterial, hardscapeMaterial, mouldMix, wet, triplanar, blendWeights, noise3 } from '../render/shaders.js';
 import { U } from '../render/uniforms.js';
 import { MAT, NMAT, TANK } from './tank.js';
@@ -56,6 +58,34 @@ export const PIECES = {
   floatlog: { name: 'Floating log', procedural: true, size: 22, stamp: false, moss: 0.25, float: true, lie: true, slope: true },
   // Smooth river pebbles: a low patch that makes a gentle, textured slope out of the water (bumblebee toads, isopods).
   pebbles: { name: 'River pebbles', procedural: true, size: 14, stamp: true, moss: 0.05, slope: true },
+  // Generated scans (Meshy, 2026-10-08; tools/meshy-piece.mjs, sources in art-src/drop/landscape/). Every GLB is a few hundred kB, so
+  // `lazy`: they load in the background after the title screen (preloadMore) and a game waits for them before it builds a tank
+  // (Game.buildTank). `size`: the largest side of a variant in cm; `per[model]`: { rel: that model's size relative to it, sink: the
+  // least share of its height (thickness for a `lie` piece) it is sunk, for scans that stand on a flat disc of the ground they were
+  // made on: a stamp only raises the ground, so a disc sunk under the substrate stays out of sight }. Not stamped = animals walk under.
+  mesa: {
+    name: 'Sandstone mesa', lazy: true, size: 36, stamp: true, moss: 0.06,
+    model: ['mesa_butte', 'mesa_plateau_a', 'mesa_plateau_b', 'mesa_towers', 'mesa_hill', 'mesa_land', 'mesa_formation', 'mesa_cliff', 'redcliff_a', 'redcliff_b'],
+    per: { mesa_butte: { rel: 1, sink: 0.04 }, mesa_plateau_a: { rel: 0.9, sink: 0.05 }, mesa_plateau_b: { rel: 0.9, sink: 0.05 }, mesa_towers: { rel: 0.7 }, mesa_hill: { rel: 1.1, sink: 0.05 }, mesa_land: { rel: 1, sink: 0.06 }, mesa_formation: { rel: 0.85 }, mesa_cliff: { rel: 0.8 }, redcliff_a: { rel: 0.9 }, redcliff_b: { rel: 0.85 } },
+  },
+  pillar: {
+    name: 'Rock pillar', lazy: true, size: 24, stamp: true, moss: 0.1,
+    model: ['pillar_a', 'pillar_b', 'pillar_peak'],
+    per: { pillar_a: { rel: 1.3, sink: 0.12 }, pillar_b: { rel: 1.3, sink: 0.12 }, pillar_peak: { rel: 1.1 } },
+  },
+  arch: { name: 'Rock arch', lazy: true, size: 26, stamp: false, moss: 0.1, model: ['arch_elephant'], per: { arch_elephant: { sink: 0.04 } } },
+  limestone: {
+    name: 'Limestone slab', lazy: true, size: 30, stamp: true, moss: 0.5,
+    model: ['limestone_a', 'limestone_b'],
+    per: { limestone_a: { rel: 1, sink: 0.05 }, limestone_b: { rel: 0.6, sink: 0.45 } },
+  },
+  scatter: { name: 'Stone scatter', lazy: true, size: 5, stamp: true, moss: 0.35, model: ['scatter_a', 'scatter_b'] },
+  bigrock: { name: 'Mossy rock mass', lazy: true, size: 34, stamp: true, moss: 0.6, model: ['bigrock'], per: { bigrock: { sink: 0.06 } } },
+  fallenlog: { name: 'Fallen log', lazy: true, size: 40, stamp: false, moss: 0.3, lie: true, slope: true, model: ['fallenlog_timber', 'fallenlog_decay'], per: { fallenlog_timber: { rel: 1.1 }, fallenlog_decay: { rel: 0.8 } } },
+  sculpt: { name: 'Sculpted driftwood', lazy: true, size: 34, stamp: false, moss: 0.1, lie: true, slope: true, model: ['driftwood_crimson', 'driftwood_arch'], per: { driftwood_crimson: { sink: 1.1 } } },
+  hollowlog: { name: 'Hollow log', lazy: true, size: 30, stamp: false, moss: 0.25, lie: true, slope: true, model: ['hollowlog'], per: { hollowlog: { sink: 0.3 } } },
+  logpile: { name: 'Log pile', lazy: true, size: 28, stamp: true, moss: 0.15, model: ['logpile'], per: { logpile: { sink: 0.04 } } },
+  branch: { name: 'Dead branch', lazy: true, size: 42, stamp: false, moss: 0.05, model: ['branch'], per: { branch: { sink: 0.03 } } },
 };
 
 export { TINTS, PROC, rollLook };
@@ -520,6 +550,7 @@ export class Decor {
     this.pieces = [];
     this.occupancyVersion = 0;   // bumped whenever a piece is added, moved or removed (animals rebuild their occupancy grid)
     this.parts = {};        // type → [{ geometry, material }]
+    this.ready = null;      // the lazy types' load (preloadMore)
     this.group = new THREE.Group();
     this.group.name = 'hardscape';
     scene.add(this.group);
@@ -567,10 +598,11 @@ export class Decor {
     };
     const part = (geometry, make, name) => ({ geometry, make, name, mats: new Map(), get material() { return this.mats.get(0) ?? (this.mats.set(0, make(null)), this.mats.get(0)); } });
     const rootBin = loadBinary('ground/root_cluster_01_bark.bin');
-    for (const [type, def] of Object.entries(PIECES)) {
-      if (def.procedural) continue;
+    // One scanned type: every mesh of each of its models becomes a variant (`rel`, `sink`: the model's `per` entry, see PIECES).
+    const loadScanned = async (type, def) => {
       const list = [];
       for (const name of def.model) {
+        const per = def.per?.[name] ?? {};
         for (const p of await modelParts(name)) {
           // Recentre each part: footprint centred on the origin, base at y = 0.
           const g = p.geometry;
@@ -579,7 +611,7 @@ export class Decor {
           g.computeBoundingBox();
           g.computeBoundingSphere();
           g.computeBoundsTree();
-          list.push({ ...part(g, scanned(p.material, def.moss), p.name), src: p.material });
+          list.push({ ...part(g, scanned(p.material, def.moss), p.name), src: p.material, rel: per.rel ?? 1, sink: per.sink ?? 0, model: name });
         }
       }
       // The root ball's strands in bark (rootBarkAttributes); its warped variants below copy the attributes and material.
@@ -588,6 +620,11 @@ export class Decor {
         list[0] = { ...part(r.geometry, (tint) => { const k = tint ? tint.join() : ''; if (!mats.has(k)) mats.set(k, rootsMaterial(r.src, def.moss, tint)); return mats.get(k); }, r.name), src: r.src };
       }
       this.parts[type] = list;
+    };
+    this.loadScanned = loadScanned;
+    for (const [type, def] of Object.entries(PIECES)) {
+      if (def.procedural || def.lazy) continue;
+      await loadScanned(type, def);
     }
     const R = (seed) => rng(seed);
     const P = this.parts;
@@ -714,6 +751,26 @@ export class Decor {
     });
   }
 
+  // The tank's ground palette (content/ground.js): another set of pictures behind the terrain slots. Here, with the hardscape, because the
+  // hardscape is the sim's one importer of render/assets (a layering exception that already exists).
+  setGround(set) { return setGroundSet(set); }
+
+  // The lazy scanned types (PIECES `lazy`), one model at a time with a pause between them so the title screen and the title tank's
+  // shader builds stay smooth. Never rejects: a model that fails to load leaves its type without parts (addPiece then returns null),
+  // and the game is never held up by it. `ready` resolves when all are loaded; Game.buildTank awaits it before a real game's tank.
+  preloadMore() {
+    if (this.ready) return this.ready;
+    const pause = () => new Promise((r) => setTimeout(r, 30));
+    this.ready = (async () => {
+      for (const [type, def] of Object.entries(PIECES)) {
+        if (!def.lazy) continue;
+        try { await this.loadScanned(type, def); } catch (e) { console.warn('piece models', type, e); }
+        await pause();
+      }
+    })();
+    return this.ready;
+  }
+
   // The indices worth drawing for general use (the scanned set-01 boulders are huge and flat).
   pool(type) {
     const n = this.parts[type]?.length ?? 0;
@@ -740,7 +797,7 @@ export class Decor {
     const variant = ((opt.variant ?? roll?.variant ?? Math.floor(Math.random() * list.length)) % list.length + list.length) % list.length;
     const bb = list[variant].geometry.boundingBox;
     const ext = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
-    const k = (opt.size ?? def.size) / ext;
+    const k = ((opt.size ?? def.size) * (list[variant].rel ?? 1)) / ext;
     const sc = opt.scale ?? (roll ? roll.scale : [1, 1, 1]);
     const flip = opt.flip ?? (roll ? roll.flip : false);
     const tint = opt.tint ?? roll?.tint ?? 0;
@@ -800,6 +857,9 @@ export class Decor {
   // tilted piece's real bottom: logs floated up to 6 cm; kits, the starter tank and the editor set a height of their own.)
   settle(piece, sink = 0.08, rest = false) {
     const T = this.world.terrain, def = PIECES[piece.type];
+    // A scan that stands on a flat disc of the ground it was made on is sunk at least by its model's `sink` (PIECES `per`).
+    const pl = this.parts[piece.type];
+    if (pl?.length) sink = Math.max(sink, pl[piece.variant % pl.length].sink ?? 0);
     const own = piece.stamp;
     if (own) { piece.stamp = null; T.compose(this.stamps()); }
     const m = piece.mesh;

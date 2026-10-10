@@ -90,8 +90,16 @@ test('every moving frog has its muscles active', { todo: 'the hind-limb and the 
   assert.fail('not written');
 });
 
-test('a one-body frog turns on land with its legs', { todo: 'the common frog (sp.oneBody) turns on the spot to face prey or a hop\'s heading with its body held in the sit stance: its yaw is written while the legs stay in the crouch (needs a sitting turn stroke: the hind feet stepping round, util/gait.js)' }, () => {
-  assert.fail('not written');
+// A one-body frog's yaw comes with its feet stepping (9 Oct 2026: util/steps.js, sim/animals.js oneBodySteps, drawn through render/creatures/skeleton.js stepDirs): a body turned
+// on the spot over planted feet carries each foot's home away from it, so the feet lift and land again round the turn, one diagonal pair at a time; a body that does not turn
+// moves no foot. (tests/steps.test.mjs has the stepper alone and the legs solved to it.)
+test('a one-body frog turns on land with its legs', async () => {
+  const { STEP, stepperNew, stepperStep, stepTurnCap } = await import('../src/util/steps.js');
+  const homes = [{ key: 'h-1', G: [-0.9, -0.2, -1.6], D: [0, -0.3, 0.9] }, { key: 'h1', G: [0.9, -0.2, -1.6], D: [0, -0.3, 0.9] }, { key: 'f-1', G: [-0.8, 0, 1.1], D: [0, -0.2, 1] }, { key: 'f1', G: [0.8, 0, 1.1], D: [0, -0.2, 1] }];
+  const turn = (rate, secs) => { const S = stepperNew(homes); let yaw = 0, steps = 0, was = [0, 0, 0, 0]; for (let f = 0; f < secs * 60; f++) { yaw += rate / 60; stepperStep(S, { pos: [0, 0, 0], q: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)], sc: 1 }, 1 / 60, STEP, 2.73); S.feet.forEach((ft, k) => { if (ft.to && !was[k]) steps++; was[k] = ft.to ? 1 : 0; }); } return { steps, yaw }; };
+  const half = turn(stepTurnCap(2.73), Math.PI / stepTurnCap(2.73));        // (a half turn at the fastest yaw its feet can follow)
+  assert.ok(half.steps >= 8, `a half turn took ${half.steps} steps`);
+  assert.equal(turn(0, 1).steps, 0, 'a body that does not turn moves no foot');
 });
 
 // The common frog's strike lunge (util/frogstrike.js lungePose, 7 Oct 2026): its root motion (the body tipped down about the vent and slid forward) comes with

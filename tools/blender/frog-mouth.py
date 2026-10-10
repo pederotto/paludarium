@@ -139,7 +139,7 @@ for _ in range(8): bmesh.ops.smooth_vert(bm, verts=list(inner), factor=0.5, use_
 from mathutils.bvhtree import BVHTree as _BVH
 L_SK = SK.get('skullLengthCm', 3.05)
 TL0, TL1 = SNOUT - float(opt('--tongue-front', 0.10)) * L_SK, ZH + float(opt('--tongue-back', 0.25)) * L_SK
-THK, TGAP = float(opt('--tongue-thick', 0.10)), 0.012 * KS
+THK, TGAP = float(opt('--tongue-thick', 0.10)), float(opt('--tongue-gap', 0.012 * KS))        # (--tongue-thick/--tongue-gap: cm; a small frog's tongue is thinner: the harlequin's 0.045 thick, 0.02 off the floor)
 yA, yT = -TL0, -TL1
 _fl = [f for f in bm.faces if f.is_valid and all(v in inner for v in f.verts) and f.calc_center_median().z < lipz(f.calc_center_median().y)]
 _fv = list({v for f in _fl for v in f.verts}); _fi = {v: k for k, v in enumerate(_fv)}

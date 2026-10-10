@@ -10,7 +10,10 @@ import { MeshoptDecoder } from 'meshoptimizer';
 import { skeletonRig, poseHeadAtRest, ROW_FLOATS } from '../../src/render/creatures/skeleton.js';
 import { strikeCurves } from '../../src/util/frogstrike.js';
 await MeshoptDecoder.ready;
-const args = process.argv.slice(2), id = args.find((a) => !a.startsWith('--')) ?? 'commonfrog.swim', FR = +(args.includes('--frames') ? args[args.indexOf('--frames') + 1] : 26);
+const args = process.argv.slice(2), id = args.find((a) => !a.startsWith('--') && !/^[0-9.]+$/.test(a)) ?? 'commonfrog.swim', FR = +(args.includes('--frames') ? args[args.indexOf('--frames') + 1] : 26);
+// --root <share>: how much of the tongue's length from its attachment counts as the root (default 0.05, the common frog's). The pad is as thick as the cavity allows, so the root where it grows out of the floor is
+// as long as the pad is thick: the harlequin's pad is 0.045 cm thick on a 0.55 cm tongue (8 %)
+const ROOT = +(args.includes('--root') ? args[args.indexOf('--root') + 1] : 0.05);
 const DIR = 'public/assets/creatures/', man = JSON.parse(fs.readFileSync(DIR + 'manifest.json', 'utf8'))[id];
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
 const doc = await io.read(DIR + man.file), node = doc.getRoot().listNodes().find((n) => n.getMesh()), prim = node.getMesh().listPrimitives()[0], Mw = node.getWorldMatrix();
@@ -20,10 +23,10 @@ for (let i = 0; i < n; i++) { const x = P0[i * 3], y = P0[i * 3 + 1], z = P0[i *
 const bones = (i) => [[SK[i * 4] * 32, SK[i * 4 + 2]], [SK[i * 4 + 1] * 32, SK[i * 4 + 3]], [SX[i * 4] * 32, SX[i * 4 + 2]], [SX[i * 4 + 1] * 32, SX[i * 4 + 3]]].map(([b, w]) => [Math.round(b), w]);
 const rig = skeletonRig(man.skeleton, {}), T1 = rig.byName.tongue1, att = rig.head[T1];
 const tw = new Float32Array(n); for (let i = 0; i < n; i++) for (const [b, w] of bones(i)) if (b >= T1 && b <= T1 + 3) tw[i] += w;
-// (the root: the first 5 % of the tongue's length from its attachment, along its axis, where it grows out of the floor: as strike_sweep.py's t <= 0.05)
+// (the root: the first ROOT (5 %) of the tongue's length from its attachment, along its axis, where it grows out of the floor: as strike_sweep.py's t <= 0.05)
 const tip = rig.tail[T1 + 3], ax0 = [tip[0] - att[0], tip[1] - att[1], tip[2] - att[2]], tlen = Math.hypot(...ax0);
 const tongue = [], root = new Uint8Array(n), along = new Float32Array(n);
-for (let i = 0; i < n; i++) if (tw[i] > 0.5) { tongue.push(i); along[i] = ((P0[i * 3] - att[0]) * ax0[0] + (P0[i * 3 + 1] - att[1]) * ax0[1] + (P0[i * 3 + 2] - att[2]) * ax0[2]) / (tlen * tlen); if (along[i] <= 0.05) root[i] = 1; }
+for (let i = 0; i < n; i++) if (tw[i] > 0.5) { tongue.push(i); along[i] = ((P0[i * 3] - att[0]) * ax0[0] + (P0[i * 3 + 1] - att[1]) * ax0[1] + (P0[i * 3 + 2] - att[2]) * ax0[2]) / (tlen * tlen); if (along[i] <= ROOT) root[i] = 1; }
 const tset = new Uint8Array(n); for (const i of tongue) tset[i] = 1;
 const body = []; for (let t = 0; t < I.length; t += 3) if (!(tset[I[t]] && tset[I[t + 1]] && tset[I[t + 2]])) body.push(I[t], I[t + 1], I[t + 2]);
 const out = new Float32Array(ROW_FLOATS), Q = new Float32Array(n * 3);

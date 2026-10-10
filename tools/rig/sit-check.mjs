@@ -23,7 +23,7 @@ const args = process.argv.slice(2), opt = (k, d) => (args.includes(k) ? args[arg
 const id = opt('--id', 'commonfrog.swim'), DIR = 'public/assets/creatures/', man = JSON.parse(opt('--manifest', null) ? fs.readFileSync(opt('--manifest'), 'utf8') : fs.readFileSync(DIR + 'manifest.json', 'utf8'))[id];
 const FILE = args[0] && !args[0].startsWith('--') ? args[0] : DIR + man.file;
 let SIT = opt('--sit', null) ? JSON.parse(opt('--sit')) : null;
-if (!SIT) { const src = fs.readFileSync('src/sim/animals.js', 'utf8'), m = src.match(/sit: (\{ pitchDeg[^\n]*?\}),?\n/); SIT = Function('return ' + m[1].replace(/, mouthCm[\s\S]*$/, ' }'))(); }
+if (!SIT) { const src = fs.readFileSync('src/sim/animals.js', 'utf8'), k0 = src.indexOf(`\n  ${id.split('.')[0]}: {`), m = src.slice(Math.max(0, k0)).match(/sit: (\{ pitchDeg[^\n]*?\}),?\n/); SIT = Function('return ' + m[1].replace(/, mouthCm[\s\S]*$/, ' }'))(); }
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
 const doc = await io.read(FILE), node = doc.getRoot().listNodes().find((n) => n.getMesh()), prim = node.getMesh().listPrimitives()[0], Mw = node.getWorldMatrix();
 const get = (name) => { const a = prim.getAttribute(name), n = a.getCount(), c = a.getElementSize(), o = new Float32Array(n * c), e = []; for (let i = 0; i < n; i++) { a.getElement(i, e); for (let k = 0; k < c; k++) o[i * c + k] = e[k]; } return o; };

@@ -22,7 +22,8 @@ const WET_STREAM = 0.12;   // cm of water that makes a stream cell
 const AIR_O2 = 2.2;
 const CHEM = ['ammonia', 'nitrite', 'nitrate', 'oxygen', 'temp', 'co2', 'ph', 'gh'];
 // Hardscape that leaches tannins (softens and acidifies the water a little) or minerals (hardens it).
-const TANNIN = { wood: 1, roots: 1, stump: 0.6, cork: 0.5, bamboopole: 0.15, floatlog: 0.8 }, MINERAL = { boulder: 0.25, spire: 0.15, cliff: 0.3, slate: 0.35, pebbles: 0.1 };
+const TANNIN = { wood: 1, roots: 1, stump: 0.6, cork: 0.5, bamboopole: 0.15, floatlog: 0.8, fallenlog: 0.8, sculpt: 1, hollowlog: 0.9, logpile: 0.7, branch: 0.5 },
+  MINERAL = { boulder: 0.25, spire: 0.15, cliff: 0.3, slate: 0.35, pebbles: 0.1, mesa: 0.2, pillar: 0.2, arch: 0.2, limestone: 0.6, scatter: 0.15, bigrock: 0.2 };
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function makeBody(uid, kind, name) {

@@ -43,6 +43,7 @@ const SPEC = {
     if (H(g[10], 'e')) t.push('dumbo');
     return t.join('_');
   },
+  harlequin: (g) => (H(g[0], 'g') ? 'mint' : 'orange'),
   betta: (g) => (H(g[1], 'x') ? 'cellophane' : g[0] === 'RR' ? 'red' : g[0] === 'BB' ? 'blue' : 'purple'),
   shrimp: (g) => {
     const r = H(g[0], 'r'), y = H(g[1], 'y'), b = H(g[2], 'b'), rili = g[3] === 'LL' || g[3] === 'Ll';
@@ -51,8 +52,8 @@ const SPEC = {
   },
 };
 
-test('the five species have genetics, everything else does not', () => {
-  assert.deepEqual(ids.sort(), ['axolotl', 'betta', 'dartfrog', 'guppy', 'shrimp']);
+test('the six species have genetics, everything else does not', () => {
+  assert.deepEqual(ids.sort(), ['axolotl', 'betta', 'dartfrog', 'guppy', 'harlequin', 'shrimp']);
   assert.ok(!hasGenetics('neon'));
   assert.equal(morphOf('neon', ['Aa']), null);
   assert.equal(SPECIES_GENETICS.axolotl.loci.length, 3);

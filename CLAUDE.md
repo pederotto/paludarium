@@ -54,6 +54,18 @@
 ## Mouth rule (owner, 6 Oct 2026)
 - **A mouth is built on a skull and a mandible**, schematic but with the real bones in their real places (the owner's plate of an amphibian skull is the reference), fitted inside the head, before it is cut into a model: the lip line is the tooth line (premaxilla and maxilla above, dentary below), the jaw hinge is the quadrate-articular joint (the jaw bone's pivot), the lower jaw is one rigid piece of bones, the roof of the mouth is the palate bones, the eyes sit in the orbits, and every bone and the cavity lie inside the skin. Plans per animal class, fit, Blender check and tests: `docs/SKELETON.md` "Skulls and mandibles", `tools/rig/skull.mjs`, `tools/blender/skull.py`, `tests/skull.test.mjs`. A new animal's mouth is not done until its skull JSON is fitted and verified.
 
+## Realism gates (owner, 7 Oct 2026)
+- Lesson from the European frog head and tongue: a night of symmetry, seam and texture polish, while the tongue went through the skull and the head had no measured targets. Every animal, head, mouth or movement passes these gates in order. Show each one to the owner before starting the next.
+  1. **Targets.** A sourced table first: proportions against SVL for the species, and for a movement its range, speed, phases and what drives it. Mark guesses as guesses.
+  2. **Base fit.** Is the base mesh the right animal (family, head shape)? If not, say so and let the owner decide. Do not warp one species into another silently.
+  3. **Anatomy.** Measure the model against the table and compare it side by side with the owner's photos: numbers, not "looks better".
+  4. **Movement.** Bones and muscles (Movement rule), ONE driven sequence (not free sliders that allow impossible poses), and a test that sweeps the full range frame by frame: no part inside tissue or through the skin, the length and volume caps kept. Then judge it in the Test Lab.
+  5. **Polish last.** UVs, bakes, maps, symmetry polish and viewers come only after 1-4 are accepted. A watertight mesh, closed seams and correct channels are necessary, never proof of realism.
+- Reports say what was checked AND what was not. "Done" or "verified" never rests on mesh-health checks alone.
+
+## Land frog rule (owner, 8 Oct 2026)
+- **A land frog's terrarium obeys its land/water ratio strictly, counting objects and plants as half dead space.** Every frog and toad has `land` (the share of the floor that is dry it wants) and `landTol` (0.1) in `sim/animals.js`. `World.usable()` measures the USABLE floor: a cell a piece of hardscape stands on or a plant covers counts 0.5 toward the land or water it sits on; share = usable land / (usable land + usable water). Outside the band the frog is stressed with the numbers in its status (`Sim.tankRules`) and the Animals tool and the generator refuse to put it there (`Animals.placement`), so a premade set must be tuned (`level`, `pool` knobs; `tools/steps/land-rule.mjs` measures, `land-tune.mjs` tunes) or it has no frogs. `docs/PREMADE_SETS.md` 6c.
+
 ## Hardware constraint (owner, 6 Oct 2026)
 - Run heavy Blender bakes and headless render jobs sequentially (single process at a time). Keep system load <= 5 to prevent memory exhaustion and OS process kills. A bake started beside a render batch took this 8 GB Mac to load 16 and the processes were SIGKILLed (exit 137): check `uptime` before each heavy job and never launch a second one in parallel.
 

@@ -744,6 +744,9 @@ export const FROGS = {
   toad: () => frogDef({ size: 4.5, cell: 0.072, paint: bombina, eyePal: EYE_BOMB, geo: TOAD, finish: { rough: 0.55, coat: 0.18, coatRough: 0.45, grain: 10, bump: 0.05, grainAmt: 0.8, tone: 0.03 } }),
 };
 
+// The harlequin poison frog's mint-green variant (9 Oct 2026): the species' own stand-in body (the dart frog's) until its textured model, `harlequin:mint.swim`, has loaded.
+FROGS['harlequin:mint'] = () => FROGS.dartfrog();
+
 // ---- Tadpole: dark oval body, eyes on top, a muscular tail with a tall translucent fin -----------------
 
 FROGS.tadpole = () => {

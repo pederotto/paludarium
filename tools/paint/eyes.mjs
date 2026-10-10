@@ -26,6 +26,7 @@ export const EYES = {
   leucomelas: frogAs(1, DARK_EYE),
   strawberry: frogAs(0.511, DARK_EYE),
   dartfrog: frogAs(4.2 / 4.5, DARK_EYE, { rough: 0.5, coat: 0.34 }),
+  harlequin: frogAs(3.3 / 4.5, DARK_EYE, { rough: 0.5, coat: 0.34 }),
   'dartfrog:cobalt_clean': frogAs(4.2 / 4.5, DARK_EYE, { rough: 0.5, coat: 0.34 }),
   'dartfrog:sky_spotted': frogAs(4.2 / 4.5, DARK_EYE, { rough: 0.5, coat: 0.34 }),
   'dartfrog:sky_clean': frogAs(4.2 / 4.5, DARK_EYE, { rough: 0.5, coat: 0.34 }),

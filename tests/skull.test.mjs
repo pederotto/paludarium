@@ -114,3 +114,36 @@ test('every frog bone lies inside the skin, clear of the eyes, and the mouth cav
   assert.ok(cb.roof.inside <= 15 && cb.floor.inside <= 500, `grazes: roof ${cb.roof.inside}, floor ${cb.floor.inside}`);
   assert.ok(v.toothRows >= 3, 'tooth rows: the premaxilla and the two maxillae');
 });
+
+// ---- the harlequin poison frog (8 Oct 2026): the anuran plan fitted to its own game body (tools/rig/skull.mjs harlequin <body.glb>, 3.3 cm frog, skull 0.97 cm), checked in Blender with the ray-parity
+// sign (skull.py --parity: the scan has a modelled mouth slit and internal eyeball sheets that fool the closest-face sign), the mouth cut from it (frog-mouth.py), fitted twice (--fit-cavity)
+const hq = JSON.parse(fs.readFileSync('art-src/skull/harlequin.skull.json', 'utf8'));
+
+test('the harlequin skull: 33 bones in pairs, a broad skull about 0.3 of the snout-vent length, the lip line the tooth line, the hinge the jaw bone\'s pivot', () => {
+  assert.equal(hq.bones.length, 33);
+  const names = hq.bones.map((b) => b.name);
+  for (const b of hq.bones) if (b.name.endsWith('.R')) assert.ok(names.includes(b.name.replace(/\.R$/, '.L')), `${b.name} has no left twin`);
+  const ratio = hq.checks.skullWidthCm / hq.skullLengthCm, svl = 3.3;
+  assert.ok(ratio > 0.8 && ratio < 1.25, `a broad frog skull: width / length ${ratio.toFixed(2)}`);
+  assert.ok(hq.skullLengthCm / svl > 0.26 && hq.skullLengthCm / svl < 0.34, `skull length ${hq.skullLengthCm} cm of a ${svl} cm frog`);
+  assert.ok(Math.abs(hq.eyes[0].c[0] + hq.eyes[1].c[0]) < 0.01, 'two eyes, mirrored about the midline');
+  assert.ok(hq.checks.toothRowOffLipUpper <= 0.01 && hq.checks.hingeOffLip <= 0.02 && hq.checks.jointGap <= hq.checks.jointReach, 'tooth row on the lip surface, hinge on it, the quadrate and the articular touching');
+  const C = CONFIG.harlequin;
+  assert.ok(Math.abs(hq.lip.zh - C.hingeZ) < 0.01 && Math.abs(hq.lip.slope - C.lip.slope) < 0.001 && hq.eyeZone === C.eyeZone, 'the skull\'s lip surface and eye zone are the config\'s');
+  const man = JSON.parse(fs.readFileSync('public/assets/creatures/manifest.json', 'utf8'))['harlequin.swim'], jaw = man.skeleton.bones.find((b) => b.name === 'jaw');
+  const mid = [0, 1, 2].map((k) => (hq.hinge[0].at[k] + hq.hinge[1].at[k]) / 2);
+  assert.ok(jaw.head.every((v, k) => Math.abs(v - mid[k]) < 0.03), `the jaw bone's pivot ${jaw.head} is the hinge pair's middle ${mid}`);
+});
+
+test('every harlequin bone lies inside the skin, clear of the eyes, and the mouth cavity stays inside the head and clear of the bones', () => {
+  const v = hq.verified;
+  assert.ok(v && v.cavity, 'the harlequin skull has not been checked in Blender with its mouth: tools/blender/skull.py --parity --mouth');
+  assert.equal(v.bones, hq.bones.length);
+  assert.ok(v.minMarginCm >= -0.02, `the smallest margin to the skin is ${v.minMarginCm} cm (0.2 mm out at most: a thin dentary against the lip)`);
+  assert.ok(v.eyeIntrusionMaxCm <= 0.03, `bones in the eyeballs: ${v.eyeIntrusionMaxCm} cm`);
+  assert.equal(v.cavity.outside, 0, 'the mouth cavity must not poke out of the head');
+  const cb = v.cavity.bones;
+  assert.ok(cb.roof.minGapCm >= -0.05 && cb.floor.minGapCm >= -0.05, `the cavity is inside a bone by more than 0.05 cm: roof ${cb.roof.minGapCm}, floor ${cb.floor.minGapCm}`);
+  assert.ok(cb.roof.inside <= 15 && cb.floor.inside <= 500, `grazes: roof ${cb.roof.inside}, floor ${cb.floor.inside}`);
+  assert.ok(v.toothRows >= 3, 'tooth rows: the premaxilla and the two maxillae');
+});

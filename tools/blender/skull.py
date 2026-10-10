@@ -1,5 +1,5 @@
 # A skull and mandible scheme (tools/rig/skull.mjs) built and checked in headless Blender (6 Oct 2026, the owner's rule: every mouth sits on a skull and a mandible).
-#   Blender -b -P tools/blender/skull.py -- <skull.json> <head-without-mouth.glb> <out_prefix> [--mouth <head-with-mouth.glb>] [--no-render]
+#   Blender -b -P tools/blender/skull.py -- <skull.json> <head-without-mouth.glb> <out_prefix> [--mouth <head-with-mouth.glb>] [--no-render] [--parity]
 # What it does:
 #   1. the bones of the JSON as meshes: rods (a curve with a radius at each point, bevelled) and ellipsoids (a sphere with the bone's axes), tooth rows as small cones
 #      along the tooth-bearing rods (upper tips down, lower tips up) and a short row on each vomer; the lower jaw (the `mandible` group and its teeth) parented to an empty on the
@@ -113,9 +113,26 @@ else:
 tree_full = BVHTree.FromObject(skin, dg)                                    # the cavity is judged against the whole skin
 def margin_full(p):
     loc, nor, idx, d = tree_full.find_nearest(p)
+    if '--parity' in argv: return (d if _odd_full(p, Vector((1, 0, 0))) + _odd_full(p, Vector((0, 0, 1))) + _odd_full(p, Vector((0, 1, 0))) >= 2 else -d) * 100.0
     return (d if (p - loc).dot(nor) < 0 else -d) * 100.0
+def _odd_full(o, d):
+    n = 0
+    for _ in range(60):
+        loc, nor, idx, dist = tree_full.ray_cast(o, d)
+        if loc is None: break
+        n += 1; o = loc + d * 1e-6
+    return n % 2
+PARITY = '--parity' in argv      # a scan with internal sheets or a modelled mouth slit (the harlequin's) fools the closest-face sign: inside = two of three rays (+x, up, forward) cross an odd number of faces
+def _odd(o, d):
+    n = 0
+    for _ in range(60):
+        loc, nor, idx, dist = tree_full.ray_cast(o, d)
+        if loc is None: break
+        n += 1; o = loc + d * 1e-6
+    return n % 2
 def margin(p):                                                              # cm: >0 inside the skin by that much, <0 outside by that much
     loc, nor, idx, d = tree.find_nearest(p)
+    if PARITY: return (d if _odd(p, Vector((1, 0, 0))) + _odd(p, Vector((0, 0, 1))) + _odd(p, Vector((0, 1, 0))) >= 2 else -d) * 100.0
     return (d if (p - loc).dot(nor) < 0 else -d) * 100.0
 worst = {}; outside = []
 for name, pts in samples.items():

@@ -1,0 +1,137 @@
+{
+ "note": "harlequin poison frog body (owner drop 8 Oct 2026: art-src/raw/harlequin_mesh.glb, a Meshy scan lying sprawled, the left rear leg stretched out behind, the right one in a fused Z, the right arm reaching and the left bent). A skeleton cannot unfold a fused fold, so the baked scan is art-src/raw/harlequin_sym_mesh.glb: the LEFT half mirrored onto the right (tools/rig/leg-graft-scan.mjs, head brought onto the trunk midline first), the whole body, skeleton and muscles symmetric. Joints in scan units, head +z, dorsal midline (raw x 0.060) taken to 0, levelled (11 deg about x) as the bake does; measured on slices and zoomed views of the left half (.agents/frogs-1008), the right side their mirror.",
+ "joints": {
+  "hipL": [
+   -0.1,
+   -0.035,
+   -0.31
+  ],
+  "hipR": [
+   0.1,
+   -0.035,
+   -0.31
+  ],
+  "kneeL": [
+   -0.43,
+   -0.04,
+   -0.355
+  ],
+  "kneeR": [
+   0.43,
+   -0.04,
+   -0.355
+  ],
+  "heelL": [
+   -0.45,
+   0.0,
+   -0.8
+  ],
+  "heelR": [
+   0.45,
+   0.0,
+   -0.8
+  ],
+  "ankleL": [
+   -0.605,
+   -0.02,
+   -0.79
+  ],
+  "ankleR": [
+   0.605,
+   -0.02,
+   -0.79
+  ],
+  "toeL": [
+   -0.975,
+   -0.08,
+   -0.77
+  ],
+  "toeR": [
+   0.975,
+   -0.08,
+   -0.77
+  ],
+  "shoulderR": [
+   0.12,
+   -0.04,
+   0.31
+  ],
+  "elbowR": [
+   0.326,
+   -0.1,
+   0.19
+  ],
+  "wristR": [
+   0.366,
+   -0.3,
+   0.4
+  ],
+  "fingerR": [
+   0.41,
+   -0.34,
+   0.64
+  ],
+  "shoulderL": [
+   -0.12,
+   -0.04,
+   0.31
+  ],
+  "elbowL": [
+   -0.326,
+   -0.1,
+   0.19
+  ],
+  "wristL": [
+   -0.366,
+   -0.3,
+   0.4
+  ],
+  "fingerL": [
+   -0.41,
+   -0.34,
+   0.64
+  ],
+  "vent": [
+   0,
+   -0.03,
+   -0.34
+  ],
+  "mid": [
+   0,
+   -0.03,
+   0.06
+  ],
+  "mid2": [
+   0,
+   -0.03,
+   0.215
+  ],
+  "chest": [
+   0,
+   -0.03,
+   0.37
+  ],
+  "neck": [
+   0,
+   -0.02,
+   0.52
+  ],
+  "snout": [
+   0,
+   -0.04,
+   0.83
+  ]
+ },
+ "radius": {
+  "pelvis": 0.23,
+  "spine": 0.25,
+  "head": 0.2,
+  "thigh": 0.095,
+  "shin": 0.065,
+  "foot": 0.045,
+  "toes": 0.03,
+  "arm": 0.045,
+  "forearm": 0.048,
+  "hand": 0.05
+ }
+}

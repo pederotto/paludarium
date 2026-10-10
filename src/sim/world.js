@@ -5,6 +5,7 @@
 import * as THREE from 'three/webgpu';
 import { Terrain, Wall } from './terrain.js';
 import { Water } from '../render/water.js';
+import { GROUND_SETS } from '../content/ground.js';
 import { Plants, PLANTS } from './plants.js';
 import { Animals, SPECIES } from './animals.js';
 import { Decor } from './decor.js';
@@ -17,6 +18,7 @@ import { rng, smooth, clamp, lerp } from '../util/math.js';
 export class World {
   constructor(scene) {
     this.scene = scene;
+    this.groundSet = 'forest';   // the terrain's texture palette (content/ground.js), saved with the tank
     this.logs = [];
     this.onLog = null;
     this.env = new Env();
@@ -62,6 +64,41 @@ export class World {
     }
     this._landKey = key; this._land = dry / n;
     return this._land;
+  }
+
+  // The USABLE floor, for the land/water rule of the land-frog terrariums (owner, 8 Oct 2026): the floor on the same 40 x 20 grid as
+  // landShare(), each cell dry or under water, but a cell that a piece of hardscape stands on (its footprint, the convex hull of its
+  // points seen from above) or that a plant covers (the canopy of the plant at its present size; a floating plant covers water) is HALF
+  // DEAD space: it counts 0.5 toward the land or the water it sits on, not 1. share = usable land / (usable land + usable water).
+  // Wall plants stand off the floor and count nothing. Returns { share, land, water, dead } (cells, and dead = the covered share of the
+  // floor); cached for 1.5 s and while the ground, the water, the pieces and the plants count are the same.
+  usable() {
+    const key = `${this.water.hydro.groundVer}|${this.water.level}|${TANK.w}|${this.decor.pieces.length}|${this.plants.list.length}`;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (key === this._usKey && now - this._usAt < 1500) return this._us;
+    const hulls = [];
+    for (const p of this.decor.pieces) {
+      const h = this.decor.hullWorld(p), pts = [];
+      for (let i = 0; i < h.length; i += 3) pts.push([h[i], h[i + 2]]);
+      pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+      const build = (arr) => { const out = []; for (const q of arr) { while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop(); out.push(q); } out.pop(); return out; };
+      if (pts.length >= 3) hulls.push([...build(pts), ...build(pts.slice().reverse())]);
+    }
+    const crowns = [];
+    for (const q of this.plants.list) if (q.surface !== 'wall') crowns.push([q.pos.x, q.pos.z, (q.reach ?? 3) * (0.3 + 0.7 * (q.grown ?? 1))]);
+    const inHull = (poly, x, z) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) if ((poly[i][1] > z) !== (poly[j][1] > z) && x < ((poly[j][0] - poly[i][0]) * (z - poly[i][1])) / (poly[j][1] - poly[i][1]) + poly[i][0]) c = !c; return c; };
+    let land = 0, water = 0, dead = 0, n = 0;
+    for (let i = 0; i < 40; i++) for (let j = 0; j < 20; j++) {
+      const x = ((i + 0.5) / 40 - 0.5) * TANK.w, z = ((j + 0.5) / 20 - 0.5) * TANK.d;
+      const covered = hulls.some((poly) => inHull(poly, x, z)) || crowns.some((c) => Math.hypot(c[0] - x, c[1] - z) < c[2]);
+      const w = covered ? 0.5 : 1;
+      n++; if (covered) dead++;
+      if (this.water.surfaceAt(x, z) > this.terrain.heightAt(x, z) + 0.2) water += w; else land += w;
+    }
+    this._usKey = key; this._usAt = now;
+    this._us = { share: land + water > 0 ? land / (land + water) : 0, land, water, dead: dead / n };
+    return this._us;
   }
 
   // Fraction of visible surface covered with moss (cached; updated on paint).
@@ -144,7 +181,14 @@ export class World {
     return true;
   }
 
+  // The bottom of the tank for its climate (content/ground.js): another set of pictures behind the terrain slots. Resolves once they are in.
+  setGround(set = 'forest') {
+    this.groundSet = GROUND_SETS[set] ? set : 'forest';
+    return this.decor.setGround(this.groundSet).catch((e) => console.warn('ground set', set, e));
+  }
+
   clearAll() {
+    this.setGround('forest');
     this.plants.clear();
     this.animals.clear();
     this.decor.clear();
@@ -174,6 +218,9 @@ export class World {
 
   async init() {
     await Promise.all([this.decor.preload(), this.plants.preload()]);
+    // The generated rocks and wood (PIECES `lazy`) load in the background; a game's tank waits for them (decor.ready, Game.buildTank).
+    this.decor.preloadMore();
+    this.plants.preloadMore();
   }
 
   // Starts over in this world as if it had just been built (the same tank, the same scene objects): the layouts clear what
@@ -366,6 +413,7 @@ export class World {
       equipment: this.equipment.serialize(),
       humus: this.humus?.serialize(),
       tank: { id: TANK.id },
+      ground: this.groundSet,
     };
   }
 
@@ -377,6 +425,7 @@ export class World {
     // Version 2 saved the ground with the rocks already stamped in; that
     // simply becomes the base, and stamping again changes nothing.
     this.decor.restore(o.pieces ?? []);
+    this.setGround(o.ground);
     this.groundChanged({ quick: true });
     this.water.load(o.water);
     for (const p of o.plants) {

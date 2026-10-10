@@ -53,6 +53,7 @@ export class Portraits {
     this.plants = new Plants(scene);
     this.plants.shadowless = true;     // species built later (on first use) cast none either
     await this.plants.preload();
+    await this.plants.preloadMore();
     this.plants.meshes && Object.values(this.plants.meshes).forEach((m) => { m.castShadow = false; });
   }
 

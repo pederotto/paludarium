@@ -35,6 +35,20 @@ const take = (name, comps, must = true) => {
 const a = { orig: take('_ORIG', 3, false), pos: take('POSITION', 3), nor: take('NORMAL', 3), col: take('COLOR_0', 4) ?? take('COLOR_0', 3), rig: take('_RIG', 4), skin: take('_SKIN', 4), skinx: take('_SKINX', 4),
   hyo: take('_HYOW', 1), tw: take('_TONGW', 1), tt: take('_TONGT', 1), idx: Uint32Array.from(prim.getIndices().getArray()) };
 const n = a.pos.length / 3, cc = a.col.length / n;
+// A vertex the mouth cut made with no bone at all (the exporter's default, every slot 1.0 = bone 32: two at the harlequin's snout, 8 Oct 2026, where the cut starts) takes the weights of the nearest vertex that has some.
+{ const none = (i) => a.skin[i * 4] >= 0.999 && a.skin[i * 4 + 1] >= 0.999, bad = []; for (let i = 0; i < n; i++) if (none(i)) bad.push(i);
+  for (const i of bad) { let best = -1, bd = Infinity; for (let j = 0; j < n; j++) { if (none(j)) continue; const d = (a.pos[j * 3] - a.pos[i * 3]) ** 2 + (a.pos[j * 3 + 1] - a.pos[i * 3 + 1]) ** 2 + (a.pos[j * 3 + 2] - a.pos[i * 3 + 2]) ** 2; if (d < bd) { bd = d; best = j; } }
+    for (let c = 0; c < 4; c++) { a.skin[i * 4 + c] = a.skin[best * 4 + c]; a.skinx[i * 4 + c] = a.skinx[best * 4 + c]; } }
+  if (bad.length) console.log(`  ${bad.length} vertices without a bone took the weights of their nearest neighbour`);
+  // and a slot that still names a bone the body does not have (the exporter's default 1.0 = bone 32 beside a real weight: four vertices at the harlequin's snout carried 1.2 % of
+  // bone 32, which the game reads from the next instance's row): its weight is dropped and the others renormalised, in the input's numbering (the 18 body bones and the jaw as 18)
+  let nStray = 0;
+  for (let i = 0; i < n; i++) {
+    const sl = [[a.skin, i * 4, 2], [a.skin, i * 4 + 1, 3], [a.skinx, i * 4, 2], [a.skinx, i * 4 + 1, 3]]; let sum = 0, dirty = false;
+    for (const [arr, k, w] of sl) { if (Math.round(arr[k] * 32) >= 19 && arr[i * 4 + w] > 1e-6) { arr[i * 4 + w] = 0; dirty = true; } sum += arr[i * 4 + w]; }
+    if (dirty && sum > 1e-6) { for (const [arr, , w] of sl) arr[i * 4 + w] /= sum; nStray++; }
+  }
+  if (nStray) console.log(`  ${nStray} vertices carried a weight on a bone the body does not have: dropped`); }
 
 // --- the six head bones (baked cm), appended after the body's 18 ---------------------------------------------------------------------------------------------------------
 const B = entry.skeleton.bones.map((b) => ({ ...b }));

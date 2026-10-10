@@ -6,6 +6,33 @@
 import { SHOWCASE_BIOTOPES } from './presets-showcase.js';
 
 export const BIOTOPES = {
+  satoyama: {
+    id: 'satoyama', name: 'Satoyama pond', country: 'Japan', level: 6,
+    animals: ['toad', 'zacco', 'springtail', 'isopod'], plants: ['lotus', 'lilyscan', 'typha', 'hosta', 'royalfern', 'trillium', 'weed', 'grass'],
+    climate: { temp: [14, 24], humidity: [70, 95] },
+    features: ['stillwater', 'shallowpool', 'stones', 'cool'],
+    blurb: 'The edge of a village wood in Honshu, where a pond, a paddy and a stand of trees share one slow landscape. Lotus and water lilies cover the pond, bulrush grows at its edge and hosta, royal fern and trillium crowd the shade of the bank.',
+    facts: ['Satoyama means the mosaic of woods, ponds and fields that villages kept going for centuries; its ponds are full of frogs, fish and dragonflies.', 'The pale chub of these waters is a small silver fish that holds in the slow current at the pond\'s inlet.'],
+    hint: 'A still, cool pond with open water for lotus and lilies, a damp bank with ferns and hosta, and a few stones and logs.',
+  },
+  choco: {
+    id: 'choco', name: 'Chocó rainforest slope', country: 'Colombia', level: 7,
+    animals: ['harlequin', 'auratus', 'springtail', 'isopod', 'fly'], plants: ['parrotheliconia', 'forestginger', 'hibiscus', 'crimsonfern', 'royalfern', 'guzmania', 'bromeliad', 'tillandsia', 'fern', 'grass'],
+    climate: { temp: [24, 28], humidity: [85, 100] },
+    features: ['leaflitter', 'wood', 'bromeliad2', 'moss15'],
+    blurb: 'The Pacific lowland forest of western Colombia is one of the wettest places on Earth: it rains most days, the litter never dries and every branch carries bromeliads. Poison frogs hunt ants and mites on the forest floor and carry their tadpoles up to pools in the plants.',
+    facts: ['The Chocó gets more than 8 m of rain a year in places.', 'A poison frog\'s skin toxins come from the ants and mites it eats; frogs raised on other food are harmless.'],
+    hint: 'Very humid (85% or more), deep leaf litter, fallen and hollow logs to hide in, tall leafy plants and a wall of bromeliads.',
+  },
+  orinoco: {
+    id: 'orinoco', name: 'Orinoco river bend', country: 'Venezuela and Colombia', level: 6,
+    animals: ['cardinal', 'cory'], plants: ['sword', 'lilyscan', 'vallisneria', 'frogbit', 'javafern'],
+    climate: { temp: [24, 28], humidity: [70, 95] },
+    features: ['deep', 'wood', 'stones'],
+    blurb: 'On the inside of a bend the Orinoco and its tributaries drop sand, and the outside undercuts its bank: trees fall in and make a tangle of sunken wood. Small armoured catfish live in its cracks and hollows, tetras shoal over the sand and corydoras sift the bottom.',
+    facts: ['Many of the small loricariid catfish of the Orinoco rasp wood and biofilm from sunken logs and use hollows in them to hide and to spawn.', 'Cardinal tetras are common in the clear and blackwater streams of this basin.'],
+    hint: 'Warm water (24-28 C), sand on the bottom, a tangle of sunken wood with hollows, and plenty of open water above.',
+  },
   newguinea: {
     id: 'newguinea', name: 'New Guinea stream bank', country: 'Papua New Guinea', level: 7,
     animals: ['skink', 'purpleiso', 'isopod', 'springtail'], plants: ['fern', 'cattail', 'grass', 'pothos', 'nidus', 'sago', 'pandanus'],

@@ -162,6 +162,59 @@ export const PLANTS = {
     note: 'Low trailing plant (Poly Haven scan). Softens rock edges.',
     model: 'weed_plant_02', material: { amp: 0.15, speed: 0.8 },
   },
+  // Generated scans (Meshy, 8 Oct 2026; tools/meshy-piece.mjs, sources in art-src/drop/). `lazy`: their models load in the background after
+  // the title screen (preloadMore) and a game waits for them before it builds a tank (Game.buildTank), as the hardscape does (sim/decor.js).
+  // `model` may be a list: every mesh of every file is a variant.
+  hosta: {
+    name: 'Hosta', habitat: 'land', humidity: [55, 100], light: 0.35, size: 1, modelSize: 20, room: 0.6, lazy: true,
+    note: 'Broad cream-edged leaves and a spike of lavender flowers. Loves shade and damp ground.',
+    model: 'plant_hosta', material: { amp: 0.12, speed: 0.6 },
+  },
+  royalfern: {
+    name: 'Royal fern', habitat: 'land', humidity: [60, 100], light: 0.3, size: 1, modelSize: 30, room: 0.6, lazy: true,
+    note: 'A tall shuttlecock of fronds for the damp edge of a wood or a pond.',
+    model: 'plant_royalfern', material: { amp: 0.25, speed: 0.8 },
+  },
+  crimsonfern: {
+    name: 'Crimson moon fern', habitat: 'land|wall', humidity: [65, 100], light: 0.45, size: 1, modelSize: 16, room: 0.55, lazy: true,
+    note: 'A rosette of narrow magenta leaves, like a bromeliad. Bright, humid, and no standing water in the heart of it.',
+    model: 'plant_crimsonfern', material: { amp: 0.1, speed: 0.6 },
+  },
+  parrotheliconia: {
+    name: 'Parrot heliconia', habitat: 'land', humidity: [70, 100], light: 0.6, size: 1, modelSize: 34, room: 0.6, lazy: true,
+    note: 'Tall, paddle-leaved and bracted in yellow and orange: a plant of the clearings and creeksides of the wet tropics.',
+    model: 'plant_heliconia', material: { amp: 0.15, speed: 0.7 },
+  },
+  hibiscus: {
+    name: 'Hibiscus', habitat: 'land', humidity: [55, 100], light: 0.7, size: 1, modelSize: 24, room: 0.6, lazy: true,
+    note: 'A shrub in flower: big pink trumpets with a red eye. Wants light and warmth.',
+    model: 'plant_hibiscus', material: { amp: 0.1, speed: 0.6 },
+  },
+  forestginger: {
+    name: 'Forest ginger', habitat: 'land', humidity: [65, 100], light: 0.4, size: 1, modelSize: 30, room: 0.55, lazy: true,
+    note: 'Leafy, upright stems of long glossy leaves: the understorey of a damp tropical forest.',
+    model: ['plant_ginger_a', 'plant_ginger_b'], material: { amp: 0.15, speed: 0.7 },
+  },
+  trillium: {
+    name: 'Trillium', habitat: 'land', humidity: [60, 100], light: 0.3, size: 1, modelSize: 16, room: 0.5, lazy: true,
+    note: 'Three leaves and one white flower, a woodland plant of cool, damp shade.',
+    model: 'plant_trillium', material: { amp: 0.1, speed: 0.6 },
+  },
+  typha: {
+    name: 'Bulrush', habitat: 'emergent', humidity: [40, 100], light: 0.6, size: 1, modelSize: 46, room: 0.45, lazy: true,
+    note: 'Tall blades and a brown velvet spike. Wet feet: plant at the waterline.',
+    model: 'plant_typha', material: { amp: 0.2, speed: 0.8 },
+  },
+  lotus: {
+    name: 'Lotus', habitat: 'floating', light: 0.7, nutrients: 1, size: 1, modelSize: 28, room: 1.0, lazy: true,
+    note: 'Big round pads with pink flowers held on the surface. Needs open water and space.',
+    model: ['plant_lotus_a', 'plant_lotus_b'], material: { amp: 0.06, speed: 0.5 },
+  },
+  lilyscan: {
+    name: 'Water lily (broad)', habitat: 'floating', light: 0.7, nutrients: 1, size: 1, modelSize: 26, room: 1.0, lazy: true,
+    note: 'Broad pads and star-shaped flowers floating on the surface. Needs open water.',
+    model: ['plant_lily_a', 'plant_lily_b'], material: { amp: 0.06, speed: 0.5 },
+  },
   fern: {
     name: 'Fern', habitat: 'land', humidity: [60, 100], light: 0.3, size: 1,
     note: 'Loves shade and damp air.',
@@ -888,6 +941,7 @@ export class Plants {
     this.list = [];
     this.meshes = {};
     this.variants = {};
+    this.ready = null;   // the lazy model plants' load (preloadMore)
     this.cap = 300;
     // Flowers (sim/bloom.js, render/flowers.js): a mesh per flowering species, made with its first head; species whose heads
     // changed are redrawn at the end of a step (or at once outside one). `live`: stepped by a running tank (portraits never are,
@@ -935,29 +989,49 @@ export class Plants {
   // with its base at the origin and scaled to 1 across.
   async preload() {
     for (const [id, sp] of Object.entries(PLANTS)) {
-      if (!sp.model) continue;
-      const parts = await modelParts(sp.model);
-      parts.forEach((part, k) => {
-        const g = part.geometry;
-        const bb = g.boundingBox;
-        g.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
-        const ext = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z, bb.max.y - bb.min.y);
-        g.scale(1 / ext, 1 / ext, 1 / ext);
-        g.computeBoundingBox();
-        const h = Math.max(1e-3, g.boundingBox.max.y);
-        const n = g.attributes.position.count;
-        const sway = new Float32Array(n), col = new Float32Array(n * 3).fill(1);
-        for (let i = 0; i < n; i++) {
-          const x = g.attributes.position.getX(i), z = g.attributes.position.getZ(i), y = g.attributes.position.getY(i);
-          sway[i] = Math.min(1, Math.hypot(x, z) * 1.6 + y / h * 0.5);
-        }
-        g.setAttribute('sway', new THREE.BufferAttribute(sway, 1));
-        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-        const src = part.material;
-        this.addMesh(id + '#' + k, g, plantMaterial({ ...(sp.material ?? {}), map: src.map, normalMap: src.normalMap, ...flowOptions(sp) }));
-      });
-      this.variants[id] = parts.length;
+      if (!sp.model || sp.lazy) continue;
+      await this.loadModelPlant(id, sp);
     }
+  }
+
+  // The lazy model plants (PLANTS `lazy`), one at a time with a pause between them. Never rejects (a plant whose model fails to load
+  // has no variants and is skipped); `ready` resolves when all are in: Game.buildTank awaits it before a real game's tank.
+  preloadMore() {
+    if (this.ready) return this.ready;
+    const pause = () => new Promise((r) => setTimeout(r, 30));
+    this.ready = (async () => {
+      for (const [id, sp] of Object.entries(PLANTS)) {
+        if (!sp.model || !sp.lazy) continue;
+        try { await this.loadModelPlant(id, sp); } catch (e) { console.warn('plant model', id, e); }
+        await pause();
+      }
+    })();
+    return this.ready;
+  }
+
+  async loadModelPlant(id, sp) {
+    const parts = [];
+    for (const name of [].concat(sp.model)) parts.push(...await modelParts(name));
+    parts.forEach((part, k) => {
+      const g = part.geometry;
+      const bb = g.boundingBox;
+      g.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
+      const ext = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z, bb.max.y - bb.min.y);
+      g.scale(1 / ext, 1 / ext, 1 / ext);
+      g.computeBoundingBox();
+      const h = Math.max(1e-3, g.boundingBox.max.y);
+      const n = g.attributes.position.count;
+      const sway = new Float32Array(n), col = new Float32Array(n * 3).fill(1);
+      for (let i = 0; i < n; i++) {
+        const x = g.attributes.position.getX(i), z = g.attributes.position.getZ(i), y = g.attributes.position.getY(i);
+        sway[i] = Math.min(1, Math.hypot(x, z) * 1.6 + y / h * 0.5);
+      }
+      g.setAttribute('sway', new THREE.BufferAttribute(sway, 1));
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      const src = part.material;
+      this.addMesh(id + '#' + k, g, plantMaterial({ ...(sp.material ?? {}), map: src.map, normalMap: src.normalMap, ...flowOptions(sp) }));
+    });
+    this.variants[id] = parts.length;
   }
 
   key(p) { return this.variants[p.id] > 1 || PLANTS[p.id].model ? p.id + '#' + (p.variant ?? 0) : p.id; }
@@ -1122,7 +1196,11 @@ export class Plants {
     for (const q of this.list) {
       if (q === skip || layer(q.id, q.surface) !== mine) continue;
       const d = mine === 'wall' ? Math.hypot(q.pos.x - point.x, q.pos.y - point.y) : Math.hypot(q.pos.x - point.x, q.pos.z - point.z);
-      if (d < (q.id === id ? PLANT_ROOM * 0.55 : PLANT_ROOM) * (r + q.reach)) return q;      // a clump of one kind may stand closer
+      // A clump of one kind may stand closer. A scanned plant has its own `room` (the share of the two reaches kept clear, whatever the
+      // other plant is; the larger of the two counts): its leaves are big and many, and closer the leaves of neighbours interpenetrate and
+      // floating pads lie on each other (coplanar, they flicker).
+      const room = Math.max(PLANTS[id].room ?? 0, PLANTS[q.id].room ?? 0) || (q.id === id ? PLANT_ROOM * 0.55 : PLANT_ROOM);
+      if (d < room * (r + q.reach)) return q;
     }
     return null;
   }

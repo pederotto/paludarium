@@ -4,6 +4,7 @@
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { SLOTS, GROUND_SETS, groundFile } from '../content/ground.js';
 
 const loader = new THREE.TextureLoader();
 const base = new URL(`${import.meta.env.BASE_URL}assets/`, location.href);
@@ -25,6 +26,24 @@ function loadData(path) {
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
   bitmapLoader.load(new URL(path, base).href, (bmp) => { t.image = bmp; t.needsUpdate = true; }, undefined, (e) => console.warn('texture', path, e));
   return t;
+}
+
+// Ground palettes (content/ground.js): the six terrain slots wear another set of pictures. The slot textures keep their size (512),
+// so only the image and the upload change; a picture is fetched once. Returns when every slot has its picture.
+const groundImages = new Map();
+const groundShown = SLOTS.map((s) => GROUND_SETS.forest[s]);   // the file each slot wears now (what TEX.ground loads below)
+const groundWanted = groundShown.slice();                          // the file the latest call asked for: calls overlap (a tank reset asks for the forest set, a preset then for its own), the last one wins
+export async function setGroundSet(set) {
+  await Promise.all(SLOTS.map(async (slot, k) => {
+    const file = groundWanted[k] = groundFile(set, slot);
+    if (groundShown[k] === file || !TEX.ground[k]) return;
+    if (!groundImages.has(file)) groundImages.set(file, loader.loadAsync(new URL('ground/' + file, base).href).then((t) => t.image));
+    const img = await groundImages.get(file);
+    if (groundWanted[k] !== file || groundShown[k] === file) return;
+    groundShown[k] = file;
+    TEX.ground[k].image = img;
+    TEX.ground[k].needsUpdate = true;
+  }));
 }
 
 export const TEX = {

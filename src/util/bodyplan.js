@@ -199,6 +199,8 @@ export const SWIM = {
   leucomelas: { kickHz: [1.1, 2.5], reach: 0.5, headUp: 0.12, level: 0.243 },
   auratus: { kickHz: [1.1, 2.5], reach: 0.5, headUp: 0.12, level: 0.23 },
   strawberry: { kickHz: [1.2, 2.8], reach: 0.5, headUp: 0.12, level: 0.249 },
+  // the harlequin poison frog (one body, drawn level as made: no `level`): a poison frog's weak, head-up bursts, the forelegs held well out
+  harlequin: { kickHz: [1.1, 2.5], reach: 0.5, headUp: 0.12 },
   // the bumblebee toad swims worst of all (it drowns in deep water): short, laboured bursts
   bumblebee: { kickHz: [1.0, 2.2], reach: 0.42, burst: [1, 3], rest: [0.4, 1.1], headUp: 0.14, level: 0.23 },
   // tree and reed frogs: long legs, better strokes, still out of the water as soon as they can

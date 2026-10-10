@@ -54,6 +54,12 @@ export const SPECIES_GENETICS = {
     morphs: ['cobalt_spotted', 'cobalt_clean', 'sky_spotted', 'sky_clean'],
     resolve: (g) => `${hom(g[0], 'b') ? 'sky' : 'cobalt'}_${hom(g[1], 's') ? 'clean' : 'spotted'}`,
   },
+  // The harlequin poison frog: one recessive gene, mint green (the owner's scan's colours) against the wild black and orange-red.
+  harlequin: {
+    loci: [rec('G', 'g', 0.15)],
+    morphs: ['orange', 'mint'],
+    resolve: (g) => (hom(g[0], 'g') ? 'mint' : 'orange'),
+  },
   // The fancy guppy: eleven genes (content/guppy.js), the strain a male shows read off them; females carry the same genes and
   // show little of them (the look, content/guppy.js guppyLook). `morphs` here is what a dealer sells; a tank breeds many more.
   guppy: {

@@ -37,6 +37,15 @@ export function needsOf(id) {
   };
 }
 
+// The land/water rule of a LAND FROG (owner, 8 Oct 2026; World.usable measures the floor): a species with `landTol` wants the share of
+// usable land (objects and plants count as half dead space) within `landTol` of its `land`. The band, and what to say outside it.
+export const landBand = (sp) => [Math.max(0, sp.land - sp.landTol), Math.min(1, sp.land + sp.landTol)];
+export const landFits = (sp, u) => { const [lo, hi] = landBand(sp); return u.share >= lo - 1e-9 && u.share <= hi + 1e-9; };
+export function landWhy(sp, u) {
+  const [lo, hi] = landBand(sp), pct = (v) => Math.round(v * 100);
+  return `${u.share < lo ? 'too little land' : 'too little water'}: ${pct(u.share)}% of the usable floor is land (objects and plants count half), it wants ${pct(lo)} to ${pct(hi)}%`;
+}
+
 const V = (why, hint, sev, hard = true) => ({ why, hint, sev, hard });
 
 // Violations of where the animal is standing: its medium, its depth, how far it is from water, whether it has cover.

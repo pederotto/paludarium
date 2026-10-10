@@ -48,7 +48,8 @@ export default async (page, shot, name) => {
   ok(s.strikes > 0, 'it strikes at its prey', `strikes ${s.strikes}, catches ${s.got}, hops ${s.hops}`);
   ok(s.maxT > 0.35, 'the strike timeline runs through contact', `max strikeT ${(s.maxT ?? 0).toFixed(2)}`);
   ok(s.got > 0 && s.goneAt != null && s.goneAt <= 0.84, 'the catch is gone into the mouth by the time the jaws shut', `swallowed at strikeT ${s.goneAt?.toFixed?.(2)}`);
-  ok(s.walk === 0, 'it never walks (hops only)', `walk samples ${s.walk}`);
+  const noWalk = await page.evaluate((id) => !!window.lab.SPECIES[id].noWalk, id);      // (a frog that walks on its feet, the harlequin, may walk: util/steps.js)
+  ok(!noWalk || s.walk === 0, 'a frog that does not walk never walks (hops only)', `walk samples ${s.walk}`);
   ok(!s.nan, 'no NaN position');
   ok(errs.length === 0, 'no page errors', errs.slice(0, 3).join(' | '));
 };

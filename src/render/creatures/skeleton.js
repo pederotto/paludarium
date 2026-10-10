@@ -27,7 +27,7 @@ import { PLANS, bendAngle } from '../../util/bodyplan.js';
 import { strokeAngles, armAngles, HIND, FORE } from '../../util/gait.js';
 import { lizardRig } from './lizardpose.js';
 import { bellyRig, writeBellies, MUSCLE_TEXEL0, MUSCLE_PAIR } from './muscles.js';
-import { strikeCurves, tongueAngles, FROG_STRIKE } from '../../util/frogstrike.js';
+import { strikeCurves, tongueAngles, FROG_STRIKE, lungePose } from '../../util/frogstrike.js';
 export { MUSCLE_TEXEL0, MUSCLE_PAIR };
 
 export const ROW_TEXELS = 94;                  // texels in an instance's row of the bone texture (RGBA float each): 24 frog bones (72 texels: 17 to 22, the red-eyed tree frog's fingers and shoulder girdle, 23 with its jaw) then 22 belly texels; a lizard's 25 bones fit too
@@ -376,12 +376,19 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
       J = addv(head[sc], mv(R[sc], sub(head[c.bones[0]], head[sc])));
     }
     // (a hind leg still pushing in a hop's launch: its toes stay where they were planted; util/gait.js leapPose, util/hop.js hopFrame)
-    const P = c.hind ? plantDirs(rig, c, A, s) : null;
+    const fT = s.feet?.[(c.hind ? 'h' : 'f') + c.side];
+    const P = fT ? stepDirs(rig, c, A, fT, s.feetUp ?? null, s.feetSit ? stanceClearance(rig, s.feetSit)?.[(c.hind ? 'h' : 'f') + c.side] : null) : c.hind ? plantDirs(rig, c, A, s) : null;
     for (let i = 0; i < k; i++) {
       const b = c.bones[i], d1 = P ? P[i] : segDir(A[i], A[k + i], c.side);
       // (a hop turns each bone by the shortest arc from its rest, so nothing rolls about its length but the foot's roll; the swimming
       // stroke keeps each bone's back up, as approved)
       let u1 = s.hop ? mv(arc(dir[b], d1), c.u0[i]) : across(d1, UP);
+      // (a one-body frog's hop, `hopBlend` 0 .. 1: the sit's convention (each bone's back up) at the ends of the hop, so it starts and lands in exactly the pose it sits in, the hop's (the shortest arc
+      // from its rest) through the push and the flight: the roll about each bone's axis turns between the two by the angle between them)
+      if (s.hop && s.hopBlend != null && s.hopBlend < 1) {
+        const ua = across(d1, UP), th = Math.atan2(dot(d1, cross(ua, u1)), dot(ua, u1));
+        u1 = mv(rotAxis(d1, th * s.hopBlend), ua);
+      }
       // (the foot rolls about its own length: the web upright as it pushes, flat as it trails)
       if (c.hind && i >= 2 && A[8]) u1 = mv(rotAxis(d1, A[8] * RAD * c.side), u1);
       // (a segment's roll about its own axis: the thigh, the forearm, the hand; the chain's joints do not move)
@@ -396,7 +403,7 @@ export function poseStroke(rig, st, out, o = 0, info = null) {
     }
     // (in a hop no limb goes through the floor: a limb reaching below it turns up about its root just enough to rest on it, as a
     // limb pressing on the ground does; util/hop.js frames carry the body's place, so the floor is known in the model's terms)
-    if (s.frames) J = floorLimb(c, R, H, J, head[c.bones[0]], s.frames.ft);
+    if (s.frames) J = floorLimb(c, R, H, J, head[c.bones[0]], s.frames.ft, rig);
     // (an arm hangs from the spine: it turns with it, about the spine's joint)
     if (tq && !c.hind) {
       for (const b of c.bones) { R[b] = mm(tq.Qs, R[b]); H[b] = tq.at(H[b]); }
@@ -457,13 +464,20 @@ export function poseHeadAtRest(rig, st, out, o = 0) {
 
 // A limb's bones (R, H, its tip J) turned up about the limb's root until no joint and not the tip lies below the floor (in the hop's
 // frame `fr`: the take-off ground at 0, the landing ground at the plan's rise); returns the tip.
-function floorLimb(c, R, H, J, root, fr) {
+function floorLimb(c, R, H, J, root, fr, rig = null) {
   // (the take-off ground through the launch, the landing ground from mid-flight: a hop up onto a stone lands higher)
   const at = fr.at, floor = !at || at.phase === 'launch' || (at.phase === 'flight' && at.u < 0.5) ? 0 : fr.plan?.rise ?? 0;
   const pts = () => [...c.bones.slice(1).map((b) => H[b]), J];
+  // (a one-body frog's hop, frame.rest: the SKIN must stay above the floor, not only the bones' joints: each joint is held its bones' radius above it (the baked skeleton's `r`, cm). The hands sank
+  // 1.5 mm into the ground through a landing and the toes up to 4 mm at take-off (tools/rig/hop-ground-check.mjs, 9 Oct 2026). Two-body frogs keep the bone rule as they were approved.)
+  // (but never held higher than the stance itself has them: the skin rests on the ground in the sit, while a toes bone's tail, a long way out, lies a little under it: `fr.rest.stanceY`, stanceClearance)
+  const rad = fr.rest && rig ? (() => {
+    const k = fr.sc ?? 1, key = (c.hind ? 'h' : 'f') + c.side, sy = (fr.rest.stanceY ?? (fr.rest.sit ? stanceClearance(rig, fr.rest.sit) : null))?.[key];
+    return c.bones.map((b, i) => Math.max(rig.B[b].r ?? 0, i ? rig.B[c.bones[i - 1]].r ?? 0 : 0)).slice(1).concat([rig.B[c.bones[c.bones.length - 1]].r ?? 0]).map((r, i) => (sy ? Math.min(r, sy[i]) : r) * k);
+  })() : null;
   const upM = norm(sub(fr.toModel([fr.pos[0], fr.pos[1] + 1, fr.pos[2]]), fr.toModel(fr.pos)));
   for (let it = 0; it < 4; it++) {
-    const P = pts(), ys = P.map((p) => fr.toWorld(p)[1] - floor), lo = Math.min(...ys);
+    const P = pts(), ys = P.map((p, i) => fr.toWorld(p)[1] - floor - (rad ? rad[i] : 0)), lo = Math.min(...ys);
     if (lo >= 0) break;
     const k = ys.indexOf(lo), arm = sub(P[k], root), reach = len(arm);
     if (reach < 1e-4) break;
@@ -496,7 +510,7 @@ function plantDirs(rig, c, A, s) {
     return J;
   })());
   const f0 = s.frames.f0, ft = s.frames.ft, w0 = f0.toWorld(tip0);
-  const T = ft.toModel([w0[0], Math.max(w0[1], 0), w0[2]]);                // (the planted tip on the floor, not a hair under it)
+  const T = ft.toModel([w0[0], s.hop && s.crouchA ? w0[1] : Math.max(w0[1], 0), w0[2]]);                // (the planted tip on the floor, not a hair under it; a one-body frog's hop plants it where its stance has it: the toes bone's tail lies a little under the ground there)
   // the toes and tarsus set against the ground, not the tilting body (the body pitches nose up as it pushes: a slant read in its
   // frame turned the toes up and sank the ankle into the floor): each keeps the heading it had in the crouch, the toes peel up to
   // PEEL as the push goes on and the heel lifts the tarsus to HEEL (deg below the horizontal, toward the toe tip)
@@ -549,7 +563,12 @@ function plantDirs(rig, c, A, s) {
   const pole = norm(addv(mul(s1, 1 - sh), mul(poleShort, sh)));
   const r = ik2(K, BpW, L[1], L[2], pole);
   const P = [mdir(ft, norm(sub(K, hipW))), mdir(ft, norm(sub(r.K, K))), mdir(ft, norm(sub(r.E, r.K))), norm(sub(T, Bp))];
-  if (s.plant?.[side]) return P;
+  // (a stance's hop: the solved leg comes in over the first fifth of the push, so the hop's first frame is the sit's own pose, not the solver's reading of it, 1.4 mm off at the thighs)
+  if (s.plant?.[side]) {
+    if (!(s.hop && s.crouchA)) return P;
+    const w = Math.min(1, e / 0.2), wp = w * w * (3 - 2 * w);
+    return P.map((d, i) => norm(addv(mul(d, wp), mul(segDir(A[i], A[k + i], c.side), 1 - wp))));
+  }
   // just off the ground: from the pushing leg into the pose in the air
   return P.map((d, i) => norm(addv(mul(d, rel), mul(segDir(A[i], A[k + i], c.side), 1 - rel))));
 }
@@ -592,6 +611,79 @@ function rotateToward(parentDir, child, deg) {
 }
 
 // A packed bone applied to a point (the shader's arithmetic, for the tests): rows of [R | t] at `o + bone * 12`.
+// A foot on the ground (9 Oct 2026, util/steps.js: a one-body frog's feet planted in the world while it walks or turns): the limb's segment directions with its tip (the toes' tail, the
+// hand's tail) at `f.T` and the last bone pointing along `f.D` (both in the model's own cm), the rest from the sitting stance's angles `A` (its poles: the knee, the heel and the elbow
+// keep the side and the bend they have in the sit). The hind leg is the planted leg's chain (thigh, then the shank and the tarsus reaching the toes' base), the arm a two-bone reach to
+// the wrist. A target out of reach is brought to the reach. Returns the directions of the limb's bones, or null (a limb of another make: a scapula, fingers).
+function stepDirs(rig, c, A, f, up = null, mins = null) {
+  const k = c.bones.length;
+  if (c.sc != null || (c.hind ? k !== 4 : k !== 3)) return null;
+  const L = c.bones.map((b) => rig.L[b]), root = rig.head[c.bones[0]], cD = [];
+  for (let i = 0; i < k; i++) cD.push(segDir(A[i], A[k + i], c.side));
+  const D = norm(f.D), Bp = sub(f.T, mul(D, L[k - 1]));
+  // (the joints' heights above the ground, as the body stands on it: `up` { n: the ground's normal in the model's frame, c, sc }, and the least each may have: the sitting stance's own, minus a hair;
+  // a leg reaching for a foot that has been carried aside must not put its knee or its shank through the floor)
+  const hOf = up ? (p) => up.sc * (up.n[0] * p[0] + up.n[1] * p[1] + up.n[2] * p[2]) + up.c : null;
+  const lack = (pts) => (hOf && mins ? Math.max(0, ...pts.map((p, i) => (mins[i] ?? -1e9) - 0.03 - hOf(p))) : 0);
+  if (c.hind) {
+    const K0 = addv(root, mul(cD[0], L[0])), E0 = addv(K0, mul(cD[1], L[1])), pole0 = norm(sub(E0, K0));
+    const far = (L[1] + L[2]) * 0.995, near = Math.abs(L[1] - L[2]) + 0.05 * L[0], u = norm(sub(Bp, root));
+    // the knee on its circle about the root-to-toes-base line: as the stance has it, else turned up the circle until the knee, the heel and the toes' base clear the floor
+    let best = null;
+    for (const th of [0, 0.15, -0.15, 0.3, -0.3, 0.5, -0.5, 0.8, -0.8]) {
+      const want = th ? mv(rotAxis(u, th), cD[0]) : cD[0], K1 = addv(root, mul(want, L[0])), dK = len(sub(Bp, K1));
+      const K = dK > far || dK < near ? ik2(root, Bp, L[0], dK > far ? far : near, want).K : K1, r = ik2(K, Bp, L[1], L[2], th ? mv(rotAxis(u, th), pole0) : pole0), d = lack([K, r.K, Bp]);
+      if (!best || d < best.d - 1e-6) best = { K, r, d };
+      if (d <= 0.004) break;
+    }
+    return [norm(sub(best.K, root)), norm(sub(best.r.K, best.K)), norm(sub(Bp, best.r.K)), D];
+  }
+  const E0 = addv(root, mul(cD[0], L[0])), pole0 = norm(sub(E0, root)), u = norm(sub(Bp, root));
+  let best = null;
+  for (const th of [0, 0.15, -0.15, 0.3, -0.3, 0.5, -0.5]) {
+    const r = ik2(root, Bp, L[0], L[1], th ? mv(rotAxis(u, th), pole0) : pole0), d = lack([r.K, Bp]);
+    if (!best || d < best.d - 1e-6) best = { r, d };
+    if (d <= 0.004) break;
+  }
+  return [norm(sub(best.r.K, root)), norm(sub(Bp, best.r.K)), D];
+}
+
+// Where each foot of a one-body frog stands in its sitting stance: { key: 'h-1' | 'h1' | 'f-1' | 'f1' (hind or fore, by side), G (the tip: the toes' tail, the hand's tail), D (its last bone's direction) } in the
+// frog's ground frame (model cm turned by the stance's root: util/frogstrike.js lungeRoot at rest). Cached on the rig by stance. util/steps.js plants and moves them.
+const STANCE_FEET = new WeakMap();
+export function stanceFeet(rig, sit) {
+  let m = STANCE_FEET.get(rig); if (!m) STANCE_FEET.set(rig, (m = new WeakMap()));
+  if (m.has(sit)) return m.get(sit);
+  const st = lungePose(sit, 0, 0, 0, HIND, FORE, {}), R = st.root, c = Math.cos(R.pitch), sn = Math.sin(R.pitch), row = new Float32Array(ROW_FLOATS), out = [];
+  poseStroke(rig, st, row);
+  for (const lm of rig.limbs) {
+    const b = lm.bones[lm.bones.length - 1], h = applyBone(row, 0, b, rig.head[b]), t = applyBone(row, 0, b, rig.tail[b]);
+    const G = [t[0] + R.off[0], c * t[1] - sn * t[2] + R.off[1], sn * t[1] + c * t[2] + R.off[2]], d = [t[0] - h[0], c * (t[1] - h[1]) - sn * (t[2] - h[2]), sn * (t[1] - h[1]) + c * (t[2] - h[2])], l = Math.hypot(...d) || 1;
+    // (how much further than the stance's own reach the foot could be carried: the limb's length less the root-to-tip distance it has there; util/steps.js lifts the foot before that is used up)
+    const r0 = rig.head[lm.bones[0]], dist = Math.hypot(t[0] - r0[0], t[1] - r0[1], t[2] - r0[2]), tot = lm.bones.reduce((u, bb) => u + rig.L[bb], 0);
+    out.push({ key: (lm.hind ? 'h' : 'f') + lm.side, G, D: d.map((v) => v / l), slack: Math.max(0, tot * 0.97 - dist) });
+  }
+  m.set(sit, out);
+  return out;
+}
+
+// The height above the ground (cm, at scale 1) of each limb's points that poseStroke's floor rule watches (the joints after the first, and the tip), in a one-body frog's sitting
+// stance (SPECIES.<id>.sit): { hL, hR, fL, fR } (hind and fore, by side). A hop's floor rule keeps a limb no lower than the stance has it (floorLimb), so the hop starts and ends
+// exactly in the sit. Cached on the rig by stance.
+const STANCE_Y = new WeakMap();
+export function stanceClearance(rig, sit) {
+  let m = STANCE_Y.get(rig); if (!m) STANCE_Y.set(rig, (m = new WeakMap()));
+  if (m.has(sit)) return m.get(sit);
+  const st = lungePose(sit, 0, 0, 0, HIND, FORE, {}), R = st.root, c = Math.cos(R.pitch), sn = Math.sin(R.pitch), row = new Float32Array(ROW_FLOATS), out = {};
+  poseStroke(rig, st, row);
+  for (const lm of rig.limbs) {
+    const last = lm.bones[lm.bones.length - 1], pts = [...lm.bones.slice(1).map((b) => applyBone(row, 0, b, rig.head[b])), applyBone(row, 0, last, rig.tail[last])];
+    out[(lm.hind ? 'h' : 'f') + lm.side] = pts.map((p) => c * p[1] - sn * p[2] + R.off[1]);
+  }
+  m.set(sit, out);
+  return out;
+}
+
 export function applyBone(row, o, b, p) {
   const k = o + b * 12;
   return [0, 1, 2].map((r) => row[k + r * 4] * p[0] + row[k + r * 4 + 1] * p[1] + row[k + r * 4 + 2] * p[2] + row[k + r * 4 + 3]);

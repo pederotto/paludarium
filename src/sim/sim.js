@@ -20,6 +20,7 @@ import { PLANTS } from './plants.js';
 import { clamp, lerp } from '../util/math.js';
 import { TANK, tankLitres, sizeFactors, roomFor, CROWDS } from './tank.js';
 import { HABITAT } from '../content/habitats.js';
+import { landWhy } from './habitat.js';
 import { filterOf, filterClog, filterEff, substrateOf } from '../content/equipment.js';
 import { filterFlow } from './filterflow.js';
 import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from './genetics.js';
@@ -262,7 +263,12 @@ export class Sim {
     let st = 0;
     if (sp.minL && tankLitres() < sp.minL * 0.8) { st += 0.03; why.push(`tank too small (wants ${sp.minL} litres or more)`); }
     if (sp.minH && TANK.h < sp.minH * 0.85) { st += 0.02; why.push(`tank too low (wants ${sp.minH} cm of height to climb)`); }
-    if (sp.land != null) {
+    if (sp.land != null && sp.landTol != null) {
+      // A land frog (owner, 8 Oct 2026): the rule is strict, on the USABLE floor (objects and plants count as half dead space,
+      // World.usable) and within `landTol` of what the species wants.
+      const u = this.world.usable(), off = u.share - sp.land;
+      if (Math.abs(off) > sp.landTol) { st += 0.05; why.push(landWhy(sp, u)); }
+    } else if (sp.land != null) {
       const share = this.world.landShare(), off = share - sp.land;
       if (Math.abs(off) > 0.3) { st += 0.02; why.push(off > 0 ? `too little water (wants about ${Math.round((1 - sp.land) * 100)}%)` : `too little land (wants about ${Math.round(sp.land * 100)}%)`); }
     }

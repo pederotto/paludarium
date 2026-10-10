@@ -64,7 +64,7 @@ if (import.meta.url === (await import('node:url')).pathToFileURL(process.argv[1]
   const { lungePose } = await import('../../src/util/frogstrike.js');
   const { HIND, FORE } = await import('../../src/util/gait.js');
   let SIT = opt('--sit', null) ? JSON.parse(opt('--sit')) : null;
-  if (!SIT) { const src = fs.readFileSync('src/sim/animals.js', 'utf8'), m = src.match(/sit: (\{ pitchDeg[^\n]*?\}),?\n/); SIT = Function('return ' + m[1].replace(/, mouthCm[\s\S]*$/, ' }'))(); }
+  if (!SIT) { const src = fs.readFileSync('src/sim/animals.js', 'utf8'), k0 = src.indexOf('\n  commonfrog: {'), m = src.slice(Math.max(0, k0)).match(/sit: (\{ pitchDeg[^\n]*?\}),?\n/); SIT = Function('return ' + m[1].replace(/, mouthCm[\s\S]*$/, ' }'))(); }
   const man = JSON.parse(fs.readFileSync('public/assets/creatures/manifest.json', 'utf8'))['commonfrog.swim'], d = await io.read('public/assets/creatures/' + man.file);
   const nd = d.getRoot().listNodes().find((x) => x.getMesh()), Mw = nd.getWorldMatrix(), pr = nd.getMesh().listPrimitives()[0];
   const get = (nm) => { const a = pr.getAttribute(nm), n = a.getCount(), c = a.getElementSize(), o = new Float32Array(n * c), e = []; for (let i = 0; i < n; i++) { a.getElement(i, e); for (let k = 0; k < c; k++) o[i * c + k] = e[k]; } return o; };

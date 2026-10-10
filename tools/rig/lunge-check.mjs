@@ -22,7 +22,7 @@ const DIR = 'public/assets/creatures/', man = JSON.parse(fs.readFileSync(DIR + '
 // the stance: --stance '<json>', else SPECIES.<species>.sit read from src/sim/animals.js's text (the module itself does not load in node: it imports the browser's three);
 // (a fallback that silently stood in for it fitted the arms to a stance the game did not have, 7 Oct 2026: no fallback now)
 const SIT0 = (() => { if (args.includes('--stance')) return JSON.parse(args[args.indexOf('--stance') + 1]);
-  const src = fs.readFileSync('src/sim/animals.js', 'utf8'), m = src.match(/sit: (\{ pitchDeg[^\n]*?\}),?\n/); if (!m) throw new Error('no sit stance in src/sim/animals.js'); return Function('return ' + m[1].replace(/, mouthCm[\s\S]*$/, ' }'))(); })();
+  const src = fs.readFileSync('src/sim/animals.js', 'utf8'), k0 = src.indexOf(`\n  ${id.split('.')[0]}: {`), m = src.slice(Math.max(0, k0)).match(/sit: (\{ pitchDeg[^\n]*?\}),?\n/); if (!m) throw new Error('no sit stance in src/sim/animals.js'); return Function('return ' + m[1].replace(/, mouthCm[\s\S]*$/, ' }'))(); })();
 const SIT = { ...SIT0, offsetCm: [...SIT0.offsetCm], pivotCm: [...(SIT0.pivotCm ?? [0, 0.08, -3.85])], armDeg: [...SIT0.armDeg], pitchDeg: opt('--pitch', SIT0.pitchDeg) };      // (keep in step with SPECIES.commonfrog.sit)
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
 const doc = await io.read(DIR + man.file), node = doc.getRoot().listNodes().find((n) => n.getMesh()), prim = node.getMesh().listPrimitives()[0], Mw = node.getWorldMatrix();
@@ -30,7 +30,12 @@ const get = (name) => { const a = prim.getAttribute(name), n = a.getCount(), c =
 const P0 = get('POSITION'), SK = get('_SKIN'), SX = get('_SKINX'), n = P0.length / 3;
 for (let i = 0; i < n; i++) { const x = P0[i * 3], y = P0[i * 3 + 1], z = P0[i * 3 + 2]; for (let r = 0; r < 3; r++) P0[i * 3 + r] = (Mw[r] * x + Mw[4 + r] * y + Mw[8 + r] * z + Mw[12 + r]) * 100; }   // cm
 const bones = (i) => [[SK[i * 4] * 32, SK[i * 4 + 2]], [SK[i * 4 + 1] * 32, SK[i * 4 + 3]], [SX[i * 4] * 32, SX[i * 4 + 2]], [SX[i * 4 + 1] * 32, SX[i * 4 + 3]]].map(([b, w]) => [Math.round(b), w]);
-const rig = skeletonRig(man.skeleton, {}), N = rig.byName;
+// --scale <k> (--fit-limbs on a frog smaller or larger than the common frog, whose cm the fit's constants are in: the harlequin, 3.3 cm on its 7 cm): the geometry is multiplied by 1 / k for the fit
+// (the angles do not change with size) and the offsets it prints by k
+const KS = args.includes('--scale') ? +args[args.indexOf('--scale') + 1] : 1, FS = 1 / KS;
+if (FS !== 1) for (let i = 0; i < P0.length; i++) P0[i] *= FS;
+const SKEL = FS === 1 ? man.skeleton : { ...man.skeleton, bones: man.skeleton.bones.map((b) => ({ ...b, head: b.head.map((v) => v * FS), tail: b.tail.map((v) => v * FS), ...(b.r != null ? { r: b.r * FS } : {}) })) };
+const rig = skeletonRig(SKEL, {}), N = rig.byName;
 // the vertices that may touch the ground: mostly a foot's, a toe's, a hand's or a forearm's (the shin too: a sitting frog rests its folded shank on it), or the tongue's
 const limbEnd = new Set(['footL', 'toesL', 'footR', 'toesR', 'handL', 'handR', 'forearmL', 'forearmR', 'shinL', 'shinR', 'tongue1', 'tongue2', 'tongue3', 'tongue4'].map((k) => N[k]).filter((b) => b != null));      // (and the tongue: it goes to the prey on the ground)
 const free = new Uint8Array(n); for (let i = 0; i < n; i++) { let w = 0; for (const [b, ww] of bones(i)) if (limbEnd.has(b)) w += ww; free[i] = w < 0.5 ? 1 : 0; }
@@ -63,7 +68,7 @@ if (args.includes('--fit-limbs')) {
   const SD = args.includes('--side') ? args[args.indexOf('--side') + 1] : 'L', ARM = SD === 'R' || args.includes('--arm-only');
   const Vhand = G('hand' + SD), Vfore = G('forearm' + SD, 'arm' + SD), Vfoot = G('footL', 'toesL'), Vbody = G('pelvis', 'spine', 'thighL', 'thighR', 'shinL', 'shinR', 'footL', 'footR'), Vback = G('spine', 'spineB', 'pelvis'), Vall = [...Array(n).keys()].filter((i) => free[i] || true);
   const skinAt = (i, o) => { let x = 0, y = 0, z = 0; for (const [b, w] of bones(i)) { if (w <= 1e-6) continue; const q = bonePt(b, [P0[i * 3], P0[i * 3 + 1], P0[i * 3 + 2]]); x += w * q[0]; y += w * q[1]; z += w * q[2]; } o[0] = x; o[1] = y; o[2] = z; return o; };
-  const eye = [0.642 * (SD === 'L' ? 1 : -1), 1.899, 2.003], tmp = [0, 0, 0];
+  const eyeM = man.finish?.eyes?.[0]?.c, eye = FS !== 1 && eyeM ? [eyeM[0] * (SD === 'L' ? 1 : -1) * FS, eyeM[1] * FS, eyeM[2] * FS] : [0.642 * (SD === 'L' ? 1 : -1), 1.899, 2.003], tmp = [0, 0, 0];
   // the arm clear of the body (the owner, 7 Oct 2026: at least 0.5 mm between the arm and the chest and throat, no arm skin inside the body), measured as
   // tools/rig/sit-check.mjs measures it (tools/rig/arm-clear.mjs: the nearest skin exactly, inside by the winding number), outside the armpit's own crease (--seam,
   // cm along the arm's skin from its seam with the body: 0.4, the narrowest band at which the unposed model itself is 0.5 mm clear)
@@ -193,7 +198,7 @@ if (args.includes('--fit-limbs')) {
   console.log('                       knee', f2(D.knee), 'back top', D.backTop.toFixed(2), 'heel', f2(D.heel), 'vent', f2(D.vent), 'toes', f2(D.toes));
   const P = best[0], a = -P[0] * Math.PI / 180, v = rig.head[N.pelvis];
   if (ARM) console.log(SD + ' arm armA:', JSON.stringify(P.slice(1, 7)), 'roll (forearm, hand):', JSON.stringify(P.slice(7, 9)));
-  console.log('sit:', JSON.stringify({ pitchDeg: P[0], offsetCm: [0, +D.y0.toFixed(3), 0.237], pivotCm: [0, +(Math.cos(a) * v[1] - Math.sin(a) * v[2] + D.y0).toFixed(3), +(Math.sin(a) * v[1] + Math.cos(a) * v[2] + 0.237).toFixed(3)], armA: P.slice(1, 7), legA: P.slice(7, 16) }));
+  console.log('sit:', JSON.stringify({ pitchDeg: P[0], offsetCm: [0, +(D.y0 * KS).toFixed(3), +(0.237 * KS).toFixed(3)], pivotCm: [0, +((Math.cos(a) * v[1] - Math.sin(a) * v[2] + D.y0) * KS).toFixed(3), +((Math.sin(a) * v[1] + Math.cos(a) * v[2] + 0.237) * KS).toFixed(3)], armA: P.slice(1, 7), legA: P.slice(7, 16) }));
   process.exit(0);
 }
 if (args.includes('--fit-sit')) {

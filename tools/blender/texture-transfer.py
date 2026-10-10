@@ -1,10 +1,12 @@
 # Bakes a textured source model's colour onto a game body's atlas (the common frog, 7 Oct 2026: the owner's drop texture, colours corrected to the reference images,
 # onto commonfrog.swim's atlas after the mouth was cut). The source must already be in the target's frame (metres, baked frame). The inside of the mouth, which the
 # source does not have, is told apart by the target's vertex colours (frogmouth-finish.mjs --plain: the lining and the tongue marked) and painted as mucosa.
-#   Blender -b -P texture-transfer.py -- <source.glb> <source_color.png> <target_plain.glb> <out.png> [--size 1024]
+#   Blender -b -P texture-transfer.py -- <source.glb> <source_color.png> <target_plain.glb> <out.png> [--size 1024] [--k 0.47]
+# --no-mouth: the target has no mouth marks in its vertex colours (a body without a cut mouth): every texel is skin
+# --k: the body's size against the 7 cm common frog the ray settings below were made for (the harlequin, 3.3 cm: 0.47)
 import bpy, sys, numpy as np
 a = sys.argv[sys.argv.index('--') + 1:]
-SRC, SRCIMG, TGT, OUT = a[:4]; SIZE = int(a[a.index('--size') + 1]) if '--size' in a else 1024
+SRC, SRCIMG, TGT, OUT = a[:4]; SIZE = int(a[a.index('--size') + 1]) if '--size' in a else 1024; KB = float(a[a.index('--k') + 1]) if '--k' in a else 1.0; NOMOUTH = '--no-mouth' in a
 bpy.ops.wm.read_factory_settings(use_empty=True)
 def imp(p):
     before = set(bpy.context.scene.objects); bpy.ops.import_scene.gltf(filepath=p)
@@ -33,7 +35,7 @@ bk = sc.render.bake; bk.margin = 8
 # 1. the colour from the source, selected to active
 for o in sc.objects: o.select_set(False)
 src.select_set(True); tgt.select_set(True); bpy.context.view_layer.objects.active = tgt; nt.nodes.active = tex
-bk.use_selected_to_active = True; bk.cage_extrusion = 0.003; bk.max_ray_distance = 0.008; bk.use_pass_direct = False; bk.use_pass_indirect = False; bk.use_pass_color = True
+bk.use_selected_to_active = True; bk.cage_extrusion = 0.003 * KB; bk.max_ray_distance = 0.008 * KB; bk.use_pass_direct = False; bk.use_pass_indirect = False; bk.use_pass_color = True
 bpy.ops.object.bake(type='DIFFUSE', pass_filter={'COLOR'})
 # 2. the mouth mask from the target's own vertex colours
 src.select_set(False); bk.use_selected_to_active = False
@@ -53,6 +55,7 @@ for it in range(96):                                   # (each pass: a missing t
 lin = lambda v: np.where(np.array(v) <= 0.04045, np.array(v) / 12.92, ((np.array(v) + 0.055) / 1.055) ** 2.4)
 marks = {'skin': [0.16, 0.13, 0.06], 'lining': [0.45, 0.10, 0.12], 'tongue': [0.62, 0.20, 0.22]}      # frogmouth-finish.mjs stand-in colours (linear)
 d = np.stack([np.linalg.norm(lin(M) - np.array(v), axis=-1) for v in marks.values()], -1); cls = d.argmin(-1)
+if NOMOUTH: cls = np.zeros_like(cls)
 rng = np.random.default_rng(7); noise = rng.normal(0, 1, (SIZE // 8, SIZE // 8)); noise = np.kron(noise, np.ones((8, 8)))[:SIZE, :SIZE] * 0.03
 lining = np.array([0.58, 0.32, 0.33]); tongue = np.array([0.92, 0.62, 0.64])      # display values
 for k, col in ((1, lining), (2, tongue)):

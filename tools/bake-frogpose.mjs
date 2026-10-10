@@ -51,6 +51,11 @@ const JOBS = {
   // usual size. SVL 7 cm (1.012 units). `skel`: the joints measured on mm grids and carried through the correction, levelled as the bake levels it
   // (tools/rig/commonfrog-swim-joints.json). paint: a stand-in until the owner's texture (colours from the reference images) is baked onto the atlas (set-texture.mjs).
   'commonfrog.swim': { src: 'commonfrog_swim_mesh', cmPerUnit: 6.917, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'bombina', eyes: 'commonfrog', skel: 'COMMONFROG', vent: -0.19, trunkZ: [-0.15, 0.42], sHalf: 0.2, eye: { c: [0.088, 0.028, 0.658], r: 0.05 }, eyeCm: { c: [0.642, 1.899, 2.003], r: 0.40, axis: [0.90, 0.15, 0.41] }, split: true },   // (eyeCm: the eye sphere fitted to the body's dome, its axis mostly sideways, a little up and forward (the cap's middle, 0.69/0.58/0.43, put the pupil too high against the reference's side view); 7 Oct, the owner: "pupils wrong compared to ref img")
+  // The harlequin poison frog (Oophaga histrionica, the owner's Meshy scan of 8 Oct 2026, art-src/raw/harlequin_mesh.glb): ONE body for every pose, as the common frog's. The scan lies sprawled, the limbs apart (the
+  // left hind leg stretched out behind, the right one folded in a Z, the left hand reaching ahead, the right one beside the chest); 3.3 cm snout to vent (mean 32.9 mm, the species' size on the Species board)
+  // = 1.22 scan units. `center`: the trunk's x taken to 0 first (the scan is off the axis, +0.134). `skel`: the joints in tools/rig/harlequin-swim-joints.json (measured on slices and zoomed
+  // views of the levelled, centred scan, the hind legs fitted with tools/rig/fit-chain.mjs). `paint`: a stand-in until the owner's scan colours and the true black-and-orange pattern are baked on.
+  'harlequin.swim': { src: 'harlequin_sym_mesh', center: 0.060, cmPerUnit: 2.705, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'bombina', eyes: 'harlequin', skel: 'HARLEQUIN', vent: -0.42, trunkZ: [-0.3, 0.5], sHalf: 0.22, eye: { c: [0.115, 0.117, 0.635], r: 0.07 }, split: true },
   // The red-eyed tree frog does not swim, but it leaps, and its own scan sits with its hind legs folded in one lump: in the air it is
   // drawn in this body (Animals.draw, util/gait.js leapStroke), painted as itself.
   // The red-eyed tree frog does not swim: this is its CLIMBING and WALKING body (the stroke-posed, limbs-apart variant the game loads as `<id>.swim`), made from the
@@ -89,7 +94,9 @@ const REDEYE_JOINTS = JSON.parse(fs.readFileSync(new URL('./rig/redeye-walk-join
 const { mid2: _mid2, ...REDEYE_J } = REDEYE_JOINTS.joints;       // (the split's mid2 is the middle of mid and chest, as for the toad)
 const CF_JOINTS = JSON.parse(fs.readFileSync(new URL('./rig/commonfrog-swim-joints.json', import.meta.url), 'utf8'));
 const { mid2: _cfmid2, ...CF_J } = CF_JOINTS.joints;
-const SKELS = { TOAD: TOAD_SWIM_SKELETON, REDEYE: { joints: REDEYE_J, radius: REDEYE_JOINTS.radius }, COMMONFROG: { joints: CF_J, radius: CF_JOINTS.radius } };
+const HQ_JOINTS = JSON.parse(fs.readFileSync(new URL('./rig/harlequin-swim-joints.json', import.meta.url), 'utf8'));
+const { mid2: _hqmid2, ...HQ_J } = HQ_JOINTS.joints;
+const SKELS = { TOAD: TOAD_SWIM_SKELETON, REDEYE: { joints: REDEYE_J, radius: REDEYE_JOINTS.radius }, COMMONFROG: { joints: CF_J, radius: CF_JOINTS.radius }, HARLEQUIN: { joints: HQ_J, radius: HQ_JOINTS.radius } };
 if (process.env.PASSES) JOBS['redeye.swim'].skinPasses = +process.env.PASSES;
 const { EYES } = await import('./paint/eyes.mjs');
 await MeshoptSimplifier.ready; await MeshoptEncoder.ready; await MeshoptDecoder.ready;
@@ -159,7 +166,7 @@ function analyse(src, job = {}) {
     H[i] = clamp01((y - yb) / (yt - yb));
     S[i] = clamp01(ax / (job.sHalf ?? 0.3));
   }
-  return { pos, n, U, H, S, LEG, LEGT, zs, zv, yb, yt, trunkIdx };
+  return { pos, n, U, H, S, LEG, LEGT, zs, zv, yb, yt, trunkIdx, th };
 }
 
 // Which limb a vertex belongs to (rig ids 1 … 4: arms L and R, hind legs L and R, 0 the trunk) and how far along it (0 at the root, 1 at the
@@ -431,6 +438,8 @@ for (const [id, job] of Object.entries(JOBS)) {
   if (job.conform && !A.conformed) { await conformTo(A, bones, A.bind, src.idx, job, k); A.conformed = true; }
   if (job.skel && !A.legged) { legsFromBones(A, bones, A.bind); A.legged = true; }
   const zc = (A.zs + A.zv) / 2;
+  // FRAME_OUT=<file.json>: the frame this body was baked in (scan -> centred, levelled, shifted, scaled), for a colour source in the same frame (tools/blender/mirror-source.py)
+  if (process.env.FRAME_OUT) fs.writeFileSync(process.env.FRAME_OUT, JSON.stringify({ id, rotY: job.rotY ?? 0, center: job.center ?? 0, th: A.th, yb: A.yb, zc, k: job.cmPerUnit / 100 }, null, 1));
   const cm0 = (j) => [+(j[0] * k * 100).toFixed(3), +((j[1] - A.yb) * k * 100).toFixed(3), +((j[2] - zc) * k * 100).toFixed(3)];
   if (job.eye) { const ec = A.conform ? A.conform.point(job.eye.c) : job.eye.c; eyeC = cm0(ec); eyeR = (job.eyeCmR ?? job.eye.r * (A.conform ? A.conform.mean(job.eye.c) : 1) * k * 100); }
   // the trunk split in two (T4): joint mid2 half way along the old spine, the old spine's place in the baked frame for the weights' ramp

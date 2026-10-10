@@ -28,6 +28,10 @@ export const MORPHS = {
     sky_spotted: M('Sky blue, many spots', 'A pale sky-blue frog with bold black spots.', 2),
     sky_clean: M('Sky blue, few spots', 'Pale sky blue and almost spotless. A real prize.', 4),
   },
+  harlequin: {
+    orange: M('Black and orange-red', 'The harlequin as it is in the Chocó forest: a black frog with bold orange-red patches.', 1),
+    mint: M('Mint green', 'The same black pattern in mint green: a rare colour form of the harlequin. It needs two green genes.', 2),
+  },
   guppy: {},          // filled from GUPPY_STRAINS below
   betta: {
     red: M('Red', 'A classic red betta with flowing fins.', 1),
@@ -64,6 +68,9 @@ export const LOCI_TEXT = {
     { name: 'Blue shade gene', traits: { B: 'cobalt', b: 'sky blue' } },
     { name: 'Spot gene', traits: { S: 'many spots', s: 'few spots' } },
   ],
+  harlequin: [
+    { name: 'Green gene', traits: { G: 'orange-red', g: 'mint green' } },
+  ],
   guppy: GUPPY_LOCI.map(({ name, traits, mixed }) => (mixed ? { name, traits, mixed } : { name, traits })),
   betta: [
     { name: 'Fin colour gene', traits: { R: 'red', B: 'blue' }, mixed: 'purple (one of each)' },
@@ -81,6 +88,7 @@ export const LOCI_TEXT = {
 export const SWATCH = {
   axolotl: { wild: '#6b5a3a', leucistic: '#f2c6cd', golden: '#e6b935', melanoid: '#26252b', white_albino: '#f5eed9' },
   dartfrog: { cobalt_spotted: '#2f55c8', cobalt_clean: '#2a48b0', sky_spotted: '#72bdee', sky_clean: '#9bd3f5' },
+  harlequin: { orange: '#e8531a', mint: '#8fd9b6' },
   betta: { red: '#d8323a', purple: '#8a4fc0', blue: '#2f5fd0', cellophane: '#e8edf0' },
   shrimp: { wild: '#9b8364', red: '#d8323a', yellow: '#eed23a', orange: '#f08a2c', blue: '#2f5fd0', green: '#3f9a5a', chocolate: '#5a3424', black: '#1c1a22',
     red_rili: '#e8868a', yellow_rili: '#f2e08a', orange_rili: '#f4b07a', blue_rili: '#8aa8e8', green_rili: '#8ac49a', chocolate_rili: '#9a7a6a', black_rili: '#6a6872' },

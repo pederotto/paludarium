@@ -54,6 +54,7 @@ export const HABITAT = {
   dartfrog: { noun: 'blue dart frog', zone: 'land', maxDepth: 1.2, rhMin: 50, tMax: 31, need: 'damp, dry-footed ground (it swims only briefly)' },
   strawberry: { noun: 'strawberry dart frog', zone: 'land', maxDepth: 1.0, rhMin: 55, tMax: 31, need: 'damp, dry-footed ground (it swims only briefly)' },
   leucomelas: { noun: 'yellow-banded poison frog', zone: 'land', maxDepth: 1.2, rhMin: 45, tMax: 32, need: 'damp, dry-footed ground (it swims only briefly)' },
+  harlequin: { noun: 'harlequin poison frog', zone: 'land', maxDepth: 1.2, rhMin: 60, tMax: 30, need: 'damp, dry-footed forest floor with leaf litter and a log or root to call from (it swims only briefly)' },
   auratus: { noun: 'green and black poison frog', zone: 'land', maxDepth: 1.2, rhMin: 50, tMax: 32, need: 'damp, dry-footed ground (it swims only briefly)' },
   // A forest salamander: cool, damp ground with a hide. Its water is a shallow dish or the stream's edge, not a pool.
   firesal: { noun: 'fire salamander', zone: 'land', maxDepth: 0.6, water: 40, cover: 7, rhMin: 52, tMax: 25, need: 'cool (under 22 °C), damp ground with a hide: wood, a rock, leaf litter or moss' },

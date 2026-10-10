@@ -111,6 +111,9 @@ export class Game {
   // screen's tank (see restartTank).
   async buildTank(id, { layout = 'empty', save = null, showcase = false } = {}) {
     const same = TANKS[id] ?? TANKS.standard;
+    // The lazy hardscape models (decor.preloadMore) load while the title screen is up; a real game's tank, a saved one or a preset
+    // placing them, is built only once they are in. (The title tank itself never waits for them.)
+    if (!showcase && this.world) await Promise.all([this.world.decor.ready, this.world.plants.ready]);
     if (this.world && this.showcase && this.tankId === same.id && same.id !== 'custom') return this.restartTank(same, layout, save);
     this.unloadTank();
     // A saved custom tank brings its own size along (app/saves.js), whatever size was built last.
@@ -129,6 +132,7 @@ export class Game {
     const world = this.world = new World(this.worldRoot);
     window.paludarium = world;
     await world.init();
+    if (!showcase) await Promise.all([world.decor.ready, world.plants.ready]);
     this.fx = new WaterFX(this.renderer, world);
     world.fx = this.fx;
     world.water.fx = this.fx;

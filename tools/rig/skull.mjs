@@ -41,6 +41,12 @@ export const CONFIG = {
   // corrected mesh and carried into the baked frame of commonfrog.swim (SVL 7 cm); the eyeballs as spheres of ED 0.66 cm under the eye domes
   commonfrog: { plan: 'anuran', snoutZ: 3.226, hingeZ: 1.145, lip: { y0: 1.4893, slope: -0.1012 }, skinCm: 0.06, softCm: 0.24, dyScale: 0.7, xr: [-1.4, 1.4], yBand: 0.4, roofDrop: 0.85, eyeZone: 1.15,
     eyes: [{ c: [-0.612, 1.98, 1.993], r: 0.33 }, { c: [0.612, 1.98, 1.993], r: 0.33 }] },
+  // the harlequin poison frog's game body (the owner's scan, gate 4, 8 Oct 2026; harlequin.swim, SVL 3.3 cm): the lip groove, the mouth angle and the eyeballs read off zoomed side, top and
+  // front views of the symmetric body (tools/rig/joints-view.mjs, RIG=none) and carried into the baked frame (cm): the groove runs from the chin tip (z 1.61, y 0.367) back to z 0.92 (y 0.442),
+  // a slope of -0.109 (the common frog's is -0.101), and ends under the eye at the mouth angle z 0.80; the eyeballs are spheres of r 0.135 cm under the eye bumps (eyeZone 2.3: the scan's eyes have internal sheets reaching 0.3 cm from the centre, under which the closest-point sign test called the palate bones outside). dyScale: the plan's heights
+  // were set on a 3.05 cm skull; this one is about 1.2 cm long.
+  harlequin: { plan: 'anuran', snoutZ: 1.693, hingeZ: 0.80, lip: { y0: 0.5416, slope: -0.1086 }, skinCm: 0.03, softCm: 0.10, dyScale: 0.4, xr: [-0.7, 0.7], yBand: 0.2, roofDrop: 0.85, eyeZone: 2.3,
+    eyes: [{ c: [-0.446, 0.829, 1.179], r: 0.135 }, { c: [0.446, 0.829, 1.179], r: 0.135 }] },
   firesal: { plan: 'caudate', snoutZ: 8.0, hingeZ: 5.8, lip: { y0: 2.178 - 0.0595 * 5.8, slope: 0.0595 }, skinCm: 0.08, softCm: 0.16, xr: [-2.2, 1.4], yBand: 0.9,
     eyes: [{ c: [-1.19, 2.94, 6.61], r: 0.42 }, { c: [0.19, 2.88, 6.76], r: 0.42 }],
     // what goes into the mouth on top of the skull (tools/blender/skull.py --fit-cavity): a tongue pad on the floor (a share of the skull's length and of its width,
@@ -149,8 +155,9 @@ export const PLANS = {
 };
 
 export async function readPositions(file) {
-  const doc = await new NodeIO().read(file), pos = doc.getRoot().listMeshes()[0].listPrimitives()[0].getAttribute('POSITION');
-  const out = [], e = []; for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, e); out.push([e[0] * 100, e[1] * 100, e[2] * 100]); }
+  const doc = await new NodeIO().read(file), node = doc.getRoot().listNodes().find((n) => n.getMesh()), pos = node.getMesh().listPrimitives()[0].getAttribute('POSITION'), M = node.getWorldMatrix();
+  // (a quantized creature file keeps its positions as normalised integers under a node scale and offset: the node's matrix is applied; identity for a plain file)
+  const out = [], e = []; for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, e); out.push([0, 1, 2].map((r) => (M[r] * e[0] + M[4 + r] * e[1] + M[8 + r] * e[2] + M[12 + r]) * 100)); }
   return out;
 }
 

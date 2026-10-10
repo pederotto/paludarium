@@ -329,6 +329,36 @@ const NEW_SETS = {
     animals: ['pandaking', 'springsea'], stock: [['pandaking', 6, 'ledge'], ['springsea', 20, 'edge']],
     tags: ['isopods', 'springtails', 'crew', 'limestone'], adjectives: ['Dripping', 'Dark', 'Mossy', 'Stony'], noun: 'Cave',
   },
+  // 8 Oct 2026: the three sets built on the scanned rocks, wood and plants (the owner's order: satoyama, choco, orinoco).
+  satoyama: {
+    name: 'Satoyama pond', biotope: 'satoyama', layout: 'blackwater', featured: ['toad', 'zacco'], ref: 'wide',
+    place: 'Village pond and paddy margin, Honshu, Japan', water: 0.3, pool: 0.8, rate: 240, climate: { temp: [14, 24], rh: [70, 95] },
+    env: { setpoint: 20, chill: 1, coolSet: 20 }, gear: ['chiller'],
+    blurb: 'A pond at the edge of a Japanese village wood: lotus and water lilies on the water, bulrush at the edge, hosta, royal fern and trillium under the trees. Fire-bellied toads sit on the bank and pale chub hold in the water.',
+    plants: ['lotus', 'lilyscan', 'typha', 'hosta', 'royalfern', 'trillium', 'weed', 'grass'], swap: { fernph: 'royalfern' },
+    flora: [['lotus', 2, 'deep:8'], ['lilyscan', 3, 'deep:8'], ['typha', 4, 'edge'], ['hosta', 4, 'flat'], ['royalfern', 3, 'flat'], ['trillium', 3, 'flat'], ['weed', 4, 'flat']],
+    animals: ['toad', 'zacco', 'springtail', 'isopod'], stock: [['toad', 4, 'bank'], ['zacco', 5, 'deep:6'], ['isopod', 8, 'land'], ['springtail', 20, 'land']],
+    needs: ['Japanese tree frog'], tags: ['pond', 'lotus', 'toads', 'cool'], adjectives: ['Quiet', 'Lotus', 'Village', 'Misty', 'Still', 'Summer'], noun: 'Pond',
+  },
+  choco: {
+    name: 'Chocó rainforest slope', biotope: 'choco', layout: 'suriname', featured: ['harlequin'], ref: 'standard',
+    place: 'Pacific rainforest, Chocó, western Colombia', water: 0.05, climate: { temp: [24, 28], rh: [85, 100] }, env: { setpoint: 26, fogger: 0.8 },
+    blurb: 'A wet Pacific forest slope in western Colombia: leaf litter, fallen and hollow logs, parrot heliconia and forest ginger in the understorey and a wall of crimson bromeliad-like rosettes, with harlequin poison frogs hunting on the litter.',
+    plants: ['parrotheliconia', 'forestginger', 'hibiscus', 'crimsonfern', 'royalfern', 'guzmania', 'bromeliad', 'tillandsia', 'fern', 'grass'], swap: { pothos: 'forestginger', fernph: 'royalfern' },
+    flora: [['parrotheliconia', 2, 'flat'], ['forestginger', 3, 'flat'], ['hibiscus', 1, 'flat'], ['royalfern', 2, 'flat'], ['crimsonfern', 3, 'wall'], ['guzmania', 2, 'wall']],
+    animals: ['harlequin', 'springtail', 'isopod', 'fly'], stock: [['harlequin', 4, 'land'], ['isopod', 8, 'land'], ['springtail', 20, 'land']],
+    tags: ['dart frogs', 'leaf litter', 'bioactive', 'humid'], adjectives: ['Wet', 'Pacific', 'Leafy', 'Misty', 'Crimson', 'Green'], noun: 'Slope',
+  },
+  orinoco: {
+    name: 'Sunken-wood river bend', biotope: 'orinoco', layout: 'blackwater', featured: ['cardinal', 'cory'], ref: 'standard',
+    place: 'River bend with sunken wood, Orinoco basin, Venezuela and Colombia', water: 0.85, level: 0.45, rate: 260, rocks: 3, climate: { temp: [24, 28], rh: [70, 95] },
+    env: { setpoint: 25.5 },
+    blurb: 'A sandy river bend where sunken driftwood makes caves and shade: cardinal tetras over the sand, corydoras along the bottom, and hollow wood to hide in.',
+    plants: ['sword', 'lilyscan', 'vallisneria', 'frogbit', 'javafern'],
+    flora: [['sword', 4, 'deep:6'], ['lilyscan', 2, 'deep:8'], ['vallisneria', 6, 'deep:8'], ['frogbit', 5, 'deep:4']],
+    animals: ['cardinal', 'cory'], stock: [['cardinal', 12, 'deep:6'], ['cory', 6, 'deep:4']],
+    tags: ['fish', 'river', 'driftwood', 'caves'], adjectives: ['Sunken', 'Amber', 'Slow', 'Sandy', 'Shaded', 'Bending'], noun: 'Bend',
+  },
 };
 for (const [id, s] of Object.entries(NEW_SETS)) PRESETS[id] = { id, tiers: [...PRESETS[s.layout].tiers].filter((t) => t !== 'jar'), ...s };
 
@@ -421,6 +451,8 @@ const LOOK = {
   canopypool: { wall: { style: 'crag', moss: 0.9 }, mix: { logs: 2, roots: 2, boulders: 0 } },
   cascade: { env: { filterKind: 'canister' }, gear: ['filterCanister'] },
   stream: { env: { filterKind: 'canister' }, gear: ['filterCanister'] },
+  satoyama: { env: { filterKind: 'canister' }, gear: ['filterCanister'], wall: { style: 'boulders', moss: 0.65, rock: 0.4 }, mix: { logs: 2, roots: 1, boulders: 3 }, bed: 'soil', clump: 4 },
+  orinoco: { env: { filterKind: 'canister' }, gear: ['filterCanister'], wall: { style: 'strata', moss: 0.5, rock: 0.35 }, mix: { logs: 3, roots: 2, boulders: 1 }, bed: 'sand', ground: { gravelBand: 0.5 }, clump: 5 },
 };
 for (const [id, o] of Object.entries(LOOK)) { const P = PRESETS[id]; Object.assign(P, o, o.env ? { env: { ...(P.env ?? {}), ...o.env } } : {}, o.gear ? { gear: [...(P.gear ?? []), ...o.gear] } : {}); }
 
@@ -428,6 +460,19 @@ for (const [id, o] of Object.entries(LOOK)) { const P = PRESETS[id]; Object.assi
 // Showcase sets (run "sets", S3): a long-flow canyon and a highland with streams (src/content/presets-showcase.js).
 Object.assign(PRESETS, SHOWCASE_LAYOUTS);
 for (const [id, s] of Object.entries(SHOWCASE_SETS)) Object.assign(PRESETS[id], s);
+
+// The rocks and wood of each place (8 Oct 2026, the scanned stones and timber; sim/generator.js Gen.remap): stone granite | river |
+// limestone, wood fallen | sculpt | hollow. A set not listed keeps the older boulders and driftwood.
+const HARDSCAPE = {
+  cascade: { stone: 'granite', wood: 'fallen' },
+  stream: { stone: 'river', wood: 'fallen' },
+  highland: { stone: 'limestone', wood: 'fallen' },
+  blackwater: { stone: 'river', wood: 'sculpt' },
+  satoyama: { stone: 'granite', wood: 'fallen' },
+  choco: { stone: 'granite', wood: 'hollow' },
+  orinoco: { stone: 'river', wood: 'hollow' },
+};
+for (const [id, h] of Object.entries(HARDSCAPE)) PRESETS[id].hardscape = h;
 
 export const PRESET_ORDER = ['cascade', 'suriname', 'blackwater', 'stream', 'karst', 'swamp', 'streambank', 'reedpool', 'matano', 'everglades', 'jar', ...Object.keys(NEW_SETS), 'canyon', 'highland'];
 

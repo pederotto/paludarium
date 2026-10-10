@@ -393,6 +393,17 @@ export const ANIMAL_INFO = {
     care: ['Needs very damp air (80%+) and tiny live food such as springtails and small fruit flies.', 'Bromeliads with water in their cups are essential for breeding.'],
     lesson: 'parental-care',
   },
+  harlequin: {
+    sci: 'Oophaga histrionica', family: 'Dendrobatidae', status: 'Critically Endangered', region: 'Pacific lowlands of Chocó, western Colombia',
+    habitat: 'Wet lowland rainforest floor, 300-700 m up: leaf litter, fallen branches and low roots, in the shade.',
+    facts: [
+      'One species, many looks: the background runs from black to brown, and the bright marks from orange-red and yellow to dull green and blue, striped, spotted or plain, from one valley to the next.',
+      'The skin toxins are collected from its diet of ants and mites: a frog fed on flies makes none. Its bright colours warn that it tastes terrible.',
+      'The mother feeds each tadpole with unfertilised eggs she lays for it in a small pool held by a bromeliad or a fallen leaf, so the tadpoles need no other food.',
+    ],
+    care: ['Needs very damp air (85% or more) and a dry-footed floor of leaf litter with a log or root to call from.', 'A poor swimmer: give it a shallow water dish, not a pond.', 'Eats tiny live food every day: springtails, small fruit flies and isopods.'],
+    lesson: 'conservation',
+  },
   toad: {
     sci: 'Bombina orientalis', family: 'Bombinatoridae', status: 'Least Concern', region: 'Korea, north-east China and the Russian Far East',
     habitat: 'Slow streams, ponds and rice paddies in cool, hilly country.',

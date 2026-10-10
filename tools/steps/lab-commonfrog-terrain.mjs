@@ -31,7 +31,7 @@ export default async (page, shot, name) => {
     if (body !== R.body) { R.changes.push(`${R.body}>${body}`); R.body = body; }
     if (a.swimming) R.swam++;
     if (![a.pos.x, a.pos.y, a.pos.z].every(Number.isFinite)) R.nan = true;
-    // (the drawn body: where the instance was put, frame to frame; a jump of more than 1.5 cm in one tick that the sim's own position did not make is a pop)
+    // (the drawn body: where the instance was put, frame to frame; a jump of more than 2 cm in one tick that the sim's own position did not make is a pop: the model's origin sweeps round the hips as the body pitches, 1.0-1.5 cm a tick on a 12 cm hop before the hop started from the sit stance on 9 Oct, 1.3-1.8 after it, the stance lifting the origin 1.1 cm further from the hips)
     const d = a.drawnAt; if (d) { if (R.dp && R.pp) { const jump = Math.hypot(d.x - R.dp.x, d.y - R.dp.y, d.z - R.dp.z) - Math.hypot(a.pos.x - R.pp.x, a.pos.y - R.pp.y, a.pos.z - R.pp.z); if (jump > R.pop) { R.pop = jump; R.popAt = `${R.body} t ${R.n}`; } } R.dp = { ...d }; R.pp = a.pos.clone(); }
     R.n++;
     return { ph, body, swimming: !!a.swimming, fs: a.fs, x: a.pos.x, y: a.pos.y, z: a.pos.z, strikes: R.strikes, got: R.got, through: R.through };
@@ -82,7 +82,7 @@ export default async (page, shot, name) => {
     const R = await report();
     ok(!s?.swimming && s?.x < 2, 'shore: driven back, it gets out onto the land', `at x ${s?.x?.toFixed(1)} y ${s?.y?.toFixed(1)}, ${R.swam} ticks swimming, body ${R.changes.join(' ')}`);
     if (!s?.swimming) await pic('shore-back-on-land');
-    ok(R.pop < 1.5, 'shore: no jump of the drawn body at the changes', `largest ${R.pop.toFixed(2)} cm (${R.popAt})`);
+    ok(R.pop < 2, 'shore: no jump of the drawn body at the changes', `largest ${R.pop.toFixed(2)} cm (${R.popAt})`);
     ok(!R.nan, 'shore: no NaN position');
   }
   const e = await errs();

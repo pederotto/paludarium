@@ -113,26 +113,37 @@ export function hopRoll(plan, at) {
 }
 // `pivot` (model cm, optional): the point the swimming body pitches and rolls about, its hips: the legs push there, so the hips follow
 // the launch path and the head tips up (about the model's origin, the rear sank as the nose rose: 5 Oct).
-export function hopFrame(t, hop, size, sc = 1, pivot = null) {
+// `rest` (optional, { pitch (rad, about x, negative = nose up), off: [x, y, z] cm }: util/frogstrike.js lungeRoot at rest): a ONE-BODY frog's sitting stance (9 Oct, the owner: "the frog goes
+// through the ground at landing"). Its hop starts and ends in the stance it sits in: the body is drawn in its swimming body all through the hop (never handed over to a second body), tilted
+// by the stance's pitch and moved by its offset, and the hop's own pitch and roll turn it about its hips as they stand in the stance; the stance's offset stands in for the lift a
+// two-body frog's swimming body is given (0.27 size). The frame then carries `restPitch`, which the draw multiplies onto its rotation (Euler(pitch, yaw, roll) * Rx(restPitch)).
+export function hopFrame(t, hop, size, sc = 1, pivot = null, rest = null) {
   const plan = hop.plan ?? hopPlan(hop, svlOf(size, sc)), at = hopAt(plan, t);
-  const swim = at.phase !== 'land' || at.u < LEAP_TO;
-  const pitch = hopPitch(plan, at), roll = hopRoll(plan, at), lift = swim ? 0.27 * size * sc : 0;
-  const c = Math.cos(pitch), s = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll), pos = [at.pos[0], at.pos[1] + lift, at.pos[2]];
-  if (swim && pivot) {
-    // (the instance's position moved so the rotation turns about the pivot: pos + pivot - R pivot)
-    const x0 = pivot[0] * sc, y0 = pivot[1] * sc, z = pivot[2] * sc, x = x0 * cr - y0 * sr, y = x0 * sr + y0 * cr;
-    pos[0] += x0 - x; pos[1] += y0 - (y * c - z * s); pos[2] += z - (y * s + z * c);
+  const swim = rest ? true : at.phase !== 'land' || at.u < LEAP_TO;
+  const pitch = hopPitch(plan, at), roll = hopRoll(plan, at), lift = swim && !rest ? 0.27 * size * sc : 0;
+  const c = Math.cos(pitch), s = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
+  const c0 = rest ? Math.cos(rest.pitch) : 1, s0 = rest ? Math.sin(rest.pitch) : 0, o0 = rest ? [rest.off[0] * sc, rest.off[1] * sc, rest.off[2] * sc] : [0, 0, 0];
+  // the hop's own turn (Euler x then z: R = Rx(pitch) Rz(roll)) of a vector, and the stance's turn (about x)
+  const hopR = (x0, y0, z) => { const x = x0 * cr - y0 * sr, y = x0 * sr + y0 * cr; return [x, y * c - z * s, y * s + z * c]; };
+  const stR = (p) => [p[0], c0 * p[1] - s0 * p[2], s0 * p[1] + c0 * p[2]];
+  const pos = [at.pos[0], at.pos[1] + lift, at.pos[2]];
+  if (swim && (pivot || rest)) {
+    // (the instance's position moved so the rotation turns about the hips, as they stand in the stance: pos + pv - Rhop (pv - off), pv the stance's hips)
+    const pv = pivot ? (rest ? stR([pivot[0] * sc, pivot[1] * sc, pivot[2] * sc]).map((v, i) => v + o0[i]) : [pivot[0] * sc, pivot[1] * sc, pivot[2] * sc]) : [0, 0, 0];
+    const r = hopR(o0[0] - pv[0], o0[1] - pv[1], o0[2] - pv[2]);
+    pos[0] += pv[0] + r[0]; pos[1] += pv[1] + r[1]; pos[2] += pv[2] + r[2];
   }
-  // (three.js Euler 'YXZ' with no yaw: R = Rx(pitch) Rz(roll))
+  // (three.js Euler 'YXZ' with no yaw: R = Rx(pitch) Rz(roll); with a stance, R = Rx(pitch) Rz(roll) Rx(rest.pitch))
   return {
-    body: swim ? 'swim' : 'sit', pos, pitch, roll, at, plan,
+    body: swim ? 'swim' : 'sit', pos, pitch, roll, at, plan, sc, rest: rest ?? null, restPitch: rest ? rest.pitch : 0,
     toWorld: (p) => {
-      const x0 = p[0] * sc, y0 = p[1] * sc, z = p[2] * sc, x = x0 * cr - y0 * sr, y = x0 * sr + y0 * cr;
-      return [pos[0] + x, pos[1] + y * c - z * s, pos[2] + y * s + z * c];
+      const q = stR([p[0] * sc, p[1] * sc, p[2] * sc]), r = hopR(q[0], q[1], q[2]);
+      return [pos[0] + r[0], pos[1] + r[1], pos[2] + r[2]];
     },
     toModel: (w) => {
       const x = w[0] - pos[0], yy = w[1] - pos[1], zz = w[2] - pos[2], y = yy * c + zz * s, z = -yy * s + zz * c;
-      return [(x * cr + y * sr) / sc, (-x * sr + y * cr) / sc, z / sc];
+      const q = [x * cr + y * sr, -x * sr + y * cr, z];
+      return [q[0] / sc, (c0 * q[1] + s0 * q[2]) / sc, (-s0 * q[1] + c0 * q[2]) / sc];
     },
   };
 }

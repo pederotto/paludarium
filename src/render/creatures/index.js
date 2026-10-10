@@ -6,3 +6,4 @@ export { BODIES } from './bodies/index.js';
 export { ContactShadows } from './contact.js';
 export { CastShells } from './shells.js';
 export { guppyModel } from './guppymodel.js';
+export { stanceFeet } from './skeleton.js';      // (a one-body frog's feet in its sitting stance: sim/animals.js plants them with util/steps.js)

@@ -159,10 +159,12 @@ export function leapStroke(t, out = null) {
 const _leg = new Float32Array(9);
 export const RELEASE = 0.03;     // s: a leg's hand-over from pushing to its pose in the air
 const PUSH_FOOT_PH = -62, PUSH_TOES_PH = -30;    // deg: the tarsus and toes as the toes leave the ground (heel up, toes peeling; guess from clip A)
-export function leapPose(plan, at, out = null) {
+// `stance` (optional, a one-body frog's sit: { legA (9 angles, both legs), armA (6, or 12: left then right), roll }, sim/animals.js SPECIES.<id>.sit): the pose the hop starts from and lands in,
+// in place of the generic crouch and standing arms, so the hop begins and ends in the very pose the frog sits in (9 Oct 2026).
+export function leapPose(plan, at, out = null, stance = null) {
   const o = out ?? { legA: new Float32Array(18), armA: new Float32Array(6), t: 0, plant: { L: 0, R: 0 }, release: { L: 0, R: 0 }, hop: true };
   o.hop = true;
-  const C = HIND.crouch, X = HIND.leap, Sp = HIND.spread, sh = plan.short ?? 0;
+  const C = stance?.legA ?? HIND.crouch, X = HIND.leap, Sp = HIND.spread, sh = plan.short ?? 0;
   for (const [side, off] of [['L', 0], ['R', 9]]) {
     const lead = plan.lead === side, offAt = lead ? 1 - (plan.lag ?? 0) : 1;       // (when this leg's toes leave, in launch fractions)
     let A;
@@ -196,10 +198,18 @@ export function leapPose(plan, at, out = null) {
   // forelimbs: off the ground as the launch gets going; a short hop holds them open for balance, elbows bent (clip A); a long jump
   // lays them back along the flanks for the flight (clip C 6.5 s; A2 16); coming down they reach forward and down, the hands wide
   // apart to meet the floor; drawn in under the body only once landed
-  const B = FORE.balance, T = FORE.tuck, Sp2 = FORE.splay, St = FORE.stand;
+  const B = FORE.balance, T = FORE.tuck, Sp2 = FORE.splay, sa = stance?.armA, two = !!sa && sa.length >= 12;
   const lift = at.phase === 'launch' ? smooth(at.u / 0.4) : 1, lower = at.phase === 'flight' ? smooth((at.u - 0.6) / 0.4) : at.phase === 'land' ? 1 : 0;
   const settle = at.phase === 'land' ? smooth((at.u - 0.35) / 0.65) : 0;
-  for (let c = 0; c < 6; c++) o.armA[c] = lerp(lerp(lerp(St[c], lerp(T[c], B[c], sh), lift), Sp2[c], lower), St[c], settle);
+  if (two && o.armA.length < 12) o.armA = new Float32Array(12);
+  for (let k = 0; k < (two ? 2 : 1); k++) for (let c = 0; c < 6; c++) {
+    const St = sa ? sa[(two ? k * 6 : 0) + c] : FORE.stand[c];
+    o.armA[k * 6 + c] = lerp(lerp(lerp(St, lerp(T[c], B[c], sh), lift), Sp2[c], lower), St, settle);
+  }
+  o.roll = stance?.roll ?? null;                       // (the stance's limb rolls stay on through the hop)
+  o.crouchA = stance?.legA ?? null;                    // (the crouch the planted toes were set down from: poseStroke's plantDirs reads it, else HIND.crouch)
+  // (a stance's hop starts and lands in the sit's own roll of the limb bones and turns to the hop's in between: render/creatures/skeleton.js poseStroke `hopBlend`)
+  o.hopBlend = stance ? (at.phase === 'launch' ? smooth(at.u) : at.phase === 'flight' ? 1 : 1 - smooth(at.u)) : null;
   o.t = at.s;
   o.short = sh;
   return o;

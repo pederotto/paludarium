@@ -6,10 +6,10 @@ import * as THREE from 'three/webgpu';
 import { Builder, PRIM } from '../render/geo.js';
 import { hash3, clamp, lerp, rng, closestOnSegments } from '../util/math.js';
 import { strikeGape } from '../util/lizardgait.js';
-import { strikeTime, strikeMuscles, strikeCurves, FROG_LUNGE, lungePose, lungePoint } from '../util/frogstrike.js';
+import { strikeTime, strikeMuscles, strikeCurves, FROG_LUNGE, lungePose, lungePoint, lungeRoot } from '../util/frogstrike.js';
 import { bodyFootprint } from '../util/body.js';
 import { surfaceFrame, pitchFrame, glassPush, feetPlane, steadyNormal, easeAngle } from '../util/contain.js';
-import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells, guppyModel } from '../render/creatures.js';
+import { CreatureLOD, BODIES, FINISH, withRig, ContactShadows, CastShells, guppyModel, stanceFeet } from '../render/creatures.js';
 import { loadManifest, loadCreatureGLB } from '../render/creatures/glb.js';
 import { packAnim } from '../render/creatures/instanced.js';
 import { frogSwimPose, salamanderSwimPose, kickPeriod, kickSpeed, kickHeave, frac, strideRate, hopLegs, callSac, toeTap, LIFT_MAX } from '../util/gait.js';
@@ -19,6 +19,7 @@ import { swimState, swimStep, swimPose, leapPose, HIND, FORE } from '../util/gai
 import { climbState, climbStep, climbPose, CLIMB } from '../util/climb.js';
 import { swimMotion, spinHz, queuePush, pushPending } from '../util/swimturn.js';
 import { hopPlan, hopAt, hopPitch, hopFrame, svlOf } from '../util/hop.js';
+import { STEP, stepperNew, stepperStep, stepTurnCap } from '../util/steps.js';
 import { buccalState, buccalStep, pumpThroat, pumpBreath, swallowDrive, eyeStep } from '../content/anuranheadmuscles.js';
 import { Tongues } from '../render/creatures/tongue.js';
 import { TANK, MAT } from './tank.js';
@@ -30,7 +31,7 @@ import { easePush } from './glassease.js';
 import { THREAT, MOVERS, threatScore, sizeFactor, escapeScore } from './threat.js';
 import { Occupancy, CELL as OCC_CELL } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
-import { hideScore } from './habitat.js';
+import { hideScore, landFits, landWhy } from './habitat.js';
 import { herpSpot, depthCap, depthOk, deepWithin } from './placement.js';
 import { HABITAT } from '../content/habitats.js';
 import { restStep, isNight, REST_LABEL, LARVA_REST } from './swimrest.js';
@@ -59,7 +60,7 @@ const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _d = 
 const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0), _gb = V(0, 0, 0);
 const _fr = new Array(9), _gp = [0, 0, 0], _bb = { X: 0, z0: 0, z1: 0, H: 0 }, _sd = [0, 0, 0];     // (whole-body containment: inGlass, bodyBox, stemDepth)
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
-export const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog']);
+export const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog', 'fallenlog', 'sculpt', 'hollowlog', 'logpile', 'branch']);
 // Plants a perching frog uses: broad leaves to sit on, or reed stems to cling to (grass and creeping plants hold no frog).
 const PERCH_PLANTS = { bromeliad: 'leaf', guzmania: 'leaf', neoregelia: 'leaf', monstera: 'leaf', fern: 'leaf', fernph: 'leaf', cattail: 'stem', bamboo: 'stem' };   // (frogs sit in a bromeliad's cup leaves)
 const _pm = new THREE.Mesh(undefined, new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide }));   // a plant instance, for rays
@@ -79,7 +80,7 @@ const GLASS_GAP = 0.12;
 const PIECE_GAP = 0.12;
 // Frogs without toe pads (the bumblebee toad, the fire-bellied toad): out of the water they climb rough faces only up to about 70
 // degrees, and not the glass (Animals.exitClimb, exitGlass).
-const _qs = new THREE.Quaternion(), _qx = new THREE.Quaternion(), _ax = new THREE.Vector3(1, 0, 0), _ps = new THREE.Vector3(), _lp = [0, 0, 0], _lr = {};
+const _qi = new THREE.Quaternion(), _qs = new THREE.Quaternion(), _qx = new THREE.Quaternion(), _ax = new THREE.Vector3(1, 0, 0), _ps = new THREE.Vector3(), _lp = [0, 0, 0], _lr = {};
 const _lfit = { ok: false, dip: 0, slide: 0, err: 0, fwd: 0, side: 0 };
 const PADLESS = new Set(['bumblebee', 'toad', 'ediblefrog', 'commonfrog']);   // (the last two are the European frogs, not in the game yet: no toe pads either; the owner, 6 Oct 2026: toads and common frogs do not climb)
 const EXIT_LOOK = 160;      // how far across the water a frog in it looks for a way out (cm: past the far side of any tank)
@@ -317,6 +318,7 @@ export const SPECIES = {
   },
   dartfrog: {
     name: 'Blue dart frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.4, speed: 1,
+    land: 0.8, landTol: 0.1,   // dry-footed: mostly land with a small water feature, strict (owner, 8 Oct 2026)
     temp: [20, 27], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva', 'springsea'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 5, days: 10, into: 'tadpole', where: 'shallow' },
     body: sdfBody('dartfrog'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35, swimLevel: 0 },
@@ -324,6 +326,7 @@ export const SPECIES = {
   },
   strawberry: {
     name: 'Strawberry dart frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.1, speed: 0.9,
+    land: 0.8, landTol: 0.1,   // dry-footed: mostly land with a small water feature, strict (owner, 8 Oct 2026)
     temp: [21, 27], humidity: 80, hungerHours: 150, lifeDays: 3500, eats: ['springtail', 'fly', 'flylarva'], cap: 8, breed: 0.04, adultDays: 25,
     eggs: { n: 4, days: 10, into: 'tadpole', where: 'shallow' },
     body: sdfBody('strawberry'), anim: { amp: 0, wave: 1, lift: 0.22, stride: 0.26 },
@@ -333,7 +336,7 @@ export const SPECIES = {
     name: 'Fire-bellied toad', scale: 1, group: 'Amphibians', kind: 'toad', size: 1.9, speed: 1.2,
     minL: 60, temp: [18, 26], humidity: 60, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'shrimp', 'flylarva', 'cricket', 'earthworm', 'waxworm', 'bloodworm'], cap: 6, breed: 0.04, adultDays: 30,
     eggs: { n: 8, days: 7, into: 'tadpole', where: 'water' },
-    ph: [6.8, 7.6], land: 0.5, flock: [3, 6],
+    ph: [6.8, 7.6], land: 0.5, landTol: 0.1, flock: [3, 6],
     body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
     note: 'Semi-aquatic: needs both land and open water. Spawns in the water.',
   },
@@ -362,8 +365,26 @@ export const SPECIES = {
     // back to make room: oneBodyHunt.)
     sit: { pitchDeg: 22, offsetCm: [0, 1.123, 0.237], pivotCm: [0, 1.076, -3.901], legKey: 'crouch', armDeg: [0, 0], armA: [83, -177, -170, -36, -77, -17, 74, -167, -171, -43, -68, -24], roll: [-46, -7, -14, 0, 0, 0], legA: [154, -22, 156, 127, -19, 10, -40, -19, -30], mouthCm: [0.028, 1.078, 3.076], tipCm: [0.028, -0.54, 3.87], insideCm: [0.028, 1.25, 2.4], jawOpenCm: [0.028, -0.2, 2.299] },
     minL: 80, temp: [8, 22], humidity: 70, hungerHours: 240, lifeDays: 5000, eats: ['fly', 'springtail', 'isopod', 'flylarva', 'cricket', 'earthworm', 'waxworm'], cap: 4, breed: 0, adultDays: 40,
-    land: 0.6, body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
+    land: 0.6, landTol: 0.1, body: sdfBody('toad'), anim: { amp: 0, wave: 1, lift: 0.35, stride: 0.45, swimLevel: 0, limb: 1.25 },
     note: 'A ground frog of cool, damp European woods and meadows. It hunts on land with a quick lunge and a flick of its short tongue, swims well and spawns in ponds. Wants 8–22 °C, damp ground and water to swim in.',
+  },
+  // The harlequin poison frog (Oophaga histrionica, the owner's scan of 8 Oct 2026, wip). ONE body for every pose, as the common frog's (harlequin.swim: skeleton in
+  // tools/rig/harlequin-swim-joints.json). SVL 3.3 cm. A forest-floor frog of the Choco rainforest (Colombia): leaf litter and fallen branches, calling males low on trunks and roots.
+  harlequin: {
+    name: 'Harlequin poison frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.05, speed: 1, wip: true,
+    oneBody: true,   // (it walks and turns on its feet: util/steps.js, Animals.oneBodySteps; the common frog still travels by hops)
+    // sitting in its one body: the stance fitted on the skin through the game's own pose code (tools/rig/lunge-check.mjs --fit-limbs --scale 0.471, then --fit-sit: the body lifted till its
+    // hips, shins and feet rest on the ground, the hands and toes within 0.3 mm of it, the elbows clear of the flank; the pose angles are those of a frog 7 cm long, the scale only
+    // brings the fit's centimetre limits to this 3.3 cm one; both sides alike, the body being symmetric). The ARMS are the common frog's (laid from the owner's own sitting model of a frog,
+    // 8 Oct): a fit of its own put the upper arm straight down, 117 deg from where this body's arm rests, and the forearm skin twisted into a ribbon (700 inverted triangles in the arms, the Lab's
+    // 'stick arms'); with these angles the arms have 20 and the hands lie flat (tools/rig/sit-check.mjs). mouthCm: the jaw's tip at rest, tipCm: the tongue's tip at the strike's contact,
+    // insideCm: inside the mouth over the tongue's bed, jawOpenCm: the jaw's tip wide open; all from the shipped rig (tests/frogstrike.test.mjs)
+    sit: { pitchDeg: 26, offsetCm: [0, 0.528, 0.112], pivotCm: [0, 0.365, -1.447], legKey: 'crouch', armDeg: [0, 0], armA: [83, 183, 190, -36, -77, -17, 83, 183, 190, -36, -77, -17], roll: [0, 0, 0, 0, 0, 0], legA: [137, 0, 97, 166, -5, 5, -31, -17, -14], mouthCm: [0, 0.274, 1.543], tipCm: [0, -0.363, 1.98], insideCm: [0, 0.42, 1.32], jawOpenCm: [0, -0.198, 1.196] },
+    land: 0.8, landTol: 0.1,   // dry-footed: mostly land with a small water feature, strict (owner, 8 Oct 2026)
+    temp: [22, 28], humidity: 85, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva', 'springsea'], cap: 8, breed: 0.04, adultDays: 25,
+    eggs: { n: 4, days: 10, into: 'tadpole', where: 'shallow' },
+    body: sdfBody('dartfrog'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35, swimLevel: 0 },
+    note: 'Terrestrial. A black frog with bright patches of the Choco rainforest. Needs high humidity and live insects; the males call from a low log or root.',
   },
   newt: {
     name: 'Paddle-tail newt', scale: 1, group: 'Amphibians', kind: 'newt', size: 1.6, speed: 2,
@@ -424,6 +445,7 @@ export const SPECIES = {
   },
   leucomelas: {
     name: 'Yellow-banded poison frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.3, speed: 1,
+    land: 0.8, landTol: 0.1,   // dry-footed: mostly land with a small water feature, strict (owner, 8 Oct 2026)
     temp: [21, 28], humidity: 70, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 4, days: 12, into: 'tadpole', where: 'shallow' },
     body: sdfBody('leucomelas'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35 },
@@ -431,6 +453,7 @@ export const SPECIES = {
   },
   auratus: {
     name: 'Green and black poison frog', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.25, speed: 1,
+    land: 0.8, landTol: 0.1,   // dry-footed: mostly land with a small water feature, strict (owner, 8 Oct 2026)
     temp: [21, 28], humidity: 75, hungerHours: 170, lifeDays: 4000, eats: ['fly', 'springtail', 'isopod', 'flylarva'], cap: 8, breed: 0.05, adultDays: 25,
     eggs: { n: 4, days: 12, into: 'tadpole', where: 'shallow' },
     body: sdfBody('auratus'), anim: { amp: 0, wave: 1, lift: 0.3, stride: 0.35, swimLevel: 0 },
@@ -478,7 +501,7 @@ export const SPECIES = {
     name: 'Bumblebee toad', scale: 1, group: 'Amphibians', kind: 'frog', size: 1.0, speed: 0.7,
     minL: 40, temp: [20, 24], humidity: 70, hungerHours: 140, lifeDays: 3000, eats: ['springtail', 'flylarva', 'fly', 'isopod', 'springpink', 'springsea'], cap: 8, breed: 0.02, adultDays: 40,
     eggs: { n: 6, days: 6, into: 'tadpole', where: 'shallow' },
-    land: 0.8, flock: [4, 8], drowns: true,
+    land: 0.8, landTol: 0.1, flock: [4, 8], drowns: true,
     body: sdfBody('bumblebee'), anim: { amp: 0, wave: 1, lift: 0.22, stride: 0.24 },
     note: 'A small black toad with canary-yellow spots and fiery red soles, out by day. It walks more than it hops and swims badly: water no deeper than 2-3 cm, with gentle gravel slopes, or it drowns. Keep 4 to 6; feeds on springtails and fruit flies.',
   },
@@ -486,7 +509,7 @@ export const SPECIES = {
     name: 'Starry night reed frog', scale: 1, group: 'Amphibians', kind: 'frog', perch: true, perchSwim: true, size: 1.2, speed: 1,
     minL: 60, minH: 45, temp: [24, 29], humidity: 70, hungerHours: 150, lifeDays: 2500, eats: ['fly', 'flylarva', 'springtail', 'cricket'], cap: 8, breed: 0.03, adultDays: 30,
     eggs: { n: 8, days: 5, into: 'tadpole', where: 'water' },
-    ph: [6.5, 7.5], land: 0.3, flock: [3, 8],
+    ph: [6.5, 7.5], land: 0.3, landTol: 0.1, flock: [3, 8],
     body: sdfBody('reedfrog'), anim: { amp: 0, wave: 1, lift: 0.32, stride: 0.42 },
     note: 'A jet-black reed frog from Madagascar dotted with yellow-white stars and with orange legs. Sits by day high on broad leaves, bamboo and wood above the water, hunts flies at dusk. Wants a tall tank, 70% water, warm air (24-29 °C). Keep 3 to 5.',
   },
@@ -494,7 +517,7 @@ export const SPECIES = {
     name: 'Red-eyed tree frog', scale: 1, group: 'Amphibians', kind: 'frog', perch: true, crawlSet: 'redeye', size: 1.8, speed: 1.1,
     minL: 60, minH: 60, temp: [22, 28], humidity: 75, hungerHours: 170, lifeDays: 3600, eats: ['fly', 'cricket', 'waxworm', 'dubia'], cap: 6, breed: 0.02, adultDays: 45,
     eggs: { n: 30, days: 7, into: 'tadpole', where: 'water' },
-    ph: [6.5, 7.5], land: 0.4, flock: [2, 5],
+    ph: [6.5, 7.5], land: 0.4, landTol: 0.1, flock: [2, 5],
     body: sdfBody('redeye'), anim: { amp: 0, wave: 1, lift: 0.45, stride: 0.6, limb: 1.4 },
     note: 'The red-eyed tree frog of Central American rainforests: leaf green, with blue-and-cream barred flanks and orange hands and feet that it hides when it sleeps. By day it sleeps stuck to a leaf, a stem or the glass, legs tucked in and eyes shut; at night it wakes, clambers about and hunts. Wants a tall tank with broad-leaved plants over water, 22-28 °C and damp air. Keep 2 to 5.',
   },
@@ -950,9 +973,11 @@ export class Animals {
   }
 
   // Where may species `id` be placed for a hit? Returns {pos} or {error}.
-  placement(id, hit) {
+  placement(id, hit, { lab = false } = {}) {
     const sp = SPECIES[id];
     const W = this.world;
+    // A land frog is not released into a terrarium whose usable land/water balance is outside its band (World.usable, habitat.js landWhy); the Test Lab's flat arena has no water at all and tests the animal, not the tank.
+    if (sp.landTol != null && !lab) { const u = W.usable(); if (!landFits(sp, u)) return { error: `Not in this terrarium: ${landWhy(sp, u)}.` }; }
     const { x, z } = hit.point;
     const ground = W.terrain.heightAt(x, z);
     const wl = W.water.level;
@@ -1622,6 +1647,7 @@ export class Animals {
     const swim = a.swimming || sp.kind === 'swim';
     let rate = tf.maxRate * (swim && tf.legs ? 1.5 : 1);
     if (a.dart || a.hm?.mode === 'flee' || a.sk?.mode === 'flee') rate *= 1.8;      // an escape: the legs (or the tail) at full tilt
+    if (sp.oneBody && !swim && !a.hop) rate = Math.min(rate, stepTurnCap(svlOf(sp.size, drawScale(a, sp))) * (a.dart || a.hm?.mode === 'flee' ? 1.5 : 1));      // (a one-body frog turns as fast as its feet can step round: util/steps.js)
     const y0 = a.yaw ?? 0;
     a.yaw = turnStep(y0, want, dt, rate, st, gain);
     if (pivot && tf.legs && tf.pz && !swim && !a.hop && !a.wallMode && !a.onWall) {
@@ -3777,6 +3803,28 @@ export class Animals {
     return true;
   }
 
+  // A one-body frog's feet while it walks or turns on land (9 Oct 2026; util/steps.js, render/creatures/skeleton.js stepDirs): each foot is planted at a point of the world and stays there as the body moves or
+  // turns over it, lifts when the body has carried its home (where the sitting stance has it) out of reach, and lands where the home will be; the legs are solved to the feet. `ls` is the
+  // stroke the body is drawn with (the stance: util/frogstrike.js lungePose): it gets `feet` (the targets in the model's own cm), or none (sitting still, striking: the stance as it is).
+  oneBodySteps(a, sp, sc, pos, q, ls, mesh, dt) {
+    ls.feet = null; ls.feetUp = null; ls.feetSit = null;
+    const rig = mesh?.skinned?.skinRig, S0 = a.stepper;
+    if (!rig || !sp.sit || (a.strikeT ?? 0) > 0 || !(dt >= 0)) { if (S0) S0.init = false; return; }
+    const S = S0 ?? (a.stepper = stepperNew(stanceFeet(rig, sp.sit)));
+    if (S.f !== (this._hf ?? 0) - 1 && S.f !== this._hf) S.init = false;       // (not drawn this way a moment ago: planted afresh at the stance)
+    S.f = this._hf;
+    const act = stepperStep(S, { pos: [pos.x, pos.y, pos.z], q: [q.x, q.y, q.z, q.w], sc }, dt, STEP, svlOf(sp.size, sc));
+    if (!act) return;
+    const inv = _qi.copy(_qs).invert(), fe = (ls.feetObj ??= {});
+    for (const ft of S.feet) {
+      const o = (fe[ft.key] ??= { T: [0, 0, 0], D: [0, 0, 1] });
+      _t.set(ft.W[0] - _ps.x, ft.W[1] - _ps.y, ft.W[2] - _ps.z).applyQuaternion(inv).multiplyScalar(1 / sc); o.T[0] = _t.x; o.T[1] = _t.y; o.T[2] = _t.z;
+      _t.set(ft.D[0], ft.D[1], ft.D[2]).applyQuaternion(inv); o.D[0] = _t.x; o.D[1] = _t.y; o.D[2] = _t.z;
+    }
+    _t.set(0, 1, 0).applyQuaternion(inv);
+    ls.feetUp = { n: [_t.x, _t.y, _t.z], c: _ps.y - pos.y, sc }; ls.feetSit = sp.sit; ls.feet = fe;
+  }
+
   // A frog's drawn frame in its hop (util/hop.js hopFrame) at hop time t (default: now), about its swimming body's hips.
   // `mesh`: the swimming body's mesh (its skeleton's hips are the pivot), or none for where the frog is and which body draws it.
   leapFrame(a, sp, sc, t = a.hop.t, mesh = null) {
@@ -3787,7 +3835,10 @@ export class Animals {
       pv = L != null && R != null ? rig.head[L].map((v, i) => (v + rig.head[R][i]) / 2) : null;
       PIVOTS.set(rig, pv);
     }
-    return hopFrame(Math.min(1, t), a.hop, sp.size, sc, pv);
+    // (a one-body frog hops from and into its own sitting stance, in its one body: util/hop.js hopFrame `rest`; `sit` lets the floor rule know how the stance stands: skeleton.js stanceClearance)
+    // (only a hop from land to land: one from the water starts from a swimming body and one into it ends in the swimming body, not in the sit)
+    const rest = sp.oneBody && sp.sit && !a.hop?.splash && !a.hop?.fromWater ? (RESTS.get(sp) ?? RESTS.set(sp, { ...(() => { const r = lungeRoot(sp.sit, 0, 0, 0, {}); return { pitch: r.pitch, off: [...r.off] }; })(), sit: sp.sit }).get(sp)) : null;
+    return hopFrame(Math.min(1, t), a.hop, sp.size, sc, pv, rest);
   }
 
   startHop(a, to, h, splash = false) {
@@ -3797,7 +3848,7 @@ export class Animals {
     // one floating parabola of 0.22 + 0.09 sqrt(d) s)
     const sp = SPECIES[a.sp.split(':')[0]] ?? SPECIES[a.sp], dd = Math.hypot(to.x - a.pos.x, to.z - a.pos.z);
     const plan = hopPlan({ d: dd, rise: to.y - a.pos.y }, svlOf(sp?.size ?? 1, sp ? drawScale(a, sp) : 1), [Math.random(), Math.random()]);
-    a.hop = { from: a.pos.clone(), to, t: 0, dur: plan.dur, plan, h: Math.max(h, 0.5), splash, y0: a.yaw ?? 0, y1: Math.atan2(to.x - a.pos.x, to.z - a.pos.z) };
+    a.hop = { from: a.pos.clone(), to, t: 0, dur: plan.dur, plan, h: Math.max(h, 0.5), splash, fromWater: !!a.swimming, y0: a.yaw ?? 0, y1: Math.atan2(to.x - a.pos.x, to.z - a.pos.z) };
     a.floating = false;
     a.crouch = 0;
   }
@@ -5521,7 +5572,7 @@ export class Animals {
         const climbMesh = frogish && a.climbOn && a.climb && !a.swimming && !a.hop ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
         // A one-body frog (sp.oneBody: the common frog) is drawn on land in that same body too: the stroke's sit pose (hind legs folded, hands down, render/creatures/skeleton.js
         // poseStroke `sit`) and the strike on its own jaw, hyoid and tongue bones (`strikeT`, set by strikes()). Until the body has loaded, the procedural stand-in.
-        const oneMesh = frogish && sp.oneBody && !a.swimming && !a.hop && !climbMesh ? this.meshFor(id, null, 'swim') : null;
+        const oneMesh = frogish && sp.oneBody && !a.swimming && !a.hop && !climbMesh ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
         const sw = frogish && a.swimming && !a.hop ? swimPose(a.sw ??= swimState(), swimProfile(id), { t: this.t + a.phase, ...(swimMesh ? { level: 0 } : {}) }) : null;
         // At the surface it rides the water: up and down with the ripples under it and tipped with their slope (ride).
         const rd = a.swimming && !a.hop && (frogish || sp.kind === 'newt' || sp.kind === 'axolotl') ? this.ride(a, sp, sc, dt / this.tf) : null;
@@ -5625,12 +5676,18 @@ export class Animals {
         const hf0 = frogish && a.hop?.plan && !a.hop.kind && !sleepMesh ? this.leapFrame(a, sp, sc) : null;
         const leapMesh = hf0?.body === 'swim' ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
         if (leapMesh?.strokes) {
-          const hp = a.hop, hf = this.leapFrame(a, sp, sc, hp.t, leapMesh), st = a.leapA = leapPose(hp.plan, hf.at, a.leapA ?? null);
+          const hp = a.hop, hf = this.leapFrame(a, sp, sc, hp.t, leapMesh), st = a.leapA = leapPose(hp.plan, hf.at, a.leapA ?? null, hf.rest ? sp.sit : null);
           st.frames = { f0: hp.f0 ??= this.leapFrame(a, sp, sc, 0, leapMesh), ft: hf };
           // (the frame is the hop's own, heading along its line: turned into the tank by that heading, the body by its yaw)
           const hd = hp.y1 ?? a.yaw, ch = Math.cos(hd), sh = Math.sin(hd);
-          _p.set(hp.from.x + hf.pos[0] * ch + hf.pos[2] * sh, hp.from.y + hf.pos[1], hp.from.z - hf.pos[0] * sh + hf.pos[2] * ch);
+          if (hf.rest) {
+            // (a one-body frog: the trajectory goes along the hop's heading, but the body's own offset from it (the stance's lift and its turn about the hips) belongs to the body's yaw: at the first and the
+            // last frame of the hop the two differ by however far the frog had yet to turn, and the stance's offset swung that much)
+            const cy = Math.cos(a.yaw), sy = Math.sin(a.yaw), bx = hf.pos[0] - hf.at.pos[0], bz = hf.pos[2] - hf.at.pos[2];
+            _p.set(hp.from.x + hf.at.pos[0] * ch + hf.at.pos[2] * sh + bx * cy + bz * sy, hp.from.y + hf.pos[1], hp.from.z - hf.at.pos[0] * sh + hf.at.pos[2] * ch - bx * sy + bz * cy);
+          } else _p.set(hp.from.x + hf.pos[0] * ch + hf.pos[2] * sh, hp.from.y + hf.pos[1], hp.from.z - hf.pos[0] * sh + hf.pos[2] * ch);
           q.setFromEuler(e.set(hf.pitch, a.yaw, hf.roll, 'YXZ'));
+          if (hf.rest) q.multiply(_qx.setFromAxisAngle(_ax, hf.restPitch));      // (a one-body frog: the sitting stance's tilt under the hop's own turn, as the sit draws it)
           leapMesh.put(_p, q, sc, 0, 0, 0, packAnim(0, 0, 0, 0, 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, st);
           if (sp.oneBody) (a.drawnAt ??= V(0, 0, 0)).copy(_p);      // (where its one body was drawn: the lab's probes look for jumps between its poses)
         } else if (climbMesh?.strokes) {
@@ -5643,6 +5700,7 @@ export class Animals {
           _ps.set(R.off[0], R.off[1], R.off[2]).multiplyScalar(sc).applyQuaternion(q).add(pos);
           // the strike's own muscles on the rig's channels (util/frogstrike.js strikeMuscles): the sternohyoid drops the throat floor, the retractor bulbi presses the eyes down in the gulp
           const mu = strikeMuscles(ls.strikeT, undefined, a._mu ??= {}), bte = a.visBTE ?? [0, 0, 0];
+          this.oneBodySteps(a, sp, sc, pos, q, ls, oneMesh, dt);      // (walking or turning: the feet planted in the world and stepped; at rest and in a strike the plain stance)
           oneMesh.put(_ps, _qs, sc, 0, 0, 0, packAnim(0, bte[0], Math.max(bte[1], mu.SH), Math.max(bte[2], mu.RB), 0, 1), cam ? cam.distanceToSquared(a.pos) : 1e9, 0, 0, 0, 0, 1, 0, 0, 0, 0, ls);
           (a.drawnAt ??= V(0, 0, 0)).copy(_ps);
         } else if (sleepMesh) sleepMesh.put(pos, q, sc, 0, 0, 0, packed, cam ? cam.distanceToSquared(a.pos) : 1e9);   // (breathing, eyes shut)
@@ -5810,6 +5868,7 @@ function pick(o, keys) {
 
 const NO_TURN = [0, 0, 0];
 const PIVOTS = new WeakMap();        // a swimming body's rig -> its hips (the point a hop pitches it about)
+const RESTS = new WeakMap();         // a one-body species -> its sitting stance as a hop's rest frame (util/hop.js hopFrame)
 
 function angDiff(to, from) {
   return ((to - from + Math.PI) % TAU + TAU) % TAU - Math.PI;

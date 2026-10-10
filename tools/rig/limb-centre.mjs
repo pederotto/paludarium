@@ -10,6 +10,7 @@ let pos = Float32Array.from(p.getAttribute('POSITION').getArray()), idx = Uint32
 const a = ROT * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
 for (let i = 0; i < pos.length; i += 3) { const x = pos[i], z = pos[i + 2]; pos[i] = x * ca + z * sa; pos[i + 2] = -x * sa + z * ca; }
 
+if (process.env.CENTER) { const cx = +process.env.CENTER; for (let i = 0; i < pos.length; i += 3) pos[i] -= cx; }   // (as the bake's job.center)
 // LEVEL=1: the bake's own levelling (tools/bake-frogpose.mjs analyse step 1): a least-squares line through the trunk, rotated about x until flat
 if (process.env.LEVEL) {
   let sz = 0, sy = 0, szz = 0, szy = 0, m = 0;

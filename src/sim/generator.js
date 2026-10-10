@@ -24,6 +24,8 @@ import { SPECIES } from './animals.js';
 import { rng, smooth, clamp, lerp, hash3 } from '../util/math.js';
 import { pieceScale, coverCount, fogScale, stockCount } from './scale.js';
 import { PRESETS, PRESET_ORDER, presetsForTier, defaultPreset, describePreset } from '../content/presets.js';
+import { groundForBiotope } from '../content/ground.js';
+import { landBand, landFits } from './habitat.js';
 
 export { PRESETS, PRESET_ORDER, presetsForTier, defaultPreset, describePreset };
 
@@ -52,6 +54,18 @@ const ell = (x, z, cx, cz, rx, rz, inner = 0.55, edge = 1) => smooth(edge, inner
 
 // ---------------------------------------------------------------------------
 // The generator context
+
+// Recipe hardscape looks (see Gen.remap): a boulder of size s becomes [piece type, size factor]; a log becomes the piece type this picks.
+const STONES = {
+  granite: (s) => (s <= 7 ? ['scatter', 1] : ['bigrock', 1]),
+  river: (s) => (s <= 9 ? ['scatter', 1.15] : ['bigrock', 1]),
+  limestone: (s) => (s <= 7 ? ['scatter', 1] : ['limestone', 1.05]),
+};
+const WOODS = {
+  fallen: (g) => (g.chance(0.25) ? 'hollowlog' : 'fallenlog'),
+  sculpt: (g) => (g.chance(0.5) ? 'sculpt' : 'fallenlog'),
+  hollow: (g) => (g.chance(0.5) ? 'hollowlog' : g.chance(0.5) ? 'sculpt' : 'fallenlog'),
+};
 
 class Gen {
   constructor(world, preset, seed, tier) {
@@ -158,8 +172,32 @@ class Gen {
   }
 
   // --- Hardscape --------------------------------------------------------------
+  // A recipe's `hardscape: { stone, wood }` (content/presets.js HARDSCAPE): the scanned rocks and timber of 8 Oct 2026 stand in for the
+  // older boulders and driftwood a layout asks for by number, so one layout serves places that look different. A boulder asked at `size`
+  // cm becomes a stone of the recipe's kind (small ones the loose scatter rocks); a log lies as a fallen or hollow log or sculpted
+  // driftwood, and a steep one (it was leaning on something) stands as a dead branch. The old variant, scale and tilt are dropped:
+  // they were chosen for the older models.
+  remap(type, o) {
+    const H = this.P.hardscape, D = this.W.decor;
+    if (!H) return [type, o];
+    if (type === 'boulder' && H.stone) {
+      const s = o.size ?? 10, [t, k] = STONES[H.stone](s);
+      if (!D.parts[t]?.length) return [type, o];
+      const { variant, ...rest } = o;
+      return [t, { ...rest, size: s * k }];
+    }
+    if (type === 'wood' && H.wood) {
+      const t = o.tilt?.[1] > 0.5 ? 'branch' : WOODS[H.wood](this);
+      if (!D.parts[t]?.length) return [type, o];
+      const { variant, scale, tilt, ...rest } = o;
+      return [t, t === 'branch' ? { ...rest, tilt } : rest];
+    }
+    return [type, o];
+  }
+
   piece(type, x, z, o = {}) {
     const D = this.W.decor;
+    [type, o] = this.remap(type, o);
     // A seed per piece: variant (when not given), non-uniform scale, flip and tint all differ.
     const opt = { rot: this.r() * 6.283, seed: this.int(1, 2 ** 30), ...o };
     // A third of the boulders a layout asks for by number are swapped for a procedural shape.
@@ -345,6 +383,7 @@ class Gen {
   animal(id, n, test, o = {}) {
     if (!this.allowAnimal(id)) return 0;
     const W = this.W, sp = SPECIES[id];
+    if (sp.landTol != null) this.tuneLand();      // a land frog goes in only where its land/water rule holds (Animals.placement): the water first, whoever places it
     n = stockCount(sp, n, this.dims, W.water.volumeLitres());
     let made = 0;
     for (let k = 0; k < n; k++) {
@@ -383,8 +422,38 @@ class Gen {
   // The set's own stock (`stock: [[id, n, zone]]`, zone a zones() predicate name, 'deep:4' or 'wet:1:6'), for animals its
   // layout builder does not place. Species already in the tank are left alone.
   // `flora: [[id, n, zone]]` adds native plants where a shared layout's own plants were dropped (n per standard tank).
+  // The land frogs' rule (owner, 8 Oct 2026; World.usable, habitat.js landBand): a set that holds a land frog gets the main water level at which
+  // the USABLE land share is in the band of its frogs (the featured species' band alone when the bands of the set's frogs do not meet).
+  // The share falls as the water rises, so the level is found by bisection (about 40 ms a probe, the same for every tier and seed); a pool
+  // too shallow to hold water at any level, or a band no level reaches, leaves the best level found and the frogs are not stocked (Animals.placement).
+  tuneLand() {
+    const P = this.P, W = this.W;
+    const frogs = [...new Set([...(P.featured ?? []), ...(P.animals ?? []), ...(P.stock ?? []).map((x) => x[0])])].filter((k) => SPECIES[k]?.landTol != null);
+    if (!frogs.length || !(W.water.level > 0)) return null;
+    const bands = frogs.map((k) => landBand(SPECIES[k]));
+    let lo = Math.max(...bands.map((b) => b[0])), hi = Math.min(...bands.map((b) => b[1]));
+    if (lo > hi) { const f = frogs.find((k) => P.featured?.includes(k)) ?? frogs[0]; [lo, hi] = landBand(SPECIES[f]); }
+    const target = (lo + hi) / 2, H = W.water.hydro, L0 = W.water.level;
+    const probe = (L) => { W.water.setLevel(L); for (let k = 0; k < 40; k++) H.step(1 / 30); W.water.syncLevel(); return W.usable().share; };
+    let best = { L: L0, d: Math.abs(W.usable().share - target), share: W.usable().share };
+    if (best.d <= 0.04) return best;        // within 0.04 of the band's middle: the plants still to come and the settling move it a little
+    let a = L0 * 0.35, b = L0 * 2.2;
+    for (let it = 0; it < 12; it++) {
+      const m = (a + b) / 2, s = probe(m), d = Math.abs(s - target);
+      if (d < best.d) best = { L: m, d, share: s };
+      if (d <= 0.04) break;
+      if (s > target) a = m; else b = m;       // too much land: more water
+    }
+    probe(best.L);
+    H.targetTotal = H.total();
+    if (this.info) this.info.L = W.water.level;
+    this.counts.landTuned = { from: +L0.toFixed(1), to: +best.L.toFixed(1), share: +best.share.toFixed(3), band: [+lo.toFixed(2), +hi.toFixed(2)] };
+    return best;
+  }
+
   stock() {
     const P = this.P;
+    this.tuneLand();
     if (P.env) Object.assign(this.W.env, P.env);   // the place's climate (setpoint) over the shared layout's
     for (const k of P.gear ?? []) this.gear.add(k);   // S1: gear the place needs (a chiller for a cool set)
     if (!P.stock?.length && !P.flora?.length) return;
@@ -395,6 +464,7 @@ class Gen {
       if (zone === 'wall') this.wallScatter(id, Math.max(1, Math.round(n * this.wallA)), (x, y) => y > L + 6, { gap: 10 });
       else this.scatter(id, this.cnt(n), where(zone), { gap: 4 });
     }
+    this.tuneLand();       // the flora added dead space: the water again, before the animals are put in
     for (const [id, n, zone = 'land'] of P.stock ?? []) {
       const have = this.W.animals.by[id]?.length ?? 0, want = this.cnt(n);
       if (have >= want) continue;   // S1: the recipe tops a species up to its count (a layout may have placed fewer)
@@ -1366,12 +1436,14 @@ export function generateTerrarium(world, { preset, seed = 1, tier } = {}) {
   const g = new Gen(world, preset, seed, tier);
   if (tier !== TANK.id) g.warn(`world is a ${TANK.id} tank, not ${tier}`);
   resetWorld(g);
+  world.setGround?.(groundForBiotope(PRESETS[preset].biotope));
   BUILDERS[PRESETS[preset].layout ?? preset](g);
   g.stock();
 
   // Let everything settle into the finished picture.
   const W = world;
   settleAndPrune(g);
+  g.tuneLand();          // settled, pruned: the final share is the one that counts
   for (const id of g.gear) W.equipment.buy(id);
   W.climate.settle();
   W.humus?.seed();   // a little leaf litter and humus under the plants

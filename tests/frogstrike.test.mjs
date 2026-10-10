@@ -75,12 +75,12 @@ test('the lunge: out by contact, back by the gulp; at rest the root is the sitti
   assert.ok(Math.abs(nose(FROG_LUNGE.contactT, 0, 1)[2] - nose(0, 0, 0)[2] - 1) < 1e-9, 'the slide moves it forward by the slide');
 });
 
-test('the body points the sim uses are the shipped rig\'s: the jaw tip at rest and open, the tongue tip at contact', async () => {
+for (const sp of ['commonfrog', 'harlequin']) test(`the ${sp}'s body points the sim uses are the shipped rig's: the jaw tip at rest and open, the tongue tip at contact`, async () => {
   const fs = await import('node:fs');
   const { skeletonRig, poseHeadAtRest, ROW_FLOATS } = await import('../src/render/creatures/skeleton.js');
   const { FROG_LUNGE } = await import('../src/util/frogstrike.js'); const FROG_STRIKE_T = FROG_LUNGE.contactT;
-  const man = JSON.parse(fs.readFileSync('public/assets/creatures/manifest.json', 'utf8'))['commonfrog.swim'], rig = skeletonRig(man.skeleton, {}), N = rig.byName;
-  const src = fs.readFileSync('src/sim/animals.js', 'utf8'), num = (k) => JSON.parse(src.match(new RegExp(k + ': (\\[[^\\]]*\\])'))[1]);
+  const man = JSON.parse(fs.readFileSync('public/assets/creatures/manifest.json', 'utf8'))[`${sp}.swim`], rig = skeletonRig(man.skeleton, {}), N = rig.byName;
+  const text = fs.readFileSync('src/sim/animals.js', 'utf8'), src = text.slice(text.indexOf(`\n  ${sp}: {`)), num = (k) => JSON.parse(src.match(new RegExp(k + ': (\\[[^\\]]*\\])'))[1]);
   const mouth = num('mouthCm'), tip = num('tipCm');
   assert.ok(rig.tail[N.jaw].every((v, i) => Math.abs(v - mouth[i]) < 0.01), `mouthCm ${mouth} vs the jaw's tip ${rig.tail[N.jaw]}`);
   const out = new Float32Array(ROW_FLOATS); poseHeadAtRest(rig, { strikeT: FROG_LUNGE.contactT }, out);

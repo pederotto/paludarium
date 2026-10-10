@@ -25,7 +25,7 @@ export function speciesList() {
 export function spawn(game, id, n, hit) {
   const A = game.world.animals, sp = SPECIES[id];
   if (!sp) return { added: [], error: `No species ${id}.` };
-  const pl = A.placement(id, hit);
+  const pl = A.placement(id, hit, { lab: true });
   if (pl.error) return { added: [], error: pl.error };
   const spacing = Math.max(1.6, 1.6 * sp.size);
   const added = [];
@@ -33,7 +33,7 @@ export function spawn(game, id, n, hit) {
     let again = pl;
     if (!pl.wall) {
       const [dx, dz] = spiral(k, spacing);
-      again = A.placement(id, { point: new THREE.Vector3(hit.point.x + dx, hit.point.y, hit.point.z + dz), surface: hit.surface });
+      again = A.placement(id, { point: new THREE.Vector3(hit.point.x + dx, hit.point.y, hit.point.z + dz), surface: hit.surface }, { lab: true });
       if (again.error) continue;       // (outside the tank, or not where this species lives)
     }
     const a = A.add(id, again.pos, { morph: null });

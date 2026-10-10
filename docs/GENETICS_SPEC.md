@@ -38,6 +38,12 @@ Loci: `B` cobalt / `b` sky blue (recessive); `S` many spots / `s` few spots (rec
 Morphs: `cobalt_spotted` (B_ S_, the current look, rarity 1), `cobalt_clean` (B_ ss, rarity 2), `sky_spotted` (bb S_, rarity 2),
 `sky_clean` (bb ss, rarity 4). Freq: b 0.2, s 0.25.
 
+### harlequin (`harlequin`, the harlequin poison frog, Oophaga histrionica; added 9 Oct 2026)
+One locus: `G` black and orange-red (the species' base form) / `g` mint green (the owner's scan's own colours; recessive). Morphs: `orange`
+(G_, the default look, rarity 1) and `mint` (gg, rarity 2). Freq: g 0.15. Models: `harlequin.swim` (the base) and `harlequin:mint.swim`
+(`tools/rig/morph-copy.mjs` after every rebake of the base: the same body with the other colour map); the draw of a one-body frog takes the
+animal's morph (sim/animals.js `oneMesh`), `BODIES['harlequin:mint']` is the stand-in until it has loaded.
+
 ### guppy (`guppy`, a livebearer with sex chromosomes: sim/livebearer.js; rebuilt 7 Oct 2026)
 24 genes (content/guppy.js `GUPPY_LOCI`, in genotype order; the last is the sex). Reference: the owner's aquajocund.com guppy genetics
 chart (colour genes largely on the X, Moscow, swords and body markings on the Y father to son, ground colours autosomal), plus the

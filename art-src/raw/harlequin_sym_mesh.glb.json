@@ -1,0 +1,11 @@
+{
+ "scan": "harlequin_mesh",
+ "rot": 0,
+ "center": 0.06,
+ "level": true,
+ "th": 0.2422050870664617,
+ "mirror": 0,
+ "shear": "0.40,0.62,0.035",
+ "from": "x < 0",
+ "to": "x > 0"
+}
