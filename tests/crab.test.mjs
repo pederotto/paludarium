@@ -167,3 +167,22 @@ test('the baked crabs carry their claw rig: hinge, opening axis and feeding targ
     }
   }
 });
+
+test('gills drying with no water in reach: it searches on foot, it does not stand still', () => {
+  const m = crabMind(seq(31)); m.wet = 0.2;
+  const it = run(m, base({ shore: null, depth: -1, hunger: 0.6 }), 40, seq(32));
+  assert.ok(it.every((i) => i.mode !== 'soak'), 'nowhere to soak');
+  assert.ok(it.some((i) => i.speed > 0), 'it moves');
+  const m2 = crabMind(seq(33)); m2.wet = 0.2;
+  assert.ok(run(m2, base({ shore: { x: 4, z: 0 }, depth: -1 }), 5, seq(34)).some((i) => i.mode === 'soak'), 'with water in reach it goes to soak');
+});
+
+test('a stand-off with another crab ends: it does not face it for ever', () => {
+  const m = crabMind(seq(41));
+  const s = base({ male: true, other: { x: 5, z: 0, d: 5, male: true } });
+  const it = run(m, s, 60, seq(42));
+  const first = it.findIndex((i) => i.mode === 'display'), last = it.map((i) => i.mode).lastIndexOf('display');
+  assert.ok(first >= 0, 'it displays at first');
+  assert.ok(it.slice(Math.round(30 / 0.1)).some((i) => i.mode !== 'display'), 'and turns away after about 25 s');
+  assert.ok(last - first >= 0);
+});

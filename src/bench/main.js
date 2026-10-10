@@ -134,7 +134,7 @@ const POSES = {
     : sp.kind === 'frog' || sp.kind === 'toad'
     ? { ...frogSwimPose(t, { level: sp.anim?.level ?? 0.28 }), phase: 0, amp: 0, gait: 0 }
     : { ...salamanderSwimPose(0.6), amp: (sp.anim?.amp ?? 0.6) * 1.0, phase: t * TAU, gait: 0 }),     // (as the game: amp x (0.6 + 0.6 x 0.6), the wave travelling back)
-  walk: (t) => ({ calm: 0, gait: t * TAU, phase: t * TAU, amp: (sp.anim?.amp ?? 0), hop: 0, pose: 0, hy: sp.anim?.rig2 ? 0.2 * Math.sin(t * TAU + 1) : 0 }),       // (hy: the head swings against the body wave, as Animals.draw does)
+  walk: (t) => ({ calm: 0, gait: t * TAU, phase: t * TAU, amp: sp.kind === 'crab' ? -2 : (sp.anim?.amp ?? 0), hop: 0, pose: 0, hy: sp.anim?.rig2 ? 0.2 * Math.sin(t * TAU + 1) : 0 }),       // (hy: the head swings against the body wave, as Animals.draw does)
   hop: (t) => ({ calm: 1, hop: hopLegs(t), pose: 0, gait: 0, y: 4 * 1.2 * t * (1 - t), pitch: -0.35 * Math.cos(Math.PI * t) }),
   // (&body=swim: the leap as a frog near the camera is drawn mid-hop, sim/animals.js leapMesh: the swimming body posed by util/gait.js
   // leapStroke, its body pitched as the game pitches it along the arc)
@@ -173,7 +173,7 @@ const POSES = {
     const ts = lod._lo?.finish?.turnSweep, P = PLANS[planOf(sp)], stride = sp.anim?.stride ?? 0.35;
     if (!ts) return { calm: 0, gait: t * TAU };
     const yaw = t * (4 * stride) / ts.R, [dx, dz] = pivotShift(0, yaw, ts.pz, sp.scale ?? 1);
-    return { calm: 0, gait: t * TAU, turn: 1, yaw, x: dx, z: dz, hy: P.turn.head * P.rig.head, bend: P.turn.bend * P.rig.bend, tail: P.turn.tail * P.rig.tail };
+    return { calm: 0, gait: t * TAU, turn: 1, amp: sp.kind === 'crab' ? -1.5 : 0, yaw, x: dx, z: dz, hy: P.turn.head * P.rig.head, bend: P.turn.bend * P.rig.bend, tail: P.turn.tail * P.rig.tail };
   },
 };
 function frame() {

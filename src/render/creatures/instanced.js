@@ -192,7 +192,7 @@ function turnFinish(finish, geometry) {
   }
   if (typeof finish.turnSweep === 'string') {
     const tf = turnFrame(PLANS[finish.turnSweep], limbFrame(P, R), 1);
-    if (tf.legs) out.turnSweep = { pz: +tf.pz.toFixed(3), R: +tf.R.toFixed(3), inY: !out.rig2 };
+    if (tf.legs) out.turnSweep = { pz: +tf.pz.toFixed(3), R: +tf.R.toFixed(3), inY: !out.rig2 && finish.turnSweep !== 'decapod' };   // (a crab's turning mix rides in anim.y beside its direction: see the walking section)
     else delete out.turnSweep;
   }
   return out;
@@ -337,7 +337,20 @@ function buildPass(finish, wave, legLift, legStride, textures, pass, legAxis = '
     const swing = sn.mul(legT).mul(legStride).mul(go);
     if (!skin) {
     p.y.addAssign(isWalk.select(lift, float(0)));
-    if (side) p.x.addAssign(isWalk.select(swing.mul(sign(anim.y)), float(0)));
+    if (side) {
+      // A sideways walker: the walk sweeps the feet along x the way it leads (the sign of anim.y); in a turn they swing round the pivot
+      // instead (util/turn.js crabFoot), by the turning mix that rides in the rest of anim.y (anim.y = 2 dir + tau / 2). Only the LIFT
+      // follows `calm`: a crab that stops stands on its feet where the cycle left them, nothing snaps back to a neutral stance.
+      const tsC = finish.turnSweep && typeof finish.turnSweep === 'object' ? finish.turnSweep : null;
+      const dirS = sign(anim.y), tauC = tsC ? anim.y.sub(dirS.mul(2)).mul(2) : float(0);
+      p.x.addAssign(isWalk.select(sn.mul(legT).mul(legStride).mul(dirS).mul(float(1).sub(abs(tauC))), float(0)));
+      if (tsC) {
+        const alC = isWalk.select(sn.mul(legT).mul(tauC).mul(legStride / tsC.R), float(0));
+        const caC = cos(alC), saC = sin(alC), xrC = p.x.toVar(), zrC = p.z.sub(tsC.pz).toVar();
+        p.x.assign(xrC.mul(caC).add(zrC.mul(saC)));
+        p.z.assign(zrC.mul(caC).sub(xrC.mul(saC)).add(tsC.pz));
+      }
+    }
     else if (ts) {
       // Walking and turning (util/turn.js footRig): the walk's share of the sweep goes back along the body, the turn's swings the
       // leg round the pivot by the same fraction of the yaw per cycle, so a planted foot stays put while the body turns over it.

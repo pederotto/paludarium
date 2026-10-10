@@ -685,6 +685,7 @@ export function createSpeciesMesh(scene, id, { cap = null, morph = null } = {}) 
 export function turnRigFinish(sp) {
   const plan = planOf(sp), a = sp.anim ?? {};
   if ((plan === 'anuran' || plan === 'caudate' || plan === 'lizard') && a.stride && (a.legAxis ?? 'z') === 'z') return { turnSweep: plan };
+  if (plan === 'decapod' && sp.kind === 'crab' && a.stride && a.legAxis === 'x') return { turnSweep: plan };
   if (plan === 'fish' && !a.rig2) return { rig2: { neck: 0, s0: 0, s1: 0.02, neckY: 0 } };
   return {};
 }
@@ -1018,7 +1019,7 @@ export class Animals {
     };
     // The goal contract (sim/goals.js): every animal can give its goal up and check one.
     a.abortGoal = abortGoal;
-    a.validGoal = (x, z, y) => this.isValidGoal(a, x, z, y);
+    a.validGoal = (x, z, y) => this.isValidGoal(a, x, z, y) && (SPECIES[a.sp].kind !== 'crab' || this.wallClearGoal(a, { x, z }).z === z);   // (a crab's wide body also has to clear the back wall there)
     // Genes: founders get the genotype of the chosen morph (or a random wild one); children are given theirs.
     // Tadpoles carry the genes of the frog they will become.
     if (hasGenetics(id)) {
@@ -1313,6 +1314,16 @@ export class Animals {
     if (!g || g.wall || a.lab?.drive || this.isValidGoal(a, g.x, g.z)) return g;
     a.abortGoal('invalid goal');
     return null;
+  }
+
+  // A goal moved forward by the relief clearance of the whole drawn body there, at either heading it can arrive in: a wide crab (the
+  // panther's sprawled legs span 12 cm) picked goals against the back wall, every step toward them was refused (wallBlocks) and it
+  // stood there until the goal timed out. The wall is at smaller z, so 'forward' is +z.
+  wallClearGoal(a, g) {
+    if (!g || g.wall || !this.avoid || a.lab?.drive) return g;
+    const y = this.world.terrain.heightAt(g.x, g.z);
+    const need = Math.max(this.wallNeed(a, g.x, y, g.z, 0, false), this.wallNeed(a, g.x, y, g.z, Math.PI / 2, false));
+    return need > 0.05 ? { ...g, z: g.z + need + 0.3 } : g;
   }
 
   // Is a perching frog's body (from its contact point out along the contact normal: belly, middle, back) inside a piece other than its perch?
@@ -3029,7 +3040,20 @@ export class Animals {
     else {
       // (a crab with no safe burrow would run a fixed 12 cm straight away: it picks a spot, far from the threat, under cover or in shallow water)
       if (m.mode === 'flee' && threat && it.goal && !(a.home && Math.hypot(a.home.x - threat.x, a.home.z - threat.z) > threat.d)) { const g2 = this.escapeGoal(a, sp, threat, (px, pz) => this.crabNiche(px, pz, P)); if (g2 && this.isValidGoal(a, g2.x, g2.z)) it.goal = g2; }
-      if (it.goal && it.speed > 0 && (it.goal = this.vetGoal(a, it.goal))) it.goal = this.steerGoal(a, sp, it.goal, dt);   // (a place it can be, then round what is in the way)
+      if (it.goal && it.speed > 0 && (it.goal = this.vetGoal(a, it.goal))) {
+        const want = this.wallClearGoal(a, it.goal);                          // (a place it can be, clear of the back wall with its whole body, then round what is in the way)
+        const via = this.steerGoal(a, sp, want, dt);
+        // No way out: the planner hands back the crab's own spot (a pocket its sprawled legs do not fit through, against the back wall) and the
+        // watchdog reads that as 'there' (stuckIntent: within 0.5 cm of the spot): it burst on the spot for up to 150 s. Give that goal up, keep off
+        // the spot, and after a few of them in a row put it on the nearest free ground.
+        if (Math.hypot(via.x - x, via.z - z) < 0.5 && Math.hypot(want.x - x, want.z - z) > 2) {
+          m.coll = (m.collT > 0 ? m.coll : 0) + 1; m.collT = 12;
+          a.banX = want.x; a.banZ = want.z; a.banT = CLOCK.t + 25;
+          m.goal = null; m.burst = 0; m.pauseT = 0.8; it.goal = null; it.speed = 0; it.calm = 1;
+          if (m.coll >= 4) { m.coll = 0; this.relocate(a, sp); return; }
+        } else it.goal = via;
+      }
+      if (m.collT > 0) m.collT -= dt;
     }
     if (it.say) W.log(it.say, 'warn');
     if (it.eat && food) {
@@ -5736,8 +5760,12 @@ export class Animals {
           cb.feedNow = (cb.feedNow ?? 0) + ((i.feed ?? 0) - (cb.feedNow ?? 0)) * k;
           cb.pinchNow = (cb.pinchNow ?? 0) + ((i.pinch ?? 0) - (cb.pinchNow ?? 0)) * k;
           cb.wph = (cb.wph ?? 0) + dt * (cb.feedNow > 0.3 ? 4 : 2.6);
-          amp = -cb.lead; a.wph = cb.wph;
-          packed = packAnim(0, 0, cb.pinchNow, cb.feedNow, i.claw ?? 0, Math.min(i.calm ?? 1, 1 - Math.min(1, Math.abs(a.turnW ?? 0) / 0.6)));   // (the legs step while it turns)
+          // anim.y = 2 x the direction of travel (the leading side) + half the turning mix: the sign is the direction, the rest sweeps the feet round
+          // the pivot in a turn (util/turn.js crabFoot; render/creatures/instanced.js). `calm` only stops the lifting: a crab that stops stands on its feet.
+          amp = -cb.lead * 2 + Math.max(-1, Math.min(1, a.turnMix ?? 0)) * 0.5; a.wph = cb.wph;
+          const calmWant = Math.min(i.calm ?? 1, 1 - Math.min(1, Math.abs(a.turnW ?? 0) / 0.6));   // (the legs step while it turns)
+          cb.calmNow = (cb.calmNow ?? calmWant) + (calmWant - (cb.calmNow ?? calmWant)) * Math.min(1, dt / this.tf * 12);
+          packed = packAnim(0, 0, cb.pinchNow, cb.feedNow, i.claw ?? 0, cb.calmNow);
           if (cb.sinkNow > 0.01) { pos = _p.copy(pos); pos.y -= cb.sinkNow * 1.35 * sc; }
         }
         // The swimming-pose model flexes a little in time with the stroke; everything else is the rig's business.

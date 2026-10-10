@@ -81,6 +81,8 @@ export const CRAB = {
   scrape: [1.6, 3.2],           // seconds of scraping per load (at dig rate 1; harder ground takes longer)
   digStall: 10,                 // loads in a row that leave the pit no deeper (sand running back in): give the spot up
   digRest: 240,                 // game minutes before it tries a given-up spot again
+  displayMax: 25,               // seconds a stand-off with another crab lasts at most
+  displayRest: 90,              // seconds before it faces a crab again
   noun: 'vampire crab',
 };
 
@@ -168,14 +170,18 @@ export function crabThink(m, s, rnd = Math.random, P = CRAB) {
   if (inWater && ((s.depth ?? 0) > P.safeDepth || m.under > P.maxUnder)) mode = 'exit';
   else if (m.moltLeft > 0 || (m.moltIn <= 0 && (!inWater || P.aquatic))) mode = 'molt';
   else if (m.fear > P.fearAt) mode = 'flee';
-  else if (m.wet < P.soakAt || (prev === 'soak' && m.wet < P.soakTo)) mode = 'soak';
+  else if ((m.wet < P.soakAt || (prev === 'soak' && m.wet < P.soakTo)) && (inWater || s.shore)) mode = 'soak';   // (no water in reach: it keeps searching, it does not stand still)
   else if (s.food && s.food.d < P.reach && (s.hunger ?? 0) > 0.1) mode = 'eat';
-  else if (s.male && s.other && s.other.d < (s.other.male ? P.rivalCm : P.mateCm) && awake > 0.3) mode = 'display';
+  else if (s.male && s.other && s.other.d < (s.other.male ? P.rivalCm : P.mateCm) && awake > 0.3 && (m.noDisplay ?? 0) <= 0) mode = 'display';
   else if (P.aquatic && inWater && m.haul > 1 && s.bank && awake > 0.4) mode = 'haul';
   else if (wantsDig(m, s, prev, awake * comfort < 0.25 || comfort < 0.5, P)) mode = 'dig';
   else if (awake * comfort < 0.25 || (comfort < 0.5 && (s.cover ?? 0) < 0.3) || m.soft > 0) mode = 'hide';
   else if ((s.hunger ?? 0) > 0.25 || awake > 0.5) mode = 'forage';
   else mode = 'rest';
+  // A stand-off ends: two crabs that have faced each other for P.displayMax seconds turn away for P.displayRest (they did not stare for ever).
+  m.noDisplay = Math.max(0, (m.noDisplay ?? 0) - dt);
+  m.dispT = mode === 'display' ? (m.dispT ?? 0) + dt : 0;
+  if (m.dispT > P.displayMax) { m.noDisplay = P.displayRest; m.dispT = 0; mode = 'forage'; }
   if (mode !== prev) { m.mode = mode; m.modeT = 0; m.burst = 0; m.burstT = 0; if (mode !== 'dig') m.dig = null; }
   m.modeT += dt;
   out.mode = mode;
