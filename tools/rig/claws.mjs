@@ -17,14 +17,15 @@ const unit = (a) => mul(a, 1 / (len(a) || 1));
 const mean = (pts) => mul(pts.reduce((s, p) => add(s, p), [0, 0, 0]), 1 / Math.max(1, pts.length));
 const r3 = (a) => a.map((v) => +v.toFixed(3));
 
-export function fitClaws(pos, rig, { dactyl = 'outer' } = {}) {
+// `ids`: the rig's leg ids of the left and right claw (a crab's 5 and 6, a crayfish's 15 and 16); the result is keyed 5 and 6 (left, right) either way.
+export function fitClaws(pos, rig, { dactyl = 'outer', ids = [5, 6] } = {}) {
   const n = pos.length / 3, P = (i) => [pos[i * 3] * 100, pos[i * 3 + 1] * 100, pos[i * 3 + 2] * 100];
   // the shell's front: the mouth sits low on its front rim, on the midline
   let zf = -1e9, ymax = 0;
   for (let i = 0; i < n; i++) if (!rig.leg[i]) { zf = Math.max(zf, P(i)[2]); ymax = Math.max(ymax, P(i)[1]); }
   const mouth = [0, 0.32 * ymax, zf - 0.04];
   const out = {}, dact = new Float32Array(n), smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-  for (const id of [5, 6]) {
+  for (const [side, id] of ids.map((v, k) => [5 + k, v])) {
     const V = []; for (let i = 0; i < n; i++) if (rig.leg[i] === id) V.push(i);
     if (V.length < 60) throw new Error(`claws: claw ${id} has ${V.length} vertices`);
     const at = (lo, hi) => V.filter((i) => rig.legT[i] >= lo && rig.legT[i] <= hi).map(P);
@@ -69,7 +70,7 @@ export function fitClaws(pos, rig, { dactyl = 'outer' } = {}) {
     }
     const Dn = unit(sub(mD, H)), A = unit(cross(Dn, S)), L = len(sub(tip, root));
     const u = unit(sub(mD, H)), v = unit(sub(mF, H));
-    out[id] = { h: r3(H), a: r3(A), shut: +Math.max(0.05, Math.min(0.6, Math.acos(Math.max(-1, Math.min(1, dot(u, v)))))).toFixed(3), t0: +t0.toFixed(2), tip: r3(tip),
+    out[side] = { h: r3(H), a: r3(A), shut: +Math.max(0.05, Math.min(0.6, Math.acos(Math.max(-1, Math.min(1, dot(u, v)))))).toFixed(3), t0: +t0.toFixed(2), tip: r3(tip),
       ground: r3([tip[0] * 0.55, Math.max(0.04, tip[1] * 0.35), tip[2] + 0.28 * L]), mouth: r3(mouth), len: +L.toFixed(3) };
   }
   return { claws: out, dact };

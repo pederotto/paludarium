@@ -10,13 +10,32 @@
 
 import * as THREE from 'three/webgpu';
 import { TANK } from './tank.js';
-import { SurfaceMap, layersOf } from './surfaces.js';
+import { SurfaceMap, layersOf, MAX_LAYERS } from './surfaces.js';
 
 export const CELL = 1.5;
+
+// --- The spatial contract (R8): ONE predicate for where a body may be ------------------------------------------------------------
+// The movers' step test (Animals.canStep), every goal a mind commits (Animals.isValidGoal) and insideSolid's first gate all ask
+// canOccupy, with the same layer and the same body, so a step the movers take can never be found inside a piece on the next tick (the
+// snail that stepped under a ledge because the step tested 0.5 cm and insideSolid 0.8 of its shell). It reads the 2.5D layer map
+// (sim/surfaces.js, baked from these voxels when the pieces change): O(1), no rays, no allocation.
+// A body is anything with `bh` (its height, cm) and `rad` (its radius, cm): an animal, or ANON for a caller with none.
+export const ANON = { bh: 0.5, rad: 0 };
+// A body stands on a layer whose surface is at most this far above its feet. A climber's feet are read from the exact layer standOn put it
+// on (Animals.standY), so only rounding is allowed for; a bigger allowance had ground walkers "on" a buried stone whose top was above their feet.
+export const LAYER_TOL = 0.05;
+// A piece's top layer is no floor where the voxels above it run on higher than this (two cells and a slanted surface's third: runTop).
+export const WALL_IN_CELL = 3 * CELL;
+// The room a body needs above the surface it stands on: its height (half a centimetre at least: the old fixed test).
+export const clearNeed = (b) => Math.max(0.5, b.bh ?? 0.5);
+// How far above its feet its belly is: insideBody's lowest sample for a body this tall.
+export const bellyOf = (b) => Math.min(0.5, Math.max(0.2, b.bh ?? 0.5) * 0.5);
 
 const A = new THREE.Vector3(), B = new THREE.Vector3(), Cc = new THREE.Vector3(), P = new THREE.Vector3();
 const SHELL = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
 const RAY = new THREE.Raycaster(); RAY.firstHitOnly = false;
+const RAY1 = new THREE.Raycaster(); RAY1.firstHitOnly = true;      // (inside(): the nearest face only)
+const N = new THREE.Vector3(), DOWN = new THREE.Vector3(0, -1, 0);
 const DIRS = [[0, 1, 0], [0.6, 0.2, 0.77], [-0.7, 0.3, -0.65], [0.1, -0.2, 0.97], [-0.9, -0.1, 0.4]].map(([x, y, z]) => new THREE.Vector3(x, y, z).normalize());
 
 export class Occupancy {
@@ -88,6 +107,89 @@ export class Occupancy {
     return this.segmentFreeAt(a, x0, y0 + lift, z0, x1, y1 + lift, z1);
   }
 
+  // The layer a body whose feet are at height `y` stands on in the cell at (x, z): the highest surface at most LAYER_TOL above its feet
+  // (0, the ground, when there are no pieces or no layer map yet).
+  layerAt(x, z, y) {
+    const S = this.surf;
+    if (!S) return 0;
+    const i = S.ci(x), k = S.ck(z);
+    if (!S.has(i, k)) return 0;
+    const c = k * S.nx + i, m = S.n[c];
+    let best = 0;
+    for (let l = 1; l < m; l++) if (S.y[c * MAX_LAYERS + l] <= y + LAYER_TOL) best = l;
+    return best;
+  }
+
+  // Can body `b` be in layer `l` of the cell at (x, z), its feet at height `y`? On the ground (layer 0) the voxels of the column are free from
+  // its belly to the top of its back (the ground is a height field, not in the grid, and it is not flat across a cell: the feet's own height
+  // is used, not the layer's); on a piece's top the room the layer was baked with (from the piece's exact top, where the voxels are the
+  // piece's thickened shell) is at least its height. A body wider than the shells' one-cell thickening finds that room at its radius as
+  // well. Outside the grid, or with no pieces: yes. No allocation.
+  canOccupy(x, z, l, b = ANON, y = NaN) {
+    const S = this.surf;
+    if (!this.count || !S) return true;
+    const i = S.ci(x), k = S.ck(z);
+    if (!S.has(i, k)) return true;
+    const c = k * S.nx + i;
+    if (!(l >= 0 && l < S.n[c])) return false;
+    // (from its belly, insideBody's lowest sample, to its height: every point insideBody looks at is in a cell tested here)
+    const o = c * MAX_LAYERS + l, need = clearNeed(b), y0 = l === 0 && y === y ? y : S.y[o], lo = y0 + bellyOf(b), top = y0 + need;
+    if (l === 0 ? !this.columnFree(x, z, lo, top) : S.clr[o] < need || this.runTop(x, z, S.y[o]) - S.y[o] > WALL_IN_CELL) return false;
+    const rr = (b.rad ?? 0) - CELL;
+    if (rr > 0.05 && (!this.roomAt(x + rr, z, y0, lo, top) || !this.roomAt(x - rr, z, y0, lo, top) || !this.roomAt(x, z + rr, y0, lo, top) || !this.roomAt(x, z - rr, y0, lo, top))) return false;
+    return true;
+  }
+
+  // The top of the solid run of voxels at (x, z) that holds height y (y itself when the cell there is free). A piece's top layer is baked
+  // from a ray at the cell's centre; the run above it is that surface's cell and its one-cell thickening, so at most WALL_IN_CELL higher.
+  // Higher than that, something taller stands in the same cell (the side of a spire beside a low root): the layer is no floor there.
+  runTop(x, z, y) {
+    const i = this.cellX(x), k = this.cellZ(z);
+    if (i < 0 || k < 0 || i >= this.nx || k >= this.nz) return y;
+    let j = Math.max(0, this.cellY(y));
+    if (!this.data[this.idx(i, j, k)]) return y;
+    while (j + 1 < this.ny && this.data[this.idx(i, j + 1, k)]) j++;
+    return (j + 1) * CELL;
+  }
+
+  // No solid cell in the column at (x, z) from height y0 to y1.
+  columnFree(x, z, y0, y1) {
+    const i = this.cellX(x), k = this.cellZ(z);
+    if (i < 0 || k < 0 || i >= this.nx || k >= this.nz) return true;
+    for (let j = Math.max(0, this.cellY(y0)), j1 = Math.min(this.ny - 1, this.cellY(y1)); j <= j1; j++) if (this.data[this.idx(i, j, k)]) return false;
+    return true;
+  }
+
+  // Room for body `b` with its feet at height y at (x, z), wherever that is (a leaf in the air, a piece's top): the same column and layer test
+  // as canOccupy (a perch spot, Animals.perchFits).
+  roomFor(x, z, y, b = ANON) {
+    if (!this.count || !this.surf) return true;
+    return this.roomAt(x, z, y, y + bellyOf(b), y + clearNeed(b));
+  }
+
+  // Room for body `b` clinging to a surface at (x, y, z) whose outward normal is n: along n from the contact, at its belly and at most of its
+  // height (as insideBody samples a standing body upward), no piece but `skip` (the one it clings to) is really there. The contract for a
+  // climb: a frog's climb route asks it of every point (Animals.perchRoute) and insideSolid asks it of a perched frog (perchInside).
+  roomAlong(x, y, z, n, b = ANON, skip = null) {
+    if (!this.count) return true;
+    const h = Math.max(0.2, b.bh ?? 0.5);
+    for (const d of [Math.min(0.5, h * 0.5), h * 0.8]) if (this.inside(x + n.x * d, y + n.y * d, z + n.z * d, skip)) return false;
+    return true;
+  }
+
+  // Room in the column at (x, z) for a body's flank from its feet at y0 up to `top`: free voxels there, or a piece's top it stands level with.
+  roomAt(x, z, y0, lo, top) {
+    if (this.columnFree(x, z, lo, top)) return true;
+    const S = this.surf, i = S.ci(x), k = S.ck(z);
+    if (!S.has(i, k)) return true;
+    const c = k * S.nx + i, m = S.n[c];
+    for (let l = 1; l < m; l++) {
+      const o = c * MAX_LAYERS + l;
+      if (y0 >= S.y[o] - LAYER_TOL && top <= S.y[o] + S.clr[o]) return true;
+    }
+    return false;
+  }
+
   // A cheap signature of the piece transforms: catches a piece that was dragged without a version bump.
   static signature(decor) {
     let s = decor.pieces.length;
@@ -131,35 +233,65 @@ export class Occupancy {
         const proxy = new THREE.Mesh(g, SHELL);
         proxy.matrixAutoUpdate = false; proxy.matrixWorldAutoUpdate = false;
         proxy.matrixWorld.copy(piece.mesh.matrixWorld);
-        this.shells.push({ proxy, box: new THREE.Box3().setFromObject(piece.mesh) });
-      } else this.shells.push({ proxy: null, box: new THREE.Box3().setFromObject(piece.mesh) });
+        this.shells.push({ proxy, piece, box: new THREE.Box3().setFromObject(piece.mesh) });
+      } else this.shells.push({ proxy: null, piece, box: new THREE.Box3().setFromObject(piece.mesh) });
     }
   }
 
   // Really inside a piece, not only in a solid cell: the cells are 1.5 cm and the shells are thickened by one, so a newt hiding under
   // a root or an isopod walking along it is "in" a solid cell while its body is outside the wood (it was moved out every tick, and
-  // back to its hide by its brain: a body flickering 20-60 cm to and fro). Odd crossings of the shell in at least three of five
-  // directions (a piece without a BVH: the cell decides).
+  // back to its hide by its brain: a body flickering 20-60 cm to and fro). In at least three of five directions the nearest face of
+  // the shell is seen from behind (its outward normal points the way the ray goes): the point is under that surface. Counting crossings
+  // instead was fooled by open and hollow meshes (a root's cavity, an unclosed log): a skink standing on bark read as inside the log.
+  // A piece without a BVH: the cell decides. `skip`: a piece not to test (the one a frog is clinging to).
   // A body standing at (x, y0, z), h tall: inside at its belly (0.5 cm up, a small one at its middle), its middle or its back (a frog
   // under a root lying 0.6 cm off the ground has its belly clear and its back in the wood; a fruit fly is all below 0.5 cm).
   insideBody(x, y0, z, h = 0.5) {
     return this.inside(x, y0 + Math.min(0.5, h * 0.5), z) || (h > 1 && this.inside(x, y0 + h * 0.5, z)) || (h > 0.6 && this.inside(x, y0 + h * 0.8, z));
   }
 
-  inside(x, y, z) {
+  inside(x, y, z, skip = null) {
     if (!this.solidAt(x, y, z)) return false;
     if (!this.shells) return true;
     for (const s of this.shells) {
-      if (!s.box.containsPoint(P.set(x, y, z))) continue;
+      if (s.piece === skip && skip || !s.box.containsPoint(P.set(x, y, z))) continue;
       if (!s.proxy) return true;
-      let odd = 0;
-      for (let k = 0; k < DIRS.length && odd < 3 && odd + DIRS.length - k >= 3; k++) {
-        RAY.set(P.set(x, y, z), DIRS[k]); RAY.near = 0; RAY.far = 400;
-        if (RAY.intersectObject(s.proxy, false).length % 2 === 1) odd++;
+      let back = 0;
+      for (let k = 0; k < DIRS.length && back < 3 && back + DIRS.length - k >= 3; k++) {
+        RAY1.set(P.set(x, y, z), DIRS[k]); RAY1.near = 0; RAY1.far = 400;
+        const h = RAY1.intersectObject(s.proxy, false)[0];
+        if (h && N.copy(h.face.normal).transformDirection(s.proxy.matrixWorld).dot(DIRS[k]) > 0) back++;
       }
-      if (odd >= 3) return true;
+      if (back >= 3) return true;
     }
     return false;
+  }
+
+  // The real top of the pieces under (x, z) at or below `y`: the highest upward-facing face a ray down meets there, or -Infinity. The layer
+  // map is baked at each cell's centre; a body's contact with bark or stone is here (Animals.standOn).
+  topBelow(x, z, y) {
+    let best = -Infinity;
+    for (const s of this.shells ?? []) {
+      if (!s.proxy || x < s.box.min.x || x > s.box.max.x || z < s.box.min.z || z > s.box.max.z || s.box.min.y > y) continue;
+      RAY.set(P.set(x, Math.min(y, s.box.max.y + 0.1), z), DOWN); RAY.near = 0; RAY.far = 400;
+      for (const h of RAY.intersectObject(s.proxy, false)) {
+        if (h.point.y <= best) break;
+        if (N.copy(h.face.normal).transformDirection(s.proxy.matrixWorld).y > 0) { best = h.point.y; break; }
+      }
+    }
+    return best;
+  }
+
+  // The index of the layer of the cell at (x, z) whose surface is nearest height y (0 with no layer map).
+  nearestLayer(x, z, y) {
+    const S = this.surf;
+    if (!S) return 0;
+    const i = S.ci(x), k = S.ck(z);
+    if (!S.has(i, k)) return 0;
+    const c = k * S.nx + i, m = S.n[c];
+    let best = 0, bd = Infinity;
+    for (let l = 0; l < m; l++) { const d = Math.abs(S.y[c * MAX_LAYERS + l] - y); if (d < bd) { bd = d; best = l; } }
+    return best;
   }
 
   addPiece(piece) {

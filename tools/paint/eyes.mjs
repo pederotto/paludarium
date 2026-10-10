@@ -61,6 +61,17 @@ export const EYES = {
     invert: { antenna: 1, wave: 7, curl: SHRIMP_CURL, eggs: SHRIMP_EGGS },
   } }])),
   // Panther crab (the owner's Meshy model): its eyes are part of the painted texture (black beads); satin shell like the vampire crab's.
+  // Matano shrimp (the owner's Meshy model): the dwarf shrimp's finish and rig (glossy black eyes, antennae, leg wave, tail flick, eggs); the pivots below are what the bake prints.
+  matanoshrimp: { finish: {
+    eyes: (e) => [eye(e.c, e.r, e.axis, { pupil: [0.3, 0.3], inner: lin([0.02, 0.018, 0.016]), outer: lin([0.008, 0.007, 0.006]), rim: lin([0.004, 0.004, 0.004]), cap: 0.95, seed: 6 })],
+    rough: 0.4, coat: 0.32, coatRough: 0.18, grainAmt: 0, tone: 0.02, glassOpacity: 0.95,
+    invert: { antenna: 1, wave: 7, curl: { z0: 0.12, y0: 0.628, len: 1.44, flick: true }, eggs: { y: 0.617, z: -0.103 } },
+  } },
+  // Mexican dwarf crayfish (the owner's Meshy model): satin orange shell (not the shrimp's glass), the `invert` rig of the shrimps (legs in a wave,
+  // antennae, the tail flick); its claws pinch and feed with the crab's cycle (`claws`, fitted by the bake). The pivot is what the bake prints.
+  cambarellus: { finish: { rough: 0.55, coat: 0.12, coatRough: 0.45, grainAmt: 0, tone: 0.02, invert: { antenna: 1, wave: 7, curl: { z0: 0.024, y0: 0.385, len: 1.174, flick: true } } } },
+  // Hillstream loach (the owner's Meshy model): its eyes are in the texture; wet satin skin, fins about four fifths opaque (the Meshy fish's membranes).
+  hillloach: { finish: { rough: 0.5, coat: 0.55, coatRough: 0.18, grainAmt: 0, finOpacity: 0.8 } },
   panther: { finish: { rough: 0.62, coat: 0.1, coatRough: 0.5, grainAmt: 0, tone: 0.02 } },
   crab: { finish: { eyes: (e) => [eye(e.c, e.r, e.axis, { pupil: [0.34, 0.34], inner: lin([0.96, 0.82, 0.19]), outer: lin([0.83, 0.6, 0.08]), rim: lin([0.04, 0.03, 0.02]), limb: lin([0.61, 0.42, 0.05]), cap: 0.97, seed: 4 })], rough: 0.68, coat: 0.08, coatRough: 0.55, grainAmt: 0, tone: 0.02 } },   // satin, not lacquered
 };

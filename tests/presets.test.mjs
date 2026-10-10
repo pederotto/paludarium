@@ -55,3 +55,20 @@ for (const p of Object.values(PRESETS)) {
 test('a hidden set (needs an asset to exist at all) is not in any menu', () => {
   for (const t of Object.keys(TANKS)) for (const p of presetsForTier(t)) assert.ok(!p.hidden, `${p.id} hidden but listed for ${t}`);
 });
+
+// A set may name the colour lines (strains) it releases: `stock: [[id, n, zone, { morphs, per }]]` (sim/generator.js Gen.stock).
+import { morphList, genotypeForMorph, morphOf } from '../src/sim/genetics.js';
+import { parseGuppy } from '../src/content/guppy.js';
+// (a male shows his strain; a female of a strain whose colours ride on the Y shows less of it, as a real one does, and passes the rest)
+test('every strain a set releases is a real morph of its species, for both sexes', () => {
+  for (const p of Object.values(PRESETS)) for (const [id, , , o] of p.stock ?? []) for (const m of o?.morphs ?? []) {
+    assert.ok(morphList(id).includes(m), `${p.id}: ${id} morph ${m}`);
+    assert.equal(morphOf(id, genotypeForMorph(id, m, Math.random, { female: false })), m, `${p.id}: ${m} (male)`);
+    const f = morphOf(id, genotypeForMorph(id, m, Math.random, { female: true }));
+    assert.ok(id !== 'guppy' || parseGuppy(f), `${p.id}: ${m} (female ${f})`);
+  }
+});
+test('the guppy breeder\'s tank releases trios of six strains', () => {
+  const [, , , o] = PRESETS.guppyroom.stock.find((s) => s[0] === 'guppy');
+  assert.equal(o.per, 3); assert.equal(o.morphs.length, 6);
+});

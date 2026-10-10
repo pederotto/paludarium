@@ -36,13 +36,25 @@ test('an asleep intent lasts at most HOLD_CAP seconds in a row, then the watchdo
   assert.equal(stuckIntent(fish({ fm: { ...fish().fm, goal: { x: 6, z: 0 } } }), SP, { holdS: 999, cap: HOLD_CAP }), 'go');
 });
 
-test('animals.js: insideSolid is checked before any intent; only the swim case of wantsMove changed', () => {
+test('animals.js: insideSolid is checked before any intent; swimmers, crawlers and grazers share the intent watchdog', () => {
   const src = fs.readFileSync(new URL('../src/sim/animals.js', import.meta.url), 'utf8');
   const keep = src.slice(src.indexOf('  keepFree(a, sp, dt) {'), src.indexOf('  // --- Turning'));
   assert.ok(keep.indexOf('this.insideSolid(a, sp)') > 0 && keep.indexOf('this.insideSolid(a, sp)') < keep.indexOf('stuckIntent('), 'penetration first');
   const w = src.slice(src.indexOf('  wantsMove(a, sp'), src.indexOf('  keepFree(a, sp, dt) {'));
-  assert.match(w, /case 'swim': \{ const k = stuckIntent\(/);
-  // shrimp / newt / axolotl / snail / crab predicates are the pre-R6a lines
-  assert.ok(w.includes("case 'crawlWater': case 'crawlLand': case 'crab': return a.state === 'walk' && !!a.target && Math.hypot(a.target.x - a.pos.x, a.target.z - a.pos.z) > 0.5;"));
+  assert.match(w, /case 'swim': case 'crawlWater': case 'crawlLand': case 'crab': case 'fly': case 'skink': \{ _ctx\.holdS = a\.holdS \?\? 0; const k = stuckIntent\(/);
   assert.ok(w.includes("case 'newt': case 'axolotl': return a.herp ? !!a.wantMove : a.swimming ? true : a.state === 'walk' && !!a.target;"));
+});
+
+const crawler = (o = {}) => ({ pos: { x: 0, z: 0 }, state: 'walk', target: { x: 3, z: 0 }, ...o });
+const CR = { kind: 'crawlWater' };
+
+test('crawlers and grazers: only a walk to a spot is travel; grazing at the spot holds, with the same cap', () => {
+  assert.equal(stuckIntent(crawler(), CR), 'go');
+  assert.equal(stuckIntent(crawler({ target: { x: 0.4, z: 0 } }), CR), 'creep');
+  assert.equal(stuckIntent(crawler({ grazing: true }), CR), 'go');                                     // a shuffle 3 cm on is travel
+  assert.equal(stuckIntent(crawler({ grazing: true, target: { x: 0.4, z: 0 } }), CR), 'hold');
+  assert.equal(stuckIntent(crawler({ state: 'rest' }), CR), 'idle');
+  assert.equal(stuckIntent(crawler({ target: null }), CR), 'idle');
+  assert.equal(stuckIntent(crawler({ grazing: true, target: { x: 0.4, z: 0 } }), CR, { holdS: 150.1, cap: HOLD_CAP }), 'go');
+  assert.equal(asleep('idle'), false);
 });

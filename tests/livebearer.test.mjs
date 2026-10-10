@@ -40,7 +40,7 @@ test('a female carries a brood for its gestation and drops several fry fathered 
 });
 
 test('she keeps the sperm for three more broods: no male needed, and the father stays the same', () => {
-  const female = fish('red', { id: 3, female: true, st: { id: 9, genes: genotypeForMorph('guppy', 'blue', makeRng(2), { female: false }), gen: 0, n: 3 }, mated: true });
+  const female = fish('red', { id: 3, female: true, sperm: { id: 9, genes: genotypeForMorph('guppy', 'blue', makeRng(2), { female: false }), gen: 0, n: 3 }, mated: true });
   initLivebearer(female, SP, { female: true }, []);
   const W = world([female]);
   let broods = 0;
@@ -79,4 +79,15 @@ test('looks: a female shows ground, colour, half-black and big ears, never sword
   for (const k of ['female_tuxedo_blue_round_dumbo', 'female_albino_red_gravid', 'juv_gold', 'red', 'albino_red_dumbo']) assert.ok(parseGuppyLook(k), k);
   assert.equal(parseGuppyLook('female_red_mosaic'), null);
   assert.equal(parseGuppyLook('albino_tuxedo_red'), null);
+});
+
+test('stored sperm is not the strike field: Animals.move skips an animal with a.st, and a mated female must keep swimming', () => {
+  const female = fish('red', { id: 4, female: true, mated: false });
+  initLivebearer(female, SP, { female: true }, []);
+  const male = fish('blue', { id: 5, female: false });
+  initLivebearer(male, SP, { female: false }, []);
+  const W = world([female, male]);
+  for (let d = 0; d < 3000 && !female.mated; d++) livebearerStep(W, female, SP, DAY, true, 1, []);
+  assert.ok(female.mated && female.sperm, 'she mated and stores sperm');
+  assert.equal(female.st, undefined, 'a.st stays free for strikes');
 });

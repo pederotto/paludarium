@@ -104,3 +104,54 @@ Not fixed (open, with the evidence):
 - Read counts next to walked/reached, and compare builds only in the same session (relocation counts depend on machine load; shares do not).
 - Masking control (the one that matters): `tools/steps/lab-pin-control.mjs` pins four fish in open water (every `keepFree` puts them back) and sets their mind: cory and neon with a spot 6 cm away ('go'), loach and guppy with a spot where they are ('hold'). 4 runs, 2 per tree: the 'go' fish fire identically on the unfixed and the fixed build (47 stuck decisions / 46 relocations and 66 / 65 in the 60 s runs); the 'hold' fish fire every 3.5 s on the unfixed build and exactly once, at 154 animal-s (HOLD_CAP 150 + 3.5), with no relocation on the fixed one. Paired stuck-test runs, 8 of them, 3 scenes, order alternated: fish relocations -59% (suriname), -89% (swamp), -91% (blackwater); the `go` class in swamp fell too because a false-positive teleport feeds later stuck chains (57-82% of the base build's `go` relocations came within 30 s of the same fish's previous one), in suriname it did not move (80 vs 73). Absolute counts move with machine load; compare only back to back.
 - Measured and NOT changed: clearing the fish mind's goal at the first back-off (R6b) would not help: the goal at the second stuck equals the first in only 23% of cases. A relocation moves a fish a median 4 cm and 43% are stuck again within 10 s, so the remaining 'go' class is not fixed by this change (cause open: a guess is steering that flip-flops between the goal and obstacle avoidance).
+
+## 9. The spatial contract (R8, 8 Oct 2026)
+
+The obstacle bugs of fish, shrimp, snails, newts and skinks came from the parts disagreeing about where a body may be: the crawl step tested
+0.5 cm over the ground while insideSolid tested 0.8 of the body's height (a snail stepped under a ledge and was at once "inside"),
+`walledin.js` had a third copy of the old test, inGlass snapped walkers to the soil, minds picked goals inside pieces, and relocate left the
+mind's goal in place. Now there is one contract, in three parts.
+
+**One predicate.** `Occupancy.canOccupy(x, z, layer, body, y)` (sim/occupancy.js), on the 2.5D layer map (sim/surfaces.js): O(1), no
+rays, no allocation. A body is anything with `bh` (height) and `rad` (radius); it needs `clearNeed = max(0.5, bh)` of room. On the ground
+(layer 0) the voxel column must be free from the body's belly (insideBody's lowest sample) to its height, at its feet's real height (the
+terrain is not flat across a 1.5 cm cell). On a piece's top the baked clearance counts, unless the voxels above run more than
+`WALL_IN_CELL` (4.5 cm) higher: then something taller stands in that cell. A body wider than the shells' one-cell thickening is tested at
+its radius too. Everything else asks it:
+- `Animals.canStep(a, x, z)`: the movers' step test (okFor's solid test with a body, herpStep, crawl, shrimpWalk, the turning pivot,
+  `walledin.js`). A climber steps onto the layer `SurfaceMap.pick` gives from the layer it stands on (`standY`); any other walker stays on
+  the ground.
+- `Animals.insideSolid(a)`: first the same predicate on the layer it stands on; only a body it refuses is looked at with rays. So a step
+  canStep allowed is never found inside a piece on the next tick (tests/spatialcontract.test.mjs checks the predicate against the voxels).
+- `Animals.isValidGoal(a, x, z)`: inside the glass by its radius, in front of the background, not banned, and a place the body fits.
+
+**Goals.** No mind commits a destination that fails isValidGoal: the minds' own pickers ask `sense.valid` (sim/goals.js `validGoal`:
+shrimp swarm and shuffle, crab and skink forage, herp legs and courtship, fish candidates through `s.ok`); the finders here (graze spots,
+hides, homes, shores, food, prey, escapes) filter by it; and `vetGoal` checks the final destination of every mover after the engine's own
+swaps. A goal that fails is dropped and the animal stays put rather than walk into a piece.
+
+**The goal protocol.** Every animal has `a.abortGoal(reason, cooldownMs)` (installed in `add`); each mind implements its own `abort()`
+(shrimp, fish, skink, crab, herp) and is registered as `a.mind` when it is made (`adopt`), so the engine never reaches into a mind's fields.
+relocate calls `a.abortGoal('relocated', 20000)`: the mind gives its goal up and the spot it failed at (3 cm round it) is no goal for 20 s.
+A mover that cannot get on calls `a.abortGoal('blocked')`.
+
+**Where a body really is.** A climber's layer is the layer of the cell it is in nearest its feet (`layerUnder`). On a piece it stands on the
+real bark or stone under it: `max(baked layer, Occupancy.topBelow)` + PIECE_LIFT, one ray down, cast again only when it has moved
+(`contactTop`). "Really inside" (`Occupancy.inside`) is the nearest face seen from behind in 3 of 5 directions, not a count of crossings:
+open and hollow meshes fooled the count. A frog on a perch (a stem, a piece, the glass) is tested along its contact normal, not straight up,
+and never against the piece it clings to: `Occupancy.roomAlong` (out from the contact along the contact normal, at its belly and most of its height), asked of every point of a climb route (`perchRoute`) and of a perched frog (`perchInside`), the same predicate both ways. A sit spot (a piece top, a broad leaf) needs `roomFor` above it (`perchFits`). Every mover that sets a body down asks canStep: the walk, the slide, `nudge` (two
+bodies pushed apart), `outOfStems`, `outOfBank`, a leap's landing, `walledin.js`.
+
+**Glass.** `inGlass` moves a body in X and Z only; its height belongs to the movers (terrain clamp, standOn). Swimmers get swim()'s floor
+(0.5 cm) in the end-of-tick check, as walkers get the ground.
+
+**Watchdog.** `stuckintent.js` covers swimmers, crawlers and grazers: the displacement timer runs only while the animal travels to a spot
+('go': a spot more than 0.5 cm away for a crawler, a grazing shuffle included: a shuffle that is blocked has no speed but is still travel);
+holding station, resting, nibbling, grazing where it stands or creeping the last of the way sleeps it for at most HOLD_CAP (150 s); it
+wakes when 'go' moves the body less than 0.25 cm in 3.5 s, plus 0.1 cm per unit of size for a body in the water (a pinned fish is carried to and fro by the water and evaded a flat 0.25; for walkers the size term put relocations up 33 %: a maggot crawls only 0.56 cm in 3.5 s). A short hold, rest, graze or creep (under 3.5 s) PAUSES the timer and a longer one resets it: a fish pinned 2.5 cm from its spot flickered between 'go' and 'creep' every few frames and a reset on every flicker let it push against a rock for 44 s; a pause that outlived a minute's legitimate hold called the fish stuck as it set off (fish relocations +43 %, back to par with the reset).
+
+**Two bugs the stand-still probe found (9 Oct).** A female guppy that had mated kept her stored sperm in `a.st`, the strike field, and `Animals.move` skips an animal with a strike: she froze for good (now `a.sperm`; a save from before is read the new way, world.js). A shrimp shuffling to a spot a few millimetres off circled it for ever (its body turns about its legs): `shrimpWalk` gives a spot up after 2 s without getting nearer.
+
+**Test:** `tools/steps/stuck.mjs` now calls an animal inside only when it is really in a piece's mesh (rays), not in one of its thickened
+voxels (which every animal on a log is: base and new both showed `insideTicks` = every tick), has two skinks, and prints a verdict for the
+focus set (fish, shrimp, snails, skinks).

@@ -374,3 +374,18 @@ export function guppyGenotypeFor(id, rng = Math.random, { female = false } = {})
 
 // A ribbon male cannot sire (his gonopodium is too long to use: breeders keep ribbon lines through ribbon females).
 export const guppyFertile = (genes) => !has(genes?.[L.ribbon] ?? 'ii', 'I');
+
+// The families the release picker (ui/hud/ToolOptions.jsx MorphPicker) sorts the sold strains into, the way a breeder's list does:
+// an albino first, then a fish whose fin shape is its point, then a body pattern, then the overlays (tuxedo, Moscow, metal), the rest solid.
+export const GUPPY_GROUPS = [
+  ['solid', 'Solid colours'], ['overlay', 'Tuxedo, Moscow & metal'], ['pattern', 'Patterns'], ['fins', 'Fin shapes'], ['albino', 'Albinos'],
+];
+export function guppyGroup(id) {
+  const p = parseGuppy(id);
+  if (!p) return 'solid';
+  if (p.ground === 'albino') return 'albino';
+  if ((p.tail !== 'delta' && p.tail !== 'fan') || p.dumbo || p.ribbon || p.swallow) return 'fins';
+  if (p.pattern !== 'plain') return 'pattern';
+  if (p.tuxedo || p.moscow || p.platinum || p.japan || p.neon) return 'overlay';
+  return 'solid';
+}

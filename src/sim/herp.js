@@ -52,6 +52,7 @@
 // Every random choice goes through `rnd()` (Math.random by default) so tests can fix it.
 
 import { nightActivity } from './habitat.js';
+import { validGoal } from './goals.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -178,8 +179,12 @@ export function herpMind(id = 'newt', rnd = Math.random) {
     // skin, tail, mating
     shedIn: 30, dull: 0, shedT: 0, tailF: 1,
     courtDrive: rnd() * 0.5, courtCool: 0, cp: null, cpT: 0, cpDur: 0, recv: null, pregnant: 0, gravid: false, birthT: 0,
+    abort: herpAbort,
   };
 }
+
+// The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new leg.
+function herpAbort() { this.goal = null; this.goalOk = false; this.moveLeft = 0; this.pauseLeft = Math.max(this.pauseLeft, 1); }
 // (A fresh mind starts part-way through its skin cycle, so a tank's animals do not all shed together.)
 export function herpMindFor(id, rnd = Math.random, kind) {
   const m = herpMind(id, rnd), P = profileFor(id, kind);
@@ -389,11 +394,12 @@ function landThink(m, P, s, d, it, rnd) {
 function pickLeg(m, P, s, home, rnd) {
   const c = s.legs ?? s.legsFn?.();
   if (!c || !c.length) {
-    const a = rnd() * 6.283, r = between(rnd, P.walkCm);
-    return { x: s.x + Math.sin(a) * r, z: s.z + Math.cos(a) * r };
+    const a = rnd() * 6.283, r = between(rnd, P.walkCm), x = s.x + Math.sin(a) * r, z = s.z + Math.cos(a) * r;
+    return validGoal(s, x, z) ? { x, z } : null;
   }
   let best = null, bs = -1e9;
   for (const p of c) {
+    if (!p.wall && !validGoal(s, p.x, p.z)) continue;
     let sc = rnd() * 0.6 + (p.damp ?? 0) * 0.8 + (p.near ?? 0) * 0.5 + (p.cover ?? 0) * 0.3 + (p.food ?? 0) * 0.9;
     if (P.style === 'wall' && p.wall) sc += GECKO.wallPref;     // (gecko) vertical space first
     if (home) { const dh = Math.hypot(p.x - home.x, p.z - home.z); if (dh > P.range) sc -= (dh - P.range) * 0.08; }
@@ -794,7 +800,7 @@ function special(m, P, s, d, it, rnd) {
         if (water) Object.assign(tg, { tail: 0.2 * Math.sin(t * 8), bend: 0.18 * m.sideSign, head: lookAt(s, mate, 0.4), headP: -0.06 + 0.06 * Math.sin(t * 2), tr: 14, gill: 0.8 });
         else Object.assign(tg, { bend: 0.3 * m.sideSign, head: lookAt(s, mate, 0.5) + 0.2 * Math.sin(t * 5), headP: 0.12 * Math.sin(t * 4.5), tail: 0.05 * Math.sin(t * 6), hr: 10 });
         if (mate.recv === false && m.cpT > 3) { abort(0.5); return false; }
-        if (m.cpT > m.cpDur) { m.cp = 'lead'; m.cpT = 0; const a = away(here, mate, 6); m.goal = { x: a.x, z: a.z }; }
+        if (m.cpT > m.cpDur) { m.cp = 'lead'; m.cpT = 0; const a = away(here, mate, 6); m.goal = validGoal(s, a.x, a.z) ? { x: a.x, z: a.z } : null; }
       } else if (m.cp === 'lead') {
         // He walks away, tail quivering, and she is to follow.
         it.goal = m.goal; it.speed = P.creep * 1.2; it.calm = 0; it.swim = false;

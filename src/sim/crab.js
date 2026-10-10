@@ -50,6 +50,7 @@
 
 import { scuttleSpeed, crabStride, clawRaise, smooth } from '../util/gait.js';
 import { nightActivity, hideScore } from './habitat.js';
+import { validGoal } from './goals.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -80,6 +81,8 @@ export const CRAB = {
   scrape: [1.6, 3.2],           // seconds of scraping per load (at dig rate 1; harder ground takes longer)
   digStall: 10,                 // loads in a row that leave the pit no deeper (sand running back in): give the spot up
   digRest: 240,                 // game minutes before it tries a given-up spot again
+  displayMax: 25,               // seconds a stand-off with another crab lasts at most
+  displayRest: 90,              // seconds before it faces a crab again
   noun: 'vampire crab',
 };
 
@@ -108,8 +111,12 @@ export function crabMind(rnd = Math.random, P = CRAB) {
     moltIn: (P.moltEvery[0] + rnd() * (P.moltEvery[1] - P.moltEvery[0])) * 1440, moltLeft: 0, soft: 0,
     waveT: -1, waveDur: 0, bite: 0, freezeT: 0, look: rnd() * 6.28,
     dig: null, digBest: 0, digLoads: 0, digRest: 0,  // the dig cycle; the deepest the pit got and the loads since; game minutes off digging
+    abort: crabAbort,
   };
 }
+
+// The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new choice.
+function crabAbort() { this.goal = null; this.pauseT = 1; this.modeT = 0; }
 
 // Comfort 0 … 1 from the keeper's ranges: 1 inside them, falling off over 4 °C and 20% outside.
 export function crabComfort(temp, rh, P = CRAB) {
@@ -163,14 +170,18 @@ export function crabThink(m, s, rnd = Math.random, P = CRAB) {
   if (inWater && ((s.depth ?? 0) > P.safeDepth || m.under > P.maxUnder)) mode = 'exit';
   else if (m.moltLeft > 0 || (m.moltIn <= 0 && (!inWater || P.aquatic))) mode = 'molt';
   else if (m.fear > P.fearAt) mode = 'flee';
-  else if (m.wet < P.soakAt || (prev === 'soak' && m.wet < P.soakTo)) mode = 'soak';
+  else if ((m.wet < P.soakAt || (prev === 'soak' && m.wet < P.soakTo)) && (inWater || s.shore)) mode = 'soak';   // (no water in reach: it keeps searching, it does not stand still)
   else if (s.food && s.food.d < P.reach && (s.hunger ?? 0) > 0.1) mode = 'eat';
-  else if (s.male && s.other && s.other.d < (s.other.male ? P.rivalCm : P.mateCm) && awake > 0.3) mode = 'display';
+  else if (s.male && s.other && s.other.d < (s.other.male ? P.rivalCm : P.mateCm) && awake > 0.3 && (m.noDisplay ?? 0) <= 0) mode = 'display';
   else if (P.aquatic && inWater && m.haul > 1 && s.bank && awake > 0.4) mode = 'haul';
   else if (wantsDig(m, s, prev, awake * comfort < 0.25 || comfort < 0.5, P)) mode = 'dig';
   else if (awake * comfort < 0.25 || (comfort < 0.5 && (s.cover ?? 0) < 0.3) || m.soft > 0) mode = 'hide';
   else if ((s.hunger ?? 0) > 0.25 || awake > 0.5) mode = 'forage';
   else mode = 'rest';
+  // A stand-off ends: two crabs that have faced each other for P.displayMax seconds turn away for P.displayRest (they did not stare for ever).
+  m.noDisplay = Math.max(0, (m.noDisplay ?? 0) - dt);
+  m.dispT = mode === 'display' ? (m.dispT ?? 0) + dt : 0;
+  if (m.dispT > P.displayMax) { m.noDisplay = P.displayRest; m.dispT = 0; mode = 'forage'; }
   if (mode !== prev) { m.mode = mode; m.modeT = 0; m.burst = 0; m.burstT = 0; if (mode !== 'dig') m.dig = null; }
   m.modeT += dt;
   out.mode = mode;
@@ -263,7 +274,8 @@ export function crabThink(m, s, rnd = Math.random, P = CRAB) {
       if (!m.goal || Math.hypot(s.x - m.goal.x, s.z - m.goal.z) < 1 || m.modeT > 20) {
         const h = s.home, hx = h ? h.x - s.x : 0, hz = h ? h.z - s.z : 0, hd = Math.hypot(hx, hz);
         const a = rnd() * Math.PI * 2, r = 4 + rnd() * 8, pull = h ? clamp((hd - 15) / 20, 0, 0.8) : 0;
-        m.goal = { x: s.x + Math.sin(a) * r * (1 - pull) + (hd ? (hx / hd) * r * pull : 0), z: s.z + Math.cos(a) * r * (1 - pull) + (hd ? (hz / hd) * r * pull : 0) };
+        const gx = s.x + Math.sin(a) * r * (1 - pull) + (hd ? (hx / hd) * r * pull : 0), gz = s.z + Math.cos(a) * r * (1 - pull) + (hd ? (hz / hd) * r * pull : 0);
+        m.goal = validGoal(s, gx, gz) ? { x: gx, z: gz } : null;
         m.modeT = 0;
       }
       run(m.goal, P.speed * (0.55 + 0.45 * awake));

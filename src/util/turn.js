@@ -126,3 +126,21 @@ export function footRig(x, z, phi, go, stride, tau = 0, pz = 0, R = 1) {
   }
   return { x, z, down: go < 0.05 || Math.sin(phi) <= 0 };
 }
+
+// footRig for a sideways walker (a crab): its walk sweeps the feet along the body's x, the way it leads (`dir` +1 / -1, the sign the rig
+// reads in anim.y), and a turn swings them round the pivot (x 0, z `pz`) by the same fraction of the yaw per cycle as for four-legged
+// bodies, so a planted foot stays put while the body turns or walks over it. A foot at rest at (x, z), the gait phase `phi`, `work`
+// 0 … 1 (the legs lifting: only the lift stops when it is 0, the sweep does not, so a crab that stops stands on its feet where the cycle
+// left them and nothing snaps back to a neutral stance), the walk sweep `stride`, the turning mix `tau`. render/creatures/instanced.js
+// draws the same arithmetic as a node graph.
+export function crabFoot(x, z, phi, work, stride, tau = 0, pz = 0, R = 1, dir = 1) {
+  const u = phi / TAU - Math.floor(phi / TAU);
+  const sn = u < 0.5 ? -Math.cos(u * TAU) : 3 - 4 * u;
+  x += dir * sn * stride * (1 - Math.abs(tau));
+  if (tau && R > 0) {
+    const al = (sn * tau * stride) / R, c = Math.cos(al), s = Math.sin(al), dz = z - pz;
+    const nx = x * c + dz * s;
+    z = pz - x * s + dz * c; x = nx;
+  }
+  return { x, z, down: work < 0.05 || Math.sin(phi) <= 0 };
+}

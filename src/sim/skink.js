@@ -45,6 +45,7 @@
 // runs a hunt for it). A point with `wall`, `glass` or a `surface` other than 'ground' is ignored.
 
 import { nightActivity } from './habitat.js';
+import { validGoal } from './goals.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -85,8 +86,11 @@ export const REFUGE_COVER = 0.6;   // (0.6 a guess, as before: the 0.5 edge of a
 export function skinkRefugeOk(cover, depth) { return cover >= REFUGE_COVER && !(depth > -0.2); }
 
 export function skinkMind(rnd = Math.random) {
-  return { mode: 'hide', modeT: 0, wet: 0.9, warm: 0.6, fear: 0, goal: null, walkT: 0, pauseT: rnd() * 2, freezeT: 0, burstT: 0, deadT: 0, squeak: false, look: rnd() * 6.28, water: null };
+  return { mode: 'hide', modeT: 0, wet: 0.9, warm: 0.6, fear: 0, goal: null, walkT: 0, pauseT: rnd() * 2, freezeT: 0, burstT: 0, deadT: 0, squeak: false, look: rnd() * 6.28, water: null, abort: skinkAbort };
 }
+
+// The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new choice.
+function skinkAbort() { this.goal = null; this.walkT = 0; this.pauseT = 1; }
 
 // Comfort 0 … 1 for the air here, from the keeper's ranges.
 export function skinkComfort(temp, rh) {
@@ -211,7 +215,8 @@ export function skinkThink(m, s, rnd = Math.random) {
       if (!m.goal || near(s, m.goal, 1) || m.modeT > 25) {
         const a = rnd() * Math.PI * 2, r = draw(SKINK.roam);
         const g = within({ x: s.x + Math.sin(a) * r, z: s.z + Math.cos(a) * r }, shore, SKINK.waterReach);
-        m.goal = within(g, refuge ?? home, SKINK.coverReach);                       // cover wins over water
+        const w = within(g, refuge ?? home, SKINK.coverReach);                       // cover wins over water
+        m.goal = validGoal(s, w.x, w.z) ? w : null;
         m.modeT = 0;
       }
       const anchor = refuge ?? home;
