@@ -110,6 +110,8 @@ export class Portraits {
     lod.end();
     lod.lo.geometry.computeBoundingBox();
     const b = lod.lo.geometry.boundingBox.clone();
+    const sc = SPECIES[id].scale ?? 1;      // (the mesh is drawn at the species' scale: a crayfish's claws were cut off at 1.5)
+    b.min.multiplyScalar(sc); b.max.multiplyScalar(sc);
     b.translate(new THREE.Vector3(0, 300, 0));
     this.frame(b);
     const url = await this.shot();
