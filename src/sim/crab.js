@@ -50,6 +50,7 @@
 
 import { scuttleSpeed, crabStride, clawRaise, smooth } from '../util/gait.js';
 import { nightActivity, hideScore } from './habitat.js';
+import { validGoal } from './goals.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -108,8 +109,12 @@ export function crabMind(rnd = Math.random, P = CRAB) {
     moltIn: (P.moltEvery[0] + rnd() * (P.moltEvery[1] - P.moltEvery[0])) * 1440, moltLeft: 0, soft: 0,
     waveT: -1, waveDur: 0, bite: 0, freezeT: 0, look: rnd() * 6.28,
     dig: null, digBest: 0, digLoads: 0, digRest: 0,  // the dig cycle; the deepest the pit got and the loads since; game minutes off digging
+    abort: crabAbort,
   };
 }
+
+// The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new choice.
+function crabAbort() { this.goal = null; this.pauseT = 1; this.modeT = 0; }
 
 // Comfort 0 … 1 from the keeper's ranges: 1 inside them, falling off over 4 °C and 20% outside.
 export function crabComfort(temp, rh, P = CRAB) {
@@ -263,7 +268,8 @@ export function crabThink(m, s, rnd = Math.random, P = CRAB) {
       if (!m.goal || Math.hypot(s.x - m.goal.x, s.z - m.goal.z) < 1 || m.modeT > 20) {
         const h = s.home, hx = h ? h.x - s.x : 0, hz = h ? h.z - s.z : 0, hd = Math.hypot(hx, hz);
         const a = rnd() * Math.PI * 2, r = 4 + rnd() * 8, pull = h ? clamp((hd - 15) / 20, 0, 0.8) : 0;
-        m.goal = { x: s.x + Math.sin(a) * r * (1 - pull) + (hd ? (hx / hd) * r * pull : 0), z: s.z + Math.cos(a) * r * (1 - pull) + (hd ? (hz / hd) * r * pull : 0) };
+        const gx = s.x + Math.sin(a) * r * (1 - pull) + (hd ? (hx / hd) * r * pull : 0), gz = s.z + Math.cos(a) * r * (1 - pull) + (hd ? (hz / hd) * r * pull : 0);
+        m.goal = validGoal(s, gx, gz) ? { x: gx, z: gz } : null;
         m.modeT = 0;
       }
       run(m.goal, P.speed * (0.55 + 0.45 * awake));

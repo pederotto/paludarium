@@ -34,6 +34,8 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const between = (rnd, [a, b]) => a + rnd() * (b - a);
 const dist = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
 
+import { validGoal } from './goals.js';
+
 export const SHRIMP = {
   walk: 0.9,                    // cm/s on its legs (a grazing shuffle is slower)
   shuffle: 0.35,
@@ -60,8 +62,12 @@ export function shrimpMind(rnd = Math.random) {
     mode: 'graze', modeT: 0, goal: null, pause: rnd() * 3, left: between(rnd, SHRIMP.grazeS),
     moultIn: between(rnd, SHRIMP.moultDays) * rnd(), soft: 0, prep: 0, berried: 0, swarm: 0, fear: 0, flickT: 0,
     foodSeen: null, ring: rnd() * Math.PI * 2, face: null, pickRate: 0.6 + rnd() * 0.4, ant: 0.5,
+    abort: shrimpAbort,
   };
 }
+
+// The goal contract (sim/goals.js): the animal gave up what it was walking or swimming to; graze where it is a moment, then choose again.
+function shrimpAbort() { this.goal = null; this.face = null; this.pause = 2; this.left = Math.min(this.left, 3); }
 
 function go(m, mode) {
   if (m.mode === mode) return;
@@ -159,9 +165,10 @@ export function shrimpThink(m, s, rnd = Math.random) {
       m.pause -= dt;
       if (!m.goal || m.pause <= 0 && dist(here, m.goal) < 1.5) {
         const c = m.callAt ?? here, a = rnd() * Math.PI * 2, r = 4 + rnd() * 16;
-        m.goal = { x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r }; m.pause = 0.5 + rnd() * 1.5;
+        const gx = c.x + Math.cos(a) * r, gz = c.z + Math.sin(a) * r;
+        m.goal = validGoal(s, gx, gz) ? { x: gx, z: gz } : null; m.pause = 0.5 + rnd() * 1.5;
       }
-      it.goal = m.goal; it.speed = SHRIMP.swim * 1.3; it.swim = true; it.ant = 1; it.searching = true;
+      it.goal = m.goal; it.speed = m.goal ? SHRIMP.swim * 1.3 : 0; it.swim = !!m.goal; it.ant = 1; it.searching = true;
       break;
     }
     default: {                                                    // graze, with shuffles, and now and then a move
@@ -185,7 +192,8 @@ export function shrimpThink(m, s, rnd = Math.random) {
       if (m.pause <= 0) {
         m.pause = between(rnd, SHRIMP.shuffleS);
         const a = (s.yaw ?? 0) + (rnd() - 0.5) * 2.4, r = between(rnd, SHRIMP.shuffleCm);
-        if (rnd() < 0.6) { m.goal = { x: here.x + Math.sin(a) * r, z: here.z + Math.cos(a) * r }; m.goalSpeed = SHRIMP.shuffle; m.goalSwim = false; }
+        const gx = here.x + Math.sin(a) * r, gz = here.z + Math.cos(a) * r;
+        if (rnd() < 0.6) { if (validGoal(s, gx, gz)) { m.goal = { x: gx, z: gz }; m.goalSpeed = SHRIMP.shuffle; m.goalSwim = false; } }
         else m.face = { x: here.x + Math.sin(a) * 2, z: here.z + Math.cos(a) * 2 };
       }
       it.face = m.face;

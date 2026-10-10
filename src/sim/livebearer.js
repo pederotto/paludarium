@@ -62,8 +62,8 @@ export function livebearerStep(W, a, sp, dMin, fit, room, births) {
     const males = mate ? (fertile(mate) ? [mate] : []) : (W.animals.by[a.sp] ?? []).filter(fertile);
     const m = males.length ? males[Math.floor(Math.random() * males.length)] : null;
     let sire = null;
-    if (m) { sire = { id: m.id, genes: [...m.genes], gen: m.gen ?? 0 }; a.st = { ...sire, n: L.store ?? 3 }; a.mated = true; }
-    else if (a.st?.n > 0) { sire = { id: a.st.id, genes: a.st.genes, gen: a.st.gen }; a.st.n--; }
+    if (m) { sire = { id: m.id, genes: [...m.genes], gen: m.gen ?? 0 }; a.sperm = { ...sire, n: L.store ?? 3 }; a.mated = true; }   // (a.sperm, not a.st: a.st is a strike, and an animal with one is skipped by Animals.move: stored sperm froze the female)
+    else if (a.sperm?.n > 0) { sire = { id: a.sperm.id, genes: a.sperm.genes, gen: a.sperm.gen }; a.sperm.n--; }
     if (sire) a.gv = { t: (L.gestDays ?? 3) * 1440 * (0.85 + Math.random() * 0.3), sire };
   }
   const before = a.look;
@@ -79,6 +79,6 @@ export function livebearerText(a, sp) {
   if (!adultOf(a, sp)) return `young ${a.female ? 'female' : 'male'} (colours up when grown)`;
   if (!a.female) return 'male';
   if (a.gv) return `female, gravid (fry due in ${Math.max(1, Math.round(a.gv.t / 1440))} day${a.gv.t > 1440 * 1.5 ? 's' : ''})`;
-  if (a.st?.n > 0) return `female, carries sperm of male #${a.st.id} for ${a.st.n} more brood${a.st.n > 1 ? 's' : ''}`;
+  if (a.sperm?.n > 0) return `female, carries sperm of male #${a.sperm.id} for ${a.sperm.n} more brood${a.sperm.n > 1 ? 's' : ''}`;
   return a.mated ? 'female (her stored sperm is used up)' : 'female, virgin (her first brood will have a known father)';
 }
