@@ -5,7 +5,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import * as THREE from 'three/webgpu';
 import { Icon } from '../icons.jsx';
-import { S, openModal, toast } from '../store.js';
+import { S, openModal, toast, saveShowGenes } from '../store.js';
 import { ctx } from '../../app/ctx.js';
 import { SPECIES } from '../../sim/animals.js';
 import { PLANTS } from '../../sim/plants.js';
@@ -48,24 +48,31 @@ function GeneCard({ a }) {
   const waiting = S.pairing.value === a;
   const pairUp = () => { S.pairing.value = a; toast(`Now tap the ${SPECIES[a.sp].name.toLowerCase()} you want to pair it with.`); };
   const lab = () => { S.geneParents.value = [a.id, mate?.id].filter((x) => x != null); openModal('lab', 'genetics'); };
+  const show = S.showGenes.value;
   return (
     <div class="gene-card">
-      <div class="gene-head"><MorphDot sp={id} morph={a.morph} size={13} /><b>{info.name}</b><Stars r={info.rarity} /></div>
-      <div class="gene-blurb">{info.blurb}</div>
-      <ul class="gene-loci">{describe(id, a.genes).map((l) => <li key={l.name} class={'g-' + l.state}>{l.name}: <code>{l.genotype}</code> {l.label}</li>)}</ul>
-      <div class="gene-meta">
-        {SPECIES[a.sp]?.livebearer ? <span>{livebearerText(a, SPECIES[a.sp])}</span> : null}
-        <span>{a.gen ? `Generation ${a.gen}` : 'Founder (generation 0)'}</span>
-        {a.mut ? <span class="amber">A mutation!</span> : null}
-        {mate ? <span class="heart">Paired with {morphName(id, mate.morph).toLowerCase()} #{mate.id}</span> : null}
+      <div class="gene-head"><MorphDot sp={id} morph={a.morph} size={13} /><b>{info.name}</b><Stars r={info.rarity} />
+        <button class="btn sm ghost gene-toggle" aria-expanded={show} title={show ? 'Hide the genes' : 'Show the genes, the generation and the odds'} onClick={() => saveShowGenes(!show)}><Icon name="flask" size={13} />{show ? 'Hide genes' : 'Genes'}</button>
       </div>
-      <div class="gene-acts">
-        {adultSp && !waiting ? <button class="btn sm" onClick={pairUp}><Icon name="heart" size={14} />{mate ? 'Change mate' : 'Pair up'}</button> : null}
-        {waiting ? <button class="btn sm amber" onClick={() => { S.pairing.value = null; }}>Cancel pairing</button> : null}
-        {mate ? <button class="btn sm ghost" onClick={() => A.unpair(a)}>Unpair</button> : null}
-        <button class="btn sm" onClick={lab}><Icon name="flask" size={14} />Odds in the Lab</button>
-        {a.sp === 'guppy' ? <button class="btn sm ghost" onClick={() => openModal('codex', 'concept:guppy-breeding')}><Icon name="book" size={14} />Breeding guide</button> : null}
-      </div>
+      {SPECIES[a.sp]?.livebearer ? <div class="gene-meta"><span>{livebearerText(a, SPECIES[a.sp])}</span></div> : null}
+      {mate ? <div class="gene-meta"><span class="heart">Paired with {morphName(id, mate.morph).toLowerCase()} #{mate.id}</span></div> : null}
+      {show ? (
+        <>
+          <div class="gene-blurb">{info.blurb}</div>
+          <ul class="gene-loci">{describe(id, a.genes).map((l) => <li key={l.name} class={'g-' + l.state}>{l.name}: <code>{l.genotype}</code> {l.label}</li>)}</ul>
+          <div class="gene-meta">
+            <span>{a.gen ? `Generation ${a.gen}` : 'Founder (generation 0)'}</span>
+            {a.mut ? <span class="amber">A mutation!</span> : null}
+          </div>
+          <div class="gene-acts">
+            {adultSp && !waiting ? <button class="btn sm" onClick={pairUp}><Icon name="heart" size={14} />{mate ? 'Change mate' : 'Pair up'}</button> : null}
+            {waiting ? <button class="btn sm amber" onClick={() => { S.pairing.value = null; }}>Cancel pairing</button> : null}
+            {mate ? <button class="btn sm ghost" onClick={() => A.unpair(a)}>Unpair</button> : null}
+            <button class="btn sm" onClick={lab}><Icon name="flask" size={14} />Odds in the Lab</button>
+            {a.sp === 'guppy' ? <button class="btn sm ghost" onClick={() => openModal('codex', 'concept:guppy-breeding')}><Icon name="book" size={14} />Breeding guide</button> : null}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

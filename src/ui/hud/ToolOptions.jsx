@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { Icon } from '../icons.jsx';
-import { S, toast, hint, openModal, morphChoice, hudRules, saveSmart } from '../store.js';
+import { S, toast, hint, openModal, morphChoice, wantsVariety, VARIETY, hudRules, modeId, saveSmart } from '../store.js';
 import { plantFit } from '../../editor/smart.js';
 import { R } from './railState.js';
 import { Portrait } from '../panels/Portrait.jsx';
 import { ctx } from '../../app/ctx.js';
+import { isSmart } from '../../app/modes.js';
 import { groupOf, WATER_TOOLS, SCULPT_OPS, MIRROR_WATER } from '../../editor/defs.js';
 import { KITS, kitById, kitPrice, kitRank } from '../../content/kits.js';
 import '../builder.css';
@@ -379,14 +380,15 @@ function Foot({ children }) { return <div class="oc-foot">{children}</div>; }
 // (the guppy's 59 strains) shows them by family: a row of family tabs, then the strains of the open family.
 const MORPH_GROUPS = { guppy: { groups: GUPPY_GROUPS, of: guppyGroup } };
 function MorphPicker({ id }) {
-  const chosen = S.morph.value[id] === '*' ? '*' : morphChoice(id);
+  const mix = S.morph.value[id] === '*', vary = wantsVariety(id);
+  const chosen = mix ? '*' : vary ? VARIETY : morphChoice(id);
   const info = ctx.career?.info('animal', id);
   const base = info && !info.locked ? info.price : null;
   const set = (m) => { S.morph.value = { ...S.morph.value, [id]: m }; };
-  const cur = chosen !== '*' ? morphInfo(id, chosen) : null;
+  const cur = chosen !== '*' && chosen !== VARIETY ? morphInfo(id, chosen) : null;
   const G = MORPH_GROUPS[id], all = morphList(id);
   const [open, setOpen] = useState(null);
-  const grp = G ? (open ?? (chosen !== '*' ? G.of(chosen) : G.groups[0][0])) : null;
+  const grp = G ? (open ?? (cur ? G.of(chosen) : G.groups[0][0])) : null;
   const shown = G ? all.filter((m) => G.of(m) === grp) : all;
   return (
     <div class="morph-pick">
@@ -394,7 +396,7 @@ function MorphPicker({ id }) {
       {G ? (
         <div class="morph-fams" role="tablist">
           {G.groups.map(([k, name]) => {
-            const n = all.filter((m) => G.of(m) === k).length, has = chosen !== '*' && G.of(chosen) === k;
+            const n = all.filter((m) => G.of(m) === k).length, has = !!cur && G.of(chosen) === k;
             return n ? (
               <button key={k} role="tab" class={'fam' + (grp === k ? ' on' : '') + (has ? ' has' : '')} aria-selected={grp === k} title={has ? `${name}: the chosen strain is here` : name} onClick={() => setOpen(k)}>
                 {name} <small>{n}</small>
@@ -412,9 +414,20 @@ function MorphPicker({ id }) {
             </button>
           );
         })}
+        <button class={'chip' + (vary ? ' on' : '')} title="Each animal released is a different line from the dealer's stock" aria-pressed={vary} onClick={() => set(VARIETY)}>Variety</button>
         <button class={'chip' + (chosen === '*' ? ' on' : '')} title="Each animal gets random genes, like wild-caught stock: some may be hidden carriers" aria-pressed={chosen === '*'} onClick={() => set('*')}>Mixed</button>
       </div>
-      <p class="morph-note">{cur ? cur.blurb : 'Random wild genes: some animals will carry hidden colours.'}</p>
+      <p class="morph-note">{cur ? cur.blurb : vary ? 'A different line for each animal you release, from the dealer\'s stock.' : 'Random wild genes: some animals will carry hidden colours.'}</p>
+    </div>
+  );
+}
+
+// How many animals one click releases (the Smart place bar has the same choice): One means one, whatever the species' shoal.
+function ReleaseCount() {
+  const n = S.sub.value.smartN ?? 1;
+  return (
+    <div class="chips release-n"><em>Each click releases</em>
+      {[1, 3, 5].map((k) => <button key={k} class={'chip' + (n === k ? ' on' : '')} aria-pressed={n === k} onClick={() => { S.sub.value = { ...S.sub.value, smartN: k }; }}>{k === 1 ? 'One' : k}</button>)}
     </div>
   );
 }
@@ -445,6 +458,7 @@ function Animals() {
           </div>
         ))}
       </div>
+      {isSmart(modeId(), S.smart.value) ? null : <ReleaseCount />}
       <Adv id="animal">
         {hasGenetics(sub.animal) ? <MorphPicker id={sub.animal} /> : null}
         {hudRules().toolOptions === 'full' ? <SmartToggle /> : null}

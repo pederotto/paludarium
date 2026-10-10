@@ -7,12 +7,11 @@
 import * as THREE from 'three/webgpu';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import CameraControls from 'camera-controls';
-import { TOOLS, WATER_TOOLS, BATCH } from './defs.js';
-import { S, toast, hint, morphChoice } from '../ui/store.js';
+import { TOOLS, WATER_TOOLS } from './defs.js';
+import { S, toast, hint, morphPlan } from '../ui/store.js';
 import { SPECIES } from '../sim/animals.js';
 import { PLANTS } from '../sim/plants.js';
 import { PIECES } from '../sim/decor.js';
-import { hasGenetics } from '../sim/genetics.js';
 import { morphName } from '../content/morphs.js';
 import { TANK } from '../sim/tank.js';
 import { clamp } from '../util/math.js';
@@ -575,6 +574,15 @@ export class ToolController {
     return this.game.career?.buy(kind, id, n, morph) ?? null;
   }
 
+  // Pays for animals released together, each at its own line's price (a variety batch has a different morph for every animal);
+  // returns how many it could pay for and the reason it stopped.
+  chargeAnimals(id, plan) {
+    if (plan.every((m) => m === plan[0])) { const err = this.charge('animal', id, plan.length, plan[0]); return err ? { paid: 0, err } : { paid: plan.length, err: null }; }
+    let paid = 0, err = null;
+    for (; paid < plan.length; paid++) { err = this.charge('animal', id, 1, plan[paid]); if (err) break; }
+    return { paid, err };
+  }
+
   click() {
     const W = this.W;
     this.flatTarget = null;
@@ -798,20 +806,26 @@ export class ToolController {
     if (hit.ground) hit.point = hit.ground.point.clone();
     const pl = W.animals.placement(id, hit);
     if (pl.error) { toast(pl.error, 'bad'); return; }
-    const n = BATCH[id] ?? 1;
-    const morph = hasGenetics(id) ? morphChoice(id) : null;       // null: random wild genes (also for species without genes)
-    const err = this.charge('animal', id, n, morph);
-    if (err) { toast(err, 'bad'); return; }
-    let added = 0;
-    for (let k = 0; k < n; k++) {
-      const jitter = n > 1 ? new THREE.Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4) : new THREE.Vector3();
+    const n = S.sub.value.smartN ?? 1;                             // what the player chose to release (One, 3 or 5), not the species' shoal
+    const plan = morphPlan(id, n);                                 // a morph for each (null: random wild genes, also for species without genes)
+    const { paid, err } = this.chargeAnimals(id, plan);
+    if (!paid) { toast(err, 'bad'); return; }
+    const made = [], lost = [];
+    for (let k = 0; k < paid; k++) {
+      const jitter = paid > 1 ? new THREE.Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4) : new THREE.Vector3();
       const p2 = pl.pos.clone().add(jitter);
       const again = pl.wall ? pl : W.animals.placement(id, { point: p2 });
-      const a = again.pos && W.animals.add(id, again.pos, { ...(this.game.career?.newcomer(id) ?? {}), morph });
-      if (a) { added++; if (pl.wall) { a.onWall = true; a.wallMode = true; a.normal = new THREE.Vector3(0, 0, 1); } }
+      const a = again.pos && W.animals.add(id, again.pos, { ...(this.game.career?.newcomer(id) ?? {}), morph: plan[k] });
+      if (a) { made.push(a); if (pl.wall) { a.onWall = true; a.wallMode = true; a.normal = new THREE.Vector3(0, 0, 1); } }
+      else lost.push(plan[k]);
     }
-    if (added) { W.log(`Released ${added} ${SPECIES[id].name.toLowerCase()}${morph ? ` (${morphName(id, morph).toLowerCase()})` : ''}.`); this.game.events.emit('placed', 'animal', id, added); }
-    else this.game.career?.refund('animal', id, n, morph);
+    for (const m of lost) this.game.career?.refund('animal', id, 1, m);      // (no room for it: its price goes back)
+    if (err && paid < n) toast(err, 'bad');
+    if (made.length) {
+      const one = made.length === 1 && made[0].morph ? ` (${morphName(id, made[0].morph).toLowerCase()})` : '';
+      W.log(`Released ${made.length} ${SPECIES[id].name.toLowerCase()}${one}.`);
+      this.game.events.emit('placed', 'animal', id, made.length);
+    }
   }
 
   clickGear() {

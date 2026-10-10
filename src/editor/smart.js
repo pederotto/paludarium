@@ -7,16 +7,14 @@
 // The pure maths (group layouts, free spots, scatter) lives in app/modes.js and has unit tests.
 
 import * as THREE from 'three/webgpu';
-import { S, toast, hint, modeId, morphChoice } from '../ui/store.js';
+import { S, toast, hint, modeId, morphPlan } from '../ui/store.js';
 import { isSmart, mulberry, seedOf, groupLayout, freeSpot, scatterSpots } from '../app/modes.js';
 import { SPECIES } from '../sim/animals.js';
 import { PLANTS } from '../sim/plants.js';
 import { PIECES } from '../sim/decor.js';
 import { TANK } from '../sim/tank.js';
 import { kitScale } from '../sim/kits.js';
-import { hasGenetics } from '../sim/genetics.js';
 import { morphName } from '../content/morphs.js';
-import { BATCH } from './defs.js';
 
 export const SMART_TOOLS = ['rock', 'plant', 'animal'];
 const HOLD_MS = 380, MOVE_PX = 9;
@@ -296,24 +294,23 @@ export class SmartPlacer {
     const hit = T.pick(SPECIES[id].kind === 'gecko' ? ['terrain', 'wall', 'water'] : ['terrain', 'water']);
     if (!hit) return;
     if (hit.ground) hit.point = hit.ground.point.clone();
-    const n = this.count > 1 ? this.count : (BATCH[id] ?? 1);
-    this.animals(id, hit, n);
+    this.animals(id, hit, this.count);                 // One means one: the species' shoal size (defs.js BATCH) is only a suggestion on the button
   }
 
   animals(id, hit, n, add = false) {
     const T = this.T, W = this.W, sp = SPECIES[id];
     const pl = W.animals.placement(id, hit);
     if (pl.error) { toast(pl.error, 'bad'); return false; }
-    const morph = hasGenetics(id) ? morphChoice(id) : null;
-    const err = T.charge('animal', id, n, morph);
-    if (err) { toast(err, 'bad'); return false; }
+    const plan = morphPlan(id, n);                    // a morph for each animal (Variety: a different line each)
+    const { paid, err } = T.chargeAnimals(id, plan);
+    if (!paid) { toast(err, 'bad'); return false; }
     const rnd = mulberry(seedOf(hit.point.x, hit.point.z, this.n++));
-    const made = [];
-    for (let k = 0; k < n; k++) {
+    const made = [], madePlan = [];
+    for (let k = 0; k < paid; k++) {
       let again = pl;
       if (!pl.wall) {
         for (let t = 0; t < 5; t++) {            // a spot clear of the others
-          const j = n > 1 ? 1.2 + Math.sqrt(n) * 1.1 : 0;
+          const j = paid > 1 ? 1.2 + Math.sqrt(paid) * 1.1 : 0;
           const p2 = pl.pos.clone().add(new THREE.Vector3((rnd() - 0.5) * 2 * j, 0, (rnd() - 0.5) * 2 * j));
           const q = W.animals.placement(id, { point: p2 });
           if (!q.pos) continue;
@@ -321,15 +318,19 @@ export class SmartPlacer {
           if (W.animals.all.every((o) => !o.pos || o.pos.distanceTo(q.pos) > Math.max(0.5, sp.size * 0.7))) break;
         }
       }
-      const a = again.pos && W.animals.add(id, again.pos, { ...(T.game.career?.newcomer(id) ?? {}), morph });
-      if (a) { made.push(a); if (pl.wall) { a.onWall = true; a.wallMode = true; a.normal = new THREE.Vector3(0, 0, 1); } }
+      const a = again.pos && W.animals.add(id, again.pos, { ...(T.game.career?.newcomer(id) ?? {}), morph: plan[k] });
+      if (a) { made.push(a); madePlan.push(plan[k]); if (pl.wall) { a.onWall = true; a.wallMode = true; a.normal = new THREE.Vector3(0, 0, 1); } }
     }
-    if (!made.length) { T.game.career?.refund('animal', id, n, morph); toast('There is no room to release it there.', 'bad'); return false; }
-    if (made.length < n) T.game.career?.refund('animal', id, n - made.length, morph);
-    W.log(`Released ${made.length} ${sp.name.toLowerCase()}${morph ? ` (${morphName(id, morph).toLowerCase()})` : ''}.`);
+    const lost = plan.slice(0, paid);
+    for (const m of madePlan) lost.splice(lost.indexOf(m), 1);       // (what is left of the paid plan found no room: its price goes back)
+    for (const m of lost) T.game.career?.refund('animal', id, 1, m);
+    if (!made.length) { toast('There is no room to release it there.', 'bad'); return false; }
+    if (err) toast(err, 'bad');
+    const one = made.length === 1 && made[0].morph ? ` (${morphName(id, made[0].morph).toLowerCase()})` : '';
+    W.log(`Released ${made.length} ${sp.name.toLowerCase()}${one}.`);
     T.game.events.emit('placed', 'animal', id, made.length);
-    this.last = { kind: 'animal', id, x: hit.point.x, z: hit.point.z, hit, n: made.length, morph };
-    this.push({ animals: made, id, morph });
+    this.last = { kind: 'animal', id, x: hit.point.x, z: hit.point.z, hit, n: made.length };
+    this.push({ animals: made, id, morphs: madePlan });
     this.setBar();
     return true;
   }
@@ -345,7 +346,7 @@ export class SmartPlacer {
       const a = (this.n++ * 2.399963) % (Math.PI * 2), r = this.spacing() * 1.3;
       const x = l.x + Math.cos(a) * r, z = l.z + Math.sin(a) * r;
       this.plants(l.id, l.hit?.surface === 'wall' ? l.hit : this.hitFor(l.id, x, z), 1);
-    } else if (l.kind === 'animal') this.animals(l.id, l.hit, BATCH[l.id] ?? 1);
+    } else if (l.kind === 'animal') this.animals(l.id, l.hit, this.count);
     else if (l.kind === 'kit') { const hit = T.pick(['terrain']); if (hit) this.kit(hit); else toast('Tap the tank to place another kit.'); }
   }
   group(n) {
@@ -375,7 +376,7 @@ export class SmartPlacer {
       let refunded = 0;
       for (const p of e.plants ?? []) { if (!p.dead && W.plants.list.includes(p)) { W.plants.remove(p); refunded++; T.game.career?.refund('plant', p.id ?? S.sub.value.plant); } }
       for (const a of e.animals ?? []) { if (!a.dead) { W.animals.remove(a, 'removed'); refunded++; } }
-      if (e.animals?.length) T.game.career?.refund('animal', e.id, e.animals.length, e.morph);
+      for (const m of e.morphs ?? []) T.game.career?.refund('animal', e.id, 1, m);
       toast(refunded ? 'Undone.' : 'Already gone.');
     }
     this.last = null;      // the bar offers Another only for what was just placed
