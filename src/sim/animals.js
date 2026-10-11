@@ -55,6 +55,7 @@ import { ITEMS, isItem, dietOf, eatsItem } from '../content/foods.js';
 import { filterDrift, filterAvoid } from './filterflow.js';
 import { fishMind, fishThink, fishOwn, fishCarry, fishAfter, REST_LABEL as FISH_REST } from './fishmind.js';
 import { flowSenses } from './currentat.js';
+import { rand, simNow, simClock } from '../util/rng.js';
 
 const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -731,7 +732,6 @@ const READY = new Map();         // id → (scene, cap) => mesh: models already 
 const GLB_CACHE = new Map();     // id → Promise<{lo, hi, textures} | null>, shared by every tank
 const WALKERS = ['skink', 'frog', 'toad', 'newt', 'axolotl', 'gecko', 'crab', 'crawlLand', 'crawlWater'];
 
-let nextId = 1;
 
 // Body meshes take a moment to build (surface nets), so they are built once and shared by every tank.
 const BODY_CACHE = {};
@@ -914,7 +914,7 @@ export class Animals {
     if (this.meshes[key] || this._warming?.has(key)) return;
     (this._warming ??= new Set()).add(key);
     const [sid, morph] = id.split(':');
-    setTimeout(() => { if (this.scene.parent) this.meshFor(sid, morph ?? null, pose); }, 6000 + Math.random() * 4000);
+    setTimeout(() => { if (this.scene.parent) this.meshFor(sid, morph ?? null, pose); }, 6000 + Math.random() * 4000);   // (drawing only: not the simulation's stream)
   }
 
   get all() { return Object.values(this.by).flat(); }
@@ -972,7 +972,7 @@ export class Animals {
     const m = this.mateOf(a);
     if (m) return fit(m) ? m : null;
     const pool = this.by[a.sp].filter((x) => fit(x) && !this.mateOf(x));
-    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+    return pool.length ? pool[Math.floor(rand() * pool.length)] : null;
   }
 
   // Moss and leaf litter hide the last few of any prey species.
@@ -1047,13 +1047,16 @@ export class Animals {
   add(id, pos, opt = {}) {
     const sp = SPECIES[id];
     if (this.by[id].length >= sp.cap + 20) return null;
-    let uid = nextId++;
-    while (this.all.some((o) => o.id === uid)) uid = nextId++;      // a loaded save may already use this number
+    // (numbered per tank, from 1: the same tank built twice numbers its animals the same, and behaviour that reads the number (which way two
+    // bodies are pushed apart, staggered looks) replays exactly; a module-wide counter made a second tank's animals behave differently)
+    let uid = this.nextId = (this.nextId ?? 1);
+    while (this.all.some((o) => o.id === uid)) uid++;      // a loaded save may already use this number
+    this.nextId = uid + 1;
     const a = {
-      id: uid, sp: id, pos: pos.clone(), vel: V(0, 0, 0), yaw: Math.random() * Math.PI * 2, pitch: 0,
+      id: uid, sp: id, pos: pos.clone(), vel: V(0, 0, 0), yaw: rand() * Math.PI * 2, pitch: 0,
       hunger: opt.hunger ?? 0.2, health: opt.health ?? 1, age: opt.age ?? (sp.adultDays ?? 10) * 1440,
-      state: 'idle', timer: Math.random() * 3, target: null, wander: Math.random() * Math.PI * 2,
-      phase: Math.random() * 10, home: pos.clone(), hop: null, name: null, cause: null,
+      state: 'idle', timer: rand() * 3, target: null, wander: rand() * Math.PI * 2,
+      phase: rand() * 10, home: pos.clone(), hop: null, name: null, cause: null,
       gen: opt.gen ?? 0, parents: opt.parents ?? null, nick: opt.nick ?? null, mate: null,
     };
     // The goal contract (sim/goals.js): every animal can give its goal up and check one.
@@ -1067,8 +1070,8 @@ export class Animals {
       // A species with sex chromosomes (the guppy) is sexed by its genes: a founder's sex is chosen first (a dealer's trio), and its
       // genes are made for that sex (a female carries no Y genes)
       const fem = sexedSpecies(id) && !genes ? livebearerFemale(opt, this.by[id]) : undefined;
-      if (!genes && opt.morph) { try { genes = genotypeForMorph(id, opt.morph, Math.random, { female: fem }); } catch { genes = null; } }
-      a.genes = genes ?? randomGenotype(id, Math.random, { female: fem });
+      if (!genes && opt.morph) { try { genes = genotypeForMorph(id, opt.morph, rand, { female: fem }); } catch { genes = null; } }
+      a.genes = genes ?? randomGenotype(id, rand, { female: fem });
       a.morph = morphOf(id, a.genes);
     } else if (opt.genes && opt.gsp) {
       a.genes = [...opt.genes]; a.morph = opt.morph ?? morphOf(opt.gsp, a.genes); a.gsp = opt.gsp;
@@ -1092,11 +1095,11 @@ export class Animals {
     const W = this.world, I = ITEMS[kind] ?? ITEMS.flake;
     const cand = [];
     for (let k = 0; k < 60; k++) {
-      const x = (Math.random() - 0.5) * (TANK.w - 6), z = (Math.random() - 0.5) * (TANK.d - 6);
+      const x = (rand() - 0.5) * (TANK.w - 6), z = (rand() - 0.5) * (TANK.d - 6);
       if (W.water.isWater(x, z, 3)) cand.push([x, z]);
     }
     if (!cand.length) return 0;
-    const [cx, cz] = cand[Math.floor(Math.random() * cand.length)];
+    const [cx, cz] = cand[Math.floor(rand() * cand.length)];
     // Enough for everyone: about two flakes (one pellet, a few worms) per animal that eats it in the water.
     let fish = 0;
     for (const id in SPECIES) {
@@ -1108,7 +1111,7 @@ export class Animals {
     const spread = kind === 'bloodworm' ? 4 : 10;
     for (let k = 0; k < n; k++) {
       if (this.food.length >= 190) break;
-      this.food.push({ kind, pos: V(cx + (Math.random() - 0.5) * spread, W.water.level - 0.1, cz + (Math.random() - 0.5) * spread * 0.8), sink: I.sink[0] + Math.random() * (I.sink[1] - I.sink[0]), float: I.float, age: 0, settled: false });
+      this.food.push({ kind, pos: V(cx + (rand() - 0.5) * spread, W.water.level - 0.1, cz + (rand() - 0.5) * spread * 0.8), sink: I.sink[0] + rand() * (I.sink[1] - I.sink[0]), float: I.float, age: 0, settled: false });
     }
     return n;
   }
@@ -1120,6 +1123,7 @@ export class Animals {
     const W = this.world;
     this.t = (this.t ?? 0) + dt;
     CLOCK.t = this.t;
+    simClock.ms = this.t * 1000;
     this.trackTime(dt);
     if (dt > 0) { this.syncOccupancy(); this.buildGrid(); this.spaceTick(dt); }
     for (const [id, arr] of Object.entries(this.by)) {
@@ -1215,7 +1219,7 @@ export class Animals {
   // `warp` (game minutes per animal second, measured over about a second of animal time) so that waiting times scale
   // down in fast-forward and an animal does as much per game hour at 60x as at 1x.
   trackTime(dt) {
-    const now = performance.now();
+    const now = simNow();
     const rt = (now - (this._rt ?? now)) / 1000;
     this._rt = now;
     this.tf = dt > 0 && rt > 0.004 && rt < 0.12 ? clamp(dt / rt, 1, 4) : 1;
@@ -1250,7 +1254,7 @@ export class Animals {
       stale = Occupancy.signature(D) !== this.occ.sig;       // a piece that was dragged without a version bump
     }
     if (!stale) return;
-    const now = performance.now();
+    const now = simNow();
     if (!force && now - this._occWall < 250) return;
     this._occWall = now;
     this.occ.rebuild(D, PIECES);
@@ -1409,7 +1413,7 @@ export class Animals {
   // The layers a walker can stand on (sim/surfaces.js): the ground and the tops of the pieces, baked from the pieces and the ground as they are
   // and made again when either changes (at most every 1.5 s: the ground moves with erosion). Read in O(1); never a ray per frame.
   surfaces() {
-    const W = this.world, occ = this.occ, now = performance.now();
+    const W = this.world, occ = this.occ, now = simNow();
     if (!occ.surf || ((occ.surfV !== occ.version || occ.surfG !== W.groundVer) && now - (occ.surfT ?? 0) > 1500)) {
       occ.bakeSurfaces((x, z) => W.terrain.heightAt(x, z));
       occ.surfV = occ.version; occ.surfG = W.groundVer; occ.surfT = now;
@@ -1740,7 +1744,7 @@ export class Animals {
     if (a.stuckLevel >= 2) { this.relocate(a, sp); return; }
     // Back off: away from the nearest free space's opposite, i.e. toward free space, and choose again.
     const nf = this.occ.count ? this.occ.nearestFree(a.pos.x, this.bodyY(a, sp), a.pos.z, null, 4) : null;
-    const ang = nf && (nf[0] !== a.pos.x || nf[2] !== a.pos.z) ? Math.atan2(nf[0] - a.pos.x, nf[2] - a.pos.z) : Math.random() * Math.PI * 2;
+    const ang = nf && (nf[0] !== a.pos.x || nf[2] !== a.pos.z) ? Math.atan2(nf[0] - a.pos.x, nf[2] - a.pos.z) : rand() * Math.PI * 2;
     a.target = null; a.shore = null; a.hop = null; a.timer = 0; a.hopFail = 0; a.fs = null; this.dropStrike(a);
     a.wander = ang; a.side = -(a.side ?? 1);
     // A swimmer swings round to its new course (its heading follows the velocity through turnTo); a walker, nudged aside
@@ -1842,16 +1846,16 @@ export class Animals {
       const minD = inside ? 0 : far ? 4 : 2, okAway = minD ? (x, y, z) => ok(x, y, z) && Math.hypot(x - from.x, y - from.y, z - from.z) >= minD : ok;
       let to = occ.nearestFree(a.pos.x, a.pos.y, a.pos.z, okAway, 14);
       for (let k = 0; k < 250 && !to; k++) {
-        const x = (Math.random() - 0.5) * (TANK.w - 6), z = (Math.random() - 0.5) * (TANK.d - 6);
+        const x = (rand() - 0.5) * (TANK.w - 6), z = (rand() - 0.5) * (TANK.d - 6);
         if (fly) {
-          const y = Math.max(T.heightAt(x, z), this.waterTop(x, z)) + 2 + Math.random() * 6;
+          const y = Math.max(T.heightAt(x, z), this.waterTop(x, z)) + 2 + rand() * 6;
           if (okFly(x, y, z) && !occ.solidAt(x, y, z)) to = [x, y, z];
         } else if (this.waterTop(x, z) - T.heightAt(x, z) >= 1.7) {
-          const f = T.heightAt(x, z), y = lerp(f, this.waterTop(x, z), 0.3 + Math.random() * 0.4);
+          const f = T.heightAt(x, z), y = lerp(f, this.waterTop(x, z), 0.3 + rand() * 0.4);
           if (okSwim(x, y, z) && !occ.solidAt(x, y, z)) to = [x, y, z];
         }
       }
-      if (to) { a.pos.set(to[0], to[1], to[2]); a.home = a.pos.clone(); a.wander = Math.random() * 6.28; }
+      if (to) { a.pos.set(to[0], to[1], to[2]); a.home = a.pos.clone(); a.wander = rand() * 6.28; }
       return;
     }
     const medium = this.mediumOf(sp);
@@ -1866,7 +1870,7 @@ export class Animals {
       }
     }
     for (let k = 0; k < 300 && !best; k++) {
-      const x = (Math.random() - 0.5) * (TANK.w - 4), z = (Math.random() - 0.5) * (TANK.d - 4);
+      const x = (rand() - 0.5) * (TANK.w - 4), z = (rand() - 0.5) * (TANK.d - 4);
       if (free(x, z)) best = [x, z];
     }
     if (best) { a.pos.x = best[0]; a.pos.z = best[1]; a.pos.y = T.heightAt(best[0], best[1]); a.home = a.pos.clone(); a._sot = -Infinity; }
@@ -1916,7 +1920,7 @@ export class Animals {
     const R = sp.young && !ctl ? restStep(a, dt, { profile: RP, night: isNight(env.minute, env.lightsOn, env.lightsOff), hungry: a.hunger > 0.25 && this.food.length > 0, foodNear: !!RP && this.food.some((f) => !f.eaten && eatsItem(sp, f) && f.pos.distanceTo(a.pos) < 3), danger: () => this.danger(a, sp, true), bh: a.bh }) : null;
     if (R) a.doing = R.resting ? REST_LABEL : null;
     const desired = V(0, 0, 0);
-    a.wander += (Math.random() - 0.5) * dt * 2.5;
+    a.wander += (rand() - 0.5) * dt * 2.5;
     desired.set(Math.sin(a.wander), 0, Math.cos(a.wander)).multiplyScalar(sp.speed * 0.6);
     // Wanting room (personal space, spaceTick): the way out of the crowd joins the way it wants to go, which its mind weighs below.
     const out = a.spaceOut && !ctl && !a.nib && !a.dart ? Math.min(1, a.spaceNeed) : 0, sl = out ? Math.hypot(a.spaceX, a.spaceZ) : 0;   // (not at food: eating wins)
@@ -1982,7 +1986,7 @@ export class Animals {
       if (best) {
         a.dart = bd < 14;
         desired.copy(best.pos).sub(a.pos).normalize().multiplyScalar(sp.speed * (a.dart ? 2.1 : 1.4));
-        if (bd < 1.1) a.nib = { f: best, t: 0.35 + Math.random() * 0.3 };
+        if (bd < 1.1) a.nib = { f: best, t: 0.35 + rand() * 0.3 };
       }
     }
     // A newt or axolotl swimming after prey it has been ordered to hunt.
@@ -2009,7 +2013,7 @@ export class Animals {
       } else {
         desired.set(-sp2.x, 0, -sp2.z).multiplyScalar(sp.speed * 1.4);
         desired.y += (occ.solidAt(a.pos.x, a.pos.y + 2.5, a.pos.z) ? -1 : 1) * sp.speed;
-        a.wander = Math.atan2(-sp2.x, -sp2.z) + (Math.random() - 0.5);
+        a.wander = Math.atan2(-sp2.x, -sp2.z) + (rand() - 0.5);
       }
     }
     if (blocked) {
@@ -2048,7 +2052,7 @@ export class Animals {
       });
       if (hit) a.pos.set(hit[0], hit[1], hit[2]); else a.pos.copy(prev);
       a.vel.multiplyScalar(0.3);
-      a.wander += (Math.random() < 0.5 ? -1 : 1) * (0.8 + Math.random());
+      a.wander += (rand() < 0.5 ? -1 : 1) * (0.8 + rand());
     }
     const hs = Math.hypot(a.vel.x, a.vel.z);
     if (hs > 0.05) this.turnTo(a, sp, Math.atan2(a.vel.x, a.vel.z), dt, 12, false);
@@ -2060,7 +2064,7 @@ export class Animals {
   randomWater(minDepth) {
     const W = this.world;
     for (let k = 0; k < 40; k++) {
-      const x = (Math.random() - 0.5) * (TANK.w - 6), z = (Math.random() - 0.5) * (TANK.d - 6);
+      const x = (rand() - 0.5) * (TANK.w - 6), z = (rand() - 0.5) * (TANK.d - 6);
       if (W.water.isWater(x, z, minDepth)) {
         const g = W.terrain.heightAt(x, z);
         return V(x, lerp(g, W.water.level, 0.5), z);
@@ -2101,25 +2105,25 @@ export class Animals {
     a.timer -= dt;
     if (!a.target || a.timer <= 0) {
       // Between two walks a jumper may jump instead, and a shrimp swim to somewhere else (leap).
-      if (!a.hop && (sp.hop || sp.swims) && Math.random() < (sp.swims ? 0.18 : 0.3) && this.takeOff(a, sp, medium, sp.swims ? 'swim' : sp.kind === 'fly' ? 'flutter' : 'jump')) return;
-      if (a.state === 'walk' || Math.random() < (opt?.restP ?? 0.4)) {
+      if (!a.hop && (sp.hop || sp.swims) && rand() < (sp.swims ? 0.18 : 0.3) && this.takeOff(a, sp, medium, sp.swims ? 'swim' : sp.kind === 'fly' ? 'flutter' : 'jump')) return;
+      if (a.state === 'walk' || rand() < (opt?.restP ?? 0.4)) {
         a.state = 'rest';
-        a.timer = opt ? opt.rest[0] + Math.random() * (opt.rest[1] - opt.rest[0]) : 1 + Math.random() * 4;
+        a.timer = opt ? opt.rest[0] + rand() * (opt.rest[1] - opt.rest[0]) : 1 + rand() * 4;
         a.target = null;
       } else {
         // Pick a spot; land crawlers prefer moss and damp spots.
         let best = null, bs = -1;
         const r = medium === 'any' ? 14 : 8;
         for (let k = 0; k < 6; k++) {
-          const x = a.pos.x + (Math.random() - 0.5) * r * 2, z = a.pos.z + (Math.random() - 0.5) * r * 2;
+          const x = a.pos.x + (rand() - 0.5) * r * 2, z = a.pos.z + (rand() - 0.5) * r * 2;
           if (!this.okFor(medium, x, z) || !this.isValidGoal(a, x, z)) continue;
-          let s = Math.random();
+          let s = rand();
           if (sp.litterLover) s += W.climate.sample(W.climate.litter, x, z) * 5 + W.climate.sample(W.climate.humus, x, z) * 1.5;   // maggots head for rot
           if (medium === 'land') s += T.field.matAt(x, z, MAT.moss) * 1.5 + (W.nearWater(V(x, T.heightAt(x, z), z), 6) ? 0.5 : 0) + this.comfortAt(sp, x, T.heightAt(x, z), z) * 3;
           if (medium === 'any') s += (W.nearWater(V(x, T.heightAt(x, z), z), 4) ? 1 : 0) + this.comfortAt(sp, x, T.heightAt(x, z), z) * 2;
           if (s > bs) { bs = s; best = V(x, 0, z); }
         }
-        if (best) { a.target = best; a.state = 'walk'; a.timer = 4 + Math.random() * 6; }
+        if (best) { a.target = best; a.state = 'walk'; a.timer = 4 + rand() * 6; }
         else { a.timer = 1; a.state = 'rest'; }
       }
     }
@@ -2151,11 +2155,11 @@ export class Animals {
         const want = Math.atan2(dirx, dirz) + (sp.kind === 'crab' ? Math.PI / 2 : 0);
         this.turnTo(a, sp, want, dt, 6);
         // A heavy crawler that cannot swim, walking along a steep bank, now and then loses its footing and tumbles in.
-        if (sp.drowns && medium === 'land' && Math.random() < dt * 0.02 && this.slipsIn(a, a.pos.x + dirx, a.pos.z + dirz)) return;
+        if (sp.drowns && medium === 'land' && rand() < dt * 0.02 && this.slipsIn(a, a.pos.x + dirx, a.pos.z + dirz)) return;
       }
     }
     // Jumpers take off now and then on the way too (a springtail's furcula, a cricket's hind legs, a fly's buzz).
-    if (sp.hop && !a.hop && Math.random() < dt * (sp.kind === 'fly' ? 0.08 : 0.12)) this.takeOff(a, sp, medium, sp.kind === 'fly' ? 'flutter' : 'jump');
+    if (sp.hop && !a.hop && rand() < dt * (sp.kind === 'fly' ? 0.08 : 0.12)) this.takeOff(a, sp, medium, sp.kind === 'fly' ? 'flutter' : 'jump');
     const gy = T.heightAt(a.pos.x, a.pos.z), sy = medium === 'surface' ? W.water.surfaceAt(a.pos.x, a.pos.z) : -Infinity;
     a.pos.y = Math.max(gy, sy);
     a.normal = sy > gy ? UP : T.normalAt(a.pos.x, a.pos.z);
@@ -2168,25 +2172,25 @@ export class Animals {
   // a female's call that sends the males searching. The rig gets the pincers, swimmerets and antennae (invertPose).
   shrimp(a, sp, dt) {
     const W = this.world, T = W.terrain;
-    const m = (a.sm ??= this.adopt(a, shrimpMind(Math.random)));
-    a.female ??= Math.random() < 0.55;
-    a.sizeK ??= a.female ? 0.95 + Math.random() * 0.1 : 0.76 + Math.random() * 0.08;     // males stay smaller and slimmer
+    const m = (a.sm ??= this.adopt(a, shrimpMind(rand)));
+    a.female ??= rand() < 0.55;
+    a.sizeK ??= a.female ? 0.95 + rand() * 0.1 : 0.76 + rand() * 0.08;     // males stay smaller and slimmer
     if (a.hop?.kind && this.leap(a, sp, dt, 'water')) { a.sFeed = 0; a.sAnt = 1; a.sFan = a.hop?.kind === 'swim' ? 1 : 0; return; }
     const x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z), depth = this.waterTop(x, z) - g;
     const dtMin = dt * Math.min(this.warp ?? 1, 40);
     // Slow senses every few seconds: cover here and the best cover near, how rich the grazing is.
-    a.ssT = (a.ssT ?? Math.random() * 2) - dt;
+    a.ssT = (a.ssT ?? rand() * 2) - dt;
     if (a.ssT <= 0) {
-      a.ssT = 2 + Math.random() * 2;
+      a.ssT = 2 + rand() * 2;
       a.sCover = this.shrimpCover(x, z);
       a.sRich = this.grazeRich(x, z);
       a.sHide = a.sCover > 0.6 ? null : this.shrimpHide(a);
       a.sMates = (this.by[a.sp] ?? []).some((b) => b !== a && !b.female && b.age / 1440 >= (sp.adultDays ?? 20));
     }
     // Food, a few times a second: settled food of its diet, and cast shells (they are eaten for their minerals).
-    a.sfT = (a.sfT ?? Math.random() * 0.4) - dt;
+    a.sfT = (a.sfT ?? rand() * 0.4) - dt;
     if (a.sfT <= 0) {
-      a.sfT = 0.3 + Math.random() * 0.3;
+      a.sfT = 0.3 + rand() * 0.3;
       let best = null, bd = SHRIMP.smell;
       for (const f of this.food) {
         if (f.eaten || !f.settled || !eatsItem(sp, f)) continue;
@@ -2236,9 +2240,9 @@ export class Animals {
     }
     if (it.moult) {
       // The old shell stays where it was cast, on its side.
-      this.shells.push({ sp: a.sp, pos: a.pos.clone(), yaw: (a.yaw ?? 0) + (Math.random() - 0.5) * 0.6, roll: (Math.random() < 0.5 ? -1 : 1) * (1.2 + Math.random() * 0.35), left: 1, age: 0, life: 1440 * (1 + Math.random()) });
+      this.shells.push({ sp: a.sp, pos: a.pos.clone(), yaw: (a.yaw ?? 0) + (rand() - 0.5) * 0.6, roll: (rand() < 0.5 ? -1 : 1) * (1.2 + rand() * 0.35), left: 1, age: 0, life: 1440 * (1 + rand()) });
       if (this.shells.length > 40) this.shells.shift();
-      if (Math.random() < 0.3) W.log(`A ${one(a.sp)} moulted: its old shell lies on the bottom.`, 'info');
+      if (rand() < 0.3) W.log(`A ${one(a.sp)} moulted: its old shell lies on the bottom.`, 'info');
     }
     if (it.call) { this.shrimpCalls.push({ sp: a.sp, x: a.pos.x, z: a.pos.z, t: this.t, id: a.id + ':' + Math.round(this.t) }); }
     a.berried = it.berried > 0;
@@ -2301,7 +2305,7 @@ export class Animals {
   grazeSpots(a) {
     const out = [];
     for (let k = 0; k < 10; k++) {
-      const ang = Math.random() * TAU, r = 3 + Math.random() * 23;
+      const ang = rand() * TAU, r = 3 + rand() * 23;
       const x = a.pos.x + Math.sin(ang) * r, z = a.pos.z + Math.cos(ang) * r;
       if (!this.okFor('water', x, z, 99, a.rad) || !this.isValidGoal(a, x, z)) continue;
       out.push({ x, z, d: r, rich: this.grazeRich(x, z) });
@@ -2313,7 +2317,7 @@ export class Animals {
   shrimpHide(a) {
     let best = null, bs = 0.35;
     for (let k = 0; k < 14; k++) {
-      const ang = Math.random() * TAU, r = 1.5 + Math.random() * 18;
+      const ang = rand() * TAU, r = 1.5 + rand() * 18;
       const x = a.pos.x + Math.sin(ang) * r, z = a.pos.z + Math.cos(ang) * r;
       if (!this.okFor('water', x, z, 99, a.rad) || !this.isValidGoal(a, x, z)) continue;
       const sc = this.shrimpCover(x, z) - r * 0.012;
@@ -2333,14 +2337,14 @@ export class Animals {
     for (let k = 0; k < 6; k++) {
       const base = away ?? (to ? Math.atan2(to.x - a.pos.x, to.z - a.pos.z) : a.target ? Math.atan2(a.target.x - a.pos.x, a.target.z - a.pos.z) : a.yaw ?? 0);
       // (a given destination: tried as it is first, then a little to either side and nearer or farther)
-      const ang = base + (to ? (k ? (Math.random() - 0.5) * 0.6 : 0) : (Math.random() - 0.5) * (away != null ? 0.7 : k < 2 ? 0.8 : 2.4));
-      const d = to ? Math.hypot(to.x - a.pos.x, to.z - a.pos.z) * (k ? 0.75 + Math.random() * 0.4 : 1)
-        : (R[0] + Math.random() * (R[1] - R[0])) * (kind === 'swim' || kind === 'flick' ? 1 : Math.min(1.4, Math.max(0.7, s)));
+      const ang = base + (to ? (k ? (rand() - 0.5) * 0.6 : 0) : (rand() - 0.5) * (away != null ? 0.7 : k < 2 ? 0.8 : 2.4));
+      const d = to ? Math.hypot(to.x - a.pos.x, to.z - a.pos.z) * (k ? 0.75 + rand() * 0.4 : 1)
+        : (R[0] + rand() * (R[1] - R[0])) * (kind === 'swim' || kind === 'flick' ? 1 : Math.min(1.4, Math.max(0.7, s)));
       const x1 = a.pos.x + Math.sin(ang) * d, z1 = a.pos.z + Math.cos(ang) * d;
       if (!this.okFor(medium, x1, z1, 5, a.rad, 0, a) || this.bumps(a, x1, z1)) continue;     // (the landing: the body's own step test)
       const g1 = T.heightAt(x1, z1), y1 = medium === 'surface' ? Math.max(g1, W.water.surfaceAt(x1, z1)) : g1;
       const top = Math.min(this.waterTop(a.pos.x, a.pos.z), this.waterTop(x1, z1));
-      let h = kind === 'swim' ? Math.min(1.5 + Math.random() * 2.5, Math.max(0.6, top - Math.max(a.pos.y, y1) - 0.8)) : kind === 'flick' ? 0.8 : d * (kind === 'flutter' ? 0.45 : 0.35);
+      let h = kind === 'swim' ? Math.min(1.5 + rand() * 2.5, Math.max(0.6, top - Math.max(a.pos.y, y1) - 0.8)) : kind === 'flick' ? 0.8 : d * (kind === 'flutter' ? 0.45 : 0.35);
       // nothing solid on the way, and the ground under the path stays below it (a hump between here and there would be walked
       // through: the arc is raised over it, or the leap is not made)
       const midY = Math.max(a.pos.y, y1) + h;
@@ -2364,7 +2368,7 @@ export class Animals {
         if (hit) continue;
       }
       const dur = kind === 'swim' ? d / (sp.speed * 2.2) : kind === 'flick' ? 0.35 : kind === 'flutter' ? 0.5 + d * 0.05 : 0.3 + d * 0.025;
-      a.hop = { kind, t: 0, dur, x0: a.pos.x, z0: a.pos.z, y0: a.pos.y, x1, z1, y1, h, spin: kind === 'jump' && sp.speed < 1.5 ? (Math.random() < 0.5 ? -1 : 1) * TAU * (1 + Math.floor(Math.random() * 2)) : 0 };   // (a springtail tumbles)
+      a.hop = { kind, t: 0, dur, x0: a.pos.x, z0: a.pos.z, y0: a.pos.y, x1, z1, y1, h, spin: kind === 'jump' && sp.speed < 1.5 ? (rand() < 0.5 ? -1 : 1) * TAU * (1 + Math.floor(rand() * 2)) : 0 };   // (a springtail tumbles)
       if (kind !== 'flick') a.yaw = ang;
       a.state = 'walk'; a.target = null; a.timer = 0;
       return true;
@@ -2385,13 +2389,13 @@ export class Animals {
     // (B4b) a long tick cuts the arc's corners: a piece across this tick's chord ends the leap short of it
     if (this.occ.count) {
       const lift = sp.kind === 'swim' || a.swimming ? 0 : 0.5, f = this.occ.segmentFreeAt(a, ox, oy + lift, oz, a.pos.x, a.pos.y + lift, a.pos.z);
-      if (f < 1) { a.pos.set(ox + (a.pos.x - ox) * f, oy + (a.pos.y - oy) * f, oz + (a.pos.z - oz) * f); a.hop = null; a.hopCut = (a.hopCut ?? 0) + 1; a.state = 'rest'; a.timer = 0.5 + Math.random(); return false; }
+      if (f < 1) { a.pos.set(ox + (a.pos.x - ox) * f, oy + (a.pos.y - oy) * f, oz + (a.pos.z - oz) * f); a.hop = null; a.hopCut = (a.hopCut ?? 0) + 1; a.state = 'rest'; a.timer = 0.5 + rand(); return false; }
     }
     if (H.kind === 'swim') a.yaw = angLerp(a.yaw ?? 0, Math.atan2(H.x1 - H.x0, H.z1 - H.z0), Math.min(1, dt * 4));
     if (t < 1) return true;
     a.hop = null;
     a.pos.y = H.y1;
-    a.state = 'rest'; a.timer = 0.5 + Math.random() * 2;
+    a.state = 'rest'; a.timer = 0.5 + rand() * 2;
     return false;
   }
 
@@ -2408,15 +2412,15 @@ export class Animals {
       return true;
     }
     if (!(sp.flicks || sp.rolls || sp.hop)) return false;
-    a.dangerT = (a.dangerT ?? Math.random() * 0.4) - dt;
+    a.dangerT = (a.dangerT ?? rand() * 0.4) - dt;
     if (a.dangerT > 0) return false;
-    a.dangerT = 0.35 + Math.random() * 0.2;
+    a.dangerT = 0.35 + rand() * 0.2;
     const d = this.danger(a, sp);
     if (!d) return false;
     const away = Math.atan2(a.pos.x - d.x, a.pos.z - d.z);
-    if (sp.rolls) { a.curl = { t: 0, hold: 4 + Math.random() * 8, now: 0 }; a.target = null; return true; }
+    if (sp.rolls) { a.curl = { t: 0, hold: 4 + rand() * 8, now: 0 }; a.target = null; return true; }
     if (sp.flicks && !a.hop) { this.takeOff(a, sp, medium, 'flick', away); a.yaw = away + Math.PI; return false; }       // shoots backwards, head to the danger
-    if (sp.hop && !a.hop && Math.random() < 0.6) this.takeOff(a, sp, medium, sp.kind === 'fly' ? 'flutter' : 'jump', away);
+    if (sp.hop && !a.hop && rand() < 0.6) this.takeOff(a, sp, medium, sp.kind === 'fly' ? 'flutter' : 'jump', away);
     return false;
   }
 
@@ -2535,8 +2539,8 @@ export class Animals {
         const crawl = sp.perch && !PADLESS.has(a.sp) && !a.swimming;
         let step, nx, nz;
         if (crawl) {
-          const cl = a.climb ??= climbState(undefined, 'crawl', sp.crawlSet), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
-          const m = climbStep(cl, { go: dist > 0.1 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.7, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
+          const cl = a.climb ??= climbState(rand, 'crawl', sp.crawlSet), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
+          const m = climbStep(cl, { rnd: rand, go: dist > 0.1 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.7, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
           a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
           step = Math.min(dist, m.adv * Math.max(0, Math.cos(err)));
           nx = a.pos.x + Math.sin(a.yaw) * step; nz = a.pos.z + Math.cos(a.yaw) * step;
@@ -2566,10 +2570,10 @@ export class Animals {
         const surf = PADLESS.has(a.sp) ? null : P.exit === 'glass' ? (P.i >= 2 && P.i <= P.glassTo ? P.glassN : null) : P.glassN ? (Math.abs(dy) > dh * 1.5 ? P.glassN : null) : goal.n ?? null;
         let step = 0;
         if (surf) {
-          const cl = a.climb ??= climbState(undefined, sp.perch ? 'crawl' : 'pulse', sp.crawlSet), bb = this.bodyBox(a, sp), want = dist > 0.05 ? this.glassYawTo(surf, dx, dy, dz) : (a.yaw ?? 0);
+          const cl = a.climb ??= climbState(rand, sp.perch ? 'crawl' : 'pulse', sp.crawlSet), bb = this.bodyBox(a, sp), want = dist > 0.05 ? this.glassYawTo(surf, dx, dy, dz) : (a.yaw ?? 0);
           if (!a._surfPrev) { a.yaw = want; cl.t = -1; cl.hold = 0.15; }       // (it takes hold of the surface heading the way it climbs: the mount, as before)
           const err = angDiff(want, a.yaw ?? 0);
-          const m = climbStep(cl, { go: dist > 0.3 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.6, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
+          const m = climbStep(cl, { rnd: rand, go: dist > 0.3 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: 0.6, bodyLen: Math.max(1, bb.z1 - bb.z0) }, dt);
           a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
           const adv = Math.min(dist, m.adv * Math.max(0, Math.cos(err)));
           surfaceFrame(surf.x, surf.y, surf.z, a.yaw, _gf);
@@ -2633,14 +2637,14 @@ export class Animals {
           if (P.ph === 'up' && P.i >= P.path.length) {
             // Out of the water (startExit): it sits on the land it climbed onto, a moment, then frog() is in charge again.
             if (P.exit) {
-              a.perch = null; a.pitch = 0; a.fs = 'sit'; a.fsT = 0.6 + Math.random() * 1.5; a.chain = 0; a.crouch = 0; a.timer = 0; a.hd = a.yaw;
+              a.perch = null; a.pitch = 0; a.fs = 'sit'; a.fsT = 0.6 + rand() * 1.5; a.chain = 0; a.crouch = 0; a.timer = 0; a.hd = a.yaw;
               a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.normal = T.normalAt(a.pos.x, a.pos.z);
               return true;
             }
             P.ph = 'sit'; a.pitch = 0;
           }
           else if (P.ph === 'down' && P.i < 0) {
-            a.perch = null; a.pitch = 0; a.fs = 'sit'; a.fsT = 1 + Math.random() * 2; a.perchT = 20 + Math.random() * 20;
+            a.perch = null; a.pitch = 0; a.fs = 'sit'; a.fsT = 1 + rand() * 2; a.perchT = 20 + rand() * 20;
             a.pos.y = T.heightAt(a.pos.x, a.pos.z); a.normal = T.normalAt(a.pos.x, a.pos.z);
             return true;
           }
@@ -2652,15 +2656,15 @@ export class Animals {
       a.normal = P.glassN ?? P.up ?? UP;                                 // (on a leaf: tilted with it)
       if (P.glassN) {
         // (it shuffles round where its body stays clear of the ground: perchFits at the new heading)
-        if (Math.random() < dt * 0.03) { const y = P.glassYaw + (Math.random() - 0.5) * 0.9; if (!P.plant || this.perchFits(a, sp, P.top, P.glassN, [y])) a.yaw = y; }
+        if (rand() < dt * 0.03) { const y = P.glassYaw + (rand() - 0.5) * 0.9; if (!P.plant || this.perchFits(a, sp, P.top, P.glassN, [y])) a.yaw = y; }
       }
-      else if (Math.random() < dt * 0.05) a.yaw += (Math.random() - 0.5) * 0.6;   // shuffles round now and then
+      else if (rand() < dt * 0.05) a.yaw += (rand() - 0.5) * 0.6;   // shuffles round now and then
       return true;
     }
     if (!want || a.lab?.drive) return false;       // (a driven frog does not choose a perch of its own: the lab says where)
-    a.perchT = (a.perchT ?? Math.random() * 6) - dt;
+    a.perchT = (a.perchT ?? rand() * 6) - dt;
     if (a.perchT > 0) return false;
-    a.perchT = 8 + Math.random() * 8;
+    a.perchT = 8 + rand() * 8;
     const r = this.perchSpot(a, sp);
     if (!r) return false;
     a.perch = this.perchMission(r);
@@ -2692,7 +2696,7 @@ export class Animals {
     _box.setFromObject(m);
     let top = null;
     for (let k = 0; k < (grid ? 25 : 5); k++) {
-      const u = grid ? 0.1 + 0.2 * (k % 5) : 0.2 + Math.random() * 0.6, v = grid ? 0.1 + 0.2 * Math.floor(k / 5) : 0.2 + Math.random() * 0.6;
+      const u = grid ? 0.1 + 0.2 * (k % 5) : 0.2 + rand() * 0.6, v = grid ? 0.1 + 0.2 * Math.floor(k / 5) : 0.2 + rand() * 0.6;
       const px = lerp(_box.min.x, _box.max.x, u), pz = lerp(_box.min.z, _box.max.z, v);
       _ray.set(_t.set(px, _box.max.y + 2, pz), DOWN);
       const hit = _ray.intersectObject(m, false)[0];
@@ -2707,7 +2711,7 @@ export class Animals {
   // Off the way to a perch (stuck, or water ahead): back to frog(), and that perch is left alone for a few minutes.
   perchQuit(a, P) {
     a.perch = null; a.pitch = 0; a.swimming = false;
-    a.perchT = 8 + Math.random() * 8;
+    a.perchT = 8 + rand() * 8;
     a.perchBad = [...(a.perchBad ?? []).slice(-3), { x: P.top.x, y: P.top.y, z: P.top.z, t: this.t }];
   }
 
@@ -2716,7 +2720,7 @@ export class Animals {
   perchSpot(a, sp) {
     const W = this.world, T = W.terrain;
     // Each frog has a favourite kind of perch (leaves, wood and bamboo, or the glass), as real ones settle into habits.
-    const like = (a.perchLike ??= ['plant', 'plant', 'piece', 'glass'][Math.floor(Math.random() * 4)]);
+    const like = (a.perchLike ??= ['plant', 'plant', 'piece', 'glass'][Math.floor(rand() * 4)]);
     const fav = (k) => (k === like ? 8 : 0);
     const taken = (top) => (this.by[a.sp] ?? []).some((b) => b !== a && b.perch && b.perch.top.distanceTo(top) < 2.5)
       || (a.perchBad ?? []).some((q) => this.t - q.t < 180 && Math.hypot(q.x - top.x, q.y - top.y, q.z - top.z) < 4);
@@ -2735,7 +2739,7 @@ export class Animals {
       const gy = T.heightAt(top.x, top.z);
       if (top.y - gy < 3) continue;
       const wet = W.nearWater(V(top.x, gy, top.z), 12) ? 6 : 0;
-      const sc = Math.min(20, top.y - gy) + wet - d * 0.25 + Math.random() * 6 + fav('plant');   // high is good, up to a point
+      const sc = Math.min(20, top.y - gy) + wet - d * 0.25 + rand() * 6 + fav('plant');   // high is good, up to a point
       if (sc <= bs || taken(top)) continue;
       const r = this.perchRoute(a, sp, c);
       if (r) { bs = sc; best = r; }
@@ -2752,7 +2756,7 @@ export class Animals {
       if (!top || Math.abs(top.x) > TANK.w / 2 - 1 || Math.abs(top.z) > TANK.d / 2 - 1 || taken(top) || !this.perchFits(a, sp, top)) continue;
       const gy = T.heightAt(top.x, top.z), over = W.water.surfaceAt(top.x, top.z) > gy;
       if (top.y - gy < 2) continue;
-      const sc = Math.min(20, top.y - gy) + (over || W.nearWater(V(top.x, gy, top.z), 12) ? 6 : 0) - Math.hypot(top.x - a.pos.x, top.z - a.pos.z) * 0.25 + Math.random() * 6 + fav('piece');
+      const sc = Math.min(20, top.y - gy) + (over || W.nearWater(V(top.x, gy, top.z), 12) ? 6 : 0) - Math.hypot(top.x - a.pos.x, top.z - a.pos.z) * 0.25 + rand() * 6 + fav('piece');
       if (sc <= bs) continue;
       const r = this.perchRoute(a, sp, { top, piece: pc });
       if (r) { bs = sc; best = r; }
@@ -2761,10 +2765,10 @@ export class Animals {
     for (let k = 0; k < 4; k++) {
       const side = k === 0 || k === 1 ? 0 : k === 2 ? 1 : -1;
       let x, z, n, yaw;
-      if (side === 0) { x = clamp(a.pos.x + (Math.random() - 0.5) * 30, -TANK.w / 2 + 3, TANK.w / 2 - 3); z = TANK.d / 2 - GLASS_GAP; n = GLASS_N.front; yaw = 0; }
-      else { x = side * (TANK.w / 2 - GLASS_GAP); z = clamp(a.pos.z + (Math.random() - 0.5) * 16, -TANK.d / 2 + 4, TANK.d / 2 - 3); n = side > 0 ? GLASS_N.right : GLASS_N.left; yaw = side * Math.PI / 2; }
+      if (side === 0) { x = clamp(a.pos.x + (rand() - 0.5) * 30, -TANK.w / 2 + 3, TANK.w / 2 - 3); z = TANK.d / 2 - GLASS_GAP; n = GLASS_N.front; yaw = 0; }
+      else { x = side * (TANK.w / 2 - GLASS_GAP); z = clamp(a.pos.z + (rand() - 0.5) * 16, -TANK.d / 2 + 4, TANK.d / 2 - 3); n = side > 0 ? GLASS_N.right : GLASS_N.left; yaw = side * Math.PI / 2; }
       const bx = x + n.x * 1.2, bz = z + n.z * 1.2;                       // the foot of the climb, a little in from the glass
-      const gy = T.heightAt(bx, bz), y = Math.min(TANK.h - 4, Math.max(gy, W.water.level) + 5 + Math.random() * 14);
+      const gy = T.heightAt(bx, bz), y = Math.min(TANK.h - 4, Math.max(gy, W.water.level) + 5 + rand() * 14);
       const top = V(x, y, z);
       if (y - gy < 4 || taken(top)) continue;
       // (in front of the background relief by its body all the way up, its back too: on a side pane by the back a frog climbed inside it)
@@ -2772,7 +2776,7 @@ export class Animals {
       let clear = true;
       for (let yy = gy; clear && yy <= y + R; yy += 1.5) clear = z - R >= Math.max(W.wall.zAt(x, yy), W.wall.zAt(x + dH, yy)) + 0.15;
       if (!clear) continue;
-      const sc = Math.min(20, y - gy) + (W.nearWater(V(bx, gy, bz), 12) ? 5 : 0) - Math.hypot(x - a.pos.x, z - a.pos.z) * 0.25 + Math.random() * 6 - 2 + fav('glass');
+      const sc = Math.min(20, y - gy) + (W.nearWater(V(bx, gy, bz), 12) ? 5 : 0) - Math.hypot(x - a.pos.x, z - a.pos.z) * 0.25 + rand() * 6 - 2 + fav('glass');
       if (sc <= bs) continue;
       const r = this.perchRoute(a, sp, { top, glassN: n, glassYaw: yaw });
       if (r) { bs = sc; best = r; }
@@ -2900,7 +2904,7 @@ export class Animals {
     const h = PL.heightOf(p), r = Math.max(1, (p.reach ?? 3) * (0.3 + 0.7 * (p.grown ?? 1)) * 0.6);
     let best = null;
     for (let k = 0; k < 10; k++) {
-      const ang = Math.random() * TAU, rr = r * Math.sqrt(Math.random());
+      const ang = rand() * TAU, rr = r * Math.sqrt(rand());
       _ray.set(_t.set(p.pos.x + Math.sin(ang) * rr, p.pos.y + h * 1.3 + 3, p.pos.z + Math.cos(ang) * rr), DOWN);
       const hit = _ray.intersectObject(_pm, false)[0];
       if (!hit?.face) continue;
@@ -2919,7 +2923,7 @@ export class Animals {
     const W = this.world, T = W.terrain, h = W.plants.heightOf(p), sp = SPECIES[a.sp];
     let nx = a.pos.x - p.pos.x, nz = a.pos.z - p.pos.z;
     const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
-    const a0 = Math.atan2(nx, nz), off = coreR(p) + (a.rad ?? 0.5) * 0.7 + 0.3, f0 = 0.5 + Math.random() * 0.3;
+    const a0 = Math.atan2(nx, nz), off = coreR(p) + (a.rad ?? 0.5) * 0.7 + 0.3, f0 = 0.5 + rand() * 0.3;
     for (const da of [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4]) {
       let ux = Math.sin(a0 + da), uz = Math.cos(a0 + da);
       if (uz < -0.3) { if (da) continue; uz = -0.3; const k = Math.hypot(ux, uz); ux /= k; uz /= k; }   // (not round the back, against the background)
@@ -2940,12 +2944,12 @@ export class Animals {
   skink(a, sp, dt) {
     const W = this.world, T = W.terrain, E = W.env, C = W.climate;
     const m = (a.sk ??= this.adopt(a, skinkMind()));
-    a.male ??= Math.random() < 0.5;
+    a.male ??= rand() < 0.5;
     const x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z);
     const depth = W.water.surfaceAt(x, z) - g;
     a.skT = (a.skT ?? 0) - dt;
     if (a.skT <= 0) {
-      a.skT = 2.5 + Math.random() * 2;
+      a.skT = 2.5 + rand() * 2;
       if (!a.home || this.skinkHide(a, sp, a.home.x, a.home.z) < 0.35) a.home = this.skinkFindHome(a, sp) ?? a.home ?? null;
       else if ((a.spaceNeed ?? 0) >= 1 && (a._homeT ?? 0) <= this.t) a.home = this.roomierHome(a, sp, a.home, () => this.skinkFindHome(a, sp), (h) => this.skinkHide(a, sp, h.x, h.z));
       // Two males never share a hide (species data: territorial): the later male picks again while its home is within
@@ -2992,7 +2996,7 @@ export class Animals {
       refuge: a.skRefuge && { x: a.skRefuge.x, z: a.skRefuge.z, d: Math.hypot(a.skRefuge.x - x, a.skRefuge.z - z) },
       rival: a.male ? this.skinkRival(a, x, z) : null, warm: a.skWarm, hunting: !!a.order, valid: a.validGoal,
     }));
-    if (it.say && Math.random() < 0.5) W.log(it.say, 'info');
+    if (it.say && rand() < 0.5) W.log(it.say, 'info');
     let goal = it.goal, speed = it.speed;
     if (it.mode === 'hunt' && a.target) { goal = { x: a.target.x, z: a.target.z }; speed = SKINK.speed * 0.7; }
     // (a skink that knows no cover would run a fixed 15 cm straight away: it picks a spot instead, far from the threat, in cover or on a log's crest)
@@ -3054,7 +3058,7 @@ export class Animals {
   skinkFindHome(a, sp) {
     let best = null, bs = 0.3;
     for (let k = 0; k < 20; k++) {
-      const r = 2 + Math.random() * 20, t = Math.random() * Math.PI * 2;
+      const r = 2 + rand() * 20, t = rand() * Math.PI * 2;
       const x = a.pos.x + Math.sin(t) * r, z = a.pos.z + Math.cos(t) * r;
       const sc = this.skinkHide(a, sp, x, z) - (this.noSpace ? 0 : SPACE_HOME * this.homeCrowd(a, sp, x, z));
       if (sc > bs) { bs = sc; best = { x, z }; }
@@ -3068,15 +3072,15 @@ export class Animals {
   crab(a, sp, dt) {
     const W = this.world, T = W.terrain, E = W.env, C = W.climate;
     const P = sp.crabProfile ?? CRAB;
-    const m = (a.cb ??= this.adopt(a, crabMind(Math.random, P)));
-    a.male ??= Math.random() < 0.35;
+    const m = (a.cb ??= this.adopt(a, crabMind(rand, P)));
+    a.male ??= rand() < 0.35;
     const x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z);
     const depth = W.water.surfaceAt(x, z) - g;
     const dtMin = dt * (this.warp ?? 1);
     // Slow senses (home, shore, a way out) every few seconds; fast ones every step.
     a.cbT = (a.cbT ?? 0) - dt;
     if (a.cbT <= 0 || (depth > 0.2 && !a.cbBank && m.mode === 'exit')) {
-      a.cbT = 2 + Math.random() * 2;
+      a.cbT = 2 + rand() * 2;
       if (!a.home || this.crabHideScore(a, sp, a.home.x, a.home.z) < 0.35) { a.home = this.crabFindHome(a, sp) ?? a.home ?? null; m.digBest = 0; m.digLoads = 0; }
       else if ((a.spaceNeed ?? 0) >= 1 && (a._homeT ?? 0) <= this.t) { const h0 = a.home; a.home = this.roomierHome(a, sp, h0, () => this.crabFindHome(a, sp), (h) => this.crabHideScore(a, sp, h.x, h.z)); if (a.home !== h0) { m.digBest = 0; m.digLoads = 0; } }
       a.cbDig = this.crabDigSite(a);
@@ -3107,7 +3111,7 @@ export class Animals {
       burrow: a.cbDig && { ...a.cbDig, depth: pitDepth(T.field, a.home.x, a.home.z) },
       valid: a.validGoal,
     };
-    const it = (a.ci = crabThink(m, sense, Math.random, P));
+    const it = (a.ci = crabThink(m, sense, rand, P));
     if (a.lab?.drive) this.labCrab(a, P, it);
     else {
       // (a crab with no safe burrow would run a fixed 12 cm straight away: it picks a spot, far from the threat, under cover or in shallow water)
@@ -3239,7 +3243,7 @@ export class Animals {
   crabFindHome(a, sp) {
     let best = null, bs = 0.3;
     for (let k = 0; k < 24; k++) {
-      const r = 3 + Math.random() * 22, t = Math.random() * Math.PI * 2;
+      const r = 3 + rand() * 22, t = rand() * Math.PI * 2;
       const x = a.pos.x + Math.sin(t) * r, z = a.pos.z + Math.cos(t) * r;
       const s = this.crabHideScore(a, sp, x, z) - (this.noSpace ? 0 : SPACE_HOME * this.homeCrowd(a, sp, x, z));
       if (s > bs) { bs = s; best = { x, z }; }
@@ -3344,7 +3348,7 @@ export class Animals {
     const g = T.heightAt(a.pos.x, a.pos.z);
     const s = W.water.surfaceAt(a.pos.x, a.pos.z, 0.2);
     const inWater = s > g + (a.swimming ? 0.5 : 0.9) * sp.size;      // (once swimming, it swims on through the shallows to its bank)
-    if (inWater && !a.swimming) { a.sw = swimState(); a.wetT = 0; a.wetStay = 90 + Math.random() * 240; a.dive = null; a.diveP = 0; }   // (into the water: legs drawn up, and it kicks off)
+    if (inWater && !a.swimming) { a.sw = swimState(rand); a.wetT = 0; a.wetStay = 90 + rand() * 240; a.dive = null; a.diveP = 0; }   // (into the water: legs drawn up, and it kicks off)
     if (!inWater && a.swimming) { a.dryT = 0; a.dive = null; a.diveP = 0; }
     a.swimming = inWater;
     a.timer -= dt;
@@ -3352,14 +3356,14 @@ export class Animals {
     a.dryT = (a.dryT ?? 0) + dtS;
     a.pos.y = g;
     a.normal = T.normalAt(a.pos.x, a.pos.z);
-    if (!a.fs) { a.fs = 'sit'; a.fsT = this.pickSit(a, sp) * Math.random(); a.chain = 0; a.crouch = 0; if (a.lab) a.lab.kicked = false; }   // (a driven frog put back to its start, by an unstick or a relocation, does not sit out the rest it was dealt)
+    if (!a.fs) { a.fs = 'sit'; a.fsT = this.pickSit(a, sp) * rand(); a.chain = 0; a.crouch = 0; if (a.lab) a.lab.kicked = false; }   // (a driven frog put back to its start, by an unstick or a relocation, does not sit out the rest it was dealt)
     if (!a.lab?.drive) this.frogFear(a, sp);                                       // (a bigger neighbour on the move: it jumps away)
     switch (a.fs) {
       case 'sit': {
         a.fsT -= dt * (a.order || a.lab?.goal ? 1 : this.warp);
         a.crouch = Math.max(0, (a.crouch ?? 0) - dtS * 4);
         if (a.lab?.goal && !a.lab.kicked) { a.lab.kicked = true; a.fsT = Math.min(a.fsT, 0.3); }      // (a driven frog does not sit out its long rest)
-        if (a.order && !a.order.kicked) { a.order.kicked = true; a.fsT = Math.min(a.fsT, 0.4 + Math.random() * 1.2); }
+        if (a.order && !a.order.kicked) { a.order.kicked = true; a.fsT = Math.min(a.fsT, 0.4 + rand() * 1.2); }
         if (a.fsT <= 0) this.frogPlan(a, sp);
         break;
       }
@@ -3374,7 +3378,7 @@ export class Animals {
           this.planFollowsPivot(a);
           a.fs = a.afterTurn ?? 'sit';
           a.walkT = 0;
-          if (a.fs === 'crouch') a.fsT = (0.22 + Math.random() * 0.25) * (a.fear ? 0.45 : 1);
+          if (a.fs === 'crouch') a.fsT = (0.22 + rand() * 0.25) * (a.fear ? 0.45 : 1);
           else if (a.fs === 'sit') a.fsT = a.order || a.lab?.goal ? 0.2 : this.pickSit(a, sp, true);
         }
         break;
@@ -3387,7 +3391,7 @@ export class Animals {
         if (a.fsT <= 0) {
           const p = a.plan;
           a.crouch = 0;
-          if (!(p && this.hopTo(a, sp, p.to, p.water))) { a.fs = 'sit'; a.fsT = a.fear ? 0.15 : 1 + Math.random() * 3; a.hopFail = (a.hopFail ?? 0) + 1; a.chain = 0; if (a.fear) a.fear.gt = -9; }      // (frightened: at once, and to another spot)
+          if (!(p && this.hopTo(a, sp, p.to, p.water))) { a.fs = 'sit'; a.fsT = a.fear ? 0.15 : 1 + rand() * 3; a.hopFail = (a.hopFail ?? 0) + 1; a.chain = 0; if (a.fear) a.fear.gt = -9; }      // (frightened: at once, and to another spot)
         }
         break;
       }
@@ -3466,17 +3470,17 @@ export class Animals {
   frogEnd(a, sp, hopped) {
     a.hopFail = 0;
     a.fs = 'sit';
-    if (a.fear) { a.chain = 0; a.chainNext = false; a.fsT = hopped ? 0.1 + Math.random() * 0.15 : 0.1; if (hopped) a.fear.hops++; return; }      // (frightened: straight on to the next hop)
-    if (a.lab?.goal) { a.chain = 0; a.chainNext = false; a.fsT = hopped ? 0.35 + Math.random() * 0.35 : 0.1; return; }   // (the test lab: a driven frog goes on after the pause between two hops)
-    if (a.chain > 0) { a.chain--; a.chainNext = true; a.fsT = hopped ? 0.35 + Math.random() * 0.5 : 0.8 + Math.random() * 2; }
-    else { a.chainNext = false; a.fsT = a.order || a.lab?.goal ? 0.5 + Math.random() * 0.5 : this.pickSit(a, sp); }
+    if (a.fear) { a.chain = 0; a.chainNext = false; a.fsT = hopped ? 0.1 + rand() * 0.15 : 0.1; if (hopped) a.fear.hops++; return; }      // (frightened: straight on to the next hop)
+    if (a.lab?.goal) { a.chain = 0; a.chainNext = false; a.fsT = hopped ? 0.35 + rand() * 0.35 : 0.1; return; }   // (the test lab: a driven frog goes on after the pause between two hops)
+    if (a.chain > 0) { a.chain--; a.chainNext = true; a.fsT = hopped ? 0.35 + rand() * 0.5 : 0.8 + rand() * 2; }
+    else { a.chainNext = false; a.fsT = a.order || a.lab?.goal ? 0.5 + rand() * 0.5 : this.pickSit(a, sp); }
   }
 
   // How long to sit (animal seconds at 1x; counted down faster at high speed so the pace per game hour stays).
   pickSit(a, sp, short = false) {
-    if (short) return 0.6 + Math.random() * 2.5;
-    let base = 6 + -Math.log(1 - Math.random()) * 38;
-    if (Math.random() < 0.12) base *= 3;
+    if (short) return 0.6 + rand() * 2.5;
+    let base = 6 + -Math.log(1 - rand()) * 38;
+    if (rand() < 0.12) base *= 3;
     if (sp.kind === 'toad') base *= 1.3;
     return clamp(base, 5, 420) / this.activity(a, sp);
   }
@@ -3511,9 +3515,9 @@ export class Animals {
       const p = o.target.pos, dx = p.x - a.pos.x, dz = p.z - a.pos.z, d = Math.hypot(dx, dz);
       const reach = this.reachOf(a, sp), gap = d - reach * 0.6, ang = Math.atan2(dx, dz);
       if (gap < 0.4) { a.fsT = 0.25; return; }                 // close enough: hunter() will aim and strike
-      const walk = !toad && !sp.noWalk && d < 9 + 3 * Math.random();
+      const walk = !toad && !sp.noWalk && d < 9 + 3 * rand();
       for (const f of [1, 0.7, 0.45]) {
-        const len = walk ? Math.min(gap, 1.4 + Math.random() * 1.8) * f : clamp(gap, 1.5, 5.5 * sp.size) * f;
+        const len = walk ? Math.min(gap, 1.4 + rand() * 1.8) * f : clamp(gap, 1.5, 5.5 * sp.size) * f;
         plan = this.checkPlan(a, sp, walk ? 'walk' : 'hop', V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len), ang, false);
         if (plan) break;
       }
@@ -3522,20 +3526,20 @@ export class Animals {
       const uneasy = (a.why?.length ?? 0) > 0, cont = !!a.chainNext;
       // (a fire-bellied toad spends much of its day in the water: after a while on land it makes for the nearest it can find)
       // (the common frog too, less often: a land frog by day that goes back to the water now and then; sp.entersWater)
-      const wantWater = (toad || sp.entersWater) && !cont && a.hunger < 0.6 && Math.random() < ((a.dryT ?? 0) > 25 ? 0.7 : 0.15) * (toad ? 1 : 0.4);
+      const wantWater = (toad || sp.entersWater) && !cont && a.hunger < 0.6 && rand() < ((a.dryT ?? 0) > 25 ? 0.7 : 0.15) * (toad ? 1 : 0.4);
       const pond = wantWater ? this.crabFind(a.pos.x, a.pos.z, 30, (px, pz, d) => d > 1.2 * sp.size) : null;
       const hd0 = pond ? Math.atan2(pond.x - a.pos.x, pond.z - a.pos.z) : a.hd ?? a.yaw;
       const mid = (sp.temp[0] + sp.temp[1]) / 2;
       const cands = [];
       for (let k = 0; k < (uneasy ? 14 : 8); k++) {
         let ang = hd0 + gauss() * (cont ? 0.3 : pond ? 0.25 : 0.6);
-        if (k >= 5 || (uneasy && k >= 3)) ang = Math.random() * Math.PI * 2;                       // now and then somewhere else entirely
-        else if (!cont && !pond && k === 4) ang = hd0 + Math.PI * (0.7 + 0.6 * Math.random());    // turn back
-        const walk = !sp.noWalk && (cont && a.plan ? a.plan.type === 'walk' : toad ? Math.random() < (pond ? 0 : 0.2) : Math.random() < 0.68);
-        const len = pond && k < 4 ? Math.min(pond.d + 1.5, (2.2 + Math.random() * 2.4) * 1.7) : (walk ? 2 + Math.random() * 5 : (1.4 + Math.random() * 2.6) * (toad ? 1.7 : 1)) * (uneasy ? 1.8 : 1);
+        if (k >= 5 || (uneasy && k >= 3)) ang = rand() * Math.PI * 2;                       // now and then somewhere else entirely
+        else if (!cont && !pond && k === 4) ang = hd0 + Math.PI * (0.7 + 0.6 * rand());    // turn back
+        const walk = !sp.noWalk && (cont && a.plan ? a.plan.type === 'walk' : toad ? rand() < (pond ? 0 : 0.2) : rand() < 0.68);
+        const len = pond && k < 4 ? Math.min(pond.d + 1.5, (2.2 + rand() * 2.4) * 1.7) : (walk ? 2 + rand() * 5 : (1.4 + rand() * 2.6) * (toad ? 1.7 : 1)) * (uneasy ? 1.8 : 1);
         const to = V(a.pos.x + Math.sin(ang) * len, 0, a.pos.z + Math.cos(ang) * len);
         const g = T.heightAt(to.x, to.z);
-        let sc = this.comfortAt(sp, to.x, g, to.z) * (uneasy ? 6 : 3) + Math.random() * 0.8 + Math.cos(ang - hd0) * 0.4;
+        let sc = this.comfortAt(sp, to.x, g, to.z) * (uneasy ? 6 : 3) + rand() * 0.8 + Math.cos(ang - hd0) * 0.4;
         // Cover and moss at night, a warm spot by day.
         const cover = this.occ.count && this.occ.solidAt(to.x, g + 3, to.z) ? 1 : 0;
         sc += (cover + T.field.matAt(to.x, to.z, MAT.moss)) * (1.6 * (1 - light) + 0.4);
@@ -3545,9 +3549,9 @@ export class Animals {
       }
       cands.sort((p, q) => q.sc - p.sc);
       for (const c of cands) { plan = this.checkPlan(a, sp, c.walk ? 'walk' : 'hop', c.to, c.ang, wantWater && !c.walk); if (plan) break; }
-      if (plan) chain = plan.type === 'hop' ? (Math.random() * 2.6 | 0) + (uneasy ? 1 : 0) : Math.random() < 0.4 ? 1 : 0;
+      if (plan) chain = plan.type === 'hop' ? (rand() * 2.6 | 0) + (uneasy ? 1 : 0) : rand() < 0.4 ? 1 : 0;
     }
-    if (!plan) { a.hopFail = (a.hopFail ?? 0) + 1; a.fsT = lg ? 0.6 : 1.5 + Math.random() * 3; a.chain = 0; a.chainNext = false; return; }
+    if (!plan) { a.hopFail = (a.hopFail ?? 0) + 1; a.fsT = lg ? 0.6 : 1.5 + rand() * 3; a.chain = 0; a.chainNext = false; return; }
     a.plan = plan; a.hd = plan.ang; a.chain = chain; plan.x0 = a.pos.x; plan.z0 = a.pos.z;
     a.faceTo = plan.ang; a.afterTurn = plan.type === 'hop' ? 'crouch' : 'walk';
     a.fs = 'turn'; a.crouch = 0; a.walkT = 0;
@@ -3562,7 +3566,7 @@ export class Animals {
       if (!this.okFor(medium, x, z) || (this.cliffAt(x, z) && !this.cliffAt(a.pos.x, a.pos.z))) return null;     // (offCliff would undo every step)
     }
     if (this.crowded(a, sp, to.x, to.z)) return null;
-    return { type, to, ang, water: false, v: 0.7 + Math.random() * 0.7 };
+    return { type, to, ang, water: false, v: 0.7 + rand() * 0.7 };
   }
 
   frogWalk(a, sp, dtS) {
@@ -3576,8 +3580,8 @@ export class Animals {
     if (ok && sp.perch && !PADLESS.has(a.sp)) {
       // An arboreal frog walks as the green tree frog of the owner's clip does (util/climb.js 'crawl': a four-beat walk, three limbs down, the legs
       // hanging stretched, the hand reaching): the step and the turn come out of its limbs, drawn on the climbing body; the old walk below is for the others.
-      const cl = a.climb ??= climbState(undefined, 'crawl', sp.crawlSet), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
-      const m = climbStep(cl, { go: d > 0.2 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: clamp(p.v ?? 0.5, 0, 1), bodyLen: Math.max(1, bb.z1 - bb.z0) }, dtS);
+      const cl = a.climb ??= climbState(rand, 'crawl', sp.crawlSet), bb = this.bodyBox(a, sp), want = Math.atan2(dx, dz), err = angDiff(want, a.yaw ?? 0);
+      const m = climbStep(cl, { rnd: rand, go: d > 0.2 ? 1 : 0, steer: clamp(err / CLIMB.yawPulse, -1, 1), urgency: clamp(p.v ?? 0.5, 0, 1), bodyLen: Math.max(1, bb.z1 - bb.z0) }, dtS);
       a.yaw = (a.yaw ?? 0) + (Math.abs(m.dyaw) > Math.abs(err) ? err : m.dyaw);
       const adv = Math.min(d, m.adv * Math.max(0, Math.cos(err))), nx = a.pos.x + Math.sin(a.yaw) * adv, nz = a.pos.z + Math.cos(a.yaw) * adv;
       if (adv < 1e-6 || (this.okFor(this.mediumOf(sp), nx, nz) && !this.crowded(a, sp, nx, nz) && !this.walkBlocked(a, nx, nz))) { a.pos.x = nx; a.pos.z = nz; a.pos.y = this.world.terrain.heightAt(nx, nz); a.normal = this.world.terrain.normalAt(nx, nz); a.hopFail = 0; }
@@ -3624,13 +3628,13 @@ export class Animals {
     if (lgWet) { if (!a.shore || a.shore.x !== lg.x || a.shore.z !== lg.z) a.shore = V(lg.x, 0, lg.z); a.roam = true; a.floating = false; a.exit = null; a.shoreLand = null; a.timer = 1; }
     else if (lg && a.roam) a.timer = 0;
     if (!a.shore || a.timer <= 0) {
-      a.timer = 4 + Math.random() * 4;
+      a.timer = 4 + rand() * 4;
       // (the way out it was making for, if any: kept below when a new look finds none nearer)
       const prev = a.shore && !a.roam && (a.shoreLand || a.exit) ? { shore: a.shore, land: a.shoreLand, exit: a.exit } : null;
       a.shore = null; a.shoreLand = null; a.roam = false; a.toBank = null;
       // A frog that has no business in the water makes for the way out at once. One at home in it (a toad, a pond frog) stays: it rests at the
       // surface, potters about, dives, and leaves when it has had its time in the water (or is hungry: it hunts on land).
-      const leave = !toad || (!!lg && !lgWet) || Math.random() < ((a.wetT ?? 0) > (a.wetStay ?? 120) || a.hunger > 0.6 ? 0.5 : 0.04);
+      const leave = !toad || (!!lg && !lgWet) || rand() < ((a.wetT ?? 0) > (a.wetStay ?? 120) || a.hunger > 0.6 ? 0.5 : 0.04);
       if (leave) {
         a.floating = false;
         // The way out: along each of 32 lines the first dry ground (the bank it would swim into: land beyond a bank is not reached by
@@ -3675,7 +3679,7 @@ export class Animals {
         if (!a.shore && !toad && near) { a.shore = V(near.x, 0, near.z); a.roam = true; a.toBank = [near.bx, near.bz, 5]; a.toBankNear = null; a.toBankT = 0; }
         if (!a.shore && !toad) {
           for (let k = 0; k < 8 && !a.shore; k++) {
-            const ang = Math.random() * TAU, r = 5 + Math.random() * 6;
+            const ang = rand() * TAU, r = 5 + rand() * 6;
             let ok = true;
             for (let i = 1; ok && i <= r; i++) {
               const x = a.pos.x + Math.sin(ang) * i, z = a.pos.z + Math.cos(ang) * i;
@@ -3685,13 +3689,13 @@ export class Animals {
           }
         }
       } else {
-        const ang = Math.random() * Math.PI * 2, u = Math.random();
+        const ang = rand() * Math.PI * 2, u = rand();
         a.shore = V(a.pos.x + Math.sin(ang) * 6, 0, a.pos.z + Math.cos(ang) * 6);
         // rest at the surface (most of the time, and for a good while), potter off somewhere, or dive (where the water is deep
         // enough to)
         if (prof.dive && u < 0.1 && top - ground > 2.2 * sp.size) { a.floating = false; a.dive = { ph: 'down', t: 0 }; }
-        else if (u < 0.35) { a.floating = false; a.roam = true; a.shore = V(a.pos.x + Math.sin(ang) * (5 + Math.random() * 8), 0, a.pos.z + Math.cos(ang) * (5 + Math.random() * 8)); }
-        else { a.floating = true; a.roam = true; a.timer = 15 + Math.random() * 25; }
+        else if (u < 0.35) { a.floating = false; a.roam = true; a.shore = V(a.pos.x + Math.sin(ang) * (5 + rand() * 8), 0, a.pos.z + Math.cos(ang) * (5 + rand() * 8)); }
+        else { a.floating = true; a.roam = true; a.timer = 15 + rand() * 25; }
       }
     }
     // The stroke (util/gait.js, the species' SWIM profile): how urgent it is sets the beat, bursts of kicks, surge and glide. A frog
@@ -3802,7 +3806,7 @@ export class Animals {
       const v = this.swimClock(a, sp, 0.7, dt);
       // down to the bottom, or onto whatever lies in the way (a sunken branch, a stone)
       const ok = go(v * Math.cos(a.diveP), -(v * Math.sin(a.diveP) + 0.6));
-      if (!ok || a.pos.y <= bottom + 0.02 || D.t > 12) { D.ph = 'sit'; D.t = 0; D.len = 4 + Math.random() * 14; }
+      if (!ok || a.pos.y <= bottom + 0.02 || D.t > 12) { D.ph = 'sit'; D.t = 0; D.len = 4 + rand() * 14; }
     } else if (D.ph === 'sit') {
       lean(0);
       this.swimClock(a, sp, 0, dt, 0, true);
@@ -3811,7 +3815,7 @@ export class Animals {
       lean(-0.8);
       const v = this.swimClock(a, sp, 0.8, dt);
       if (!go(v * Math.cos(a.diveP), v * Math.sin(-a.diveP) + 0.8)) a.yaw += dt * 1.2;      // (under something: it works its way round)
-      if (a.pos.y >= top - 0.02 || D.t > 40) { a.pos.y = Math.max(top, ground); a.dive = null; a.floating = true; a.roam = true; a.timer = 8 + Math.random() * 15; a.shore = V(a.pos.x + Math.sin(a.yaw) * 2, 0, a.pos.z + Math.cos(a.yaw) * 2); return false; }
+      if (a.pos.y >= top - 0.02 || D.t > 40) { a.pos.y = Math.max(top, ground); a.dive = null; a.floating = true; a.roam = true; a.timer = 8 + rand() * 15; a.shore = V(a.pos.x + Math.sin(a.yaw) * 2, 0, a.pos.z + Math.cos(a.yaw) * 2); return false; }
     }
     return true;
   }
@@ -3819,8 +3823,8 @@ export class Animals {
   // The stroke clock of a frog in the water (util/gait.js swimStep with its SWIM profile and body length): advances its kick (a.kick,
   // the phase the rig draws) and returns its speed in cm/s. (The water it moves: its hull and feet in the ripple field, hulls().)
   swimClock(a, sp, urgency, dt, steer = 0, sitting = false, spin = null) {
-    const st = (a.sw ??= swimState()), b = this.bodyOf(a.sp);
-    const v = swimStep(st, swimProfile(a.sp), { urgency, floating: !!a.floating, steer, sitting, bodyLen: b ? 2 * b.hlen * drawScale(a, sp) : 3 * sp.size, wake: pushPending(st) > 0.3 && !a.floating, ...spin }, dt);
+    const st = (a.sw ??= swimState(rand)), b = this.bodyOf(a.sp);
+    const v = swimStep(st, swimProfile(a.sp), { rnd: rand, urgency, floating: !!a.floating, steer, sitting, bodyLen: b ? 2 * b.hlen * drawScale(a, sp) : 3 * sp.size, wake: pushPending(st) > 0.3 && !a.floating, ...spin }, dt);
     a.kick = st.phase;
     return v;
   }
@@ -4040,7 +4044,7 @@ export class Animals {
     // (a real frog's hop: launch, ballistic flight, landing, util/hop.js; which leg leads and by how much drawn once a hop. Until 5 Oct:
     // one floating parabola of 0.22 + 0.09 sqrt(d) s)
     const sp = SPECIES[a.sp.split(':')[0]] ?? SPECIES[a.sp], dd = Math.hypot(to.x - a.pos.x, to.z - a.pos.z);
-    const plan = hopPlan({ d: dd, rise: to.y - a.pos.y }, svlOf(sp?.size ?? 1, sp ? drawScale(a, sp) : 1), [Math.random(), Math.random()]);
+    const plan = hopPlan({ d: dd, rise: to.y - a.pos.y }, svlOf(sp?.size ?? 1, sp ? drawScale(a, sp) : 1), [rand(), rand()]);
     a.hop = { from: a.pos.clone(), to, t: 0, dur: plan.dur, plan, h: Math.max(h, 0.5), splash, fromWater: !!a.swimming, y0: a.yaw ?? 0, y1: Math.atan2(to.x - a.pos.x, to.z - a.pos.z) };
     a.floating = false;
     a.crouch = 0;
@@ -4193,7 +4197,7 @@ export class Animals {
   labGrid(a, sp, grow = 0, ttl = 1500) {
     const W = this.world, T = W.terrain, Wl = W.wall, bx = this.bodyBox(a, sp);
     const rad = a.rad ?? this.radiusOf(a, sp), ext = Math.max(Math.abs(bx.z0), Math.abs(bx.z1));
-    const key = `${a.sp}|${rad.toFixed(2)}|${ext.toFixed(1)}|${grow}`, cache = (this._labGrids ??= new Map()), now = performance.now();
+    const key = `${a.sp}|${rad.toFixed(2)}|${ext.toFixed(1)}|${grow}`, cache = (this._labGrids ??= new Map()), now = simNow();
     const hit = cache.get(key);
     // (reused while nothing changed, up to `ttl`; and, changed or not, for at least 1.5 s: the ground changes all the time under erosion and a rebuild per change would be a hitch)
     if (hit && (now - hit.at < 1500 || (hit.v === this.occ.version && hit.gv === W.groundVer && now - hit.at < ttl))) return hit.g;
@@ -4495,7 +4499,7 @@ export class Animals {
     it.face = null; it.eat = false; it.drown = false; it.dig = false; it.badHome = false; it.say = null; it.nose = false;
   }
 
-  newOrder(pid, p) { return { pid, target: p, t: 0, deadline: Math.max(4, (55 + Math.random() * 35) / this.warp), miss: 0 }; }
+  newOrder(pid, p) { return { pid, target: p, t: 0, deadline: Math.max(4, (55 + rand() * 35) / this.warp), miss: 0 }; }
 
   // Called by the sim when a hunter's meal is due. True: the animal will really hunt (it eats when it strikes).
   order(a, pid) {
@@ -4520,7 +4524,7 @@ export class Animals {
     if (p.dead || p.eaten) return;           // gone already (eaten off its tongue by the sim's meal): no second meal of one prey
     if (isItem(pid)) p.eaten = true; else this.remove(p, `eaten by a ${one(a.sp)}`);
     a.hunger = Math.max(0, a.hunger - (FOOD_VALUE[pid] ?? 0.1));
-    if (Math.random() < 0.3) this.world.log(`A ${one(a.sp)} ${isItem(pid) ? 'took ' + (pid === 'bloodworm' ? 'a bloodworm' : pid === 'pellet' ? 'a pellet' : 'a flake') : 'caught a ' + one(pid)}.`, 'eat');
+    if (rand() < 0.3) this.world.log(`A ${one(a.sp)} ${isItem(pid) ? 'took ' + (pid === 'bloodworm' ? 'a bloodworm' : pid === 'pellet' ? 'a pellet' : 'a flake') : 'caught a ' + one(pid)}.`, 'eat');
   }
 
   fwdOf(a, out) {
@@ -4583,9 +4587,9 @@ export class Animals {
     let o = a.order;
     if (!o) {
       if (a.hunger < (a.hm?.mode === 'hunt' ? 0.4 : 0.55) || !this.avoid) return;
-      a.scanT = (a.scanT ?? Math.random()) - dt;
+      a.scanT = (a.scanT ?? rand()) - dt;
       if (a.scanT > 0) return;
-      a.scanT = 0.8 + Math.random() * 0.8;
+      a.scanT = 0.8 + rand() * 0.8;
       const reach = this.reachOf(a, sp);
       for (const pid of dietOf(sp)) {
         if (!isItem(pid) && !this.catchable(pid)) continue;
@@ -4650,7 +4654,7 @@ export class Animals {
 
   beginStrike(a, sp, o, fit = null) {
     const tongue = sp.kind === 'frog' || sp.kind === 'toad' || a.sp === 'firesal';
-    a.st = { prey: o.target, pid: o.pid, kind: tongue ? 'tongue' : 'snap', ph: 'aim', t: 0, dur: tongue ? 0.32 + Math.random() * 0.35 : 0.2 + Math.random() * 0.25, got: false, miss: Math.random() < 0.15, lunge: 0, lmax: 0, pitch: 0, cap: V(0, 0, 0),
+    a.st = { prey: o.target, pid: o.pid, kind: tongue ? 'tongue' : 'snap', ph: 'aim', t: 0, dur: tongue ? 0.32 + rand() * 0.35 : 0.2 + rand() * 0.25, got: false, miss: rand() < 0.15, lunge: 0, lmax: 0, pitch: 0, cap: V(0, 0, 0),
       dip: fit?.dip ?? 0, slide: fit?.slide ?? 0 };      // (a one-body frog's lunge, fitted to where the prey is: lungeFit)
     a.speedNow = 0; a.vel.multiplyScalar(0.2);
     this.striking.add(a);
@@ -4668,8 +4672,8 @@ export class Animals {
   endStrike(a, sp, ok) {
     a.st = null; a.lunge = 0; a.crouch = 0; a.gape = 0; a.strikeT = 0;
     this.striking.delete(a);
-    if (sp.kind === 'frog' || sp.kind === 'toad') { a.fs = 'sit'; a.fsT = ok ? 2.5 + Math.random() * 4 : 1.2 + Math.random() * 2; a.chain = 0; a.chainNext = false; }
-    else { a.timer = ok ? 1.5 + Math.random() * 2 : 1 + Math.random(); a.state = 'rest'; a.target = null; }
+    if (sp.kind === 'frog' || sp.kind === 'toad') { a.fs = 'sit'; a.fsT = ok ? 2.5 + rand() * 4 : 1.2 + rand() * 2; a.chain = 0; a.chainNext = false; }
+    else { a.timer = ok ? 1.5 + rand() * 2 : 1 + rand(); a.state = 'rest'; a.target = null; }
     if (!ok && a.order) { a.order.miss++; a.order.kicked = true; }
   }
 
@@ -4726,7 +4730,7 @@ export class Animals {
             if (st.got) {
               this.consume(a, sp, st.pid, p);
               a.order = null;
-              st.ph = 'gulp'; st.t = 0; st.dur = 0.5 + Math.random() * 0.2; st.lunge = 0; st.pitch = 0;
+              st.ph = 'gulp'; st.t = 0; st.dur = 0.5 + rand() * 0.2; st.lunge = 0; st.pitch = 0;
             } else { this.endStrike(a, sp, false); continue; }
           }
           break;
@@ -4831,7 +4835,7 @@ export class Animals {
       for (let i = 0; i < arr.length; i++) {
         const a = arr[i];
         if (!a.grp || a.dead || a.lab?.drive) continue;
-        if ((a._spT = (a._spT ?? Math.random() * SPACE_EVERY) - dt) > 0) continue;
+        if ((a._spT = (a._spT ?? rand() * SPACE_EVERY) - dt) > 0) continue;
         const h = SPACE_EVERY - a._spT; a._spT = SPACE_EVERY;
         const len = a.cap ? 2 * (a.cap.hl + a.rad) : sp.size, Rs = bubble(P, len, true), Ro = bubble(P, len, false), R = Rs > Ro ? Rs : Ro;
         const span = Math.ceil(R / CELLG), u0 = Math.floor(a.pos.x / CELLG), wall = a.grp === 'wall', v0 = Math.floor((wall ? a.pos.y : a.pos.z) / CELLG);
@@ -4853,12 +4857,12 @@ export class Animals {
             if (hd > 1e-3) { ax += (dx / hd) * k; az += (dz / hd) * k; }
           }
         }
-        const need = (a.spaceNeed = needStep(a.spaceNeed ?? 0, p, h, P, a.mind?.settled ? a.mind.settled() : (a.speedNow ?? 0) < 0.05, (a.spaceK ??= 0.7 + Math.random() * 0.6)));
+        const need = (a.spaceNeed = needStep(a.spaceNeed ?? 0, p, h, P, a.mind?.settled ? a.mind.settled() : (a.speedNow ?? 0) < 0.05, (a.spaceK ??= 0.7 + rand() * 0.6)));
         a.spaceX = ax; a.spaceZ = az;
         if (need >= 1) a.spaceOut = true; else if (need < 0.3) a.spaceOut = false;
         if (fish || need < 1 || p <= 0.05 || (a._spOffer ?? 0) > this.t) continue;
         // Full: the way out of the crowd, as far as the bubble reaches (3 … 15 cm), turned a little either way if that spot is no goal.
-        const al = Math.hypot(ax, az), base0 = al > 1e-4 ? Math.atan2(ax, az) : Math.random() * Math.PI * 2, dist = Math.min(15, Math.max(3, R * 1.2));
+        const al = Math.hypot(ax, az), base0 = al > 1e-4 ? Math.atan2(ax, az) : rand() * Math.PI * 2, dist = Math.min(15, Math.max(3, R * 1.2));
         const medium = this.mediumOf(sp);
         let took = false, tried = false;
         for (let t = 0; t < SPACE_TURNS.length && !tried; t++) {
@@ -5162,7 +5166,7 @@ export class Animals {
           if (sp.kind === 'swim') { a.vel.x += dx * 2; a.vel.y += dy * 2; a.vel.z += dz * 2; }
         } else if (sp.kind === 'frog' || sp.kind === 'toad') {
           if (!(L - fl >= 0.9 * sp.size) || this.occ.solidAt(x, a.pos.y, z)) continue;
-          queuePush(a.sw ??= swimState(), x - a.pos.x, z - a.pos.z);      // (released by a kick: util/swimturn.js)
+          queuePush(a.sw ??= swimState(rand), x - a.pos.x, z - a.pos.z);      // (released by a kick: util/swimturn.js)
         } else {
           if (!this.okFor('water', x, z, 5, 0, 0, a)) continue;
           a.pos.x = x; a.pos.z = z; a.pos.y = fl;
@@ -5194,7 +5198,7 @@ export class Animals {
 
   // --- How animals look right now: idle pulses, twitches, crouches and strikes (read by draw) -------------
   vis(a, sp, dtV) {
-    const v = a.v ??= { bp: Math.random() * 6, tp: Math.random() * 6, blinkT: 2 + Math.random() * 8, blink: 0, twT: Math.random() * 6, yawT: 0, yaw: 0, rollT: 0, roll: 0, alert: 0, off: V(0, 0, 0), breath: 0, throat: 0, eye: 0, pitch: 0, y: 0, hop: 0, nose: 0 };
+    const v = a.v ??= { bp: rand() * 6, tp: rand() * 6, blinkT: 2 + rand() * 8, blink: 0, twT: rand() * 6, yawT: 0, yaw: 0, rollT: 0, roll: 0, alert: 0, off: V(0, 0, 0), breath: 0, throat: 0, eye: 0, pitch: 0, y: 0, hop: 0, nose: 0 };
     const frog = sp.kind === 'frog' || sp.kind === 'toad';
     const st = a.st;
     const busy = !!a.order || !!st || a.fs === 'walk' || a.fs === 'turn' || a.fs === 'crouch' || !!a.hop;
@@ -5206,7 +5210,7 @@ export class Animals {
     let eye = 0;
     // Blink.
     v.blinkT -= dtV;
-    if (v.blinkT <= 0) { v.blink = 0.2; v.blinkT = 2.5 + Math.random() * 9; }
+    if (v.blinkT <= 0) { v.blink = 0.2; v.blinkT = 2.5 + rand() * 9; }
     if (v.blink > 0) { eye = Math.sin(Math.PI * (1 - v.blink / 0.2)); v.blink -= dtV; }
     const gulp = st && st.ph === 'gulp' ? st.t / st.dur : -1;
     if (frog) {
@@ -5232,14 +5236,14 @@ export class Animals {
     v.twT -= dtV;
     if (v.twT <= 0) {
       if (v.yawT === 0 && calm) {
-        const big = Math.random() < 0.15;
-        v.yawT = (Math.random() < 0.5 ? -1 : 1) * (big ? 0.45 + Math.random() * 0.4 : 0.08 + Math.random() * 0.22);
+        const big = rand() < 0.15;
+        v.yawT = (rand() < 0.5 ? -1 : 1) * (big ? 0.45 + rand() * 0.4 : 0.08 + rand() * 0.22);
         // A body with a neck (rig2) looks round with its head (draw); one without (a frog, a crab, a bug) turns on the spot to look,
         // stepping round about its pivot (move(): a.lookTo), never by the body spinning on its own.
         if (!sp.anim?.rig2) a.lookTo = (a.yaw ?? 0) + v.yawT;
-        v.rollT = Math.random() < 0.5 ? (Math.random() - 0.5) * 0.1 : 0;
-        v.twT = big ? 1.5 + Math.random() * 2 : 0.7 + Math.random() * 1.8;
-      } else { v.yawT = 0; v.rollT = 0; v.twT = 3 + Math.random() * 11; }
+        v.rollT = rand() < 0.5 ? (rand() - 0.5) * 0.1 : 0;
+        v.twT = big ? 1.5 + rand() * 2 : 0.7 + rand() * 1.8;
+      } else { v.yawT = 0; v.rollT = 0; v.twT = 3 + rand() * 11; }
     }
     if (!calm) { v.yawT = 0; v.rollT = 0; }
     v.yaw += (v.yawT - v.yaw) * Math.min(1, dtV * (v.yawT === 0 ? 1.6 : 5));
@@ -5279,10 +5283,10 @@ export class Animals {
   // pincers picking while it grazes), the wings' spread (a fly flicks them now and then at rest), legs settling when it stops,
   // and a springtail's tumble.
   invertPose(a, sp, dtV) {
-    const u = a.iv ??= { burst: 0, bT: 1 + Math.random() * 4, wing: 0, wT: 2 + Math.random() * 6 };
+    const u = a.iv ??= { burst: 0, bT: 1 + rand() * 4, wing: 0, wT: 2 + rand() * 6 };
     const H = a.hop, moving = (a.speedNow ?? 0) > 0.05 || a.state === 'walk';
     u.bT -= dtV;
-    if (u.bT <= 0) { u.burst = 1; u.bT = 1.5 + Math.random() * 6; }
+    if (u.bT <= 0) { u.burst = 1; u.bT = 1.5 + rand() * 6; }
     u.burst = Math.max(0, u.burst - dtV * 0.7);
     let ant = a.curl ? 0 : moving || H ? 0.7 : a.grazing ? 0.8 : 0.2 + 0.8 * u.burst;
     let hop = 0, beat = 0, spread = 0, spin = 0, feed = 0;
@@ -5297,7 +5301,7 @@ export class Animals {
     if (sp.kind === 'fly' && !H) {
       // a fly at rest flicks its wings out and back now and then (and grooms, which the antennae show)
       u.wT -= dtV;
-      if (u.wT <= 0) { u.wing = 1; u.wT = 2 + Math.random() * 8; }
+      if (u.wT <= 0) { u.wing = 1; u.wT = 2 + rand() * 8; }
       u.wing = Math.max(0, u.wing - dtV * 2.5);
       spread = Math.sin(Math.PI * u.wing) * 0.7;
     }
@@ -5316,20 +5320,20 @@ export class Animals {
   // A calling bout (see vis): the vocal sac's inflation 0 … 1 now, or 0. Males of the dart frogs only; sitting, not hunting.
   frogCall(a, sp, v, dtV, busy) {
     if (sp.kind !== 'frog' || sp.breed <= 0) return 0;
-    a.male ??= Math.random() < 0.5;
+    a.male ??= rand() < 0.5;
     if (!a.male || a.age / 1440 < (sp.adultDays ?? 10)) return 0;
     if (v.call) {
       v.call.t += dtV;
-      if (busy || a.fs !== 'sit' || v.call.t >= v.call.dur) { v.call = null; v.callNext = 20 + Math.random() * 60; return 0; }
+      if (busy || a.fs !== 'sit' || v.call.t >= v.call.dur) { v.call = null; v.callNext = 20 + rand() * 60; return 0; }
       return callSac(v.call.t, v.call.dur);
     }
     const E = this.world.env, sinceOn = ((E.minute % 1440) - (E.lightsOn ?? 480) + 1440) % 1440;
     const mood = (sinceOn < 240 ? 1 : 0.15) * (E.light() > 0.2 ? 1 : 0.2) * (1 + 2 * (E.rain ?? 0));
-    v.callNext = (v.callNext ?? 5 + Math.random() * 40) - dtV * mood;
+    v.callNext = (v.callNext ?? 5 + rand() * 40) - dtV * mood;
     if (v.callNext > 0 || busy || a.fs !== 'sit') return 0;
-    v.call = { t: 0, dur: 3 + Math.random() * 6 };
+    v.call = { t: 0, dur: 3 + rand() * 6 };
     // Answering: other males within 25 cm call soon after.
-    for (const b of this.by[a.sp] ?? []) if (b !== a && b.male && b.v && !b.v.call && a.pos.distanceTo(b.pos) < 25) b.v.callNext = Math.min(b.v.callNext ?? 99, 1 + Math.random() * 3);
+    for (const b of this.by[a.sp] ?? []) if (b !== a && b.male && b.v && !b.v.call && a.pos.distanceTo(b.pos) < 25) b.v.callNext = Math.min(b.v.callNext ?? 99, 1 + rand() * 3);
     return 0;
   }
 
@@ -5340,9 +5344,9 @@ export class Animals {
   herp(a, sp, arr, dt) {
     const W = this.world, T = W.terrain, E = W.env, C = W.climate, Wl = W.wall;
     const P = profileFor(a.sp, sp.kind);
-    const m = (a.hm ??= this.adopt(a, herpMindFor(a.sp, Math.random, sp.kind)));
+    const m = (a.hm ??= this.adopt(a, herpMindFor(a.sp, rand, sp.kind)));
     a.herp = true;
-    a.male ??= sp.kind === 'gecko' ? false : Math.random() < 0.5;       // (mourning geckos are all female)
+    a.male ??= sp.kind === 'gecko' ? false : rand() < 0.5;       // (mourning geckos are all female)
     const gecko = sp.kind === 'gecko', axo = sp.kind === 'axolotl';
     const wall = gecko && !!a.onWall;
     const x = a.pos.x, z = a.pos.z;
@@ -5355,7 +5359,7 @@ export class Animals {
     // A shelter, and the slow senses, every few seconds.
     a.hhT = (a.hhT ?? 0) - dt;
     if (a.hhT <= 0) {
-      a.hhT = 2 + Math.random() * 2;
+      a.hhT = 2 + rand() * 2;
       if (!a.hh || this.herpHomeScore(a, sp, P, a.hh) < 0.28) a.hh = this.herpFindHome(a, sp, P) ?? a.hh ?? null;
       else if ((a.spaceNeed ?? 0) >= 1 && (a._homeT ?? 0) <= this.t) a.hh = this.roomierHome(a, sp, a.hh, () => this.herpFindHome(a, sp, P), (h) => this.herpHomeScore(a, sp, P, h));
       a.hShore = null;
@@ -5367,7 +5371,7 @@ export class Animals {
     // Looking for prey is the costly part (every list of everything it eats): a few times a second is plenty; in between the one it has
     // found is followed.
     a.hpT = (a.hpT ?? 0) - dt;
-    if (a.hpT <= 0 || (a.hPrey && !this.validPrey(a.hPrey.p, a)) || a.order) { a.hpT = 0.25 + Math.random() * 0.2; a.hPrey = this.herpPrey(a, sp, P, mouth, wall); }
+    if (a.hpT <= 0 || (a.hPrey && !this.validPrey(a.hPrey.p, a)) || a.order) { a.hpT = 0.25 + rand() * 0.2; a.hPrey = this.herpPrey(a, sp, P, mouth, wall); }
     else if (a.hPrey) { const pp = a.hPrey.p.pos; a.hPrey.d = Math.hypot(pp.x - mouth.x, pp.y + 0.15 - mouth.y, pp.z - mouth.z); a.hPrey.x = pp.x; a.hPrey.z = wall ? -pp.y : pp.z; a.hPrey.y = pp.y; }
     const prey = a.hPrey;
     const threat = this.herpThreat(a, sp, P, wall);
@@ -5415,17 +5419,17 @@ export class Animals {
       if (m.mode === 'flee') m.fear = Math.min(m.fear, 0.3);
       it.goal = null; it.speed = 0;
     }
-    if (it.say === 'warn' && Math.random() < 0.3) W.log(`A ${one(a.sp)} froze and showed its warning colours.`, 'info');
+    if (it.say === 'warn' && rand() < 0.3) W.log(`A ${one(a.sp)} froze and showed its warning colours.`, 'info');
     a.hit = it;
     // Courtship partner (kept for the whole courtship), a mating, a birth, a dropped tail, a shed skin.
     a.courtWith = it.mode === 'court' ? (sense.mate?.ref ?? a.courtWith ?? null) : null;
     if (it.mated) {
       a.courtedUntil = (E.minute ?? 0) + 4 * 1440;       // (sim.js breeds courted animals more readily)
-      if (a.male && Math.random() < 0.5) W.log(`A ${one(a.sp)} pair courted and mated.`, 'good');
+      if (a.male && rand() < 0.5) W.log(`A ${one(a.sp)} pair courted and mated.`, 'good');
     }
     if (it.birth) this.herpBirth(a, sp, it.birth);
     if (it.dropTail) { a.dropNow = true; W.log(`A ${one(a.sp)} dropped its tail to escape.`, 'info'); }
-    if (it.shed && Math.random() < 0.25) W.log(`A ${one(a.sp)} shed its skin and ate it.`, 'info');
+    if (it.shed && rand() < 0.25) W.log(`A ${one(a.sp)} shed its skin and ate it.`, 'info');
     a.doing = doing(it.mode, sp.kind, { prey: prey && prey.pid ? (prey.pid === 'flake' ? 'a food flake' : `a ${one(prey.pid)}`) : null, asleep: !!it.tuck, hot: sense.temp > P.tHot, wet: m.wet });
     a.hr = a.hr ?? [0, 0, 0, 0];
     a.hr[0] = it.head; a.hr[1] = it.headP; a.hr[2] = it.bend; a.hr[3] = it.tail;
@@ -5646,13 +5650,13 @@ export class Animals {
     const gecko = sp.kind === 'gecko';
     let best = null, bs = 0.25;
     for (let k = 0; k < 28; k++) {
-      const r = 3 + Math.random() * (gecko ? 30 : 24), t = Math.random() * Math.PI * 2;
+      const r = 3 + rand() * (gecko ? 30 : 24), t = rand() * Math.PI * 2;
       let h;
-      if (gecko && (a.onWall || Math.random() < 0.7)) {
+      if (gecko && (a.onWall || rand() < 0.7)) {
         const y = clamp(a.pos.y + Math.cos(t) * r * 0.8, this.world.water.level + 3, TANK.h - 5);
         h = { x: clamp(a.pos.x + Math.sin(t) * r, -TANK.w / 2 + 3, TANK.w / 2 - 3), y, z: 0, wall: true };
       } else h = { x: a.pos.x + Math.sin(t) * r, z: a.pos.z + Math.cos(t) * r, y: 0, wall: false };
-      const sc = this.herpHomeScore(a, sp, P, h) + Math.random() * 0.04 - (h.wall || this.noSpace ? 0 : SPACE_HOME * this.homeCrowd(a, sp, h.x, h.z));
+      const sc = this.herpHomeScore(a, sp, P, h) + rand() * 0.04 - (h.wall || this.noSpace ? 0 : SPACE_HOME * this.homeCrowd(a, sp, h.x, h.z));
       if (sc > bs) { bs = sc; best = h; }
     }
     return best;
@@ -5666,7 +5670,7 @@ export class Animals {
     const land = a.sp === 'firesal' || m.mode === 'shore';
     const gecko = sp.kind === 'gecko';
     for (let k = 0; k < 6; k++) {
-      const r = 4 + Math.random() * 12, t = Math.random() * Math.PI * 2;
+      const r = 4 + rand() * 12, t = rand() * Math.PI * 2;
       if (gecko && wall) {
         const x = clamp(a.pos.x + Math.sin(t) * r, -TANK.w / 2 + 2, TANK.w / 2 - 2), y = clamp(a.pos.y + Math.cos(t) * r, W.water.level + 2, TANK.h - 3);
         out.push({ x, z: -y, damp: C.humidityAt(x, y, W.wall.zAt(x, y) + 1) / 100, near: W.nearWater(V(x, y, 0), 8) ? 1 : 0, cover: this.occ.count && this.occ.solidAt(x, y, W.wall.zAt(x, y) + 1.6) ? 1 : 0, wall: true });
@@ -5686,7 +5690,7 @@ export class Animals {
   geckoWetSpot(a, wall) {
     const W = this.world, E = W.env;
     if ((E.rain ?? 0) > 0.1 || (E.mist ?? 0) > 0.2 || (E.condense ?? 0) > 0.3) {
-      const y = clamp(a.pos.y + (Math.random() - 0.3) * 10, W.water.level + 2, TANK.h - 4), x = clamp(a.pos.x + (Math.random() - 0.5) * 14, -TANK.w / 2 + 2, TANK.w / 2 - 2);
+      const y = clamp(a.pos.y + (rand() - 0.3) * 10, W.water.level + 2, TANK.h - 4), x = clamp(a.pos.x + (rand() - 0.5) * 14, -TANK.w / 2 + 2, TANK.w / 2 - 2);
       return { x, y, z: 0, wall: true };
     }
     const sh = this.crabFind(a.pos.x, wall ? W.wall.zAt(a.pos.x, a.pos.y) + 4 : a.pos.z, 40, (px, pz, d) => d >= 0.3 && d <= 2.5, a);
@@ -5726,7 +5730,7 @@ export class Animals {
     if (!pt || !room) return;
     let k = 0;
     for (let i = 0; i < Math.min(n, room); i++) {
-      const x = pt.x + (Math.random() - 0.5) * 2, z = pt.z + (Math.random() - 0.5) * 2;
+      const x = pt.x + (rand() - 0.5) * 2, z = pt.z + (rand() - 0.5) * 2;
       const g = T.heightAt(x, z), top = this.waterTop(x, z);
       if (!(top - g > 1.2)) continue;
       const c = this.add('larva', V(x, g + (top - g) * 0.4, z), { age: 0, hunger: 0.3 });
@@ -5802,7 +5806,7 @@ export class Animals {
       && !(this.occ.count && this.occ.solidAt(px, T.heightAt(px, pz) + 0.8, pz));
     let best = null, bs = -1e9;
     for (let k = 0; k < 12; k++) {
-      const ang = away + (k < 6 ? (k - 2.5) * 0.28 : (Math.random() - 0.5) * 2.6), r = 6 + Math.random() * 8;
+      const ang = away + (k < 6 ? (k - 2.5) * 0.28 : (rand() - 0.5) * 2.6), r = 6 + rand() * 8;
       const gx = x + Math.sin(ang) * r, gz = z + Math.cos(ang) * r;
       let fine = ok(gx, gz);
       for (let i = 1; fine && i < 4; i++) fine = ok(x + (gx - x) * i / 4, z + (gz - z) * i / 4);
@@ -5948,7 +5952,7 @@ export class Animals {
         // A one-body frog (sp.oneBody: the common frog) is drawn on land in that same body too: the stroke's sit pose (hind legs folded, hands down, render/creatures/skeleton.js
         // poseStroke `sit`) and the strike on its own jaw, hyoid and tongue bones (`strikeT`, set by strikes()). Until the body has loaded, the procedural stand-in.
         const oneMesh = frogish && sp.oneBody && !a.swimming && !a.hop && !climbMesh ? this.meshFor(id, morphs && a.morph ? a.morph : null, 'swim') : null;
-        const sw = frogish && a.swimming && !a.hop ? swimPose(a.sw ??= swimState(), swimProfile(id), { t: this.t + a.phase, ...(swimMesh ? { level: 0 } : {}) }) : null;
+        const sw = frogish && a.swimming && !a.hop ? swimPose(a.sw ??= swimState(rand), swimProfile(id), { t: this.t + a.phase, ...(swimMesh ? { level: 0 } : {}) }) : null;
         // At the surface it rides the water: up and down with the ripples under it and tipped with their slope (ride).
         const rd = a.swimming && !a.hop && (frogish || sp.kind === 'newt' || sp.kind === 'axolotl') ? this.ride(a, sp, sc, dt / this.tf) : null;
         if (a.wallMode || (a.perch?.glassN && a.perch.ph !== 'go')) {
@@ -6152,7 +6156,7 @@ export class Animals {
             t.vy -= 30 * dt; t.pos.y += t.vy * dt;
             if (t.pos.y <= g) {
               t.pos.y = g; t.lie = true;
-              t.q.setFromEuler(e.set(0, Math.random() * TAU, 0));     // it lands flat
+              t.q.setFromEuler(e.set(0, rand() * TAU, 0));     // it lands flat
               t.cut = 0.55;
             }
           }
@@ -6253,7 +6257,7 @@ function angDiff(to, from) {
   return ((to - from + Math.PI) % TAU + TAU) % TAU - Math.PI;
 }
 
-const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 1.1547;     // about N(0, 1)
+const gauss = () => (rand() + rand() + rand() - 1.5) * 1.1547;     // about N(0, 1)
 
 function angLerp(a, b, t) {
   let d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;

@@ -35,6 +35,7 @@ const between = (rnd, [a, b]) => a + rnd() * (b - a);
 const dist = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
 
 import { validGoal } from './goals.js';
+import { rand } from '../util/rng.js';
 
 export const SHRIMP = {
   walk: 0.9,                    // cm/s on its legs (a grazing shuffle is slower)
@@ -57,7 +58,7 @@ export const SHRIMP = {
   readyDays: 20,                // a female breeds once this old
 };
 
-export function shrimpMind(rnd = Math.random) {
+export function shrimpMind(rnd = rand) {
   return {
     mode: 'graze', modeT: 0, goal: null, pause: rnd() * 3, left: between(rnd, SHRIMP.grazeS),
     moultIn: between(rnd, SHRIMP.moultDays) * rnd(), soft: 0, prep: 0, berried: 0, swarm: 0, fear: 0, flickT: 0,
@@ -96,7 +97,7 @@ function pickSpot(s, rnd, far) {
   return best && { x: best.x, z: best.z };
 }
 
-export function shrimpThink(m, s, rnd = Math.random) {
+export function shrimpThink(m, s, rnd = rand) {
   const dt = s.dt ?? 0, dtMin = s.dtMin ?? dt / 60, here = { x: s.x ?? 0, z: s.z ?? 0 };
   const it = { mode: m.mode, goal: null, speed: 0, swim: false, feed: 0, fan: 0, ant: 0.5, face: null, flick: null, moult: false, soft: 0, berried: 0, say: null };
   m.modeT += dt;

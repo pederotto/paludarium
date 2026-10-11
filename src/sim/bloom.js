@@ -8,6 +8,7 @@
 //   minHumidity  % relative humidity of the air at the plant (land and wall plants; water plants ignore it)
 //   season       'any' | 'wet' | 'dry': the tank's season (Env.season) a new bud waits for
 import { clamp, smooth } from '../util/math.js';
+import { rand as simRand } from '../util/rng.js';
 
 export const STAGES = ['rest', 'bud', 'open', 'fade'];
 const DEF = { budDays: 4, openDays: 3, fadeDays: 2, restDays: 10, season: 'any', minLight: 0, minHumidity: 0 };
@@ -30,7 +31,7 @@ export function bloomBlock(cycle, c) {
 // A new plant's flowering state. A mature plant from the shop or the generator mostly arrives in flower or in bud (part way
 // through), a young one rests; every plant gets its colour form (`palette`), a small colour jitter (`j`, also the seed of where its heads sit) and a
 // length factor for this cycle (`k`), so neighbours drift out of step.
-export function newBloom(flower, grown, rand = Math.random) {
+export function newBloom(flower, grown, rand = simRand) {
   const n = flower?.palettes?.length ?? 1;
   const r = rand(), stage = grown < MATURE ? 'rest' : r < 0.6 ? 'open' : r < 0.85 ? 'bud' : 'rest';
   return { stage, t: 0.1 + rand() * 0.6, palette: Math.floor(rand() * n) % n, j: rand(), k: 0.8 + rand() * 0.45, why: null };
@@ -38,7 +39,7 @@ export function newBloom(flower, grown, rand = Math.random) {
 
 // Advance by `days` game days under conditions c. Returns what happened: 'bud' | 'open' | 'fade' | 'drop' (the petals fell: the
 // cycle is over) | 'blast' (a bud withered) | null.
-export function stepBloom(b, cycle, c, days, rand = Math.random) {
+export function stepBloom(b, cycle, c, days, rand = simRand) {
   const block = bloomBlock(cycle, c);
   b.why = block;
   const k = b.k ?? 1;
@@ -99,7 +100,7 @@ export const AFTER = {
 
 // Save form: [stage, t, palette, j]; anything else (an old save) gives null and the plant starts afresh.
 export const packBloom = (b) => [STAGES.indexOf(b.stage), +b.t.toFixed(3), b.palette, +b.j.toFixed(3)];
-export function unpackBloom(a, flower, rand = Math.random) {
+export function unpackBloom(a, flower, rand = simRand) {
   if (!Array.isArray(a) || a.length < 4 || !(a[0] >= 0 && a[0] < STAGES.length)) return null;
   const n = flower?.palettes?.length ?? 1;
   return { stage: STAGES[a[0] | 0], t: clamp(+a[1] || 0, 0, 1), palette: clamp(a[2] | 0, 0, n - 1), j: clamp(+a[3] || 0, 0, 1), k: 0.8 + rand() * 0.45, why: null };

@@ -8,8 +8,9 @@
 // B2x: these are the shares of an UNDISTURBED tadpole (45 % / 78 %). In the game, feeding (about 15-20 % of the time) and wakes
 // by passing fish (about one per 20 s of rest in the 12-fish test mix) take a share off: the karst dump read 32 % / 44 % at 40 / 68.
 //
-// The timer uses the animal's own seeded stream (from `a.phase`), never the global Math.random stream: a state dump stays
+// The timer uses the animal's own seeded stream (from `a.phase`), never the shared simulation stream (util/rng.js): a state dump stays
 // reproducible and the fish that share swim() keep their own random numbers.
+import { rand } from '../util/rng.js';
 
 export const REST_LABEL = 'Resting on the bottom';
 export const DAY_SHARE = 0.45, NIGHT_SHARE = 0.78;

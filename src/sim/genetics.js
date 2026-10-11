@@ -6,6 +6,7 @@
 
 import { LOCI_TEXT, MORPHS, morphName, morphRarity } from '../content/morphs.js';
 import { GUPPY_LOCI, GUPPY_STRAINS, guppyPhenotype, guppyGenotypeFor } from '../content/guppy.js';
+import { rand } from '../util/rng.js';
 
 // Chance that an inherited allele flips to the other allele of its locus. Changeable: `config.mutation = 0`
 // switches mutations off, or pass `{ mutation }` to `breed`.
@@ -170,7 +171,7 @@ export function allGenotypes(id) {
 }
 
 // A random wild-type founder: each allele drawn from the species' allele frequencies, so it may be a hidden carrier.
-export function randomGenotype(id, rng = Math.random, { female } = {}) {
+export function randomGenotype(id, rng = rand, { female } = {}) {
   const sp = need(id);
   const fem = female ?? rng() < 0.5;
   return sp.loci.map((locus) => {
@@ -217,7 +218,7 @@ const drawFrom = (w, rng) => {
 
 // A genotype that shows `morph`. Recessive morphs are homozygous; other morphs may carry hidden genes
 // (chosen with the wild frequencies, so a "cobalt, many spots" frog is usually but not always pure).
-export function genotypeForMorph(id, morph, rng = Math.random, { female } = {}) {
+export function genotypeForMorph(id, morph, rng = rand, { female } = {}) {
   if (need(id).forMorph) return need(id).forMorph(morph, rng, { female: female ?? false });
   const cands = priorClasses(id).filter((x) => x.morph === morph);
   if (!cands.length) throw new Error(`Unknown morph "${morph}" for ${id}`);
@@ -234,7 +235,7 @@ export function genotypeForMorph(id, morph, rng = Math.random, { female } = {}) 
 // mutates each one less, so that a baby is about as likely to carry a mutation as one of a three-gene species (the guppy's 24 genes
 // at the full rate would give one baby in three a mutation, and selective breeding would drown in surprises).
 export const mutationPerAllele = (id, mutation = config.mutation) => mutation * Math.min(1, 3 / need(id).loci.filter((l) => !l.sex).length);
-export function breed(id, genesA, genesB, rng = Math.random, { mutation = config.mutation } = {}) {
+export function breed(id, genesA, genesB, rng = rand, { mutation = config.mutation } = {}) {
   const sp = need(id), mu = mutationPerAllele(id, mutation);
   genesA = complete(id, genesA); genesB = complete(id, genesB);
   if (sp.sexed) {

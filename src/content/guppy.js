@@ -19,6 +19,7 @@
 // so 'red' is a plain red delta, 'albino_red_dumbo' an albino full red with big ears, 'tuxedo_blue_mosaic_lyre' a half-black blue
 // mosaic lyre. A LOOK id (which body a fish is drawn with) is a phenotype id for an adult male, 'female_<…>' for a female (only
 // what a female shows, plus 'gravid' while she carries a brood) and 'juv_<ground>' for a fry or a young fish not yet coloured.
+import { rand } from '../util/rng.js';
 
 // The loci, in genotype order. mode: 'inc' (in-between: the two alleles blend, sorted alphabetically), 'rec' (the trait is the
 // recessive second allele) or 'dom' (the trait is the dominant first allele; one copy shows it). freq: frequency of the second
@@ -312,7 +313,7 @@ export function guppySwatch(id) {
 // With eighteen genes the phenotype classes number 589 824, too many to list and filter (sim/genetics.js genotypeForMorph does that for
 // the other species): the strain's traits say what each gene must be, and a gene the strain does not show (hidden by albino, by a
 // delta tail, by the black gene, by a pattern that covers another) is drawn from the shop population. `rng` gives 0…1.
-export function guppyGenotypeFor(id, rng = Math.random, { female = false } = {}) {
+export function guppyGenotypeFor(id, rng = rand, { female = false } = {}) {
   const p = parseGuppy(id);
   if (!p) throw new Error(`Unknown morph "${id}" for guppy`);
   const out = [];

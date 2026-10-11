@@ -14,6 +14,7 @@ import { Climate } from './climate.js';
 import { Equipment } from './equipment.js';
 import { TANK, MAT, NMAT } from './tank.js';
 import { rng, smooth, clamp, lerp } from '../util/math.js';
+import { rand } from '../util/rng.js';
 
 export class World {
   constructor(scene) {
@@ -141,7 +142,7 @@ export class World {
     this.decor.scatterMoss();
   }
 
-  randomSpot(test, tries = 200, r = Math.random) {
+  randomSpot(test, tries = 200, r = rand) {
     for (let k = 0; k < tries; k++) {
       const x = (r() - 0.5) * (TANK.w - 6), z = (r() - 0.5) * (TANK.d - 6);
       const y = this.terrain.heightAt(x, z);

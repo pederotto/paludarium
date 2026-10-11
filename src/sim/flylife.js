@@ -19,6 +19,7 @@
 // climate, env, animals (by, add, remove, count), terrain.heightAt/normalAt, wall.zAt/field.gradient, water.surfaceAt.
 
 import { clamp } from '../util/math.js';
+import { rand as simRand } from '../util/rng.js';
 
 export const FLY = {
   egg: 1, larva: 4.5, pupa: 4.3,      // development days at 25 C
@@ -73,7 +74,7 @@ export class FlyLife {
     if (!adults.length && !larvae.length && !pupae.length && !this.eggs.length && !this.fruit.length) { this.stats.adults = this.stats.larvae = this.stats.pupae = this.stats.eggs = 0; return; }
     const { nx, nz, litter: L, humus: H, fert: F } = C;
     const n = nx * nz;
-    const rand = Math.random;
+    const rand = simRand;
     const T0 = (c) => C.temp[c];
     const cellOk = (c) => (C.f.water[c] ?? 0) < 0.4 && C.soil[c] > 0.22 && C.soil[c] < 0.95;
 
@@ -205,7 +206,7 @@ export class FlyLife {
 
   // The maggot leaves the litter: a pupa on the background wall if it is near, else stuck to the ground.
   pupate(a) {
-    const W = this.world, A = W.animals, T = W.terrain, rand = Math.random;
+    const W = this.world, A = W.animals, T = W.terrain, rand = simRand;
     const x = a.pos.x, z = a.pos.z, g = T.heightAt(x, z);
     const wz = W.wall.zAt(x, g + 1.5);
     let opt = { age: 0, hunger: 0 };

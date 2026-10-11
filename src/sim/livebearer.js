@@ -12,12 +12,13 @@
 // sperm: { id, genes, gen, n broods left }), mated (she has met a male: no longer a virgin), sk0 (its own size factor). sire / st carry the father's genes, so a brood can be born after he has died.
 import { guppyLook } from '../content/guppy.js';
 import { morphOf, isMaleGenes, sexGenes, lociOf, sexedSpecies } from './genetics.js';
+import { rand } from '../util/rng.js';
 
 // A new fish: its sex and its size. Founders come as the dealer sells them (trios: a male to every two females); fry are 50:50.
 // The sex of a new fish when its genes do not say it yet: fry are born half and half; founders come as trios.
 export function livebearerFemale(opt, peers) {
   if (opt.female !== undefined) return !!opt.female;
-  if (opt.age === 0) return Math.random() < 0.5;
+  if (opt.age === 0) return rand() < 0.5;
   const males = peers.filter((b) => b.female === false).length, females = peers.filter((b) => b.female).length;
   return males * 2 > females;
 }
@@ -25,7 +26,7 @@ export function initLivebearer(a, sp, opt, peers) {
   // a species with sex chromosomes is the sex its genes say (XX, XY); otherwise as livebearerFemale decides
   if (a.genes && sexedSpecies(a.sp) && a.genes.length === lociOf(a.sp).length) a.female = !isMaleGenes(a.sp, a.genes);
   else if (a.female === undefined) a.female = livebearerFemale(opt, peers.filter((b) => b !== a));
-  a.sk0 ??= 0.9 + Math.random() * 0.2;                 // its own size, ±10 %
+  a.sk0 ??= 0.9 + rand() * 0.2;                 // its own size, ±10 %
   refresh(a, sp);
 }
 const adultOf = (a, sp) => a.age >= (sp.adultDays ?? 10) * 1440;
@@ -50,21 +51,21 @@ export function livebearerStep(W, a, sp, dMin, fit, room, births) {
     a.gv.t -= dMin;
     if (a.gv.t <= 0) {
       const [lo, hi] = L.brood, big = Math.max(0.3, Math.min(1, room * 1.5));
-      const n = Math.max(1, Math.round((lo + Math.random() * (hi - lo)) * big * (a.hunger < 0.5 ? 1 : 0.6)));
+      const n = Math.max(1, Math.round((lo + rand() * (hi - lo)) * big * (a.hunger < 0.5 ? 1 : 0.6)));
       for (let k = 0; k < n; k++) births.push({ sp: a.sp, pos: a.pos.clone(), pa: a, pb: a.gv.sire, brood: true });
       line = `A ${sp.name.toLowerCase()} gave birth to ${n} fry.`;
       a.gv = null;
     }
-  } else if (a.female && fit && room > 0 && adultOf(a, sp) && Math.random() < sp.breed * (dMin / 1440) * room) {
+  } else if (a.female && fit && room > 0 && adultOf(a, sp) && rand() < sp.breed * (dMin / 1440) * room) {
     // Conceive: with a male of the tank (her chosen mate if she has one), or from sperm she has stored.
     const mate = W.animals.mateOf?.(a);
     const fertile = (b) => b.female === false && adultOf(b, sp) && !b.dead && (L.fertile?.(b.genes) ?? true);
     const males = mate ? (fertile(mate) ? [mate] : []) : (W.animals.by[a.sp] ?? []).filter(fertile);
-    const m = males.length ? males[Math.floor(Math.random() * males.length)] : null;
+    const m = males.length ? males[Math.floor(rand() * males.length)] : null;
     let sire = null;
     if (m) { sire = { id: m.id, genes: [...m.genes], gen: m.gen ?? 0 }; a.sperm = { ...sire, n: L.store ?? 3 }; a.mated = true; }   // (a.sperm, not a.st: a.st is a strike, and an animal with one is skipped by Animals.move: stored sperm froze the female)
     else if (a.sperm?.n > 0) { sire = { id: a.sperm.id, genes: a.sperm.genes, gen: a.sperm.gen }; a.sperm.n--; }
-    if (sire) a.gv = { t: (L.gestDays ?? 3) * 1440 * (0.85 + Math.random() * 0.3), sire };
+    if (sire) a.gv = { t: (L.gestDays ?? 3) * 1440 * (0.85 + rand() * 0.3), sire };
   }
   const before = a.look;
   refresh(a, sp);

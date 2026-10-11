@@ -63,14 +63,14 @@ test('newts lay eggs that hatch into larvae; frogs and toads still make tadpoles
 
 test('a fire salamander gives birth to larvae (parent kept), not tadpoles', { skip: WAIT }, () => {
   const [body] = method('herpBirth');
-  const herpBirth = new Function('V', 'one', 'a', 'sp', 'n', body);
+  const herpBirth = new Function('V', 'one', 'rand', 'a', 'sp', 'n', body);   // (rand: the simulation's seeded stream, util/rng.js)
   const added = [];
   const stub = {
     world: { terrain: { heightAt: () => 0 }, log() {} }, by: { tadpole: [], larva: [], firesal: [] },
     crabFind: () => ({ x: 0, z: 0 }), waterTop: () => 6,
     add: (id) => { const c = { sp: id }; added.push(c); return c; },
   };
-  herpBirth.call(stub, (x, y, z) => ({ x, y, z }), (id) => id, { sp: 'firesal', pos: { x: 0, z: 0 } }, { cap: 6 }, 4);
+  herpBirth.call(stub, (x, y, z) => ({ x, y, z }), (id) => id, Math.random, { sp: 'firesal', pos: { x: 0, z: 0 } }, { cap: 6 }, 4);
   assert.equal(added.length, 4);
   for (const c of added) { assert.equal(c.sp, 'larva'); assert.equal(c.parent, 'firesal'); }
 });

@@ -12,6 +12,7 @@
 // buccal oscillations and 6.3 ± 0.8 lung ventilations a minute, two nostril expirations to a lung ventilation; checked by C1b round 5.) The floor is a mass on its elastic tissue moved by two Hill muscles with
 // activation dynamics (util/musculo.js), so its travel comes from the forces, not from a sine.
 import { forceLength, forceVelocity, activationStep } from '../util/musculo.js';
+import { rand } from '../util/rng.js';
 
 const K21 = 'Kunisch et al. 2021, J Anat (PMC8273601)', K22 = 'Keeffe et al. 2022, Integr Org Biol (PMC9665897)';
 const VS90 = 'Vitalis & Shelton 1990, J Exp Biol 154:537 (abstract)';
@@ -60,7 +61,7 @@ export const BUCCAL = {
 };
 
 // A pump's state, started at a random point of its cycle (r0, r1: 0 … 1).
-export function buccalState(r0 = Math.random(), r1 = Math.random()) {
+export function buccalState(r0 = rand(), r1 = rand()) {
   return { ph: r0, n: 0, every: nextEvery(r1), mode: 'osc', lt: 0, y: BUCCAL.floor.rest, vy: 0, aLo: 0, aHi: 0, lung: 0.9, cycles: 0, breaths: 0 };
 }
 const nextEvery = (r) => Math.round(BUCCAL.lungEvery.value * (0.75 + 0.5 * r));
@@ -77,7 +78,7 @@ function floorForces(s) {
 
 // Advance the pump by dt seconds. `alert` 0 … 1 (a busy or wary frog pumps faster); `extra` { lo, hi } excitations added for a swallow
 // or a strike. Returns the state: s.y the throat floor (0 … 1), s.lung the lungs' fill (0 … 1).
-export function buccalStep(s, dt, alert = 0, extra = null, rnd = Math.random) {
+export function buccalStep(s, dt, alert = 0, extra = null, rnd = rand) {
   const D = BUCCAL.drive, Lp = BUCCAL.lung;
   for (let left = Math.max(0, Math.min(dt, 0.25)); left > 1e-6;) {
     const h = Math.min(left, 1 / 480);

@@ -46,6 +46,7 @@
 
 import { nightActivity } from './habitat.js';
 import { validGoal } from './goals.js';
+import { rand } from '../util/rng.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -85,7 +86,7 @@ export const SKINK = {
 export const REFUGE_COVER = 0.6;   // (0.6 a guess, as before: the 0.5 edge of a patch is reached short by the stop distance)
 export function skinkRefugeOk(cover, depth) { return cover >= REFUGE_COVER && !(depth > -0.2); }
 
-export function skinkMind(rnd = Math.random) {
+export function skinkMind(rnd = rand) {
   return { mode: 'hide', modeT: 0, wet: 0.9, warm: 0.6, fear: 0, goal: null, walkT: 0, pauseT: rnd() * 2, freezeT: 0, burstT: 0, deadT: 0, squeak: false, look: rnd() * 6.28, water: null, abort: skinkAbort, offer: skinkOffer, settled: skinkSettled };
 }
 
@@ -124,7 +125,7 @@ const within = (g, a, r) => {
 // headUp 0 … 1, sink (into the litter, 0 … 1), say } and for the animation: pose ('propped' | 'dash' | 'dead' | 'flat' |
 // 'hidden' | 'walk' | 'stand'), propped 0 … 1 (forebody up on straight forelimbs), scan (head yaw, rad), dash (running:
 // trunk low, tail in S-waves), dead (on its back), surface (always 'ground').
-export function skinkThink(m, s, rnd = Math.random) {
+export function skinkThink(m, s, rnd = rand) {
   const dt = s.dt ?? 0, dtMin = s.dtMin ?? dt / 60;
   const depth = s.depth ?? 0, inWater = depth > 0.3;
   const out = { mode: m.mode, goal: null, speed: 0, calm: 1, flat: 0, roll: 0, headUp: 0, sink: 0, say: null, pose: 'stand', propped: 0, scan: 0, dash: false, dead: false, surface: 'ground' };

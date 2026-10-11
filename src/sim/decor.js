@@ -31,6 +31,7 @@ import { U } from '../render/uniforms.js';
 import { MAT, NMAT, TANK } from './tank.js';
 import { rng, clamp, hash3 } from '../util/math.js';
 import { TINTS, PROC, rollLook, hullPoints, transformedBox, boxShift, nearestWall, faceQuat, faceOrigin, FACE_EMBED, SLOPE_NORMAL_Y, restLift, lieLift, plantLift, groundNormal } from './placement.js';
+import { rand } from '../util/rng.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
@@ -793,8 +794,8 @@ export class Decor {
     const def = PIECES[type];
     const list = this.parts[type];
     if (!def || !list?.length) return null;
-    const roll = opt.seed !== undefined || opt.vary ? this.look(type, opt.seed ?? Math.floor(Math.random() * 2 ** 31)) : null;
-    const variant = ((opt.variant ?? roll?.variant ?? Math.floor(Math.random() * list.length)) % list.length + list.length) % list.length;
+    const roll = opt.seed !== undefined || opt.vary ? this.look(type, opt.seed ?? Math.floor(rand() * 2 ** 31)) : null;
+    const variant = ((opt.variant ?? roll?.variant ?? Math.floor(rand() * list.length)) % list.length + list.length) % list.length;
     const bb = list[variant].geometry.boundingBox;
     const ext = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
     const k = ((opt.size ?? def.size) * (list[variant].rel ?? 1)) / ext;
@@ -802,7 +803,7 @@ export class Decor {
     const flip = opt.flip ?? (roll ? roll.flip : false);
     const tint = opt.tint ?? roll?.tint ?? 0;
     const scale = new THREE.Vector3(k * sc[0] * (flip ? -1 : 1), k * sc[1], k * sc[2]);
-    const rot = opt.rot ?? roll?.rot ?? Math.random() * Math.PI * 2;
+    const rot = opt.rot ?? roll?.rot ?? rand() * Math.PI * 2;
     const tilt = opt.tilt ?? [0, 0];
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt[0], rot, tilt[1], 'YXZ'));
     const piece = this.placePiece(type, variant, new THREE.Vector3(x, 0, z), q, scale, tint);
@@ -1148,7 +1149,7 @@ export class Decor {
 
   duplicate(piece) {
     const m = piece.mesh;
-    const off = new THREE.Vector3(4 + Math.random() * 2, 0, 2 + Math.random() * 2);
+    const off = new THREE.Vector3(4 + rand() * 2, 0, 2 + rand() * 2);
     const np = this.placePiece(piece.type, piece.variant, m.position.clone().add(off), m.quaternion.clone(), m.scale.clone(), piece.tint);
     if (PIECES[piece.type].face && piece.face && piece.face !== 'free') { np.rot = piece.rot; this.snapFace(np); } else {
       this.clampPiece(np);

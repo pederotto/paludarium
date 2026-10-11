@@ -46,11 +46,12 @@
 //                     dig into), rate (0 … 1 how easily the ground gives), spoil: { x, z } where the loads go }, or null when
 //                     the home cannot be dug (rock, hardscape, water)
 //   male, morph       this crab
-// Every random choice goes through `rnd()` (Math.random by default) so tests can fix it.
+// Every random choice goes through `rnd()` (rand by default) so tests can fix it.
 
 import { scuttleSpeed, crabStride, clawRaise, smooth } from '../util/gait.js';
 import { nightActivity, hideScore } from './habitat.js';
 import { validGoal } from './goals.js';
+import { rand } from '../util/rng.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -101,7 +102,7 @@ export const PANTHER = {
 };
 
 // A fresh memory for a new crab. `rnd` decides the molt clock so crabs do not molt together.
-export function crabMind(rnd = Math.random, P = CRAB) {
+export function crabMind(rnd = rand, P = CRAB) {
   return {
     mode: 'rest', modeT: 0,
     wet: 1, fear: 0,
@@ -150,7 +151,7 @@ const away = (s, p, dist) => { const dx = s.x - p.x, dz = s.z - p.z, l = Math.hy
 //     eat: true when a bite lands this step, drown: true when it has been unable to get out for too long, say: a log line or null,
 //     dig: true when a load of soil is dropped on the spoil heap this step (animals.js moves it), nose: head down (scraping),
 //     badHome: true when it gives up digging here (animals.js picks another home) }
-export function crabThink(m, s, rnd = Math.random, P = CRAB) {
+export function crabThink(m, s, rnd = rand, P = CRAB) {
   const dt = s.dt ?? 0, dtMin = s.dtMin ?? dt / 60;
   const inWater = (s.depth ?? 0) > 0.2;
   const out = { mode: m.mode, goal: null, speed: 0, face: null, claw: 0, feed: 0, pinch: 0, calm: 1, sink: 0, eat: false, drown: false, say: null, dig: false, nose: false, badHome: false };

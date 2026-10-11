@@ -49,10 +49,11 @@
 //   cool      { x, z } a cooler spot nearby, or null
 //   male, adult  this animal's sex and whether it is grown   mate { x, z, d, ok, courting, phase, recv } the nearest of its kind of the
 //             other sex in the same medium (ok: grown and free to court; courting: it is courting me; phase, recv: its courtship state)
-// Every random choice goes through `rnd()` (Math.random by default) so tests can fix it.
+// Every random choice goes through `rnd()` (rand by default) so tests can fix it.
 
 import { nightActivity } from './habitat.js';
 import { validGoal } from './goals.js';
+import { rand } from '../util/rng.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -166,7 +167,7 @@ function lickStep(m, it, tg, t, dt, on) {
   Object.assign(tg, { headP: -0.22 + 0.06 * it.lick, head: 0.08 * Math.sin(t * 3), throat: 0.35 + 0.4 * it.lick, hr: 12 });
 }
 
-export function herpMind(id = 'newt', rnd = Math.random) {
+export function herpMind(id = 'newt', rnd = rand) {
   return {
     id, mode: 'rest', modeT: 0,
     wet: 1, fear: 0, air: rnd() * 0.6, thirst: rnd() * 0.5, groom: 0,
@@ -204,7 +205,7 @@ function herpOffer(g, why) {
 }
 function herpAbort() { this.goal = null; this.goalOk = false; this.moveLeft = 0; this.pauseLeft = Math.max(this.pauseLeft, 1); }
 // (A fresh mind starts part-way through its skin cycle, so a tank's animals do not all shed together.)
-export function herpMindFor(id, rnd = Math.random, kind) {
+export function herpMindFor(id, rnd = rand, kind) {
   const m = herpMind(id, rnd), P = profileFor(id, kind);
   m.shedIn = between(rnd, P.shedDays ?? [20, 40]) * rnd();
   return m;
@@ -876,7 +877,7 @@ function special(m, P, s, d, it, rnd) {
 //     swim (in the water: swimming rather than walking on the bottom), rise (heading for the surface), bottom, wantWall,
 //     needHome (animals.js should look for a shelter), tuck (in its shelter), stopAt (cm from the prey where it holds),
 //     gulp (the air gulp is happening now), drink (licking water), say: 'warn' | null }
-export function herpThink(m, s, rnd = Math.random) {
+export function herpThink(m, s, rnd = rand) {
   const P = profileFor(m.id, s.kind);
   const it = emptyIntent(m);
   const d = drives(m, P, s, rnd);

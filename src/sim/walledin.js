@@ -2,6 +2,7 @@
 // every step direction refused by the step test while its own spot was not inside a solid, so
 // keepFree never moved it and it stood there the whole day. A real crab crawls out of such a gap: here it is set on the nearest
 // open ground within a few cm (the last resort, as before, is relocate).
+import { rand } from '../util/rng.js';
 export const WALLED = { dirs: 8, every: 1, maxR: 6, ring: 0.5 };   // directions tested, s between tests, cm searched, cm per ring
 
 // Every one of `dirs` directions one `step` away is blocked.
@@ -24,7 +25,7 @@ export function nearestOpen(x, z, step, open, blocked, maxR = WALLED.maxR, ring 
 // keepFree's call (animals.js): true when it moved the animal. A = the Animals instance (occ, world, okFor, relocate, stuckStats).
 export function freeWalledIn(A, a, sp, dt) {
   if (!A.occ?.count || sp.kind === 'swim' || a.swimming || a.onWall || a.hop || a.wallMode || a.perch) return false;
-  a.wiT = (a.wiT ?? Math.random() * WALLED.every) - dt;
+  a.wiT = (a.wiT ?? rand() * WALLED.every) - dt;
   if (a.wiT > 0) return false;
   a.wiT = WALLED.every;
   const T = A.world.terrain, step = Math.max(0.15, (a.rad ?? 0.5) * 0.5);

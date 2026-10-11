@@ -27,6 +27,7 @@ import { hasGenetics, breed, morphOf, isSurprise, recessiveFromCarriers } from '
 import { livebearerStep } from './livebearer.js';
 import { morphName, morphRarity } from '../content/morphs.js';
 import { stepPlenum } from './plenum.js';
+import { rand } from '../util/rng.js';
 
 export { Env };
 
@@ -146,7 +147,7 @@ export class Sim {
     this.plantOut = pout;
     E.detritus += pout.deaths.length * 0.8;
     for (const p of pout.deaths) W.log(`A ${plantName(p.id)} died.`, 'bad');
-    for (const p of pout.born) if (Math.random() < 0.3) W.log(`A ${plantName(p.id)} spread and put out a new plant.`, 'good');
+    for (const p of pout.born) if (rand() < 0.3) W.log(`A ${plantName(p.id)} spread and put out a new plant.`, 'good');
     this.eco.step(d, light);
 
     // --- Auto-feeder: once a day at 10:00 if there are fish.
@@ -233,7 +234,7 @@ export class Sim {
     }
     // Territorial males fight when they cannot keep apart: one territory in the standard tank, more on a bigger floor.
     if (sp.territorial && a.age > (sp.adultDays ?? 10) * 1440) {
-      a.male ??= Math.random() < 0.5;
+      a.male ??= rand() < 0.5;
       let rivals = 0;
       if (a.male) for (const b of W.animals.by[a.sp]) if (b !== a && b.male && b.age > (sp.adultDays ?? 10) * 1440) rivals++;
       if (rivals >= R.territories) { st += 0.08; why.push(R.territories > 1 ? `rival males (room for ${R.territories} territories)` : 'rival male'); }
@@ -319,7 +320,7 @@ export class Sim {
         if (sp.kind === 'fly' && E.detritus > 0.05) a.hunger = Math.max(0, a.hunger - d * 0.002);
         // At high speed fish may not reach the flakes on screen before they
         // rot, so hungry fish also find food here, a bite at a time.
-        if (sp.kind === 'swim' && a.hunger > 0.3 && Math.random() < d / 20) {
+        if (sp.kind === 'swim' && a.hunger > 0.3 && rand() < d / 20) {
           const f = W.animals.food.find((f) => !f.eaten && (!f.settled || sp.band === 'bottom') && eatsItem(sp, f));
           if (f) { f.eaten = true; a.hunger = Math.max(0, a.hunger - FOOD_VALUE[f.kind ?? 'flake']); }
         }
@@ -331,11 +332,11 @@ export class Sim {
             const prey = isItem(pid) ? W.animals.food.filter((f) => !f.eaten && (f.kind ?? 'flake') === pid) : W.animals.by[pid] ?? [];
             // Refuge: moss and litter hide the last few of any prey species (not a cup of feeders, which do not breed).
             const hidden = isItem(pid) || SPECIES[pid]?.feeder ? 0 : Math.round((6 + Math.round(W.mossFraction() * 20)) * preyRoom);
-            if (prey.length <= hidden || Math.random() > (d / 420) * Math.min(1, (prey.length - hidden) / (10 * preyRoom))) continue;
+            if (prey.length <= hidden || rand() > (d / 420) * Math.min(1, (prey.length - hidden) / (10 * preyRoom))) continue;
             // The meal is due. The animal hunts a prey near it (animals.js: stalk, strike, swallow) and eats when it
             // strikes; if it cannot by the deadline (always at high speed) it eats at once, as it always did.
             if (W.animals.order(a, pid)) break;
-            const p = prey[Math.floor(Math.random() * prey.length)];
+            const p = prey[Math.floor(rand() * prey.length)];
             if (isItem(pid)) p.eaten = true; else W.animals.remove(p, `eaten by a ${one(a.sp)}`);
             a.hunger = Math.max(0, a.hunger - (FOOD_VALUE[pid] ?? 0.1));
             break;
@@ -348,11 +349,11 @@ export class Sim {
         }
       }
       // Micro-predators (the pygmy sunfish) pick off young shrimp: it keeps a shrimp colony in check, it does not wipe it out.
-      if (sp.kind === 'swim' && a.hunger > 0.25 && Math.random() < d / 900) {
+      if (sp.kind === 'swim' && a.hunger > 0.25 && rand() < d / 900) {
         for (const pid of sp.eats) {
           const young = (W.animals.by[pid] ?? []).filter((b) => b.age < (SPECIES[pid]?.adultDays ?? 10) * 1440 * 0.5);
           if (!young.length) continue;
-          W.animals.remove(young[Math.floor(Math.random() * young.length)], `eaten by a ${one(a.sp)}`);
+          W.animals.remove(young[Math.floor(rand() * young.length)], `eaten by a ${one(a.sp)}`);
           a.hunger = Math.max(0, a.hunger - 0.15);
           break;
         }
@@ -428,7 +429,7 @@ export class Sim {
         E.detritus += sp.size * (sp.kind === 'swim' || sp.kind === 'frog' || sp.kind === 'toad' ? 0.6 : 0.08);
         W.humus?.drop(a.pos.x, a.pos.z, sp.size * 0.2, true);   // a dead animal on land becomes litter
         if (a.sp === 'flylarva' || a.sp === 'flypupa' || sp.feeder) continue;   // the normal toll of a boom and bust, uneaten feeders
-        if (sp.cap < 60 || Math.random() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
+        if (sp.cap < 60 || rand() < 0.05) W.log(`A ${one(a.sp)} died (${cause}).`, 'bad');
         continue;
       }
       // Livebearers (sim/livebearer.js): females carry broods and drop live fry; the generic breeding below is not for them.
@@ -437,7 +438,7 @@ export class Sim {
         const suck = E.filter ? filterOf(E).suction * (E.prefilter ? 0.08 : 1) : 0;    // a canister intake takes fry
         const line = livebearerStep(W, a, sp, d, a.hunger < 0.5 && a.health > 0.7, (1 - pop / this.roomOf(a.sp).cap) * (1 - suck * 0.7), births);
         if (line?.startsWith('matured:')) { const m = line.slice(8); if (morphRarity(a.sp, m) >= 3) W.log(`A young ${one(a.sp)} has coloured up: a male ${morphName(a.sp, m).toLowerCase()}!`, 'good'); }
-        else if (line && (Math.random() < 0.3 || SPECIES[a.sp].cap <= 20)) W.log(line, 'good');
+        else if (line && (rand() < 0.3 || SPECIES[a.sp].cap <= 20)) W.log(line, 'good');
         continue;
       }
       // Breeding.
@@ -450,7 +451,7 @@ export class Sim {
         const clutches = W.animals.by.eggs.filter((e) => e.parent === a.sp).length * (sp.eggs?.n ?? 0);
         const room2 = room - clutches / cap;
         const suck = (sp.kind === 'crawlWater' || sp.kind === 'swim') && E.filter ? filterOf(E).suction * (E.prefilter ? 0.08 : 1) : 0;   // a canister intake takes babies
-        if (damp && room2 > 0 && Math.random() < sp.breed * (d / 1440) * room2 * (sp.kind === 'crawlWater' ? E.cycle : 1) * (1 - suck * 0.7) * ((a.courtedUntil ?? 0) > E.minute ? 2.5 : 1)) {   // (a courted pair breeds more readily: sim/herp.js)
+        if (damp && room2 > 0 && rand() < sp.breed * (d / 1440) * room2 * (sp.kind === 'crawlWater' ? E.cycle : 1) * (1 - suck * 0.7) * ((a.courtedUntil ?? 0) > E.minute ? 2.5 : 1)) {   // (a courted pair breeds more readily: sim/herp.js)
           // Species with genes need two parents: a marked pair if there is one, else any fit adult.
           const mate = hasGenetics(a.sp) ? W.animals.partnerFor(a) : null;
           if (!hasGenetics(a.sp) || mate) {
@@ -467,7 +468,7 @@ export class Sim {
         let n = 0;
         const babies = [];
         for (let k = 0; k < b.n; k++) {
-          const p = b.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2, 0.3, (Math.random() - 0.5) * 2));
+          const p = b.pos.clone().add(new THREE.Vector3((rand() - 0.5) * 2, 0.3, (rand() - 0.5) * 2));
           const gene = b.pg ? this.childGenes(b.parent, b.pg[0], b.pg[1]) : null;
           const opt = { age: 0, hunger: 0.3 };
           if (gene) Object.assign(opt, hasGenetics(b.sp) ? { genes: gene.genes } : { genes: gene.genes, gsp: b.parent }, { gen: b.gen ?? 1, parents: b.gp ?? null });
@@ -487,7 +488,7 @@ export class Sim {
         if (gene) Object.assign(opt, { genes: gene.genes, gen: Math.max(b.pa.gen ?? 0, b.pb.gen ?? 0) + 1, parents: [b.pa.id, b.pb.id] });
         const child = W.animals.add(b.sp, b.pos, opt);
         if (child && gene) { child.mut = gene.surprise || undefined; this.logBabies(b.sp, [gene], 'was born'); }
-        if (child && !b.brood && (SPECIES[b.sp].cap <= 40 || Math.random() < 0.08) && !(gene && (gene.surprise || gene.rare))) W.log(`A ${one(b.sp)} was born.`, 'good');
+        if (child && !b.brood && (SPECIES[b.sp].cap <= 40 || rand() < 0.08) && !(gene && (gene.surprise || gene.rare))) W.log(`A ${one(b.sp)} was born.`, 'good');
       }
     }
   }
@@ -535,7 +536,7 @@ export class Sim {
         : where === 'shallow' ? (x, y, z, s) => (s - y > 0 && s - y < 2.5) || (s === -Infinity && W.nearWater(new THREE.Vector3(x, y, z), 3))
         : (x, y, z, s) => s === -Infinity;
       for (let k = 0; k < 200 && !pos; k++) {
-        const x = b.pos.x + (Math.random() - 0.5) * 40, z = b.pos.z + (Math.random() - 0.5) * 30;
+        const x = b.pos.x + (rand() - 0.5) * 40, z = b.pos.z + (rand() - 0.5) * 30;
         if (Math.abs(x) > TANK.w / 2 - 2 || Math.abs(z) > TANK.d / 2 - 2) continue;
         const y = W.terrain.heightAt(x, z), s = W.water.surfaceAt(x, z);
         if (test(x, y, z, s)) pos = new THREE.Vector3(x, y, z);

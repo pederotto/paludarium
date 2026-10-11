@@ -14,6 +14,7 @@ import { TEX, modelParts } from '../render/assets.js';
 import { FLOWERING, BROMELIAD_FLOWER, headMatrix } from './flowering.js';
 import { FlowerMesh, flowerGeometry, packRGB, packSway, FLOWER } from '../render/flowers.js';
 import { newBloom, stepBloom, bloomLook, cycleOf, dayOpen, AFTER, packBloom, unpackBloom } from './bloom.js';
+import { rand } from '../util/rng.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const _seatRay = new THREE.Raycaster(), _seatO = V(0, 0, 0), _seatD = V(0, -1, 0);
@@ -1083,10 +1084,10 @@ export class Plants {
 
   add(id, pos, { normal = null, scale = null, rot = null, grown = 0.35, surface = 'terrain', health = 1, variant = null, bloom = null } = {}) {
     const nv = this.variants[id] ?? 1;
-    const v = variant ?? Math.floor(Math.random() * nv);
+    const v = variant ?? Math.floor(rand() * nv);
     const im = this.meshes[PLANTS[id].model ? id + '#' + v : id];
     if (!im || im.count >= this.cap) return null;
-    const scaleV = scale ?? 0.8 + Math.random() * 0.4;
+    const scaleV = scale ?? 0.8 + rand() * 0.4;
     // The canopy (at full size) must stay inside the glass: keep the stem clear of the walls.
     const reach = this.reachOf(im, id, scaleV);
     pos = pos.clone();
@@ -1098,7 +1099,7 @@ export class Plants {
     } else if (onGround && Math.abs(pos.y - this.world.terrain.heightAt(pos.x, pos.z)) < 0.05) pos.y = this.seatY(pos.x, pos.z);   // (set on the stamped height)
     const p = {
       id, pos, reach, normal: normal ? normal.clone() : new THREE.Vector3(0, 1, 0), surface,
-      rot: rot ?? Math.random() * Math.PI * 2, scale: scaleV,
+      rot: rot ?? rand() * Math.PI * 2, scale: scaleV,
       grown, health, age: 0, index: im.count, variant: v,
     };
     const F = PLANTS[id].flower;
@@ -1325,11 +1326,11 @@ export class Plants {
         continue;
       }
       if (sp.flower) this.bloomStep(p, sp, env, world, days, { light: lightHere / 0.55, humidity: hum }, out);
-      if (Math.random() < 0.02) this.writeInstance(p);
+      if (rand() < 0.02) this.writeInstance(p);
       // Healthy, full-grown plants spread: runners, plantlets, spores. Fertile ground favours them.
       const sprd = SPREAD[p.id];
       const fertK = p.fert != null ? 0.7 + p.fert * 0.8 : 1;
-      if (sprd && p.grown > 0.9 && p.health > 0.8 && Math.random() < sprd[0] * fertK * dtMin / 1440) {
+      if (sprd && p.grown > 0.9 && p.health > 0.8 && rand() < sprd[0] * fertK * dtMin / 1440) {
         const child = this.offshoot(p, sprd, world);
         if (child) out.born.push(child);
       }
@@ -1364,7 +1365,7 @@ export class Plants {
 
   afterBloom(p, sp, world, out) {
     const kind = sp.flower.after, a = AFTER[kind];
-    if (!a || Math.random() >= a.chance) return;
+    if (!a || rand() >= a.chance) return;
     const child = this.offshoot(p, [0, a.reach, SPREAD[p.id]?.[2] ?? 8], world, a.grown);
     if (child) { child.from = kind; out.born.push(child); }
     // a fallen berry is fruit for the fruit flies (sim/flylife.js)
@@ -1454,7 +1455,7 @@ export class Plants {
     if (this.count(p.id) >= max) return null;
     const sp = PLANTS[p.id];
     for (let k = 0; k < 6; k++) {
-      const a = Math.random() * Math.PI * 2, d = r * (0.4 + Math.random() * 0.6);
+      const a = rand() * Math.PI * 2, d = r * (0.4 + rand() * 0.6);
       let hit;
       if (p.surface === 'wall') {
         const x = p.pos.x + Math.cos(a) * d, y = p.pos.y + Math.sin(a) * d;
