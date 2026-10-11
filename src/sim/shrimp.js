@@ -62,13 +62,15 @@ export function shrimpMind(rnd = Math.random) {
     mode: 'graze', modeT: 0, goal: null, pause: rnd() * 3, left: between(rnd, SHRIMP.grazeS),
     moultIn: between(rnd, SHRIMP.moultDays) * rnd(), soft: 0, prep: 0, berried: 0, swarm: 0, fear: 0, flickT: 0,
     foodSeen: null, ring: rnd() * Math.PI * 2, face: null, pickRate: 0.6 + rnd() * 0.4, ant: 0.5,
-    abort: shrimpAbort, offer: shrimpOffer,
+    abort: shrimpAbort, offer: shrimpOffer, settled: shrimpSettled,
   };
 }
 
 // The goal contract (sim/goals.js): the animal gave up what it was walking or swimming to; graze where it is a moment, then choose again.
 // The goal contract's inbound half (sim/goals.js offerGoal): a way out of a crowd is walked to only while grazing, not soft, not
 // frightened (at the food, in a hide or moulting it stays: shrimps crowd round food and pile into a hide).
+// Settled (personal space bears company longer): in a hide or moulting; grazing still is not rest.
+function shrimpSettled() { return this.mode === 'hide' || this.mode === 'moult'; }
 function shrimpOffer(g) {
   if (this.mode !== 'graze' || this.soft > 0 || this.fear > 0.3) return false;
   this.goal = { x: g.x, z: g.z }; this.goalSpeed = SHRIMP.walk; this.goalSwim = false; this.face = null;
