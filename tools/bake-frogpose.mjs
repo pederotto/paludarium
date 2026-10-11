@@ -65,6 +65,10 @@ const JOBS = {
   // tools/rig/neutral-check.mjs: the roll fitted from the eye bumps, -10.2 deg). `neutral: [hind, arm]` (not set: tried 6 Oct, see reports/REDEYE-plan.md) poses the whole scan into a point of the
   // crawl cycle through its skeleton first. `eye`: the bump, scan units after the roll (right eye; the shader mirrors it).
   'redeye.swim': { src: 'redeye_walk_mesh', rotY: 128, center: 0.274, headRoll: -10.2, cmPerUnit: 3.55, tris: [30000, 9000], texture: 1024, skinPasses: 120, paint: 'callidryas', eyes: 'redeye', skel: 'REDEYE', neutral: [0.45, 0.12, 'redeye'], vent: -0.45, trunkZ: [-0.2, 0.5], sHalf: 0.22, eye: { c: [0.129, 0.09, 0.725], r: 0.12 }, split: true,   // (c.x was 0.14 on the scan's own head; the symmetrized head's bumps sit 0.011 nearer the midline)
+    // eyeCm (11 Oct 2026, the owner: "glitchy texture" on the eye): the bump above put the drawn eye 0.24 cm (0.6 r) deep and back of the ball, so the iris lay on
+    // its back edge and the skin's green showed where the pupil should be. The ball fitted on the baked mesh (tools/rig/eye-fit.mjs redeye.swim), the axis the sitting
+    // body's (set by eye) carried by the turn between the two balls' cap middles (5 deg from it).
+    eyeCm: { c: [0.621, 1.728, 1.623], r: 0.4, axis: [0.723, 0.29, 0.628] },
     // (the walking scan's hind legs lie against each other and the left one runs across the midline: no x-sign rule, distances in radii, a bone does not take skin that faces into its axis, and the diffused weights may only join a bone to its parent and children; the joints and per-side radii fitted to the skin, tools/rig/fit-chain.mjs)
     bind: { side: false, norm: false, sigma: 0.03, facing: 0.15, mask: 1 }, cut: true, graft: true, symHead: true },
 };
