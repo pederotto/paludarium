@@ -26,7 +26,9 @@ import { TANK, MAT } from './tank.js';
 import { driveStep, skipWaypoint, crossTrack, panePoint } from './labdrive.js';
 import { Grid, planRoute } from './labroute.js';
 import { CLIMB as STEP_LIMIT, SURFACE_WALKERS, MAX_LAYERS, limitRise, notABank } from './surfaces.js';
-import { abortGoal, banned, CLOCK } from './goals.js';
+import { abortGoal, offerGoal, banned, CLOCK } from './goals.js';
+import { spaceProfile, bubble, press, needStep, AFTER_MOVE, EVERY as SPACE_EVERY } from './space.js';
+import { REFUGE, refugeScore } from './refuge.js';
 import { faceRise, isCliff } from './facerise.js';
 import { easePush } from './glassease.js';
 import { THREAT, MOVERS, threatScore, sizeFactor, escapeScore } from './threat.js';
@@ -90,7 +92,10 @@ const _gf = new Array(9);
 const FISH_FLOOR = 0.5;          // cm: the lowest a swimming fish's middle is held over the ground
 const RELOCATE_BAN_MS = 20000;
 const POCKET_BAN_MS = 25000;     // a goal a crab could find no way to (a pocket by the back wall): no goal round it for this long
-const BLOCKED_BAN_MS = 5000;     // a walk that cannot get on: no goal round where it stuck for this long (sim/goals.js)
+const BLOCKED_BAN_MS = 5000;     // a walk that cannot get on: no goal round the spot it could not get to for this long (sim/goals.js; not round
+                                 // where it stands: that banned every refuge within 3 cm of a frightened newt held by a stone, and it froze)
+const LAST_STRETCH = 3.5;        // cm: the last bit to a goal inside the planner's margins is walked straight when every step of it is allowed (steerGoal, escapeGoal)
+const _rs = { cover: 0, wcover: 0, height: 0, depth: 0, crest: false, shallowMax: 0 };   // (refugeNiche's spot, reused)
 // The kinds the stuck watchdog judges by their intent (stuckintent.js): swimmers, crawlers and grazers. The context objects are reused.
 const BY_INTENT = new Set(['swim', 'crawlWater', 'crawlLand', 'crab', 'fly', 'skink']), _ctx = { holdS: 0, cap: HOLD_CAP }, _ctx0 = { holdS: 0, cap: Infinity };   // a relocated animal's failed spot is no goal for this long (sim/goals.js)
 const PIECE_LIFT = 0.35;    // cm: how far above the surface of a piece a walker's belly is held
@@ -103,6 +108,10 @@ const STRENGTH = { skink: 1, swim: 1, frog: 1, toad: 1, newt: 1, axolotl: 1, gec
 const GROUPS = { water: 1, land: 1, wall: 3, air: 4 };     // land and water share a grid: a newt on the pool's bottom meets the shrimp there
 const TINY = 0.1;                                            // bodies narrower than this (cm: springtails, fruit flies) are not separated
 const CELLG = 5;
+const SPACE_MINDS = new Set(['crawlWater', 'crab', 'skink', 'newt', 'axolotl', 'gecko']);   // kinds whose mind takes an offered goal (sim/goals.js offerGoal)
+const SWIM_GLASS = 2.5;      // cm (+ body radius): a swimmer's goal keeps this far off the glass and the back wall (isValidGoal; swim() looks 4 cm ahead, blocked at 1.5)
+const SPACE_HOME = 0.25;     // score a home loses per neighbour of its kind fully inside its bubble there (homeCrowd)
+const SPACE_TURNS = [0, 0.5, -0.5, 1.1, -1.1];                                                // rad off the way out of a crowd that a space goal may lie
 const VIS = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink']);   // animals with idle pulses, twitches and strikes (see vis)
 const CORE_WALKERS = new Set(['frog', 'toad', 'newt', 'axolotl', 'gecko', 'skink', 'crab']);   // kept out of plant stems (see plantCores)
 // The radius of a plant's stems that walkers are kept out of (Animals.plantCores), or 0 for a plant they walk through.
@@ -1044,7 +1053,7 @@ export class Animals {
       gen: opt.gen ?? 0, parents: opt.parents ?? null, nick: opt.nick ?? null, mate: null,
     };
     // The goal contract (sim/goals.js): every animal can give its goal up and check one.
-    a.abortGoal = abortGoal;
+    a.abortGoal = abortGoal; a.offerGoal = offerGoal;
     a.validGoal = (x, z, y) => this.isValidGoal(a, x, z, y) && (SPECIES[a.sp].kind !== 'crab' || this.wallClearGoal(a, { x, z }).z === z);   // (a crab's wide body also has to clear the back wall there)
     // Genes: founders get the genotype of the chosen morph (or a random wild one); children are given theirs.
     // Tadpoles carry the genes of the frog they will become.
@@ -1108,7 +1117,7 @@ export class Animals {
     this.t = (this.t ?? 0) + dt;
     CLOCK.t = this.t;
     this.trackTime(dt);
-    if (dt > 0) { this.syncOccupancy(); this.buildGrid(); }
+    if (dt > 0) { this.syncOccupancy(); this.buildGrid(); this.spaceTick(dt); }
     for (const [id, arr] of Object.entries(this.by)) {
       const sp = SPECIES[id];
       for (const a of arr) {
@@ -1322,7 +1331,12 @@ export class Animals {
     if (Math.abs(x) > TANK.w / 2 - m || Math.abs(z) > TANK.d / 2 - m || banned(a, x, z)) return false;
     if (!this.avoid) return true;
     const W = this.world;
-    if (z < W.wall.zAt(x, W.terrain.heightAt(x, z) + 1) + Math.max(0.4, a.rad ?? 0)) return false;
+    // (a swimmer: at its own height, and clear of the glass by what swim()'s look-ahead lets it reach: a goal 1.5 cm off the back wall was
+    // refused 3-6 cm short and the watchdog moved the fish: obstacles run R7b)
+    if (sp.kind === 'swim') {
+      const c = SWIM_GLASS + (a.rad ?? 0);
+      if (Math.abs(x) > TANK.w / 2 - c || Math.abs(z) > TANK.d / 2 - c || z < W.wall.zAt(x, y) + c) return false;
+    } else if (z < W.wall.zAt(x, W.terrain.heightAt(x, z) + 1) + Math.max(0.4, a.rad ?? 0)) return false;
     if (!this.occ.count) return true;
     if (sp.kind === 'swim') return !this.occ.solidAt(x, y, z);
     this.ensureSurf();
@@ -1803,7 +1817,7 @@ export class Animals {
   relocate(a, sp, far = a.stuckLevel >= 3, inside = false) {
     const W = this.world, T = W.terrain, occ = this.occ;
     const from = a.pos.clone();
-    a.abortGoal('relocated', RELOCATE_BAN_MS);                                 // (its mind gives its goal up; the spot it failed at is banned: sim/goals.js)
+    a.abortGoal('relocated', RELOCATE_BAN_MS, this.homeBound(a));             // (its mind gives its goal up; the spot it failed at, or the home it could not get to, is banned: sim/goals.js)
     this.stuckStats.relocated++;
     { const rb = this.stuckStats.relBy ??= {}; rb[a.sp] = (rb[a.sp] ?? 0) + 1; }                // (per species, for tools/steps/stuck.mjs)
     a.relocT = this.t;                                                         // (offCliff must not put it back this tick)
@@ -1900,6 +1914,9 @@ export class Animals {
     const desired = V(0, 0, 0);
     a.wander += (Math.random() - 0.5) * dt * 2.5;
     desired.set(Math.sin(a.wander), 0, Math.cos(a.wander)).multiplyScalar(sp.speed * 0.6);
+    // Wanting room (personal space, spaceTick): the way out of the crowd joins the way it wants to go, which its mind weighs below.
+    const out = a.spaceOut && !ctl && !a.nib && !a.dart ? Math.min(1, a.spaceNeed) : 0, sl = out ? Math.hypot(a.spaceX, a.spaceZ) : 0;   // (not at food: eating wins)
+    if (sl > 1e-4) desired.x += (a.spaceX / sl) * sp.speed * 0.6 * out, desired.z += (a.spaceZ / sl) * sp.speed * 0.6 * out;
     // The water carries it; where it swims, and so points, is its mind's choice by energy (sim/fishmind.js, sim/currentat.js).
     const FS = this._fs ??= flowSenses((x, z) => this.waterTop(x, z));
     FS.W = W; FS.occ = this.avoid && this.occ.count ? this.occ : null;
@@ -1920,8 +1937,9 @@ export class Animals {
         if (d < keep) sep.addScaledVector(a.pos.clone().sub(b.pos), (keep - d) / Math.max(0.1, d));
       }
       if (n) {
-        c.divideScalar(n).sub(a.pos).multiplyScalar(0.35);
-        al.divideScalar(n).multiplyScalar(0.6);
+        const hold = 1 - 0.85 * out;                                   // (a schooler wanting room lets the school go for a while)
+        c.divideScalar(n).sub(a.pos).multiplyScalar(0.35 * hold);
+        al.divideScalar(n).multiplyScalar(0.6 * hold);
         desired.add(c).add(al).addScaledVector(sep, 2.5);
       }
     }
@@ -2103,7 +2121,7 @@ export class Animals {
           }
           // Sliding along something for long (a crowd round a scrap of food) gets nowhere: rest, then choose somewhere else.
           a.blockedN = (a.blockedN ?? 0) + 1; a.blockT = (a.blockT ?? 0) + dt;
-          if (!moved || a.blockedN > 40 || a.blockT > 1.5) { a.abortGoal('blocked', BLOCKED_BAN_MS); a.timer = 0; a.blockedN = 0; a.blockT = 0; }
+          if (!moved || a.blockedN > 40 || a.blockT > 1.5) { a.abortGoal('blocked', BLOCKED_BAN_MS, a.target); a.timer = 0; a.blockedN = 0; a.blockT = 0; }
         }
         const want = Math.atan2(dirx, dirz) + (sp.kind === 'crab' ? Math.PI / 2 : 0);
         this.turnTo(a, sp, want, dt, 6);
@@ -2221,7 +2239,7 @@ export class Animals {
     if (this.okFor('water', nx, nz, 99, a.rad, 0, a) && !this.bumps(a, nx, nz)) { a.pos.x = nx; a.pos.z = nz; a.sBlock = 0; return; }
     // (refused ahead: the seconds add up whether or not it slides round, so sliding along a log does not keep a goal behind it for ever; crawl's 1.5 s)
     a.sBlock = (a.sBlock ?? 0) + dt;
-    if (a.sBlock > 1.5) { a.sBlock = 0; a.abortGoal('blocked', BLOCKED_BAN_MS); return; }
+    if (a.sBlock > 1.5) { a.sBlock = 0; a.abortGoal('blocked', BLOCKED_BAN_MS, goal); return; }
     const sd = a.side ?? 1;
     for (const da of [0.8 * sd, -0.8 * sd, 1.6 * sd, -1.6 * sd]) {
       ux = Math.sin(a.yaw + da); uz = Math.cos(a.yaw + da);
@@ -2904,6 +2922,7 @@ export class Animals {
     if (a.skT <= 0) {
       a.skT = 2.5 + Math.random() * 2;
       if (!a.home || this.skinkHide(a, sp, a.home.x, a.home.z) < 0.35) a.home = this.skinkFindHome(a, sp) ?? a.home ?? null;
+      else if ((a.spaceNeed ?? 0) >= 1 && (a._homeT ?? 0) <= this.t) a.home = this.roomierHome(a, sp, a.home, () => this.skinkFindHome(a, sp), (h) => this.skinkHide(a, sp, h.x, h.z));
       // Two males never share a hide (species data: territorial): the later male picks again while its home is within
       // 2 x rivalCm of an earlier male's home.
       for (let k = 0; k < 4 && a.male && a.home && this.skinkHomeTaken(a, a.home); k++) a.home = this.skinkFindHome(a, sp);
@@ -2952,7 +2971,7 @@ export class Animals {
     let goal = it.goal, speed = it.speed;
     if (it.mode === 'hunt' && a.target) { goal = { x: a.target.x, z: a.target.z }; speed = SKINK.speed * 0.7; }
     // (a skink that knows no cover would run a fixed 15 cm straight away: it picks a spot instead, far from the threat, in cover or on a log's crest)
-    if (it.mode === 'flee' && threat && goal && !a.skRefuge && !a.lab?.drive && depth <= SKINK.maxDepth) { const g2 = this.escapeGoal(a, sp, threat, (px, pz) => this.skinkNiche(px, pz)); if (g2 && this.isValidGoal(a, g2.x, g2.z)) goal = g2; }
+    if (it.mode === 'flee' && !a.lab?.drive && depth <= SKINK.maxDepth) { const g2 = this.flightGoal(a, sp, threat, goal); if (g2 && g2 !== goal) { goal = g2; speed = Math.max(speed, SKINK.speed); } }   // (its refuge: flightGoal)
     if (a.lab?.drive) { goal = a.lab.goal; speed = goal ? SKINK.speed * a.lab.k : 0; }          // (the test lab)
     else if (goal && speed > 0 && (goal = this.vetGoal(a, goal))) goal = this.steerGoal(a, sp, goal, dt);   // (a place it can be, then round what is in the way)
     a.state = goal && speed > 0 ? 'walk' : 'rest';
@@ -2971,7 +2990,7 @@ export class Animals {
             const sx = Math.sin(base + da), sz = Math.cos(base + da);
             if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad, 0, a) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
           }
-          if (!ok) { ux = 0; uz = 0; a.abortGoal('blocked', BLOCKED_BAN_MS); }
+          if (!ok) { ux = 0; uz = 0; a.abortGoal('blocked', BLOCKED_BAN_MS, goal); }
         }
         a.pos.x += ux * step; a.pos.z += uz * step;
         a.speedNow = (ux || uz) ? step / Math.max(1e-4, dt) : 0;
@@ -3012,7 +3031,7 @@ export class Animals {
     for (let k = 0; k < 20; k++) {
       const r = 2 + Math.random() * 20, t = Math.random() * Math.PI * 2;
       const x = a.pos.x + Math.sin(t) * r, z = a.pos.z + Math.cos(t) * r;
-      const sc = this.skinkHide(a, sp, x, z);
+      const sc = this.skinkHide(a, sp, x, z) - (this.noSpace ? 0 : SPACE_HOME * this.homeCrowd(a, sp, x, z));
       if (sc > bs) { bs = sc; best = { x, z }; }
     }
     return best;
@@ -3034,6 +3053,7 @@ export class Animals {
     if (a.cbT <= 0 || (depth > 0.2 && !a.cbBank && m.mode === 'exit')) {
       a.cbT = 2 + Math.random() * 2;
       if (!a.home || this.crabHideScore(a, sp, a.home.x, a.home.z) < 0.35) { a.home = this.crabFindHome(a, sp) ?? a.home ?? null; m.digBest = 0; m.digLoads = 0; }
+      else if ((a.spaceNeed ?? 0) >= 1 && (a._homeT ?? 0) <= this.t) { const h0 = a.home; a.home = this.roomierHome(a, sp, h0, () => this.crabFindHome(a, sp), (h) => this.crabHideScore(a, sp, h.x, h.z)); if (a.home !== h0) { m.digBest = 0; m.digLoads = 0; } }
       a.cbDig = this.crabDigSite(a);
       a.cbShore = this.crabFind(x, z, 30, (px, pz, d) => d >= P.soakDepth[0] && d <= P.soakDepth[1], a);
       a.cbBank = depth > 0.2 ? this.crabBank(x, z, a) : null;
@@ -3066,7 +3086,7 @@ export class Animals {
     if (a.lab?.drive) this.labCrab(a, P, it);
     else {
       // (a crab with no safe burrow would run a fixed 12 cm straight away: it picks a spot, far from the threat, under cover or in shallow water)
-      if (m.mode === 'flee' && threat && it.goal && !(a.home && Math.hypot(a.home.x - threat.x, a.home.z - threat.z) > threat.d)) { const g2 = this.escapeGoal(a, sp, threat, (px, pz) => this.crabNiche(px, pz, P)); if (g2 && this.isValidGoal(a, g2.x, g2.z)) it.goal = g2; }
+      if (m.mode === 'flee' && threat && it.goal && !(a.home && Math.hypot(a.home.x - threat.x, a.home.z - threat.z) > threat.d)) { const g2 = this.flightGoal(a, sp, threat, it.goal); if (g2) it.goal = g2; }   // (a burrow away from the threat: it runs home; else its refuge, flightGoal)
       if (it.goal && it.speed > 0 && (it.goal = this.vetGoal(a, it.goal))) {
         const want = this.wallClearGoal(a, it.goal);                          // (a place it can be, clear of the back wall with its whole body, then round what is in the way)
         const via = this.steerGoal(a, sp, want, dt);
@@ -3113,7 +3133,7 @@ export class Animals {
             const sx = Math.sin(base + da), sz = Math.cos(base + da);
             if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad, 0, a) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
           }
-          if (!ok) { ux = 0; uz = 0; a.abortGoal('blocked', BLOCKED_BAN_MS); }     // (no way on: its mind gives the goal up, as every walker's does)
+          if (!ok) { ux = 0; uz = 0; a.abortGoal('blocked', BLOCKED_BAN_MS, it.goal); }     // (no way on: its mind gives the goal up, as every walker's does)
         }
         a.pos.x += ux * step; a.pos.z += uz * step;
         if (ux || uz) {
@@ -3196,7 +3216,7 @@ export class Animals {
     for (let k = 0; k < 24; k++) {
       const r = 3 + Math.random() * 22, t = Math.random() * Math.PI * 2;
       const x = a.pos.x + Math.sin(t) * r, z = a.pos.z + Math.cos(t) * r;
-      const s = this.crabHideScore(a, sp, x, z);
+      const s = this.crabHideScore(a, sp, x, z) - (this.noSpace ? 0 : SPACE_HOME * this.homeCrowd(a, sp, x, z));
       if (s > bs) { bs = s; best = { x, z }; }
     }
     return best;
@@ -4244,6 +4264,9 @@ export class Animals {
     if (!this.avoid || sp.kind === 'swim' || a.onWall || a.wallMode || a.swimming || a.lab?.drive) return G;
     const S = (a.rt ??= { grow: 0 }), hx = a.pos.x, hz = a.pos.z, m = this.labGrid(a, sp, S.grow, 20000);
     if (!m.blockedAt(G.x, G.z) && m.lineFree(hx, hz, G.x, G.z, 1.2)) { S.route = null; S.prog = null; return G; }
+    // (the last few cm to a goal the planner's margins shut (cover under a root, a crevice, the water's edge): straight on when the body may make every
+    // step of it, the spatial contract the movers keep anyway; the route used to end at the margin and park it there, a body length short)
+    if (Math.hypot(G.x - hx, G.z - hz) < LAST_STRETCH && this.stretchFree(a, hx, hz, G.x, G.z)) { S.route = null; S.prog = null; return G; }
     let R = S.route;
     if (!R || R.m !== m || Math.hypot(R.gx - G.x, R.gz - G.z) > 0.6) {
       const p = planRoute(m, hx, hz, G.x, G.z);
@@ -4259,6 +4282,13 @@ export class Animals {
       if (S.grow < 2.4) S.grow += 0.8; else { S.grow = 0; return G; }
     }
     return via;
+  }
+
+  // May `a` step all the way from (x0, z0) to (x1, z1) in a straight line? canStep every 0.5 cm (a short stretch: LAST_STRETCH).
+  stretchFree(a, x0, z0, x1, z1) {
+    const d = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(d / 0.5));
+    for (let i = 1; i <= n; i++) if (!this.canStep(a, x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n)) return false;
+    return true;
   }
 
   // A threat the explicit pairs did not find (the owner's design, sim/threat.js): `base` is what the lists and the camera already found, and it keeps its
@@ -4295,19 +4325,19 @@ export class Animals {
     const E = (a._esc ??= { t: -9, g: null, tx: 0, tz: 0 });
     if (this.t - E.t < (E.g ? 1.2 : 0.5) && Math.hypot(E.tx - threat.x, E.tz - threat.z) < 4) return E.g;      // (nowhere better is remembered too: no search every tick)
     const x = a.pos.x, z = a.pos.z, d0 = Math.hypot(x - threat.x, z - threat.z), m = this.labGrid(a, sp, 0, 20000), cands = [];
-    for (const r of [5, 9, 14, 20]) for (let k = 0; k < 12; k++) {
+    for (const r of [3, 5, 9, 14, 20]) for (let k = 0; k < 12; k++) {
       const t = (k / 12) * TAU + r * 0.37, px = x + Math.sin(t) * r, pz = z + Math.cos(t) * r;
-      if (m.blockedAt(px, pz) || Math.abs(px) > TANK.w / 2 - 5 || Math.abs(pz) > TANK.d / 2 - 5) continue;      // (not at the glass: a hop, a step there is refused)
-      const dT = Math.hypot(px - threat.x, pz - threat.z);
-      if (dT < d0 + 4) continue;                                    // it must gain real distance: a refuge a few cm further is no escape
-      const n = niche(px, pz);
-      cands.push({ x: px, z: pz, dThreat: dT, niche: n, len: r, pre: escapeScore({ dThreat: dT, niche: n, len: r }) });
+      if (Math.abs(px) > TANK.w / 2 - 5 || Math.abs(pz) > TANK.d / 2 - 5 || !this.isValidGoal(a, px, pz)) continue;      // (not at the glass: a hop, a step there is refused; and a goal the contract allows)
+      const dT = Math.hypot(px - threat.x, pz - threat.z), n = niche(px, pz), shut = m.blockedAt(px, pz);
+      if (shut && !(n > 0)) continue;                               // (open ground must be open to the planner; a refuge may lie in its margins: under cover, at the water's edge)
+      if (dT < d0 + (n > 0 ? 0 : 4)) continue;                      // open ground must gain real distance; a refuge must only not be nearer the threat
+      cands.push({ x: px, z: pz, dThreat: dT, niche: n, len: r, shut, pre: escapeScore({ dThreat: dT, niche: n, len: r }) });
     }
     cands.sort((p, q) => q.pre - p.pre);
     let best = null, bs = -Infinity;
     for (const c of cands.slice(0, 4)) {
-      const rt = planRoute(m, x, z, c.x, c.z);
-      if (!rt || rt.clipped) continue;
+      const rt = planRoute(m, x, z, c.x, c.z), end = rt?.pts[rt.pts.length - 1];
+      if (!rt || (rt.clipped && !(c.shut && Math.hypot(end.x - c.x, end.z - c.z) < LAST_STRETCH))) continue;      // (a refuge in the margins: the route to within the last stretch)
       let len = 0, px = x, pz = z, close = Infinity;
       for (const q of rt.pts) { len += Math.hypot(q.x - px, q.z - pz); close = Math.min(close, Math.hypot((q.x + px) / 2 - threat.x, (q.z + pz) / 2 - threat.z)); px = q.x; pz = q.z; }
       if (close < Math.min(d0, 3)) continue;                         // a way that runs through the threat is no way
@@ -4320,6 +4350,37 @@ export class Animals {
 
   // A skink's refuge niche (cover, or the crest of a log it climbs, where the heavier animals cannot follow) and a crab's (cover or a burrow: low clearance,
   // or shallow water): 0 on open ground.
+  // A frightened walker's destination (skink, crab, newt, axolotl, gecko on the ground): the goal its mind already has when that is a refuge it may go
+  // to, else the best refuge escapeGoal finds from the threat (the last one it saw, for 10 s after it went out of sight), else the mind's goal. One
+  // place for every kind: the minds give only their fear, and when the threat is out of sight or their own flight goal was given up, a goal of null.
+  flightGoal(a, sp, threat, goal) {
+    if (goal && (goal.wall || (this.refugeNiche(a, sp, goal.x, goal.z) > 0 && this.isValidGoal(a, goal.x, goal.z)))) return goal;   // (a gecko's roost on the glass is its refuge)
+    const L = (a._thrSeen ??= { x: 0, z: 0, t: -1e9 });
+    if (threat) { L.x = threat.x; L.z = threat.z; L.t = this.t; }
+    if (this.t - L.t > 10) return goal ?? null;
+    return this.escapeGoal(a, sp, L, (px, pz) => this.refugeNiche(a, sp, px, pz)) ?? goal ?? null;
+  }
+
+  // How good (x, z) is as a refuge for `a`, by its kind's profile (sim/refuge.js: gecko up high, crab low cover or shallow water, newt the water's
+  // edge, axolotl deep water, skink cover or a log crest); 0 = none. Only the facts its profile reads are gathered.
+  refugeNiche(a, sp, x, z) {
+    const prof = REFUGE[sp.kind];
+    if (!prof) return 0;
+    const W = this.world, g = W.terrain.heightAt(x, z), r = _rs;
+    r.depth = W.water.surfaceAt(x, z) - g;
+    if (prof === 'high') {
+      r.height = 0;
+      if (this.occ.count) {
+        this.ensureSurf();
+        const S = this.occ.surf, i = S.ci(x), k = S.ck(z);
+        if (S.has(i, k)) { const c = k * S.nx + i; for (let l = S.n[c] - 1; l > 0; l--) if (S.clr[c * MAX_LAYERS + l] >= clearNeed(a)) { r.height = S.y[c * MAX_LAYERS + l] - g; break; } }
+      }
+    } else if (prof === 'low') { r.cover = this.crabCover(x, z); r.shallowMax = (sp.crabProfile ?? CRAB).safeDepth; }
+    else if (prof === 'cover') { const c = STEP_LIMIT.skink; r.cover = this.skinkCover(x, z); r.crest = this.surfaces().climbable(x, z, g, c.up, c.down, 1); }
+    else r.wcover = r.depth > 0.3 ? this.herpWaterCover(x, z) : 0;
+    return refugeScore(prof, r);
+  }
+
   skinkNiche(x, z) {
     const S = this.surfaces(), c = STEP_LIMIT.skink;
     return (this.skinkCover(x, z) >= 0.5 ? 8 : 0) + (S.climbable(x, z, this.world.terrain.heightAt(x, z), c.up, c.down, 1) ? 4 : 0);
@@ -4701,6 +4762,99 @@ export class Animals {
       const l = this.grid.get(base + (u + du + 200) * 500 + (v + dv + 200));
       if (l) for (let i = 0; i < l.length; i++) { const b = l[i]; if (b._st === st) continue; b._st = st; fn(b); }
     }
+  }
+
+  // Personal space (sim/space.js, owner 10 Oct 2026): every EVERY s (staggered) an animal sums how far others are inside its bubble and
+  // its need for room fills or drains (a.spaceNeed; a.spaceX/Z the way out of the crowd). Full (1), a goal that way is offered to its
+  // mind (animal.offerGoal: the mind takes it or not by what it is doing); a fish's need is read by swim(): a push out of the crowd and,
+  // for a schooler, a looser hold on the school until the need has drained (a.spaceOut). Allocation-free: its own walk over the grid.
+  spaceTick(dt) {
+    if (this.noSpace) return;                                          // (probes: personal space off, to measure it alone)
+    const G = this.grid;
+    for (const id in this.by) {
+      const arr = this.by[id], sp = SPECIES[id], fish = sp.kind === 'swim';
+      if (!arr.length || (!fish && !SPACE_MINDS.has(sp.kind)) || (sp.kind === 'crawlWater' && !sp.shrimp)) continue;
+      const P = (sp._space ??= spaceProfile(sp));
+      for (let i = 0; i < arr.length; i++) {
+        const a = arr[i];
+        if (!a.grp || a.dead || a.lab?.drive) continue;
+        if ((a._spT = (a._spT ?? Math.random() * SPACE_EVERY) - dt) > 0) continue;
+        const h = SPACE_EVERY - a._spT; a._spT = SPACE_EVERY;
+        const len = a.cap ? 2 * (a.cap.hl + a.rad) : sp.size, Rs = bubble(P, len, true), Ro = bubble(P, len, false), R = Rs > Ro ? Rs : Ro;
+        const span = Math.ceil(R / CELLG), u0 = Math.floor(a.pos.x / CELLG), wall = a.grp === 'wall', v0 = Math.floor((wall ? a.pos.y : a.pos.z) / CELLG);
+        const base = GROUPS[a.grp] * 1000000, st = ++this._stamp, dyMax = R > 4 ? R : 4;
+        let p = 0, ax = 0, az = 0;
+        for (let du = -span; du <= span; du++) for (let dv = -span; dv <= span; dv++) {
+          const l = G.get(base + (u0 + du + 200) * 500 + (v0 + dv + 200));
+          if (l) for (let j = 0; j < l.length; j++) {
+            const b = l[j];
+            if (b._st === st) continue;
+            b._st = st;
+            if (b === a || b.dead) continue;
+            const dx = a.pos.x - b.pos.x, dz = a.pos.z - b.pos.z, dy = a.pos.y - b.pos.y;
+            if (dy > dyMax || dy < -dyMax) continue;
+            const same = b.sp === a.sp, d = Math.hypot(dx, dy, dz), k = press(d, same ? Rs : Ro, same ? 1 : b.rad / a.rad);
+            if (k <= 0) continue;
+            p += k;
+            const hd = Math.hypot(dx, dz);
+            if (hd > 1e-3) { ax += (dx / hd) * k; az += (dz / hd) * k; }
+          }
+        }
+        const need = (a.spaceNeed = needStep(a.spaceNeed ?? 0, p, h, P, (a.speedNow ?? 0) < 0.05, (a.spaceK ??= 0.7 + Math.random() * 0.6)));
+        a.spaceX = ax; a.spaceZ = az;
+        if (need >= 1) a.spaceOut = true; else if (need < 0.3) a.spaceOut = false;
+        if (fish || need < 1 || p <= 0.05 || (a._spOffer ?? 0) > this.t) continue;
+        // Full: the way out of the crowd, as far as the bubble reaches (3 … 15 cm), turned a little either way if that spot is no goal.
+        const al = Math.hypot(ax, az), base0 = al > 1e-4 ? Math.atan2(ax, az) : Math.random() * Math.PI * 2, dist = Math.min(15, Math.max(3, R * 1.2));
+        const medium = this.mediumOf(sp);
+        let took = false, tried = false;
+        for (let t = 0; t < SPACE_TURNS.length && !tried; t++) {
+          const ang = base0 + SPACE_TURNS[t], gx = a.pos.x + Math.sin(ang) * dist, gz = a.pos.z + Math.cos(ang) * dist;
+          if (!this.okFor(medium, gx, gz) || !this.isValidGoal(a, gx, gz)) continue;
+          tried = true;
+          const g = (a._spGoal ??= { x: 0, z: 0, d: 0 });
+          g.x = gx; g.z = gz; g.d = dist;
+          took = a.offerGoal(g, 'space');
+        }
+        if (took) { a.spaceNeed = AFTER_MOVE; a.spaceT = this.t; }
+        a._spOffer = this.t + (took ? 6 : 2);
+      }
+    }
+  }
+
+  // The home it is on its way to (its mind's goal is its home), or null. A home it cannot get to is what fails, so that is what the
+  // ban covers (relocate, a blocked herp): the home finders then score it 0 (isValidGoal) and pick another, instead of walking back
+  // into the pocket it was taken out of (newts by a buried boulder, obstacles run R6d).
+  homeBound(a) {
+    const h = a.hh ?? a.home, g = a.mind?.goal;
+    return h && !h.wall && g && Math.hypot(g.x - h.x, g.z - h.z) < 1.5 ? h : null;
+  }
+
+  // Personal space where it rests: how much the others of its kind press on a home at (x, z) by its bubble (sim/space.js), their homes
+  // counted fully and where they are now by half (0: none near). The home finders take it as a cost, so hides spread out.
+  homeCrowd(a, sp, x, z) {
+    const arr = this.by[a.sp];
+    if (!arr || arr.length < 2) return 0;
+    const P = (sp._space ??= spaceProfile(sp)), R = bubble(P, a.cap ? 2 * (a.cap.hl + a.rad) : sp.size, true);
+    let p = 0;
+    for (let i = 0; i < arr.length; i++) {
+      const b = arr[i];
+      if (b === a || b.dead) continue;
+      const h = b.home ?? b.hh;
+      if (h && !h.wall) p += press(Math.hypot(h.x - x, h.z - z), R);
+      p += 0.5 * press(Math.hypot(b.pos.x - x, b.pos.z - z), R);
+    }
+    return p;
+  }
+
+  // A resting place it shares too closely (its need for room full): every 45 s at most it looks for another, kept only when that one
+  // scores better with the crowding counted. (A home is the engine's sense of the world, not the mind's: the mind is told where it is.)
+  roomierHome(a, sp, cur, find, score) {
+    if (!cur || cur.wall || !((a.spaceNeed ?? 0) >= 1) || (a._homeT ?? 0) > this.t || this.noSpace) return cur;
+    a._homeT = this.t + 45;
+    const nx = find();
+    if (!nx || nx.wall) return cur;
+    return score(nx) - SPACE_HOME * this.homeCrowd(a, sp, nx.x, nx.z) > score(cur) - SPACE_HOME * this.homeCrowd(a, sp, cur.x, cur.z) ? nx : cur;
   }
 
   // Would a land animal landing or walking to (x, z) overlap another one?
@@ -5138,6 +5292,7 @@ export class Animals {
     if (a.hhT <= 0) {
       a.hhT = 2 + Math.random() * 2;
       if (!a.hh || this.herpHomeScore(a, sp, P, a.hh) < 0.28) a.hh = this.herpFindHome(a, sp, P) ?? a.hh ?? null;
+      else if ((a.spaceNeed ?? 0) >= 1 && (a._homeT ?? 0) <= this.t) a.hh = this.roomierHome(a, sp, a.hh, () => this.herpFindHome(a, sp, P), (h) => this.herpHomeScore(a, sp, P, h));
       a.hShore = null;
       if (sp.kind === 'newt' && a.sp === 'firesal') a.hShore = this.crabFind(x, z, 40, (px, pz, d) => d >= 0.3 && d <= 1.8, a);
       else if (depth <= 0.3) a.hShore = this.crabFind(x, z, 40, (px, pz, d) => d >= 1.6, a);
@@ -5178,16 +5333,20 @@ export class Animals {
     else if (it.goal && !it.goal.wall && it.speed > 0.1 && !wall && !(depth > 1.3)) it.goal = this.steerGoal(a, sp, it.goal, dt);      // (round what is in the way)
     // An escape the mind aimed at blindly (straight away from the danger) may be out of the water or behind a rock: swap it for one
     // it can reach, or none (it freezes where it is). Checked once per flight.
-    if (m.mode === 'flee' && m.goal && !m.goalOk && !gecko) {
-      m.goalOk = true;
-      if (!(a.hh && m.goal.x === a.hh.x && m.goal.z === a.hh.z)) { const e = this.herpEscape(a, sp, threat, depth > 0.3 ? 'water' : 'land'); m.goal = e && this.isValidGoal(a, e.x, e.z) ? e : null; }
-      it.goal = m.goal; if (!m.goal) { it.speed = 0; it.swim = false; }
+    if (m.mode === 'flee' && !gecko && !wall && !a.swimming && !a.lab?.drive) {   // (a gecko bolts for its own roost, as on live: swapping it cost refuges, 55% -> 33%)
+      // (its kind's refuge, by the one search every walker uses (a newt to the water's edge, a gecko up onto a log), also when the mind's own flight
+      // goal was given up or the threat has gone out of sight; a straight dash away when there is none; its home when that is a refuge)
+      const own = m.goal;
+      const g2 = this.flightGoal(a, sp, threat, own) ?? (!m.goalOk && !gecko ? this.herpEscape(a, sp, threat, depth > 0.3 ? 'water' : 'land') : null);
+      // (offered to its mind, which takes it while it flees: sim/goals.js offerGoal; no better one offered = the engine has had its say)
+      if (a.offerGoal(g2 && g2 !== own && !g2.wall && this.isValidGoal(a, g2.x, g2.z) ? g2 : null, 'flight')) { it.goal = m.goal; it.speed = Math.max(it.speed ?? 0, P.dash ?? P.walk); it.swim = false; }
+      if (!m.goal && !gecko) { it.goal = null; it.speed = 0; it.swim = false; }
     }
     // Not getting anywhere (a goal it cannot walk or swim to): give it up and pause, rather than tread on the spot.
     if (it.goal && it.speed > 0.1 && (a.hmoved ?? 1) < 0.004 * Math.max(1, dt * 60)) a.hStuck = (a.hStuck ?? 0) + dt;
     else a.hStuck = 0;
     if (a.hStuck > 1.2) {
-      a.hStuck = 0; a.abortGoal('blocked', BLOCKED_BAN_MS);
+      a.hStuck = 0; a.abortGoal('blocked', BLOCKED_BAN_MS, this.homeBound(a) ?? it.goal);
       if (m.mode === 'flee') m.fear = Math.min(m.fear, 0.3);
       it.goal = null; it.speed = 0;
     }
@@ -5269,7 +5428,7 @@ export class Animals {
         const sx = Math.sin(base + da), sz = Math.cos(base + da);
         if (free(x + sx * probe * 1.2, z + sz * probe * 1.2)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
       }
-      if (!ok) { a.hsp = 0; a.abortGoal('blocked', BLOCKED_BAN_MS); return; }
+      if (!ok) { a.hsp = 0; a.abortGoal('blocked', BLOCKED_BAN_MS, goal); return; }
     }
     a.pos.x += ux * step; a.pos.z += uz * step;
   }
@@ -5428,7 +5587,7 @@ export class Animals {
         const y = clamp(a.pos.y + Math.cos(t) * r * 0.8, this.world.water.level + 3, TANK.h - 5);
         h = { x: clamp(a.pos.x + Math.sin(t) * r, -TANK.w / 2 + 3, TANK.w / 2 - 3), y, z: 0, wall: true };
       } else h = { x: a.pos.x + Math.sin(t) * r, z: a.pos.z + Math.cos(t) * r, y: 0, wall: false };
-      const sc = this.herpHomeScore(a, sp, P, h) + Math.random() * 0.04;
+      const sc = this.herpHomeScore(a, sp, P, h) + Math.random() * 0.04 - (h.wall || this.noSpace ? 0 : SPACE_HOME * this.homeCrowd(a, sp, h.x, h.z));
       if (sc > bs) { bs = sc; best = h; }
     }
     return best;

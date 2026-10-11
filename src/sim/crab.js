@@ -111,11 +111,17 @@ export function crabMind(rnd = Math.random, P = CRAB) {
     moltIn: (P.moltEvery[0] + rnd() * (P.moltEvery[1] - P.moltEvery[0])) * 1440, moltLeft: 0, soft: 0,
     waveT: -1, waveDur: 0, bite: 0, freezeT: 0, look: rnd() * 6.28,
     dig: null, digBest: 0, digLoads: 0, digRest: 0,  // the dig cycle; the deepest the pit got and the loads since; game minutes off digging
-    abort: crabAbort,
+    abort: crabAbort, offer: crabOffer,
   };
 }
 
 // The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new choice.
+// Offered a way out of a crowd (sim/goals.js offerGoal): taken only while foraging (resting in its burrow, eating, displaying it stays).
+function crabOffer(g) {
+  if (this.mode !== 'forage') return false;
+  this.goal = { x: g.x, z: g.z }; this.modeT = 0;
+  return true;
+}
 function crabAbort() { this.goal = null; this.burst = 0; this.pauseT = 0.8; this.modeT = 0; }
 
 // Comfort 0 … 1 from the keeper's ranges: 1 inside them, falling off over 4 °C and 20% outside.

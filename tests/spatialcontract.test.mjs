@@ -142,7 +142,7 @@ test('animals.js: one predicate, the protocol, and the boundary invariant', () =
   assert.match(body('canStep'), /this\.occ\.canOccupy\(x, z, this\.stepLayer\(a, x, z\), a, g\)/);
   assert.match(body('okFor'), /this\.canStep\(body, x, z\)/);
   const rel = body('relocate');
-  assert.match(rel, /a\.abortGoal\('relocated', RELOCATE_BAN_MS\)/);
+  assert.match(rel, /a\.abortGoal\('relocated', RELOCATE_BAN_MS(, this\.homeBound\(a\))?\)/);
   for (const f of ['a.sm', 'a.fm', 'a.sk', 'a.cb', 'a.hm', 'a.hh']) assert.equal(rel.includes(f), false, `relocate does not reach into ${f}`);
   // the engine never drops a mind's goal itself: it asks the animal (abortGoal), and the mind clears its own fields
   assert.equal(/\bm\.goal = null/.test(src), false, 'no m.goal = null in animals.js');

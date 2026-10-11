@@ -179,11 +179,27 @@ export function herpMind(id = 'newt', rnd = Math.random) {
     // skin, tail, mating
     shedIn: 30, dull: 0, shedT: 0, tailF: 1,
     courtDrive: rnd() * 0.5, courtCool: 0, cp: null, cpT: 0, cpDur: 0, recv: null, pregnant: 0, gravid: false, birthT: 0,
-    abort: herpAbort,
+    abort: herpAbort, offer: herpOffer,
   };
 }
 
 // The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new leg.
+// The goal contract's inbound half (sim/goals.js offerGoal). A flight goal (why 'flight': its kind's refuge or an escape the engine
+// found it can reach) is taken while it flees, and the flight counts as vetted (goalOk) whether or not one came (g null: none better
+// than its own). A way out of a crowd (why 'space') is taken while foraging or out on the bank, as its next leg, walked at once
+// (moveLeft there counts cm). Resting, hiding, courting, a gecko's wall patrol (its roost keeps its own spacing): it stays.
+function herpOffer(g, why) {
+  if (why === 'flight') {
+    if (this.mode !== 'flee') return false;
+    this.goalOk = true;
+    if (!g) return false;
+    this.goal = { x: g.x, z: g.z };
+    return true;
+  }
+  if (!g || (this.mode !== 'forage' && this.mode !== 'shore')) return false;
+  this.goal = { x: g.x, z: g.z }; this.goalOk = false; this.pauseLeft = 0; this.moveLeft = Math.max(this.moveLeft, (g.d ?? 6) + 1);
+  return true;
+}
 function herpAbort() { this.goal = null; this.goalOk = false; this.moveLeft = 0; this.pauseLeft = Math.max(this.pauseLeft, 1); }
 // (A fresh mind starts part-way through its skin cycle, so a tank's animals do not all shed together.)
 export function herpMindFor(id, rnd = Math.random, kind) {

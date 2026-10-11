@@ -15,6 +15,13 @@ export function abortGoal(reason, cooldownMs = 0, at = null) {
   this.abortWhy = reason; this.abortT = CLOCK.t;
 }
 
+// animal.offerGoal(goal, reason): the inbound half of the contract. The engine never writes a goal into a mind; it offers one (a way out of
+// a crowd: sim/space.js) and the animal's mind takes it or not by what it is doing (each mind's own offer(goal, reason), true = taken).
+// A mind without offer() never takes one. The goal must already have passed Animals.isValidGoal.
+export function offerGoal(goal, reason) {
+  return this.mind?.offer?.(goal, reason) === true;
+}
+
 // Is (x, z) inside this animal's banned spot?
 export function banned(a, x, z) {
   return a.banT > CLOCK.t && Math.hypot(x - a.banX, z - a.banZ) < BAN_R;
