@@ -89,6 +89,7 @@ const _gf = new Array(9);
 // Body radius per kind (x species size): animals of one medium keep their distance (see separate()).
 const FISH_FLOOR = 0.5;          // cm: the lowest a swimming fish's middle is held over the ground
 const RELOCATE_BAN_MS = 20000;
+const POCKET_BAN_MS = 25000;     // a goal a crab could find no way to (a pocket by the back wall): no goal round it for this long
 const BLOCKED_BAN_MS = 5000;     // a walk that cannot get on: no goal round where it stuck for this long (sim/goals.js)
 // The kinds the stuck watchdog judges by their intent (stuckintent.js): swimmers, crawlers and grazers. The context objects are reused.
 const BY_INTENT = new Set(['swim', 'crawlWater', 'crawlLand', 'crab', 'fly', 'skink']), _ctx = { holdS: 0, cap: HOLD_CAP }, _ctx0 = { holdS: 0, cap: Infinity };   // a relocated animal's failed spot is no goal for this long (sim/goals.js)
@@ -3072,14 +3073,16 @@ export class Animals {
         // No way out: the planner hands back the crab's own spot (a pocket its sprawled legs do not fit through, against the back wall) and the
         // watchdog reads that as 'there' (stuckIntent: within 0.5 cm of the spot): it burst on the spot for up to 150 s. Give that goal up, keep off
         // the spot, and after a few of them in a row put it on the nearest free ground.
+        // (the goal contract, sim/goals.js: its own mind drops the goal and pauses; the spot it could not get to, not where it stands, is no goal for a while;
+        // the count of pockets in a row is the engine's, on the animal, not the mind's)
         if (Math.hypot(via.x - x, via.z - z) < 0.5 && Math.hypot(want.x - x, want.z - z) > 2) {
-          m.coll = (m.collT > 0 ? m.coll : 0) + 1; m.collT = 12;
-          a.banX = want.x; a.banZ = want.z; a.banT = CLOCK.t + 25;
-          m.goal = null; m.burst = 0; m.pauseT = 0.8; it.goal = null; it.speed = 0; it.calm = 1;
-          if (m.coll >= 4) { m.coll = 0; this.relocate(a, sp); return; }
+          a.pocketN = (a.pocketT > 0 ? a.pocketN : 0) + 1; a.pocketT = 12;
+          a.abortGoal('no way out', POCKET_BAN_MS, want);
+          it.goal = null; it.speed = 0; it.calm = 1;
+          if (a.pocketN >= 4) { a.pocketN = 0; this.relocate(a, sp); return; }
         } else it.goal = via;
       }
-      if (m.collT > 0) m.collT -= dt;
+      if (a.pocketT > 0) a.pocketT -= dt;
     }
     if (it.say) W.log(it.say, 'warn');
     if (it.eat && food) {
@@ -3110,7 +3113,7 @@ export class Animals {
             const sx = Math.sin(base + da), sz = Math.cos(base + da);
             if (this.okFor('any', x + sx * step, z + sz * step, maxD, a.rad, 0, a) && !this.bumps(a, x + sx * step, z + sz * step) && !this.wallBlocks(a, x + sx * step, z + sz * step)) { ux = sx; uz = sz; a.side = Math.sign(da) || 1; ok = true; break; }
           }
-          if (!ok) { ux = 0; uz = 0; m.goal = null; }
+          if (!ok) { ux = 0; uz = 0; a.abortGoal('blocked', BLOCKED_BAN_MS); }     // (no way on: its mind gives the goal up, as every walker's does)
         }
         a.pos.x += ux * step; a.pos.z += uz * step;
         if (ux || uz) {

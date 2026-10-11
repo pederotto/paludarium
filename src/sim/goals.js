@@ -3,14 +3,15 @@
 // animal.abortGoal(reason, cooldownMs) is installed on every animal (Animals.add). It drops the engine's walk target and, through the
 // animal's mind (a.mind, registered when the mind is made: Animals.adopt), whatever the mind had chosen: each mind implements its own
 // abort(reason) and knows its own fields, so the engine never reaches into a mind. With a cooldown, the spot where it failed is banned:
-// no goal within BAN_R of it is valid (Animals.isValidGoal) until the cooldown has run out on CLOCK, the animals' clock.
+// no goal within BAN_R of it is valid (Animals.isValidGoal) until the cooldown has run out on CLOCK, the animals' clock. The spot is where the
+// animal stands, or `at` ({ x, z }) when what failed is the place it was going to (a goal it could find no way to: a crab's pocket by the wall).
 export const BAN_R = 3;                       // cm
 export const CLOCK = { t: 0 };                // s, set by Animals.move
 
-export function abortGoal(reason, cooldownMs = 0) {
+export function abortGoal(reason, cooldownMs = 0, at = null) {
   this.target = null;
   this.mind?.abort(reason);
-  if (cooldownMs > 0) { this.banX = this.pos.x; this.banZ = this.pos.z; this.banT = CLOCK.t + cooldownMs / 1000; }
+  if (cooldownMs > 0) { const p = at ?? this.pos; this.banX = p.x; this.banZ = p.z; this.banT = CLOCK.t + cooldownMs / 1000; }
   this.abortWhy = reason; this.abortT = CLOCK.t;
 }
 

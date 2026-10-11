@@ -116,7 +116,7 @@ export function crabMind(rnd = Math.random, P = CRAB) {
 }
 
 // The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new choice.
-function crabAbort() { this.goal = null; this.pauseT = 1; this.modeT = 0; }
+function crabAbort() { this.goal = null; this.burst = 0; this.pauseT = 0.8; this.modeT = 0; }
 
 // Comfort 0 … 1 from the keeper's ranges: 1 inside them, falling off over 4 °C and 20% outside.
 export function crabComfort(temp, rh, P = CRAB) {

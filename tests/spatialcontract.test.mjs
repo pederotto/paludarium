@@ -116,6 +116,14 @@ test('abortGoal: the animal drops its target, its mind its own goal, and a coold
     CLOCK.t = 120.1;
     assert.equal(banned(a, 1, 2), false, 'the ban runs out');
   }
+  { // a goal it could not get to is banned where it was, not where the animal stands
+    const m = crabMind(); m.goal = { x: 9, z: 9 }; m.burst = 2;
+    const a = { pos: { x: 0, z: 0 }, target: null, mind: m, abortGoal };
+    CLOCK.t = 200;
+    a.abortGoal('no way out', 25000, { x: 9, z: 9 });
+    assert.equal(m.goal, null); assert.equal(m.burst, 0);
+    assert.ok(banned(a, 9.5, 9)); assert.equal(banned(a, 0, 0), false);
+  }
   const plain = { pos: { x: 0, z: 0 }, target: { x: 1, z: 1 }, abortGoal };   // a crawler with no mind
   plain.abortGoal('blocked');
   assert.equal(plain.target, null);
@@ -136,6 +144,9 @@ test('animals.js: one predicate, the protocol, and the boundary invariant', () =
   const rel = body('relocate');
   assert.match(rel, /a\.abortGoal\('relocated', RELOCATE_BAN_MS\)/);
   for (const f of ['a.sm', 'a.fm', 'a.sk', 'a.cb', 'a.hm', 'a.hh']) assert.equal(rel.includes(f), false, `relocate does not reach into ${f}`);
+  // the engine never drops a mind's goal itself: it asks the animal (abortGoal), and the mind clears its own fields
+  assert.equal(/\bm\.goal = null/.test(src), false, 'no m.goal = null in animals.js');
+  assert.equal(/\bm\.coll\b/.test(src), false, 'the pocket count is on the animal');
   const glass = body('inGlass');
   assert.equal(/pos\.y\s*[+\-]?=/.test(glass), false, 'inGlass never writes the height');
   assert.equal(glass.includes('standOn'), false);
