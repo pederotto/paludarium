@@ -1226,18 +1226,24 @@ export class Plants {
   // Keep floating plants on the water when the level changes, and drop
   // plants the new water has drowned or left dry.
   onWaterChanged(world) {
+    this.followWater(world);
+  }
+
+  // Floaters ride the water under them: whatever moved the level (the generator's land tuning, the pump filling a pond, evaporation,
+  // a top-up) moves them too. Stranded floaters sit on the mud (and slowly die, see step()). Returns how many moved.
+  followWater(world) {
     this.world = world;
-    for (const p of [...this.list]) {
-      const sp = PLANTS[p.id];
-      if (sp.habitat === 'floating') {
-        // Stranded floaters sit on the mud (and slowly die, see step()).
-        const s = world.water.surfaceAt(p.pos.x, p.pos.z, 0.2);
-        const y = s === -Infinity ? world.terrain.heightAt(p.pos.x, p.pos.z) : s;
-        if (Math.abs(y - p.pos.y) < 0.02) continue;
-        p.pos.y = y;
-        this.writeInstance(p);
-      }
+    let moved = 0;
+    for (const p of this.list) {
+      if (PLANTS[p.id].habitat !== 'floating') continue;
+      const s = world.water.surfaceAt(p.pos.x, p.pos.z, 0.2);
+      const y = s === -Infinity ? world.terrain.heightAt(p.pos.x, p.pos.z) : s;
+      if (Math.abs(y - p.pos.y) < 0.02) continue;
+      p.pos.y = y;
+      this.writeInstance(p);
+      moved++;
     }
+    return moved;
   }
 
   // Sim step: `env` gives light and the air; each plant reads the water body it stands in (or the soil
@@ -1250,6 +1256,7 @@ export class Plants {
     FLOWER.day.value = dayOpen(env.minute % 1440, env);
     if (!this.live) { this.live = true; for (const q of this.list) if (q.bloom) this._dirty.add(q.id); }
     this._stepping = true;
+    this.followWater(world);
     for (const p of [...this.list]) {
       const sp = PLANTS[p.id];
       p.age += dtMin;

@@ -449,6 +449,8 @@ class Gen {
     }
     probe(best.L);
     H.targetTotal = H.total();
+    W.plants.onWaterChanged(W);     // the floaters (and floating pieces) were placed on the old level: they ride the new one
+    W.decor.refloat();
     if (this.info) this.info.L = W.water.level;
     this.counts.landTuned = { from: +L0.toFixed(1), to: +best.L.toFixed(1), share: +best.share.toFixed(3), band: [+lo.toFixed(2), +hi.toFixed(2)] };
     return best;
@@ -1390,6 +1392,9 @@ BUILDERS.highland = (g) => {
 
 function V(x, y, z) { return new THREE.Vector3(x, y, z); }
 
+// A floater whose water is gone or too shallow to float in (the generator's rule: more than 1.5 cm over the ground).
+const strandedFloater = (W, p) => !(W.water.surfaceAt(p.pos.x, p.pos.z, 0.2) - W.terrain.heightAt(p.pos.x, p.pos.z) > 1.5);
+
 // Lets the water run a little longer, then removes plants the water has drowned or left stranded
 // (a stream finds its way over time) and animals that ended up where they cannot live.
 function settleAndPrune(g) {
@@ -1398,14 +1403,13 @@ function settleAndPrune(g) {
   H.targetTotal = H.total();
   W.water.syncLevel();
   W.water.syncFalls(true);
+  W.plants.onWaterChanged(W);
   let pruned = 0;
   for (const p of [...W.plants.list]) {
     const sp = PLANTS[p.id];
     let bad;
-    if (sp.habitat === 'floating') {
-      const gr = W.terrain.heightAt(p.pos.x, p.pos.z);
-      bad = !(W.water.surfaceAt(p.pos.x, p.pos.z, 0.2) - gr > 1.5);
-    } else {
+    if (sp.habitat === 'floating') bad = strandedFloater(W, p);
+    else {
       bad = !!W.plants.canPlace(p.id, { point: p.pos, surface: p.surface, normal: p.normal }, W);
     }
     if (bad) { W.plants.remove(p); pruned++; }
@@ -1448,6 +1452,8 @@ export function generateTerrarium(world, { preset, seed = 1, tier } = {}) {
   const W = world;
   settleAndPrune(g);
   g.tuneLand();          // settled, pruned: the final share is the one that counts
+  // (a lower level can leave a floater on the mud: a new set has none)
+  for (const p of [...W.plants.list]) if (PLANTS[p.id].habitat === 'floating' && strandedFloater(W, p)) W.plants.remove(p);
   for (const id of g.gear) W.equipment.buy(id);
   W.climate.settle();
   W.humus?.seed();   // a little leaf litter and humus under the plants
