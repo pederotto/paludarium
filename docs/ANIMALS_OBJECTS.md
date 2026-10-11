@@ -162,3 +162,31 @@ wakes when 'go' moves the body less than 0.25 cm in 3.5 s, plus 0.1 cm per unit 
 **Test:** `tools/steps/stuck.mjs` now calls an animal inside only when it is really in a piece's mesh (rays), not in one of its thickened
 voxels (which every animal on a log is: base and new both showed `insideTicks` = every tick), has two skinks, and prints a verdict for the
 focus set (fish, shrimp, snails, skinks).
+
+## 10. Offered goals, refuges and personal space (10 Oct 2026)
+
+**The inbound half of the goal protocol.** `a.offerGoal(goal, reason)` (sim/goals.js): the engine never writes a goal into a mind; it
+offers one and the mind takes it or not by what it is doing (each mind's own `offer(goal, why)`, true = taken; a mind without one never
+takes one). The goal must already have passed `isValidGoal`. Reasons: `'space'` (a way out of a crowd) and `'flight'` (a herp's refuge;
+`null` = the engine has had its say and found nothing better). No engine write into a mind's goal is left in animals.js (tests/space.test.mjs).
+Bans: a blocked walk bans the spot it could not get to (`at`), not where it stands (that banned every refuge within 3 cm of a frightened
+newt: freezing 73% -> 44%); relocate and a herp stuck on its way home ban that home (`homeBound`), so the home finders pick another.
+A swimmer's goal keeps `SWIM_GLASS` 2.5 cm + its radius off the glass and the back wall at its own height (swim() looks 4 cm ahead).
+
+**Refuges.** `sim/refuge.js` gives each kind its refuge (gecko up high, crab low cover or shallow water, newt the water's edge, axolotl
+deep water, skink cover or a log's crest); `flightGoal` keeps the mind's goal when it is one, else `escapeGoal` from the last threat seen
+(10 s). A crab whose home is away from the threat still runs home; a gecko bolts for its own roost (swapping it cost refuges, 55% -> 33%).
+Target (>= 80% of frights reach the refuge) NOT met: crab ~45%, skink ~30-50%, newt ~10-17%.
+
+**Personal space** (owner, 10 Oct: "some kind of personal space linked with species behaviours and time; social ones will eventually
+want their own space too"). `sim/space.js`: each species has a bubble in body lengths and a patience, from its sheet: school (0.6 BL,
+240 s), group by `flock` >= 3 (1.0 BL, 90 s), solitary (1.5 BL, 45 s), territorial (2.5 BL, 20 s); bubble 1.5-10 cm; others of another
+kind count at 0.8-1.0 BL and by their size share. `Animals.spaceTick` (every 0.5 s, staggered, its own walk over the grid, no
+allocations) sums the pressure; the need (`a.spaceNeed`) fills in `patience` s with one neighbour halfway in, 3x slower while still,
+scaled by the animal's temper (0.7-1.3), and drains alone in `relief` s. Full: a goal out of the crowd (3-15 cm, five headings) is offered
+(shrimp take it grazing; skink and crab foraging; newt foraging or on the bank; resting, hiding, eating, fleeing, courting, a gecko's
+patrol: no). Fish: the way out joins their wish (not while eating) and a schooler's hold on the school drops by up to 85% until the need
+drains below 0.3 (the R7 body-axis separation stays the hard floor under it). Home finders count crowding (`homeCrowd`, 0.25 a
+neighbour) and a crowded animal looks for a roomier home every 45 s at most (`roomierHome`). Measured (`.agents/fear/probes/cluster.mjs`,
+one species bunched, 10 min, same build on/off): by day nothing changes (they hide, soak, dig, graze); at night skinks take ~20 moves a
+run and pile 12% vs 62% after 10 min, newts take ~8 and pile half as often in the first minute; fish schools hold.

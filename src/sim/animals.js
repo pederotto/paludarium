@@ -1917,7 +1917,13 @@ export class Animals {
     desired.set(Math.sin(a.wander), 0, Math.cos(a.wander)).multiplyScalar(sp.speed * 0.6);
     // Wanting room (personal space, spaceTick): the way out of the crowd joins the way it wants to go, which its mind weighs below.
     const out = a.spaceOut && !ctl && !a.nib && !a.dart ? Math.min(1, a.spaceNeed) : 0, sl = out ? Math.hypot(a.spaceX, a.spaceZ) : 0;   // (not at food: eating wins)
-    if (sl > 1e-4) desired.x += (a.spaceX / sl) * sp.speed * 0.6 * out, desired.z += (a.spaceZ / sl) * sp.speed * 0.6 * out;
+    if (sl > 1e-4) {
+      // (only into open water: pushed out of a crowd toward roots, fish ended up inside them twice as often in the swamp set)
+      const ux = a.spaceX / sl, uz = a.spaceZ / sl, occ = this.occ;
+      if (!occ.count || (!occ.solidAt(a.pos.x + ux * 2, a.pos.y, a.pos.z + uz * 2) && !occ.solidAt(a.pos.x + ux * 4, a.pos.y, a.pos.z + uz * 4))) {
+        desired.x += ux * sp.speed * 0.6 * out; desired.z += uz * sp.speed * 0.6 * out;
+      }
+    }
     // The water carries it; where it swims, and so points, is its mind's choice by energy (sim/fishmind.js, sim/currentat.js).
     const FS = this._fs ??= flowSenses((x, z) => this.waterTop(x, z));
     FS.W = W; FS.occ = this.avoid && this.occ.count ? this.occ : null;
@@ -4785,7 +4791,7 @@ export class Animals {
   // mind (animal.offerGoal: the mind takes it or not by what it is doing); a fish's need is read by swim(): a push out of the crowd and,
   // for a schooler, a looser hold on the school until the need has drained (a.spaceOut). Allocation-free: its own walk over the grid.
   spaceTick(dt) {
-    if (this.noSpace) return;                                          // (probes: personal space off, to measure it alone)
+    if (this.noSpace) return;                           // (probes: personal space off, to measure it alone)
     const G = this.grid;
     for (const id in this.by) {
       const arr = this.by[id], sp = SPECIES[id], fish = sp.kind === 'swim';
