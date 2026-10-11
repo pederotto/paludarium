@@ -3,7 +3,8 @@
 //
 // A bubble of r body lengths round it (rOther for animals of another species), weighted by how far inside the bubble each neighbour is
 // and by its size. The need fills while the bubble is shared (in `patience` s with one neighbour halfway in) and drains while it is alone
-// (in `relief` s). Resting bodies (a pile in a hide by day, a school holding still) bear it REST times longer; the individual's own
+// (in `relief` s). Settled bodies (its mind's settled(): hiding, resting, asleep; a pile in a hide by day) bear it REST times longer, a grazer
+// standing to pick does not; the individual's own
 // temper (a.spaceK, 0.7 … 1.3) scales the patience. At 1 it wants room: the engine offers its mind a goal away from the crowd
 // (animal.offerGoal, sim/goals.js) and the mind takes it only when what it is doing allows (foraging, wandering: not eating, fleeing,
 // hiding or asleep). Schooling fish are not exempt: a schooler's need loosens its hold on the school, it drifts out for a while, and the

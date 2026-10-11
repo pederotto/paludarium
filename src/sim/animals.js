@@ -96,6 +96,9 @@ const POCKET_BAN_MS = 25000;     // a goal a crab could find no way to (a pocket
 const BLOCKED_BAN_MS = 5000;     // a walk that cannot get on: no goal round the spot it could not get to for this long (sim/goals.js; not round
                                  // where it stands: that banned every refuge within 3 cm of a frightened newt held by a stone, and it froze)
 const LAST_STRETCH = 3.5;        // cm: the last bit to a goal inside the planner's margins is walked straight when every step of it is allowed (steerGoal, escapeGoal)
+const OWN_REFUGE = 6;            // cm: a frightened newt keeps its mind's own refuge (its home out in the water) only this close; further, flightGoal looks for the nearest water it can reach
+const SLIDE_IN = 3;              // cm: a newt slides down a bank too steep to walk when water lies within this far beyond the step (slidesIn)
+const DASH_MAX = 10;             // cm: a straight dash to a refuge from where it stands when the planner has no route out of the margins it stands in (escapeGoal)
 const _rs = { cover: 0, wcover: 0, height: 0, depth: 0, crest: false, shallowMax: 0 };   // (refugeNiche's spot, reused)
 // The kinds the stuck watchdog judges by their intent (stuckintent.js): swimmers, crawlers and grazers. The context objects are reused.
 const BY_INTENT = new Set(['swim', 'crawlWater', 'crawlLand', 'crab', 'fly', 'skink']), _ctx = { holdS: 0, cap: HOLD_CAP }, _ctx0 = { holdS: 0, cap: Infinity };   // a relocated animal's failed spot is no goal for this long (sim/goals.js)
@@ -4359,15 +4362,39 @@ export class Animals {
     let best = null, bs = -Infinity;
     for (const c of cands.slice(0, 4)) {
       const rt = planRoute(m, x, z, c.x, c.z), end = rt?.pts[rt.pts.length - 1];
-      if (!rt || (rt.clipped && !(c.shut && Math.hypot(end.x - c.x, end.z - c.z) < LAST_STRETCH))) continue;      // (a refuge in the margins: the route to within the last stretch)
-      let len = 0, px = x, pz = z, close = Infinity;
+      if (!rt) continue;
+      let gx = c.x, gz = c.z;
+      if (rt.clipped) {
+        // A refuge in the planner's margins (under cover, in the water): the route stops at the margin. The goal is then the first refuge
+        // spot on the straight line from where it stops toward the candidate, within the last stretch, every step of it allowed (a newt's
+        // flight ends at the water's edge, not out in the pool the route cannot reach: newts found no flight goal 14 times in 23).
+        if (!c.shut) continue;
+        // (from where the route stops, the last stretch; when it stops where it started (the animal itself stands in the planner's margins: by
+        // a bank, a piece), a straight dash from where it stands, up to DASH_MAX cm, every step of it allowed)
+        const e = this.edgeOn(a, end.x, end.z, c.x, c.z, LAST_STRETCH, niche) ?? (Math.hypot(end.x - x, end.z - z) < 1 ? this.edgeOn(a, x, z, c.x, c.z, DASH_MAX, niche) : null);
+        if (!e) continue;
+        gx = e.x; gz = e.z;
+      }
+      let len = Math.hypot(gx - end.x, gz - end.z), px = x, pz = z, close = Infinity;
       for (const q of rt.pts) { len += Math.hypot(q.x - px, q.z - pz); close = Math.min(close, Math.hypot((q.x + px) / 2 - threat.x, (q.z + pz) / 2 - threat.z)); px = q.x; pz = q.z; }
       if (close < Math.min(d0, 3)) continue;                         // a way that runs through the threat is no way
-      const sc = escapeScore({ dThreat: c.dThreat, niche: c.niche, len });
-      if (sc > bs) { bs = sc; best = { x: c.x, z: c.z }; }
+      const sc = escapeScore({ dThreat: Math.hypot(gx - threat.x, gz - threat.z), niche: c.niche, len });
+      if (sc > bs) { bs = sc; best = { x: gx, z: gz }; }
     }
     E.t = this.t; E.g = best; E.tx = threat.x; E.tz = threat.z;
     return best;
+  }
+
+  // The first refuge spot (niche > 0) on the straight line from (x0, z0) toward (x1, z1) within `reach` cm, half a cm into it, when that spot is a
+  // valid goal and every step of the way there is allowed (stretchFree); else null.
+  edgeOn(a, x0, z0, x1, z1, reach, niche) {
+    const ex = x1 - x0, ez = z1 - z0, el = Math.hypot(ex, ez) || 1, ux = ex / el, uz = ez / el;
+    for (let s = 0; s <= reach && s <= el; s += 0.5) {
+      if (!(niche(x0 + ux * s, z0 + uz * s) > 0)) continue;
+      const gx = x0 + ux * (s + 0.5), gz = z0 + uz * (s + 0.5);
+      return this.isValidGoal(a, gx, gz) && this.stretchFree(a, x0, z0, gx, gz) ? { x: gx, z: gz } : null;
+    }
+    return null;
   }
 
   // A skink's refuge niche (cover, or the crest of a log it climbs, where the heavier animals cannot follow) and a crab's (cover or a burrow: low clearance,
@@ -4376,10 +4403,13 @@ export class Animals {
   // to, else the best refuge escapeGoal finds from the threat (the last one it saw, for 10 s after it went out of sight), else the mind's goal. One
   // place for every kind: the minds give only their fear, and when the threat is out of sight or their own flight goal was given up, a goal of null.
   flightGoal(a, sp, threat, goal) {
-    if (goal && (goal.wall || (this.refugeNiche(a, sp, goal.x, goal.z) > 0 && this.isValidGoal(a, goal.x, goal.z)))) return goal;   // (a gecko's roost on the glass is its refuge)
+    const own = goal && (goal.wall || (this.refugeNiche(a, sp, goal.x, goal.z) > 0 && this.isValidGoal(a, goal.x, goal.z)));
+    if (own && (goal.wall || REFUGE[sp.kind] !== 'waterline' || Math.hypot(goal.x - a.pos.x, goal.z - a.pos.z) <= OWN_REFUGE)) return goal;   // (a gecko's roost, a skink's den: its own; a newt's only close by)
     const L = (a._thrSeen ??= { x: 0, z: 0, t: -1e9 });
     if (threat) { L.x = threat.x; L.z = threat.z; L.t = this.t; }
     if (this.t - L.t > 10) return goal ?? null;
+    // (a refuge of its own further off (a newt's home out in the deep water, 15-20 cm) loses to the nearest one it can reach: the fear is
+    // over in a few seconds and a frightened newt sent across the tank went back to hiding before it got there)
     return this.escapeGoal(a, sp, L, (px, pz) => this.refugeNiche(a, sp, px, pz)) ?? goal ?? null;
   }
 
@@ -4822,7 +4852,7 @@ export class Animals {
             if (hd > 1e-3) { ax += (dx / hd) * k; az += (dz / hd) * k; }
           }
         }
-        const need = (a.spaceNeed = needStep(a.spaceNeed ?? 0, p, h, P, (a.speedNow ?? 0) < 0.05, (a.spaceK ??= 0.7 + Math.random() * 0.6)));
+        const need = (a.spaceNeed = needStep(a.spaceNeed ?? 0, p, h, P, a.mind?.settled ? a.mind.settled() : (a.speedNow ?? 0) < 0.05, (a.spaceK ??= 0.7 + Math.random() * 0.6)));
         a.spaceX = ax; a.spaceZ = az;
         if (need >= 1) a.spaceOut = true; else if (need < 0.3) a.spaceOut = false;
         if (fish || need < 1 || p <= 0.05 || (a._spOffer ?? 0) > this.t) continue;
@@ -4996,7 +5026,19 @@ export class Animals {
   walkBlocked(a, nx, nz) {
     const d1 = this.stemDepth(a, nx, a.pos.y, nz, a.yaw);
     if (d1 > 0.02 && d1 > this.stemDepth(a, a.pos.x, a.pos.y, a.pos.z, a.yaw) + 1e-3) return true;
-    return SPECIES[a.sp].kind !== 'gecko' && this.cliffAt(nx, nz, a) && !this.cliffAt(a.pos.x, a.pos.z, a);
+    return SPECIES[a.sp].kind !== 'gecko' && this.cliffAt(nx, nz, a) && !this.cliffAt(a.pos.x, a.pos.z, a) && !this.slidesIn(a, nx, nz);
+  }
+
+  // A newt or an axolotl may go down a bank too steep to walk when water lies just below along that line: it slides in, as a real one
+  // does (a frightened newt 2 cm from the water stood on the bank top, every step down refused, and froze: banks drop 1-1.5 cm per 0.5 cm).
+  slidesIn(a, nx, nz) {
+    const sp = SPECIES[a.sp];
+    if ((sp.kind !== 'newt' && sp.kind !== 'axolotl') || a.sp === 'firesal') return false;
+    const T = this.world.terrain, W = this.world.water;
+    if (!(T.heightAt(nx, nz) < T.heightAt(a.pos.x, a.pos.z))) return false;
+    const dx = nx - a.pos.x, dz = nz - a.pos.z, l = Math.hypot(dx, dz) || 1;
+    for (let s = 0; s <= SLIDE_IN; s += 0.5) { const px = nx + (dx / l) * s, pz = nz + (dz / l) * s; if (W.surfaceAt(px, pz) - T.heightAt(px, pz) >= 0.3) return true; }
+    return false;
   }
 
   // Would a step to (nx, nz) take this walker further into a neighbour's body? Crawlers go round one another the way they go round

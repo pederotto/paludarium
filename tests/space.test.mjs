@@ -103,3 +103,11 @@ test('herp flight offer: taken while fleeing, marks the flight vetted even with 
   const r = herpMindFor('newt', () => 0.5); r.mode = 'forage';
   assert.equal(offerGoal.call({ mind: r }, { x: 1, z: 2 }, 'flight'), false);
 });
+
+test('settled: each mind says when it bears company longer (hiding, resting), and grazing or foraging is not rest', () => {
+  const sh = shrimpMind(() => 0.5); sh.mode = 'graze'; assert.equal(sh.settled(), false); sh.mode = 'hide'; assert.equal(sh.settled(), true);
+  const sk = skinkMind(() => 0.5); sk.mode = 'forage'; assert.equal(sk.settled(), false); sk.mode = 'hide'; assert.equal(sk.settled(), true);
+  const cb = crabMind(() => 0.5); cb.mode = 'forage'; assert.equal(cb.settled(), false); cb.mode = 'rest'; assert.equal(cb.settled(), true);
+  const hp = herpMindFor('newt', () => 0.5); hp.mode = 'forage'; assert.equal(hp.settled(), false); hp.mode = 'rest'; assert.equal(hp.settled(), true);
+  const fm = fishMind({ speed: 4 }); assert.equal(fm.settled(), false); fm.resting = true; assert.equal(fm.settled(), true);
+});

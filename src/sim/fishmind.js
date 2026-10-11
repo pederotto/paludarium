@@ -44,11 +44,13 @@ export function fishMind(sp, phase = 0) {
     next: rnd() * THINK, goal: null, best: null, tired: false, resting: false, side: rnd() < 0.5 ? -1 : 1, escT: 0, edgeT: 0, fleeT: 0, _f: { x: 0, z: 0 },
     I: { dir: null, hold: true, escape: false, cap: 0, burst: 0, label: null }, _d: { x: 0, z: 0 },
     st: { t: 0, slack: 0, pin: 0, pinMax: 0, c: 0, s: 0, d: 0 },
-    abort: fishAbort,
+    abort: fishAbort, settled: fishSettled,
   };
 }
 
 // The goal contract (sim/goals.js): the fish gave up its spot; it weighs the spots again at once (the banned one is no longer offered: s.ok).
+// Settled (personal space bears company longer): resting in slack water.
+function fishSettled() { return !!this.resting; }
 function fishAbort() { this.goal = null; this.best = null; this.fleeT = 0; this.next = 0; }
 
 // Fatigue and work of swimming at u cm/s through the water for dt s.
