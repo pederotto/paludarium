@@ -111,12 +111,14 @@ export function crabMind(rnd = Math.random, P = CRAB) {
     moltIn: (P.moltEvery[0] + rnd() * (P.moltEvery[1] - P.moltEvery[0])) * 1440, moltLeft: 0, soft: 0,
     waveT: -1, waveDur: 0, bite: 0, freezeT: 0, look: rnd() * 6.28,
     dig: null, digBest: 0, digLoads: 0, digRest: 0,  // the dig cycle; the deepest the pit got and the loads since; game minutes off digging
-    abort: crabAbort, offer: crabOffer,
+    abort: crabAbort, offer: crabOffer, settled: crabSettled,
   };
 }
 
 // The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new choice.
 // Offered a way out of a crowd (sim/goals.js offerGoal): taken only while foraging (resting in its burrow, eating, displaying it stays).
+// Settled (personal space bears company longer): in its burrow, resting, soaking or moulting.
+function crabSettled() { return this.mode === 'hide' || this.mode === 'rest' || this.mode === 'soak' || this.mode === 'molt'; }
 function crabOffer(g) {
   if (this.mode !== 'forage') return false;
   this.goal = { x: g.x, z: g.z }; this.modeT = 0;

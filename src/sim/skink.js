@@ -86,11 +86,13 @@ export const REFUGE_COVER = 0.6;   // (0.6 a guess, as before: the 0.5 edge of a
 export function skinkRefugeOk(cover, depth) { return cover >= REFUGE_COVER && !(depth > -0.2); }
 
 export function skinkMind(rnd = Math.random) {
-  return { mode: 'hide', modeT: 0, wet: 0.9, warm: 0.6, fear: 0, goal: null, walkT: 0, pauseT: rnd() * 2, freezeT: 0, burstT: 0, deadT: 0, squeak: false, look: rnd() * 6.28, water: null, abort: skinkAbort, offer: skinkOffer };
+  return { mode: 'hide', modeT: 0, wet: 0.9, warm: 0.6, fear: 0, goal: null, walkT: 0, pauseT: rnd() * 2, freezeT: 0, burstT: 0, deadT: 0, squeak: false, look: rnd() * 6.28, water: null, abort: skinkAbort, offer: skinkOffer, settled: skinkSettled };
 }
 
 // The goal contract (sim/goals.js): it gave up where it was going; a pause, then a new choice.
 // Offered a way out of a crowd (sim/goals.js offerGoal): taken only while foraging, walked at once.
+// Settled (personal space bears company longer): hiding or resting.
+function skinkSettled() { return this.mode === 'hide' || this.mode === 'rest'; }
 function skinkOffer(g) {
   if (this.mode !== 'forage') return false;
   this.goal = { x: g.x, z: g.z }; this.modeT = 0; this.walkT = Math.max(this.walkT, SKINK.walk[1]); this.pauseT = 0;

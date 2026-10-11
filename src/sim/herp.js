@@ -179,7 +179,7 @@ export function herpMind(id = 'newt', rnd = Math.random) {
     // skin, tail, mating
     shedIn: 30, dull: 0, shedT: 0, tailF: 1,
     courtDrive: rnd() * 0.5, courtCool: 0, cp: null, cpT: 0, cpDur: 0, recv: null, pregnant: 0, gravid: false, birthT: 0,
-    abort: herpAbort, offer: herpOffer,
+    abort: herpAbort, offer: herpOffer, settled: herpSettled,
   };
 }
 
@@ -188,6 +188,8 @@ export function herpMind(id = 'newt', rnd = Math.random) {
 // found it can reach) is taken while it flees, and the flight counts as vetted (goalOk) whether or not one came (g null: none better
 // than its own). A way out of a crowd (why 'space') is taken while foraging or out on the bank, as its next leg, walked at once
 // (moveLeft there counts cm). Resting, hiding, courting, a gecko's wall patrol (its roost keeps its own spacing): it stays.
+// Settled (personal space bears company longer): resting, hiding or soaking.
+function herpSettled() { return this.mode === 'rest' || this.mode === 'hide' || this.mode === 'soak'; }
 function herpOffer(g, why) {
   if (why === 'flight') {
     if (this.mode !== 'flee') return false;

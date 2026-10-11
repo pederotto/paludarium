@@ -190,3 +190,14 @@ drains below 0.3 (the R7 body-axis separation stays the hard floor under it). Ho
 neighbour) and a crowded animal looks for a roomier home every 45 s at most (`roomierHome`). Measured (`.agents/fear/probes/cluster.mjs`,
 one species bunched, 10 min, same build on/off): by day nothing changes (they hide, soak, dig, graze); at night skinks take ~20 moves a
 run and pile 12% vs 62% after 10 min, newts take ~8 and pile half as often in the first minute; fish schools hold.
+
+**11 Oct (feat/fear-2).** Newts (only: for skinks it doubled their longest stand-still in the stuck test, 12-17 s -> 17-348 s): a refuge route the planner stops at its margins now ends at the refuge's edge (`edgeOn`: the first refuge
+spot on the line, every step allowed), or a straight dash from where it stands (up to `DASH_MAX` 10 cm) when it stands in the margins
+itself; a newt's own refuge further than `OWN_REFUGE` 6 cm (its home out in the deep water) loses to the nearest water it can reach;
+a newt or axolotl slides down a bank too steep to walk when water lies within `SLIDE_IN` 3 cm beyond the step (`slidesIn`; banks drop
+1-1.5 cm per 0.5 cm and every step down was refused). Controlled flight test (`.agents/fear/probes/flee.mjs`: 10 cluttered tanks, a
+threat injected 2.5 cm away for 4 s, same harness on both builds, 2 runs each): newt reached water 25% live -> 31%, frozen 15 -> 9%; skink
+54 -> 51% (unchanged within noise); crab 40 -> 47%, frozen 32 -> 21%. Still short of 80% for newts (bank steering and the planner's margins). Personal space by
+day: each mind says when it is settled (`settled()`: hiding, resting, soaking, moulting); only then does it bear company longer, so a
+grazer standing to pick no longer counts as resting. Day cluster test (on/off, 2 each): skinks pile 62% vs 100% after 10 min and their
+homes lie twice as far apart; newts 0% vs 40%, relocations 63 vs 107; fish and shrimp keep their distance by day already.
