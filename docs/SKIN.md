@@ -26,6 +26,7 @@ UVs come from the game bake (xatlas, deterministic): a mesh change that moves ve
 - Wet green against matte black without a third map: the darker the colour texel, the rougher and the less coated (`finish.matteBlack` overrides).
 - Eyes: the maps keep a flat, dark eye zone out to 1.32 r around each analytic eye (tools/paint/eyes.mjs, `eyeCm` in the bake jobs); a body without eye bumps
   gets domes in the bake (`dome: true`), applied after the unwrap.
+- The analytic eye must sit ON the mesh's eyeball: `node tools/rig/eye-fit.mjs <manifest id> [--lod=lo]` fits a sphere to the ball and prints how far the drawn eye's centre is from it and how much of the drawn cap lands on it; a pose body (`<id>.swim`) whose eye comes from a scan bump gets an `eyeCm` fit in its bake job (11 Oct 2026: the red-eyed tree frog's climbing body had its eye 0.24 cm deep and back, green skin over the pupil). Look with `tools/steps/eye-close.mjs --body=swim` (bench, both paths and LODs) and `tools/steps/lab-eye.mjs` (in the game, climbing).
 
 ## Budget
 Colour 0.2 MB + normal 0.25-0.3 MB per body (WebP); `toad.glb` 0.68 MB, `toad.swim.glb` 1.15 MB. The owner allows the 1.2 MB file line to be exceeded by 20% when frame
