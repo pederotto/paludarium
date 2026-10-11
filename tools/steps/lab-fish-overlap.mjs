@@ -2,7 +2,7 @@
 // bedotia x8 + cory x6 + neon x10. Every animal second (SECS real seconds at rate 4, after a 10 s settle) per species: body overlap = the two body axes
 // (tail end to snout end along the heading, from Animals.bodyBox) closer than the smaller half-width; deep overlap = closer than half of it;
 // spread = mean distance to the school centroid. TIRE=1: every fish forced tired (fm.F 0.95, tired) 8 animal-s in, the forced-rest run (must not pile at one spot).
-// Stamp: the output carries stamp = window.__SCHOOLSEP ('r7-1' with src/sim/schoolsep.js, null on a build without it); radar = the Lab bug radar's counts by kind
+// Stamp: the output carries stamp = window.__SCHOOLSEP ('r7-2' with src/sim/schoolsep.js, null on a build without it; the species table comes from lab.SPECIES, so the probe also runs against the live site: --url=https://pederotto.github.io/paludarium/lab.html); radar = the Lab bug radar's counts by kind
 // (teleport must be 0 and not above the base), stuck = the fish watchdog's counters over the run. EXPECTED on the fixed build: overlapShare <= 0.10, deepShare <= 0.02 per species,
 // spread within +-25% of the base (base 4745, one run: bedotia 0.85 / 0.71 / spread 21.7; cory 0.59 / 0.37 / 10.8; neon 0.37 / 0.21 / 14.9). Single runs are not evidence: >= 3 per variant, order B F F B.
 //   SECS=45 [TIRE=1] node tools/shot.mjs --only=desktop --url=http://localhost:<port>/lab.html --steps=tools/steps/lab-fish-overlap.mjs --wait=2500
@@ -18,7 +18,7 @@ export default async (page, shot, name) => {
   const spec = { v: 1, tank: 'standard', ground: 'flat', depth: 18, obstacles: L1.obstacles, dots: [], rate: 4, animals };
   const res = await page.evaluate(async ({ spec, secs, tire, N, wh, feed, hungry }) => {
     const lab = window.lab; await lab.apply(spec); lab.rate(4); lab.pause(false);
-    const A = lab.game.world.animals, SP = (await import('/src/sim/animals.js')).SPECIES;
+    const A = lab.game.world.animals, SP = lab.SPECIES;
     const w0 = performance.now();
     while (Object.entries(N).some(([sp, n]) => A.all.filter((a) => a.sp === sp && !a.dead).length < n) && performance.now() - w0 < 90000) await new Promise((r) => setTimeout(r, 200));
     const dot = (a, b) => a.reduce((t, v, i) => t + v * b[i], 0);
