@@ -4364,7 +4364,8 @@ export class Animals {
       const rt = planRoute(m, x, z, c.x, c.z), end = rt?.pts[rt.pts.length - 1];
       if (!rt) continue;
       let gx = c.x, gz = c.z;
-      if (rt.clipped) {
+      if (rt.clipped && REFUGE[sp.kind] !== 'waterline') { if (!(c.shut && Math.hypot(end.x - c.x, end.z - c.z) < LAST_STRETCH)) continue; }   // (cover in the margins: the route to within the last stretch, as before)
+      else if (rt.clipped) {
         // A refuge in the planner's margins (under cover, in the water): the route stops at the margin. The goal is then the first refuge
         // spot on the straight line from where it stops toward the candidate, within the last stretch, every step of it allowed (a newt's
         // flight ends at the water's edge, not out in the pool the route cannot reach: newts found no flight goal 14 times in 23).
