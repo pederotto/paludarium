@@ -4,6 +4,7 @@
 
 import { signal } from '@preact/signals';
 import { morphList } from '../sim/genetics.js';
+import { morphRarity } from '../content/morphs.js';
 import { DEFAULT_MODE, normalizeMode, rules } from '../app/modes.js';
 
 const MODE_KEY = 'paludarium.mode', SMART_KEY = 'paludarium.smart';
@@ -57,12 +58,33 @@ export const S = {
 };
 
 // The morph the Animals tool will release for a species: the chosen one, else the first listed, or null for a random mix.
+// '~' is "Variety" (the default for the guppy, which has dozens of lines): morphPlan draws a different line for each animal.
+export const VARIETY = '~';
 export function morphChoice(id) {
   const v = S.morph.value[id];
-  if (v === '*') return null;
+  if (v === '*' || v === VARIETY) return null;
   const list = morphList(id);
   return v && list.includes(v) ? v : list[0] ?? null;
 }
+export const wantsVariety = (id) => { const v = S.morph.value[id]; return v === VARIETY || (v === undefined && id === 'guppy' && morphList(id).length > 1); };
+
+// The morph of each of n animals released together: the chosen strain for all, a random wild mix (null each), or in Variety a
+// different line each (the lines a dealer has in stock, rarity 3 or less, without repeats while there are lines left).
+export function morphPlan(id, n) {
+  if (!wantsVariety(id)) return Array(n).fill(morphChoice(id));
+  const stock = morphList(id).filter((m) => morphRarity(id, m) <= 3);
+  const bag = [], out = [];
+  for (let k = 0; k < n; k++) {
+    if (!bag.length) { bag.push(...(stock.length ? stock : morphList(id))); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
+    out.push(bag.pop() ?? null);
+  }
+  return out;
+}
+
+// Gene details (loci, odds, generation) stay out of sight until asked for: one switch for every animal card, remembered.
+const GENES_KEY = 'paludarium.genes';
+S.showGenes = signal(read(GENES_KEY, '0') === '1');
+export function saveShowGenes(v) { S.showGenes.value = v; try { localStorage.setItem(GENES_KEY, v ? '1' : '0'); } catch { /* private window */ } }
 
 let toastId = 1;
 export function toast(text, kind = 'info', ms = 2800) {
