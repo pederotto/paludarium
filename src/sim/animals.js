@@ -31,6 +31,7 @@ import { spaceProfile, bubble, press, needStep, AFTER_MOVE, EVERY as SPACE_EVERY
 import { REFUGE, refugeScore } from './refuge.js';
 import { faceRise, isCliff } from './facerise.js';
 import { easePush } from './glassease.js';
+import { axisGap, pushMag, softStep, capLen, SCHOOL_MARGIN } from './schoolsep.js';
 import { THREAT, MOVERS, threatScore, sizeFactor, escapeScore } from './threat.js';
 import { Occupancy, CELL as OCC_CELL, ANON, clearNeed } from './occupancy.js';
 import { CRAB, PANTHER, crabMind, crabThink, crabHeading, crabGaitRate } from './crab.js';
@@ -61,7 +62,7 @@ const UP = V(0, 1, 0);
 const TAU = Math.PI * 2;
 const _fu = V(0, 1, 0), _f = V(0, 0, 0), _m = V(0, 0, 0), _t = V(0, 0, 0), _d = V(0, 0, 0), _p = V(0, 0, 0), _e = new THREE.Euler(), _qo = new THREE.Quaternion(), _qh = new THREE.Quaternion();
 const _box = new THREE.Box3(), _ray = new THREE.Raycaster(), DOWN = V(0, -1, 0), _gb = V(0, 0, 0);
-const _fr = new Array(9), _gp = [0, 0, 0], _bb = { X: 0, z0: 0, z1: 0, H: 0 }, _sd = [0, 0, 0];     // (whole-body containment: inGlass, bodyBox, stemDepth)
+const _fr = new Array(9), _gp = [0, 0, 0], _bb = { X: 0, z0: 0, z1: 0, H: 0 }, _sd = [0, 0, 0], _ag = { d: 0, nx: 0, ny: 0, nz: 0 }, _sf = { x: 0, y: 0, z: 0 };     // (whole-body containment: inGlass, bodyBox, stemDepth)
 // Perches besides plants (reed frogs): hardscape a frog can sit on top of, and the glass (inward normals).
 export const PERCH_PIECES = new Set(['wood', 'roots', 'stump', 'cork', 'bamboopole', 'floatlog', 'fallenlog', 'sculpt', 'hollowlog', 'logpile', 'branch']);
 // Plants a perching frog uses: broad leaves to sit on, or reed stems to cling to (grass and creeping plants hold no frog).
@@ -1923,10 +1924,13 @@ export class Animals {
     const wv = ctl ? null : FS.probe(a.pos.x, a.pos.y, a.pos.z, a._w ??= { x: 0, y: 0, z: 0 });
     const I = ctl || R?.resting ? null : fishThink(a.fm ??= this.adopt(a, fishMind(sp, a.phase)), FS.sense(a, wv, desired, dt));
     if (I) { desired.set(I.dir?.x ?? 0, 0, I.dir?.z ?? 0).multiplyScalar(sp.speed * 0.6); if (I.label || a.doing === FISH_REST) a.doing = I.label; }
+    let softX = 0, softY = 0, softZ = 0;
     if (sp.school) {
       const c = V(0, 0, 0), al = V(0, 0, 0), sep = V(0, 0, 0);
-      // Keep about 0.7 of a body length between neighbours (a 4 cm corydoras at the old fixed 1.8 cm lay inside its neighbours).
-      const len = a.cap ? 2 * (a.cap.hl + a.rad) : sp.size, keep = Math.max(1.8, 0.7 * len);
+      // Neighbours are kept apart by BODY, not by centre distance (sim/schoolsep.js, R7): the gap is the closest distance between the two body axes
+      // (tail to snout along the heading); the push grows with the depth of the overlap and beats the cohesion at depth, and a DEEP overlap is also eased
+      // apart in position, at most SOFT_CAP cm a call.
+      const bA = this.bodyBox(a, sp), aZ0 = bA.z0, aZ1 = bA.z1, aR = bA.X, ay = a.yaw ?? 0;
       let n = 0;
       for (const b of arr) {
         if (b === a) continue;
@@ -1934,13 +1938,21 @@ export class Animals {
         if (d > 9) continue;
         n++;
         c.add(b.pos); al.add(b.vel);
-        if (d < keep) sep.addScaledVector(a.pos.clone().sub(b.pos), (keep - d) / Math.max(0.1, d));
+        const bB = this.bodyBox(b, sp), lim = SCHOOL_MARGIN * Math.min(aR, bB.X);
+        if (d < 0.5 * ((aZ1 - aZ0) + (bB.z1 - bB.z0)) + lim) {
+          axisGap(_ag, a.pos.x, a.pos.y, a.pos.z, ay, aZ0, aZ1, b.pos.x, b.pos.y, b.pos.z, b.yaw ?? 0, bB.z0, bB.z1, a.phase < b.phase ? 1 : -1);
+          if (_ag.d < lim) {
+            const m = pushMag(1 - _ag.d / lim), st = softStep(_ag.d, lim);
+            sep.x += _ag.nx * m; sep.y += _ag.ny * m; sep.z += _ag.nz * m;
+            softX += _ag.nx * st; softY += _ag.ny * st; softZ += _ag.nz * st;
+          }
+        }
       }
       if (n) {
         const hold = 1 - 0.85 * out;                                   // (a schooler wanting room lets the school go for a while)
         c.divideScalar(n).sub(a.pos).multiplyScalar(0.35 * hold);
         al.divideScalar(n).multiplyScalar(0.6 * hold);
-        desired.add(c).add(al).addScaledVector(sep, 2.5);
+        desired.add(c).add(al).addScaledVector(sep, sp.speed);
       }
     }
     // Food: a dart to the nearest flake, then a short nibble before it is gone.
@@ -2009,6 +2021,10 @@ export class Animals {
     const prev = a.pos.clone();
     a.pos.addScaledVector(a.vel, dt);
     if (wv) { const c = fishCarry(wv, !!R?.resting); a.pos.x += c.x * dt; a.pos.y += c.y * dt; a.pos.z += c.z * dt; }
+    if (softX || softY || softZ) {                                     // a deep overlap is eased apart (bounded, never into a solid)
+      capLen(_sf, softX, softY, softZ);
+      if (!(this.avoid && this.occ.count && this.occ.solidAt(a.pos.x + _sf.x, a.pos.y + _sf.y, a.pos.z + _sf.z))) { a.pos.x += _sf.x; a.pos.y += _sf.y; a.pos.z += _sf.z; }
+    }
     a.pos.x = clamp(a.pos.x, -hx - 0.5, hx + 0.5);
     a.pos.z = clamp(a.pos.z, -hz - 0.5, hz + 0.5);
     let f2 = T.heightAt(a.pos.x, a.pos.z), L2 = this.waterTop(a.pos.x, a.pos.z);
