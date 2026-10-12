@@ -100,7 +100,10 @@ const BLOCKED_BAN_MS = 5000;     // a walk that cannot get on: no goal round the
 const LAST_STRETCH = 3.5;        // cm: the last bit to a goal inside the planner's margins is walked straight when every step of it is allowed (steerGoal, escapeGoal)
 const OWN_REFUGE = 6;            // cm: a frightened newt keeps its mind's own refuge (its home out in the water) only this close; further, flightGoal looks for the nearest water it can reach
 const FIELD_CELL = 1;           // cm: a refuge field's cell (Animals.refugeField)
-const FIELD_KINDS = new Set(['newt', 'axolotl', 'crab', 'skink']);   // kinds whose flight follows their refuge field (a gecko bolts for its own roost)
+const FIELD_KINDS = new Set(['newt']);   // kinds whose flight follows their refuge field (newts: 37% -> 60% reach water on the seeded test; skinks and crabs
+                                         // gained nothing and keep their search; a gecko bolts for its own roost; the fire salamander, a land animal, is left out)
+const FIELD_SLICE = 300;         // field cells built per tick (fieldTick): a tank's 4000 in about 14 ticks, a millisecond or two each
+const FIELD_EVERY = 5;           // s of simulation time: the most often a field is rebuilt after the tank changed
 const FIELD_OUT = 4;             // cells round a shut cell searched for one with a way to a refuge
 const FIELD_LOOK = 4;            // cells walked downhill for a frightened animal's next goal
 const FIELD_THREAT_R = 8, FIELD_THREAT_W = 1.5;   // cm, and cost per cm inside it: the field's walk runs away from the threat as well as to the refuge
@@ -1131,7 +1134,7 @@ export class Animals {
     CLOCK.t = this.t;
     simClock.ms = this.t * 1000;
     this.trackTime(dt);
-    if (dt > 0) { this.syncOccupancy(); this.buildGrid(); this.spaceTick(dt); }
+    if (dt > 0) { this.syncOccupancy(); this.buildGrid(); this.spaceTick(dt); this.fieldTick(); }
     for (const [id, arr] of Object.entries(this.by)) {
       const sp = SPECIES[id];
       for (const a of arr) {
@@ -4419,7 +4422,10 @@ export class Animals {
     const L = (a._thrSeen ??= { x: 0, z: 0, t: -1e9 });
     if (threat) { L.x = threat.x; L.z = threat.z; L.t = this.t; }
     // Its kind's refuge field: downhill to the nearest refuge it can walk to, away from the threat (a gecko's roost on the glass stays its own).
-    if (!this.noField && FIELD_KINDS.has(sp.kind) && !goal?.wall) return this.refugeWaypoint(a, sp, this.t - L.t <= 10 ? L : null) ?? goal ?? null;
+    if (!this.noField && FIELD_KINDS.has(sp.kind) && a.sp !== 'firesal' && !goal?.wall) {
+      const w = this.refugeWaypoint(a, sp, this.t - L.t <= 10 ? L : null);
+      if (w !== undefined) return w ?? goal ?? null;
+    }
     if (this.t - L.t > 10) return goal ?? null;
     // (a refuge of its own further off (a newt's home out in the deep water, 15-20 cm) loses to the nearest one it can reach: the fear is
     // over in a few seconds and a frightened newt sent across the tank went back to hiding before it got there)
@@ -4428,55 +4434,83 @@ export class Animals {
 
   // The refuge field of `a`'s species (sim/flowfield.js): every 1 cm cell of the floor holds the cost of the cheapest walk from it to the
   // nearest refuge of its kind. A cell is open when the body may stand there: the movers' own predicate (Occupancy.canOccupy on the ground,
-  // its medium and depth: okFor), not the route planner's comfort margins; a step between two cells is the walkers' step (within its kind's
-  // climb and step-down; a newt or an axolotl may enter a cell below a bank that leads into water: slidesIn). Built once per species and
-  // body size, and again only when the pieces, the ground, the water or the plants change (keyed; at most every 1.5 s of simulation time).
-  refugeField(a, sp) {
+  // its medium and depth: okFor, the back wall, a plant's stems), not the route planner's comfort margins; a step between two cells is the
+  // walkers' (not onto a cliff from off one; a newt slides down a bank into water: slidesIn). null until fieldTick has built it.
+  refugeField(a) { return this._fields?.get(a.sp)?.F ?? null; }
+
+  // Keeps each field species' refuge field current, a slice at a time: FIELD_SLICE cells a tick, counted and not timed, so a replay comes
+  // out the same, and no tick pays for a whole field (12-26 ms built in one go: a hitch, and it was built in the tick a newt took fright).
+  // A build starts when the species is in the tank, and again when the pieces, the ground, the water or the plants change (keyed; not more
+  // often than every FIELD_EVERY s of simulation time); the field in use stays until the new one is done. Until a species has its first
+  // field, a frightened animal of it flees by the old search (escapeGoal).
+  fieldTick() {
+    if (this.noField) return;
+    const jobs = (this._fieldJobs ??= new Map()), cache = (this._fields ??= new Map());
+    for (const id in this.by) {
+      const arr = this.by[id], sp = SPECIES[id];
+      if (!arr.length || !FIELD_KINDS.has(sp.kind) || id === 'firesal') continue;
+      let j = jobs.get(id);
+      if (!j) {
+        const a = arr[0], key = this.fieldKey(a, sp), hit = cache.get(id);
+        if (hit && (hit.key === key || this.t - hit.at < FIELD_EVERY)) continue;
+        j = this.fieldBuild(a, sp, key);
+        jobs.set(id, j);
+      }
+      const r = j.next();
+      if (r.done) { jobs.delete(id); if (r.value) cache.set(id, { F: r.value.F, key: r.value.key, at: this.t }); }
+    }
+  }
+
+  fieldKey(a, sp) {
+    const W = this.world, rad = a.rad ?? this.radiusOf(a, sp);
+    return `${a.sp}|${rad.toFixed(1)}|${this.occ.version}|${W.groundVer}|${W.water.level.toFixed(2)}|${W.plants?.list?.length ?? 0}`;
+  }
+
+  // One refuge field, built FIELD_SLICE cells per step (a generator: fieldTick runs one step a tick); returns { F, key }.
+  *fieldBuild(a, sp, key) {
     const W = this.world, occ = this.occ, rad = a.rad ?? this.radiusOf(a, sp);
-    const key = `${a.sp}|${rad.toFixed(1)}|${occ.version}|${W.groundVer}|${W.water.level.toFixed(2)}|${W.plants?.list?.length ?? 0}`;
-    const cache = (this._fields ??= new Map()), hit = cache.get(a.sp), now = simNow();
-    if (hit && (hit.key === key || now - hit.at < 1500)) return hit.F;
-    const T = W.terrain, [medium, maxD] = this.labMedium(a, sp), c = STEP_LIMIT[sp.kind] ?? { up: 1, down: 2 };
+    const T = W.terrain, [medium, maxD] = this.labMedium(a, sp);
     const nx = Math.ceil(TANK.w / FIELD_CELL), nz = Math.ceil(TANK.d / FIELD_CELL);
-    const F = hit?.F && hit.F.nx === nx && hit.F.nz === nz ? hit.F : makeField(nx, nz, FIELD_CELL, -TANK.w / 2, -TANK.d / 2);
+    const F = makeField(nx, nz, FIELD_CELL, -TANK.w / 2, -TANK.d / 2), depthOf = new Float32Array(F.n);
     F.up = Infinity; F.down = Infinity;                          // (the walkers' rule: cliff cells, below; a 1 cm cell's rise is not a step)
-    const stub = (this._fieldBody ??= { rad: 0, trunk: null }); stub.rad = rad;
-    const slides = (sp.kind === 'newt' || sp.kind === 'axolotl') && a.sp !== 'firesal';
-    this.ensureSurf();
-    for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
-      const ci = k * nx + i, x = F.x0 + (i + 0.5) * FIELD_CELL, z = F.z0 + (k + 0.5) * FIELD_CELL, g = T.heightAt(x, z);
+    const stub = { rad, trunk: null };
+    const slides = (sp.kind === 'newt' || sp.kind === 'axolotl') && a.sp !== 'firesal', hc = FIELD_CELL * 0.45;
+    for (let ci = 0; ci < F.n; ci++) {
+      if (ci % FIELD_SLICE === 0) { yield; this.ensureSurf(); }
+      const i = ci % nx, k = (ci - i) / nx, x = F.x0 + (i + 0.5) * FIELD_CELL, z = F.z0 + (k + 0.5) * FIELD_CELL, g = T.heightAt(x, z);
       F.h[ci] = g;
       const open = this.okFor(medium, x, z, maxD, rad, 0, null) && (!this.avoid || !occ.count || occ.canOccupy(x, z, 0, a, g)) && z >= W.wall.zAt(x, g + 1) + Math.max(0.4, rad)
         && !(this.stemDepth(stub, x, g, z, 0) > 0.02);              // (in a plant's stems: walkBlocked refuses it)
-      F.cliff[ci] = sp.kind !== 'gecko' && this.cliffAt(x, z, a) ? 1 : 0;
+      F.cliff[ci] = this.cliffAt(x, z, a) ? 1 : 0;
       F.open[ci] = open ? 1 : 0;
       // (a refuge cell is refuge all over: its middle and its corners; a cell only half in the water counted as reached on the bank's edge)
-      const hc = FIELD_CELL * 0.45;
       F.target[ci] = open && this.refugeNiche(a, sp, x, z) > 0 && this.refugeNiche(a, sp, x - hc, z - hc) > 0 && this.refugeNiche(a, sp, x + hc, z - hc) > 0 && this.refugeNiche(a, sp, x - hc, z + hc) > 0 && this.refugeNiche(a, sp, x + hc, z + hc) > 0 ? 1 : 0;
-      const depth = W.water.surfaceAt(x, z) - g;
+      const depth = (depthOf[ci] = W.water.surfaceAt(x, z) - g);
       F.wcost[ci] = depth > 1.3 && slides ? 0.8 : depth > 0.3 && !slides ? 1.6 : 1;        // (a newt swims faster than it walks; others wade)
-      F.drop[ci] = 0;
     }
-    if (slides) for (let ci = 0; ci < F.n; ci++) {                  // (a cell below a bank with water within SLIDE_IN cm: it may slide down into it)
-      if (!F.open[ci]) continue;
-      const i = ci % nx, k = (ci - i) / nx, R = Math.ceil(SLIDE_IN / FIELD_CELL);
-      for (let dk = -R; dk <= R && !F.drop[ci]; dk++) for (let di = -R; di <= R; di++) {
-        const qi = i + di, qk = k + dk;
-        if (qi < 0 || qk < 0 || qi >= nx || qk >= nz) continue;
-        const x = F.x0 + (qi + 0.5) * FIELD_CELL, z = F.z0 + (qk + 0.5) * FIELD_CELL;
-        if (W.water.surfaceAt(x, z) - F.h[qk * nx + qi] >= 0.3) { F.drop[ci] = 1; break; }
+    if (slides) {                                                  // (a cell below a bank with water within SLIDE_IN cm: it may slide down into it)
+      const R = Math.ceil(SLIDE_IN / FIELD_CELL);
+      for (let ci = 0; ci < F.n; ci++) {
+        if (ci % (FIELD_SLICE * 4) === 0) yield;
+        if (!F.open[ci]) continue;
+        const i = ci % nx, k = (ci - i) / nx;
+        for (let dk = -R; dk <= R && !F.drop[ci]; dk++) for (let di = -R; di <= R; di++) {
+          const qi = i + di, qk = k + dk;
+          if (qi >= 0 && qk >= 0 && qi < nx && qk < nz && depthOf[qk * nx + qi] >= 0.3) { F.drop[ci] = 1; break; }
+        }
       }
     }
+    yield;
     buildField(F);
-    cache.set(a.sp, { F, key, at: now });
-    return F;
+    return { F, key };
   }
 
   // A frightened animal's next goal from its refuge field: FIELD_LOOK cells downhill from where it stands, the cells near the threat
   // costing more (so it runs to its refuge and away). Returns { x, z, field: true }, `a` itself already in its refuge ({ ..., home: true }),
   // or null when there is no way from here to any refuge (then it does what its kind does without one: freezes, or its mind's own dash).
   refugeWaypoint(a, sp, threat) {
-    const F = this.refugeField(a, sp);
+    const F = this.refugeField(a);
+    if (!F) return undefined;                                     // (no field yet: the caller flees by the old search)
     let c = cellOf(F, a.pos.x, a.pos.z);
     if (c >= 0 && !(F.dist[c] < Infinity)) {                     // (standing on a piece, at its edge or inside its shell, its own cell shut: from the cheapest open cell within FIELD_OUT cells)
       const i0 = c % F.nx, k0 = (c - i0) / F.nx;

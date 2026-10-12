@@ -31,7 +31,10 @@ export default async (page, shot, name) => {
       const refuge = (a) => SP === 'newt' ? !!a.swimming || depth(a.pos.x, a.pos.z) >= 0.3 : SP === 'skink' ? A.skinkNiche(a.pos.x, a.pos.z) > 0 : A.crabNiche(a.pos.x, a.pos.z, sp.crabProfile ?? { safeDepth: 2 }) > 0;
       for (let i = 0; i < 8; i++) for (let k = 0; k < 80; k++) { const x = (rnd() - 0.5) * (TANK.w - 8), z = (rnd() - 0.5) * (TANK.d - 8); if (depth(x, z) > 0) continue; const r = A.placement(SP, { point: { x, y: 0, z }, surface: 'ground' }); if (r.pos) { A.add(SP, r.pos); break; } }
       A.draw(); for (let k = 0; k < 300 && (A.modelsLoading ?? 0) > 0; k++) await new Promise((r) => setTimeout(r, 50)); A.draw(); game.worldRoot?.updateMatrixWorld?.(true);
-      const tf0 = performance.now(); if (!NOFIELD && A.by[SP]?.[0] && A.refugeField) A.refugeField(A.by[SP][0], sp); const fieldMs = +(performance.now() - tf0).toFixed(1);
+      // (the field is built a slice per tick in the game: here the slices run before the fright, the animals still; the slowest slice is the cost a tick pays)
+      A.ensureSurf(); A.move(0.2);                              // (the surface map and the grid as the game has them before any fright)
+      let fieldMs = 0, slices = 0; if (!NOFIELD && A.fieldTick) for (let k = 0; k < 200 && A.by[SP]?.[0] && !A.refugeField(A.by[SP][0]); k++) { const t0 = performance.now(); A.fieldTick(); const dtm = performance.now() - t0; (A._sliceMs ??= []).push(+dtm.toFixed(1)); fieldMs = Math.max(fieldMs, dtm); slices++; }
+      fieldMs = +fieldMs.toFixed(2);
       A.move(0.2);
       const L = (A.by[SP] ?? []).filter((a) => !a.swimming && !refuge(a));
       const thr = new Map(); for (const a of L) { const ang = rnd() * 6.28; thr.set(a, { x: a.pos.x + Math.sin(ang) * DIST, z: a.pos.z + Math.cos(ang) * DIST }); }
@@ -47,7 +50,7 @@ export default async (page, shot, name) => {
         for (const a of L) { const I = st.get(a); if (FLEE.has(mode(a))) I.fled = true; I.max = Math.max(I.max, Math.hypot(a.pos.x - I.x0, a.pos.z - I.z0)); if (I.reached == null && refuge(a)) I.reached = +(j * 0.2).toFixed(1); }
       }
       A.herpThreat = ht0; A.threatPlus = tp0;
-      out.push({ preset, seed, fieldMs, eps: L.map((a) => { const I = st.get(a); return { fled: I.fled, reached: I.reached, max: +I.max.toFixed(1) }; }) });
+      out.push({ preset, seed, fieldMs, slices, sliceMs: A._sliceMs ?? null, eps: L.map((a) => { const I = st.get(a); return { fled: I.fled, reached: I.reached, max: +I.max.toFixed(1) }; }) });
     }
     game.frame = frame0; game.frozen = false;
     return out;
