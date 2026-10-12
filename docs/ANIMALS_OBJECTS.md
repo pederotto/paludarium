@@ -201,3 +201,22 @@ threat injected 2.5 cm away for 4 s, same harness on both builds, 2 runs each): 
 day: each mind says when it is settled (`settled()`: hiding, resting, soaking, moulting); only then does it bear company longer, so a
 grazer standing to pick no longer counts as resting. Day cluster test (on/off, 2 each): skinks pile 62% vs 100% after 10 min and their
 homes lie twice as far apart; newts 0% vs 40%, relocations 63 vs 107; fish and shrimp keep their distance by day already.
+
+## 11. Exact replays and the newt's refuge field (12 Oct 2026)
+
+**Replays.** The simulation draws all its chance from one seeded stream (`util/rng.js`: `rand()`, `seedRng(seed, replay)`); in a replay
+its throttles run on simulation time (`simClock`/`simNow`), and animals are numbered per tank. `tools/steps/replay.mjs` builds the same
+tank twice from one seed and compares every animal's position, heading and mind and the event timeline: bit-exact for 6 game hours in
+blackwater, suriname and swamp, and the same run hash across separate page loads. A replay must halt the frame loop (`game.frame`):
+erosion, plant sway, plumbing and jets still update there, outside the simulation and its stream; and every creature model must be
+measured before the first move (a model arriving midway changes a body's size). Measure a change on seeded runs, one per variant
+(`tools/steps/flee-seeded.mjs` is the paired flight test), instead of 4-8 alternating noisy ones.
+
+**The newt's refuge field** (`sim/flowfield.js`, a Dijkstra map): every 1 cm cell holds the cost of the cheapest walk to water, flooded over
+the cells the newt's body may stand in (`Occupancy.canOccupy`, `okFor`'s medium, the back wall, plant stems) and the steps a walker may take
+(not onto a cliff from off one, but down a bank into water: it slides in). A frightened newt walks `FIELD_LOOK` cells downhill, the cells
+near the threat costing more; it is not steered or re-vetted, and it finishes the dash while it has a refuge to go to. Built a slice a tick
+(`fieldTick`, 300 cells, 0.1-1.8 ms), again when the tank changes. Seeded paired test: newts reach water 35% -> 49% (frozen 7.2 -> 4.3%).
+Skinks and crabs gained nothing and keep the ring search (`escapeGoal`); geckos their roost. Not met: 80%. What is left: newts that start
+inside a piece's shell, and the walkers' point tests disagreeing with the field's cells near banks (next: walkers that follow the field cell
+to cell).
