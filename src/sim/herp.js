@@ -63,6 +63,7 @@ const angDiff = (to, from) => ((to - from + Math.PI) % (2 * Math.PI) + 2 * Math.
 const between = (rnd, [a, b]) => a + rnd() * (b - a);
 
 // Per species. `style` picks the thinker: 'land' (fire salamander), 'water' (newt, axolotl), 'wall' (gecko).
+const FLEE_FINISH = 8;      // s: the longest a frightened newt keeps on to its refuge after its fear has faded
 export const PROFILES = {
   firesal: {
     style: 'land', rhIdeal: 75, tIdeal: 14, tHot: 20,
@@ -196,7 +197,7 @@ function herpOffer(g, why) {
     if (this.mode !== 'flee') return false;
     this.goalOk = true;
     if (!g) return false;
-    this.goal = { x: g.x, z: g.z };
+    this.goal = { x: g.x, z: g.z, field: !!g.field };   // (a refuge field's step: the engine walks it as it is)
     return true;
   }
   if (!g || (this.mode !== 'forage' && this.mode !== 'shore')) return false;
@@ -452,7 +453,8 @@ function waterThink(m, P, s, d, it, rnd) {
   const fleeing = m.fear > 0.35;
   if (m.mode !== 'flee' && fleeing) { go(m, 'flee', rnd); m.freeze = 0; }
   if (m.mode === 'flee') {
-    if (m.fear < 0.12 && m.modeT > 1.5) go(m, atHome || !home ? 'rest' : 'hide', rnd);
+    // (a newt that bolted for the water finishes the dash: it does not turn back to hide halfway while it still has its refuge to go to, up to FLEE_FINISH s)
+    if (m.fear < 0.12 && m.modeT > 1.5 && !(m.goal && m.goalOk && m.modeT < FLEE_FINISH)) go(m, atHome || !home ? 'rest' : 'hide', rnd);
   } else if (m.mode === 'air') {
     if (m.gulpT <= 0 && m.surfaceT > 0 && m.air <= 0.05) go(m, 'rest', rnd);
     else if (!inWater) go(m, 'rest', rnd);

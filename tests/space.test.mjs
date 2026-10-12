@@ -99,7 +99,7 @@ test('herp flight offer: taken while fleeing, marks the flight vetted even with 
   assert.equal(m.goalOk, true);
   assert.deepEqual(m.goal, { x: 9, z: 9 });
   assert.equal(offerGoal.call({ mind: m }, { x: 1, z: 2 }, 'flight'), true);
-  assert.deepEqual(m.goal, { x: 1, z: 2 });
+  assert.deepEqual(m.goal, { x: 1, z: 2, field: false });
   const r = herpMindFor('newt', () => 0.5); r.mode = 'forage';
   assert.equal(offerGoal.call({ mind: r }, { x: 1, z: 2 }, 'flight'), false);
 });

@@ -56,6 +56,7 @@ import { filterDrift, filterAvoid } from './filterflow.js';
 import { fishMind, fishThink, fishOwn, fishCarry, fishAfter, REST_LABEL as FISH_REST } from './fishmind.js';
 import { flowSenses } from './currentat.js';
 import { rand, simNow, simClock } from '../util/rng.js';
+import { makeField, buildField, descend, cellOf } from './flowfield.js';
 
 const C = (h) => new THREE.Color(h);
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -98,6 +99,11 @@ const BLOCKED_BAN_MS = 5000;     // a walk that cannot get on: no goal round the
                                  // where it stands: that banned every refuge within 3 cm of a frightened newt held by a stone, and it froze)
 const LAST_STRETCH = 3.5;        // cm: the last bit to a goal inside the planner's margins is walked straight when every step of it is allowed (steerGoal, escapeGoal)
 const OWN_REFUGE = 6;            // cm: a frightened newt keeps its mind's own refuge (its home out in the water) only this close; further, flightGoal looks for the nearest water it can reach
+const FIELD_CELL = 1;           // cm: a refuge field's cell (Animals.refugeField)
+const FIELD_KINDS = new Set(['newt', 'axolotl', 'crab', 'skink']);   // kinds whose flight follows their refuge field (a gecko bolts for its own roost)
+const FIELD_OUT = 4;             // cells round a shut cell searched for one with a way to a refuge
+const FIELD_LOOK = 4;            // cells walked downhill for a frightened animal's next goal
+const FIELD_THREAT_R = 8, FIELD_THREAT_W = 1.5;   // cm, and cost per cm inside it: the field's walk runs away from the threat as well as to the refuge
 const SLIDE_IN = 3;              // cm: a newt slides down a bank too steep to walk when water lies within this far beyond the step (slidesIn)
 const DASH_MAX = 10;             // cm: a straight dash to a refuge from where it stands when the planner has no route out of the margins it stands in (escapeGoal)
 const _rs = { cover: 0, wcover: 0, height: 0, depth: 0, crest: false, shallowMax: 0 };   // (refugeNiche's spot, reused)
@@ -3002,7 +3008,7 @@ export class Animals {
     // (a skink that knows no cover would run a fixed 15 cm straight away: it picks a spot instead, far from the threat, in cover or on a log's crest)
     if (it.mode === 'flee' && !a.lab?.drive && depth <= SKINK.maxDepth) { const g2 = this.flightGoal(a, sp, threat, goal); if (g2 && g2 !== goal) { goal = g2; speed = Math.max(speed, SKINK.speed); } }   // (its refuge: flightGoal)
     if (a.lab?.drive) { goal = a.lab.goal; speed = goal ? SKINK.speed * a.lab.k : 0; }          // (the test lab)
-    else if (goal && speed > 0 && (goal = this.vetGoal(a, goal))) goal = this.steerGoal(a, sp, goal, dt);   // (a place it can be, then round what is in the way)
+    else if (goal && speed > 0 && (goal = this.vetGoal(a, goal)) && !goal.field) goal = this.steerGoal(a, sp, goal, dt);   // (a place it can be, then round what is in the way; a refuge field's step is already a way)
     a.state = goal && speed > 0 ? 'walk' : 'rest';
     a.dest = goal && speed > 0 ? goal : null;                       // (where it walks to: the stuck watchdog reads it, stuckintent.js)
     a.speedNow = 0;
@@ -3116,7 +3122,7 @@ export class Animals {
     else {
       // (a crab with no safe burrow would run a fixed 12 cm straight away: it picks a spot, far from the threat, under cover or in shallow water)
       if (m.mode === 'flee' && threat && it.goal && !(a.home && Math.hypot(a.home.x - threat.x, a.home.z - threat.z) > threat.d)) { const g2 = this.flightGoal(a, sp, threat, it.goal); if (g2) it.goal = g2; }   // (a burrow away from the threat: it runs home; else its refuge, flightGoal)
-      if (it.goal && it.speed > 0 && (it.goal = this.vetGoal(a, it.goal))) {
+      if (it.goal && it.speed > 0 && (it.goal = this.vetGoal(a, it.goal)) && !it.goal.field) {   // (a refuge field's step is already a way: walked as it is)
         const want = this.wallClearGoal(a, it.goal);                          // (a place it can be, clear of the back wall with its whole body, then round what is in the way)
         const via = this.steerGoal(a, sp, want, dt);
         // No way out: the planner hands back the crab's own spot (a pocket its sprawled legs do not fit through, against the back wall) and the
@@ -4412,10 +4418,84 @@ export class Animals {
     if (own && (goal.wall || REFUGE[sp.kind] !== 'waterline' || Math.hypot(goal.x - a.pos.x, goal.z - a.pos.z) <= OWN_REFUGE)) return goal;   // (a gecko's roost, a skink's den: its own; a newt's only close by)
     const L = (a._thrSeen ??= { x: 0, z: 0, t: -1e9 });
     if (threat) { L.x = threat.x; L.z = threat.z; L.t = this.t; }
+    // Its kind's refuge field: downhill to the nearest refuge it can walk to, away from the threat (a gecko's roost on the glass stays its own).
+    if (!this.noField && FIELD_KINDS.has(sp.kind) && !goal?.wall) return this.refugeWaypoint(a, sp, this.t - L.t <= 10 ? L : null) ?? goal ?? null;
     if (this.t - L.t > 10) return goal ?? null;
     // (a refuge of its own further off (a newt's home out in the deep water, 15-20 cm) loses to the nearest one it can reach: the fear is
     // over in a few seconds and a frightened newt sent across the tank went back to hiding before it got there)
     return this.escapeGoal(a, sp, L, (px, pz) => this.refugeNiche(a, sp, px, pz)) ?? goal ?? null;
+  }
+
+  // The refuge field of `a`'s species (sim/flowfield.js): every 1 cm cell of the floor holds the cost of the cheapest walk from it to the
+  // nearest refuge of its kind. A cell is open when the body may stand there: the movers' own predicate (Occupancy.canOccupy on the ground,
+  // its medium and depth: okFor), not the route planner's comfort margins; a step between two cells is the walkers' step (within its kind's
+  // climb and step-down; a newt or an axolotl may enter a cell below a bank that leads into water: slidesIn). Built once per species and
+  // body size, and again only when the pieces, the ground, the water or the plants change (keyed; at most every 1.5 s of simulation time).
+  refugeField(a, sp) {
+    const W = this.world, occ = this.occ, rad = a.rad ?? this.radiusOf(a, sp);
+    const key = `${a.sp}|${rad.toFixed(1)}|${occ.version}|${W.groundVer}|${W.water.level.toFixed(2)}|${W.plants?.list?.length ?? 0}`;
+    const cache = (this._fields ??= new Map()), hit = cache.get(a.sp), now = simNow();
+    if (hit && (hit.key === key || now - hit.at < 1500)) return hit.F;
+    const T = W.terrain, [medium, maxD] = this.labMedium(a, sp), c = STEP_LIMIT[sp.kind] ?? { up: 1, down: 2 };
+    const nx = Math.ceil(TANK.w / FIELD_CELL), nz = Math.ceil(TANK.d / FIELD_CELL);
+    const F = hit?.F && hit.F.nx === nx && hit.F.nz === nz ? hit.F : makeField(nx, nz, FIELD_CELL, -TANK.w / 2, -TANK.d / 2);
+    F.up = Infinity; F.down = Infinity;                          // (the walkers' rule: cliff cells, below; a 1 cm cell's rise is not a step)
+    const stub = (this._fieldBody ??= { rad: 0, trunk: null }); stub.rad = rad;
+    const slides = (sp.kind === 'newt' || sp.kind === 'axolotl') && a.sp !== 'firesal';
+    this.ensureSurf();
+    for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
+      const ci = k * nx + i, x = F.x0 + (i + 0.5) * FIELD_CELL, z = F.z0 + (k + 0.5) * FIELD_CELL, g = T.heightAt(x, z);
+      F.h[ci] = g;
+      const open = this.okFor(medium, x, z, maxD, rad, 0, null) && (!this.avoid || !occ.count || occ.canOccupy(x, z, 0, a, g)) && z >= W.wall.zAt(x, g + 1) + Math.max(0.4, rad)
+        && !(this.stemDepth(stub, x, g, z, 0) > 0.02);              // (in a plant's stems: walkBlocked refuses it)
+      F.cliff[ci] = sp.kind !== 'gecko' && this.cliffAt(x, z, a) ? 1 : 0;
+      F.open[ci] = open ? 1 : 0;
+      // (a refuge cell is refuge all over: its middle and its corners; a cell only half in the water counted as reached on the bank's edge)
+      const hc = FIELD_CELL * 0.45;
+      F.target[ci] = open && this.refugeNiche(a, sp, x, z) > 0 && this.refugeNiche(a, sp, x - hc, z - hc) > 0 && this.refugeNiche(a, sp, x + hc, z - hc) > 0 && this.refugeNiche(a, sp, x - hc, z + hc) > 0 && this.refugeNiche(a, sp, x + hc, z + hc) > 0 ? 1 : 0;
+      const depth = W.water.surfaceAt(x, z) - g;
+      F.wcost[ci] = depth > 1.3 && slides ? 0.8 : depth > 0.3 && !slides ? 1.6 : 1;        // (a newt swims faster than it walks; others wade)
+      F.drop[ci] = 0;
+    }
+    if (slides) for (let ci = 0; ci < F.n; ci++) {                  // (a cell below a bank with water within SLIDE_IN cm: it may slide down into it)
+      if (!F.open[ci]) continue;
+      const i = ci % nx, k = (ci - i) / nx, R = Math.ceil(SLIDE_IN / FIELD_CELL);
+      for (let dk = -R; dk <= R && !F.drop[ci]; dk++) for (let di = -R; di <= R; di++) {
+        const qi = i + di, qk = k + dk;
+        if (qi < 0 || qk < 0 || qi >= nx || qk >= nz) continue;
+        const x = F.x0 + (qi + 0.5) * FIELD_CELL, z = F.z0 + (qk + 0.5) * FIELD_CELL;
+        if (W.water.surfaceAt(x, z) - F.h[qk * nx + qi] >= 0.3) { F.drop[ci] = 1; break; }
+      }
+    }
+    buildField(F);
+    cache.set(a.sp, { F, key, at: now });
+    return F;
+  }
+
+  // A frightened animal's next goal from its refuge field: FIELD_LOOK cells downhill from where it stands, the cells near the threat
+  // costing more (so it runs to its refuge and away). Returns { x, z, field: true }, `a` itself already in its refuge ({ ..., home: true }),
+  // or null when there is no way from here to any refuge (then it does what its kind does without one: freezes, or its mind's own dash).
+  refugeWaypoint(a, sp, threat) {
+    const F = this.refugeField(a, sp);
+    let c = cellOf(F, a.pos.x, a.pos.z);
+    if (c >= 0 && !(F.dist[c] < Infinity)) {                     // (standing on a piece, at its edge or inside its shell, its own cell shut: from the cheapest open cell within FIELD_OUT cells)
+      const i0 = c % F.nx, k0 = (c - i0) / F.nx;
+      let best = -1, bv = Infinity;
+      for (let dk = -FIELD_OUT; dk <= FIELD_OUT; dk++) for (let di = -FIELD_OUT; di <= FIELD_OUT; di++) { const i = i0 + di, k = k0 + dk; if (i < 0 || k < 0 || i >= F.nx || k >= F.nz) continue; const q = k * F.nx + i; if (F.dist[q] < bv) { bv = F.dist[q]; best = q; } }
+      c = best;
+    }
+    if (c < 0 || !(F.dist[c] < Infinity)) return null;
+    const P = (this._wpPen ??= { F: null, tx: 0, tz: 0, on: false, fn: null });
+    P.F = F; P.on = !!threat; if (threat) { P.tx = threat.x; P.tz = threat.z; }
+    P.fn ??= (q) => {
+      if (!P.on) return 0;
+      const x = P.F.x0 + ((q % P.F.nx) + 0.5) * P.F.cell, z = P.F.z0 + (Math.floor(q / P.F.nx) + 0.5) * P.F.cell, d = Math.hypot(x - P.tx, z - P.tz);
+      return d < FIELD_THREAT_R ? (FIELD_THREAT_R - d) * FIELD_THREAT_W : 0;
+    };
+    const o = (a._wp ??= { x: 0, z: 0, cost: 0, cells: 0, field: true, home: false });
+    const end = descend(F, c, FIELD_LOOK, P.fn, o);
+    o.home = !!F.target[end];
+    return o;
   }
 
   // How good (x, z) is as a refuge for `a`, by its kind's profile (sim/refuge.js: gecko up high, crab low cover or shallow water, newt the water's
@@ -5397,7 +5477,7 @@ export class Animals {
     if (axo && depth < 1.0 && !a.swimming) { a.stranded = true; a.pos.y = g + 0.3; a.pitch = Math.PI / 2 * Math.sin(this.t * 12 + a.phase) * 0.3; return; }
     a.stranded = false;
     const it = herpThink(m, sense);
-    if (!(m.mode === 'flee' && !m.goalOk && !gecko) && !(it.goal = this.vetGoal(a, it.goal))) it.speed = 0;   // (a blind flight is swapped for a vetted escape below)
+    if (!(m.mode === 'flee' && !m.goalOk && !gecko) && !it.goal?.field && !(it.goal = this.vetGoal(a, it.goal))) it.speed = 0;   // (a refuge field's step is open already)   // (a blind flight is swapped for a vetted escape below)
     if (a.lab?.drive) this.labHerp(a, P, it, depth);
     else if (it.goal && !it.goal.wall && it.speed > 0.1 && !wall && !(depth > 1.3)) it.goal = this.steerGoal(a, sp, it.goal, dt);      // (round what is in the way)
     // An escape the mind aimed at blindly (straight away from the danger) may be out of the water or behind a rock: swap it for one
@@ -5408,7 +5488,8 @@ export class Animals {
       const own = m.goal;
       const g2 = this.flightGoal(a, sp, threat, own) ?? (!m.goalOk && !gecko ? this.herpEscape(a, sp, threat, depth > 0.3 ? 'water' : 'land') : null);
       // (offered to its mind, which takes it while it flees: sim/goals.js offerGoal; no better one offered = the engine has had its say)
-      if (a.offerGoal(g2 && g2 !== own && !g2.wall && this.isValidGoal(a, g2.x, g2.z) ? g2 : null, 'flight')) { it.goal = m.goal; it.speed = Math.max(it.speed ?? 0, P.dash ?? P.walk); it.swim = false; }
+      // (a refuge field's step is open by the movers' own rules already: no second check)
+      if (a.offerGoal(g2 && g2 !== own && !g2.wall && (g2.field || this.isValidGoal(a, g2.x, g2.z)) ? g2 : null, 'flight')) { it.goal = m.goal; it.speed = Math.max(it.speed ?? 0, P.dash ?? P.walk); it.swim = false; }
       if (!m.goal && !gecko) { it.goal = null; it.speed = 0; it.swim = false; }
     }
     // Not getting anywhere (a goal it cannot walk or swim to): give it up and pause, rather than tread on the spot.
